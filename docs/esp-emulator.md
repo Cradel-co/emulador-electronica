@@ -6,6 +6,8 @@ Herramienta principal de este workspace para simular el ESP32 **sin ningún serv
 
 Instalado en `~/.local/bin/esp-emu`. Para reinstalar o actualizar: `esp-emu update`, o en otra máquina `curl -fsSL https://raw.githubusercontent.com/espressif/esp-emulator/main/install.sh | sh`.
 
+Si el server no lo encuentra, todo proyecto ESP32 falla al arrancar con `no se pudo conectar al REPL en 15 s` — ver [`troubleshooting.md`](troubleshooting.md).
+
 ## ⚠️ Obligatorio en ESP32-S3: consola por UART0
 
 ESPHome manda la consola del S3 por **USB-Serial-JTAG** por defecto, y con eso `esp-emu` se cuelga para siempre en el bootloader (último renglón del log: `entry 0x403c89xx`, y nada más). Solución, en el YAML:

@@ -23,7 +23,7 @@ Alcance completo y límites honestos: [`docs/vision-y-alcance.md`](docs/vision-y
 | **[`wokwi-cli`](https://github.com/wokwi/wokwi-cli)** + cuenta Wokwi | alternativa en la nube, chips custom, diagrama visual | opcional |
 | Extensión **Wokwi Simulator** para VS Code | simulador visual para prototipar cableado rápido | opcional |
 
-`esp-emu` ya está instalado en `~/.local/bin/esp-emu` y `wokwi-cli` en `~/bin/wokwi-cli` (ambos en el `PATH`).
+`esp-emu` va en `~/.local/bin/esp-emu` y `wokwi-cli` (opcional) en `~/bin/wokwi-cli`. Si `esp-emu` no está, cualquier proyecto ESP32 falla al arrancar — ver [`docs/troubleshooting.md`](docs/troubleshooting.md).
 
 ## Instalación
 
@@ -116,7 +116,7 @@ cd app
 npm test               # unitarios (Vitest)
 npx playwright test    # e2e, con server y catálogo aislados
 E2E_EMU=1 npx playwright test simulacion   # e2e con Docker y emulador reales
-npm run typecheck      # tsc --noEmit
+npx tsc --noEmit -p server      # typecheck (no hay script `typecheck` en package.json)
 ```
 
 Los e2e usan `EMU_PROJECTS_DIR` y `EMU_MODULES_DIR` para no tocar tus proyectos reales.
@@ -157,6 +157,7 @@ emulador-electronica/
 | [`docs/bridge-mode.md`](docs/bridge-mode.md) | Que el ESP32 simulado tenga IP real en tu LAN (Home Assistant lo detecta solo) |
 | [`docs/placas-como-datos.md`](docs/placas-como-datos.md) | El bloque `board` en detalle |
 | [`docs/custom-chips.md`](docs/custom-chips.md) | Crear un chip de Wokwi reutilizable |
+| [`docs/troubleshooting.md`](docs/troubleshooting.md) | Errores de arranque y sus causas (UI en blanco, REPL, 403 en LAN) |
 | [`modules/README.md`](modules/README.md) | Formato de módulo, importación, Ley de Ohm, seguridad del SVG |
 
 ## Wokwi (opcional)
