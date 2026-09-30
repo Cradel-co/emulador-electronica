@@ -23,31 +23,115 @@ Alcance completo y límites honestos: [`docs/vision-y-alcance.md`](docs/vision-y
 | **[`wokwi-cli`](https://github.com/wokwi/wokwi-cli)** + cuenta Wokwi | alternativa en la nube, chips custom, diagrama visual | opcional |
 | Extensión **Wokwi Simulator** para VS Code | simulador visual para prototipar cableado rápido | opcional |
 
-`esp-emu` ya está instalado en `~/.local/bin/esp-emu` y `wokwi-cli` en `~/bin/wokwi-cli` (ambos en el `PATH`).
+`esp-emu` va en `~/.local/bin/esp-emu` y `wokwi-cli` (opcional) en `~/bin/wokwi-cli`. Si `esp-emu` no está, cualquier proyecto ESP32 falla al arrancar — ver [`docs/troubleshooting.md`](docs/troubleshooting.md).
 
 ## Instalación
+
+Son cinco pasos, en orden. El 1 y el 3 se saltean fácil y son la causa más común de que después no arranque nada.
+
+### 1. Node.js ≥ 20
+
+```bash
+node -v && npm -v        # ambos tienen que imprimir un número
+```
+
+Si `node: orden no encontrada`, no tenés Node. Con [nvm](https://github.com/nvm-sh/nvm):
+
+```bash
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.8/install.sh | bash
+nvm install 22 && nvm use 22
+```
+
+> **Ojo con esto**: nvm es una función de shell, no un ejecutable. Si instalaste
+> nvm y `node` sigue sin aparecer, no es que falle — es que la terminal actual no
+> tiene el PATH. Abrí una terminal nueva, o `source ~/.bashrc`. Es la causa más
+> común de `npm: orden no encontrada` en una máquina que sí tiene Node.
+
+### 2. Docker
+
+```bash
+docker info >/dev/null && echo ok
+```
+
+Solo hace falta si vas a compilar ESPHome, ESP-IDF o Arduino. Con MicroPython no se usa.
+
+Si `permission denied`, tu usuario no está en el grupo `docker`: `sudo usermod -aG docker $USER` y cerrá sesión.
+
+### 3. `esp-emu` — solo si vas a usar placas ESP32
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/espressif/esp-emulator/main/install.sh | sh
+```
+
+Queda en `~/.local/bin/esp-emu`. **Verificalo antes de seguir**:
+
+```bash
+which esp-emu && esp-emu --version
+```
+
+Si `which` no imprime nada, lo tenés que agregar al PATH: `export PATH="$HOME/.local/bin:$PATH"` en tu `.bashrc`.
+
+> Sin esto, cualquier proyecto ESP32 falla al arrancar con `no se pudo conectar al REPL en 15 s`. Es el error más común al instalar en una máquina nueva.
+
+### 4. Dependencias de la app
 
 ```bash
 cd app
 npm install            # instala los 3 workspaces (shared, server, web)
 ```
 
-La primera compilación de Arduino tarda un poco más: la app construye sola la imagen `emu-arduino-avr:1.5.1-1.8.6` desde [`docker/arduino-avr/Dockerfile`](docker/arduino-avr/Dockerfile).
-
-## Arranque
+### 5. Arrancar
 
 ```bash
 cd app
 npm run dev            # server con tsx watch (la UI la sirve el mismo server)
 ```
 
-Equivale a:
+O, sin watch (lo que corre un servicio):
 
 ```bash
-cd app && npx tsx server/src/index.ts     # → http://127.0.0.1:5180
+cd app && npx tsx server/src/index.ts
 ```
 
-Abrí **http://127.0.0.1:5180**. El server escucha solo en `127.0.0.1` — nunca en `0.0.0.0` — y el puerto se cambia con `PORT=xxxx`.
+Abrí **http://127.0.0.1:5180**. Listo.
+
+> **Un solo proceso.** No hay que levantar la UI por separado: el server sirve los estáticos. `npm run dev` corre `dev:server` y `dev:web` juntos.
+
+### La primera compilación de Arduino tarda
+
+La primera vez que compilés un proyecto Arduino la app construye sola la imagen
+`emu-arduino-avr:1.5.1-1.8.6` desde [`docker/arduino-avr/Dockerfile`](docker/arduino-avr/Dockerfile). Tarda **un par de minutos** y llena la consola con el log de Docker paso a paso.
+
+No es un error. Las veces siguientes usan la imagen cacheada y compilan en segundos.
+
+### Si algo no arranca
+
+Todo lo que puede fallar en estos pasos, con su síntoma y su causa:
+[`docs/troubleshooting.md`](docs/troubleshooting.md).
+
+La regla más útil: **si la UI falla pero la API responde, el problema es del frontend.**
+
+```bash
+curl -s http://127.0.0.1:5180/api/health   # si responde JSON, el server está bien
+```
+
+## Exponer en la LAN o en una tailnet
+
+Por defecto el server escucha solo en `127.0.0.1` — nunca en `0.0.0.0` — y
+valida `Host`/`Origin` contra una allowlist, para protegerse de DNS rebinding.
+El puerto se cambia con `PORT=xxxx`.
+
+Para acceder desde otra máquina de la red hay que cambiar las dos cosas:
+
+```bash
+HOST=0.0.0.0 \
+EMU_ALLOWED_HOSTS=192.168.1.50:5180,emulador.tail.midominio.com:5180 \
+npm run dev
+```
+
+`EMU_ALLOWED_HOSTS` es una lista separada porque con `HOST=0.0.0.0` no hay un host
+concreto de escucha contra el cual validar. Detalle en
+[`docs/troubleshooting.md`](docs/troubleshooting.md).
 
 ## Cómo se usa
 
@@ -116,7 +200,7 @@ cd app
 npm test               # unitarios (Vitest)
 npx playwright test    # e2e, con server y catálogo aislados
 E2E_EMU=1 npx playwright test simulacion   # e2e con Docker y emulador reales
-npm run typecheck      # tsc --noEmit
+npx tsc --noEmit -p server      # typecheck (no hay script `typecheck` en package.json)
 ```
 
 Los e2e usan `EMU_PROJECTS_DIR` y `EMU_MODULES_DIR` para no tocar tus proyectos reales.
@@ -157,6 +241,7 @@ emulador-electronica/
 | [`docs/bridge-mode.md`](docs/bridge-mode.md) | Que el ESP32 simulado tenga IP real en tu LAN (Home Assistant lo detecta solo) |
 | [`docs/placas-como-datos.md`](docs/placas-como-datos.md) | El bloque `board` en detalle |
 | [`docs/custom-chips.md`](docs/custom-chips.md) | Crear un chip de Wokwi reutilizable |
+| [`docs/troubleshooting.md`](docs/troubleshooting.md) | Errores de arranque y sus causas (UI en blanco, REPL, 403 en LAN) |
 | [`modules/README.md`](modules/README.md) | Formato de módulo, importación, Ley de Ohm, seguridad del SVG |
 
 ## Wokwi (opcional)

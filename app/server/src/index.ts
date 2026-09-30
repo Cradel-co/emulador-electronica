@@ -33,7 +33,7 @@ import { Depurador } from './debug/depurador.js';
 import { registrarRutasDepuracion } from './debug/rutas.js';
 
 const PORT = Number(process.env.PORT ?? 5180);
-const HOST = '127.0.0.1'; // nunca 0.0.0.0 (sección 13)
+const HOST = process.env.HOST ?? '127.0.0.1'; // por defecto nunca 0.0.0.0 (sección 13)
 
 export interface ServerDeps {
   store: ProjectStore;
@@ -778,8 +778,23 @@ const contextoMcp: McpContexto = {
  * mandan Origin: si viene y no es la propia UI, se rechaza. Clientes sin navegador
  * (MCP de Claude Code, curl) no mandan Origin. El Host se valida contra DNS rebinding.
  */
-const ORIGENES = new Set([`http://127.0.0.1:${PORT}`, `http://localhost:${PORT}`]);
-const HOSTS = new Set([`127.0.0.1:${PORT}`, `localhost:${PORT}`]);
+const EXTRA = (process.env.EMU_ALLOWED_HOSTS ?? '')
+  .split(',')
+  .map((h) => h.trim())
+  .filter(Boolean);
+
+const ORIGENES = new Set([
+  `http://127.0.0.1:${PORT}`,
+  `http://localhost:${PORT}`,
+  ...(HOST === '127.0.0.1' || HOST === '0.0.0.0' ? [] : [`http://${HOST}:${PORT}`]),
+  ...EXTRA.map((h) => `http://${h}`),
+]);
+const HOSTS = new Set([
+  `127.0.0.1:${PORT}`,
+  `localhost:${PORT}`,
+  ...(HOST === '127.0.0.1' || HOST === '0.0.0.0' ? [] : [`${HOST}:${PORT}`]),
+  ...EXTRA,
+]);
 
 function origenPermitido(origin: string | undefined, host: string | undefined): boolean {
   if (host !== undefined && !HOSTS.has(host)) return false;
