@@ -126,6 +126,79 @@ importante: los logs salen por el puerto USB marcado "UART" en vez del "USB".
 
 ---
 
+## La compilación falla con "código 125" y ningún error del compilador
+
+**Síntoma.** Cualquier compilación (Arduino, ESPHome o ESP-IDF) termina así,
+sin un solo renglón del compilador que explique qué pasó:
+
+```
+La compilación terminó con código 125.
+```
+
+**Causa.** Cada toolchain compila dentro de un contenedor Docker de nombre fijo,
+`emu-build-<proyecto>` (por ejemplo `emu-build-fsdff`). Si una compilación
+anterior se canceló, se pasó de tiempo, o el server se reinició en medio, el
+contenedor queda en estado `Created` (o corriendo huérfano). `docker run --rm`
+solo borra el contenedor si el proceso termina solo: **no limpia uno que quedó a
+medias**. En el siguiente intento ese nombre ya está tomado y Docker aborta antes
+de compilar, con `Conflict. The container name ... is already in use`. El código
+125 es ese aborto de Docker, no un fallo del compilador.
+
+**Comprobar.**
+
+```bash
+docker ps -a --filter "name=emu-build"
+```
+
+Si aparece alguno en estado `Created`, o con horas de antigüedad, es esto.
+
+**Arreglo.** Borrar el contenedor huérfano y volver a compilar:
+
+```bash
+docker rm -f emu-build-<proyecto>
+
+# o todos de una:
+docker ps -aq --filter "name=emu-build" | xargs -r docker rm -f
+```
+
+---
+
+## ESPHome: "Permission denied" al compilar
+
+**Síntoma.** La compilación de ESPHome se corta a los ~2 minutos, justo en
+`Downloading ESP-IDF framework`, y en la UI se ve `La compilación terminó con
+código 1`. El log de fondo dice:
+
+```
+mkdir: cannot create directory '/cache/platformio': Permission denied
+INFO Downloading ESP-IDF 5.5.5 framework ...
+ERROR Failed to download from all mirrors:
+  [Errno 13] Permission denied: '/cache/idf'
+```
+
+**Causa.** El contenedor monta `ROOT/.cache` como `/cache` y corre con tu uid. En
+un clone recién bajado la carpeta `.cache/` no existe, y **Docker crea la carpeta
+faltante del bind-mount como `root`**. El contenedor, que corre como vos, no
+puede escribir ahí, y ESP-IDF cachea justo en `/cache/idf`. Solo afecta a
+ESPHome: `.build/` no sufre esto porque el server sí lo crea antes de montarlo.
+
+**Comprobar.**
+
+```bash
+ls -ld .cache     # si el dueño dice "root root", es esto
+```
+
+**Arreglo.** Devolverle la carpeta a tu usuario y recompilar:
+
+```bash
+mkdir -p .cache && sudo chown -R "$(id -un)":"$(id -gn)" .cache
+```
+
+La primera compilación va a descargar ESP-IDF, así que tarda unos minutos; las
+siguientes usan la caché.
+
+---
+
 ## Un proyecto del repo no aparece en la lista
 
 **Síntoma.** Una carpeta existe en `projects/` pero no figura en el selector de
