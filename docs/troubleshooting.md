@@ -102,27 +102,107 @@ para que herede el `PATH`: si lo levantaste con `npx` desde otra terminal sin
 
 ---
 
-## ESPHome se cuelga en el bootloader (solo ESP32-S3)
+## ESPHome y el puerto de logs del ESP32-S3
 
-**Síntoma.** El firmware ESPHome nunca termina de bootear. Último renglón del
-log y nada más:
+**Esto lo resuelve la app sola.** ESPHome manda la consola del S3 por
+**USB-Serial-JTAG** por defecto, y `esp-emu` se cuelga para siempre esperando ese
+puerto: el firmware nunca termina de bootear y el último renglón del log es un
+`entry 0x403c89xx` y nada más. El arreglo es mandar la consola por UART0.
+
+La app ya lo aplica. Al generar el YAML de simulación fuerza
+`logger.hardware_uart: UART0` en `main.sim.yaml` y crea el bloque `logger:` aunque
+el proyecto no tenga ninguno (`app/server/src/yamlSim.ts`), así que **no hace falta
+que toques tu `main.yaml`**. Durante la compilación puede salir este aviso, que es
+informativo:
 
 ```
-entry 0x403c89xx
+logger.hardware_uart era "USB_CDC"; la simulación lo fuerza a UART0 (si no, el emulador se cuelga).
 ```
 
-**Causa.** ESPHome manda la consola del S3 por **USB-Serial-JTAG** por defecto, y
-`esp-emu` se cuelga para siempre esperando ese puerto.
-
-**Arreglo.** En el YAML:
+**Cuándo sí es un problema.** Si el cuelgue aparece corriendo ESPHome **fuera de la
+app** (por ejemplo `esphome run` sobre tu propio YAML), ahí sí hay que agregar a
+mano:
 
 ```yaml
 logger:
   hardware_uart: UART0
 ```
 
-Con eso bootea completo en segundos. En la placa real no cambia nada
-importante: los logs salen por el puerto USB marcado "UART" en vez del "USB".
+En la placa real no cambia nada importante: los logs salen por el puerto USB
+marcado "UART" en vez del "USB".
+
+---
+
+## La compilación falla con "código 125" y ningún error del compilador
+
+**Síntoma.** Cualquier compilación (Arduino, ESPHome o ESP-IDF) termina así,
+sin un solo renglón del compilador que explique qué pasó:
+
+```
+La compilación terminó con código 125.
+```
+
+**Causa.** Cada toolchain compila dentro de un contenedor Docker de nombre fijo,
+`emu-build-<proyecto>` (por ejemplo `emu-build-fsdff`). Si una compilación
+anterior se canceló, se pasó de tiempo, o el server se reinició en medio, el
+contenedor queda en estado `Created` (o corriendo huérfano). `docker run --rm`
+solo borra el contenedor si el proceso termina solo: **no limpia uno que quedó a
+medias**. En el siguiente intento ese nombre ya está tomado y Docker aborta antes
+de compilar, con `Conflict. The container name ... is already in use`. El código
+125 es ese aborto de Docker, no un fallo del compilador.
+
+**Comprobar.**
+
+```bash
+docker ps -a --filter "name=emu-build"
+```
+
+Si aparece alguno en estado `Created`, o con horas de antigüedad, es esto.
+
+**Arreglo.** Borrar el contenedor huérfano y volver a compilar:
+
+```bash
+docker rm -f emu-build-<proyecto>
+
+# o todos de una:
+docker ps -aq --filter "name=emu-build" | xargs -r docker rm -f
+```
+
+---
+
+## ESPHome: "Permission denied" al compilar
+
+**Síntoma.** La compilación de ESPHome se corta a los ~2 minutos, justo en
+`Downloading ESP-IDF framework`, y en la UI se ve `La compilación terminó con
+código 1`. El log de fondo dice:
+
+```
+mkdir: cannot create directory '/cache/platformio': Permission denied
+INFO Downloading ESP-IDF 5.5.5 framework ...
+ERROR Failed to download from all mirrors:
+  [Errno 13] Permission denied: '/cache/idf'
+```
+
+**Causa.** El contenedor monta `ROOT/.cache` como `/cache` y corre con tu uid. En
+un clone recién bajado la carpeta `.cache/` no existe, y **Docker crea la carpeta
+faltante del bind-mount como `root`**. El contenedor, que corre como vos, no
+puede escribir ahí, y ESP-IDF cachea justo en `/cache/idf`. Solo afecta a
+ESPHome: `.build/` no sufre esto porque el server sí lo crea antes de montarlo.
+
+**Comprobar.**
+
+```bash
+ls -ld .cache     # si el dueño dice "root root", es esto
+```
+
+**Arreglo.** Devolverle la carpeta a tu usuario y recompilar:
+
+```bash
+mkdir -p .cache && sudo chown -R "$(id -un)":"$(id -gn)" .cache
+```
+
+La primera compilación va a descargar ESP-IDF, así que tarda unos minutos; las
+siguientes usan la caché.
 
 ---
 

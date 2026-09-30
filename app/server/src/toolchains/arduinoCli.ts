@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { PATHS } from '../paths.js';
-import { run } from '../dockerRunner.js';
+import { run, runDockerBuild, containerNameFor } from '../dockerRunner.js';
 import { exists, FIRST_BUILD_TIMEOUT_MS, type BuildCallbacks, type BuildError, type BuildResult } from '../buildService.js';
 import { arduinoSketchAvr } from '../templates/languages.js';
 import { fallo, pinesDemo, texto, type ContextoBuild, type Toolchain } from './tipos.js';
@@ -125,9 +125,10 @@ export const arduinoCli: Toolchain = {
       return fallo(started, `No se pudo preparar la imagen ${ARDUINO_AVR_IMAGE} (docker build docker/arduino-avr).`);
     }
 
+    const container = containerNameFor(outDir);
     const args = [
       'run', '--rm',
-      '--name', `emu-build-${path.basename(outDir)}`,
+      '--name', container,
       '-u', `${process.getuid?.() ?? 1000}:${process.getgid?.() ?? 1000}`,
       '-e', 'HOME=/tmp',
       '-v', `${outDir}:/build`,
@@ -155,7 +156,7 @@ export const arduinoCli: Toolchain = {
     ];
     cb.onLine(`$ docker ${args.join(' ')}`);
     const lines: string[] = [];
-    const res = await run('docker', args, (line) => {
+    const res = await runDockerBuild(container, args, (line) => {
       lines.push(line);
       cb.onLine(line);
     }, { timeoutMs: ctx.timeoutMs, onChild: ctx.registrarProceso });

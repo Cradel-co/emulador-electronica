@@ -1,7 +1,8 @@
 import { promises as fs } from 'node:fs';
+import { constants } from 'node:fs';
 import path from 'node:path';
 import { PATHS } from '../paths.js';
-import { run } from '../dockerRunner.js';
+import { containerNameFor, runDockerBuild } from '../dockerRunner.js';
 import { exists, type BuildResult } from '../buildService.js';
 import { buildSimYaml, extractBuildErrors, rmtLoopbackPairs, type PlacaEsphome } from '../yamlSim.js';
 import { esphomeMainYamlPara } from '../templates/esphome.js';
@@ -72,10 +73,27 @@ export const esphome: Toolchain = {
     await fs.copyFile(path.join(projectDir, 'secrets.yaml'), path.join(outDir, 'secrets.yaml')).catch(() => undefined);
     for (const w of warnings) cb.onNotice?.(w);
 
+    // El contenedor corre con tu uid y monta .cache en /config/cache: ESP-IDF cachea
+    // ahí (`/cache/idf`). Si la carpeta no existe, Docker la crea como root y el build
+    // falla con "[Errno 13] Permission denied: '/cache/idf'". La creamos nosotros, y si
+    // ya quedó como root de una corrida anterior, lo decimos claro en vez de dejar que
+    // reviente 2 minutos después con un código 1 sin explicación.
+    await fs.mkdir(PATHS.cache, { recursive: true });
+    try {
+      await fs.access(PATHS.cache, constants.W_OK);
+    } catch {
+      return {
+        ...fallo(started, `${PATHS.cache} existe pero no es escribible por vos (típico: quedó como root de un build anterior). Arreglalo con: sudo chown -R "$(id -un)":"$(id -gn)" ${PATHS.cache}`),
+        lineMap,
+        warnings,
+      };
+    }
+
     // 6: Docker
+    const container = containerNameFor(outDir);
     const args = [
       'run', '--rm',
-      '--name', `emu-build-${path.basename(outDir)}`,
+      '--name', container,
       '-u', `${process.getuid?.() ?? 1000}:${process.getgid?.() ?? 1000}`,
       '-e', 'HOME=/tmp',
       '-v', `${outDir}:/config`,
@@ -85,7 +103,7 @@ export const esphome: Toolchain = {
     ];
     cb.onLine(`$ docker ${args.join(' ')}`);
     const lines: string[] = [];
-    const res = await run('docker', args, (line) => {
+    const res = await runDockerBuild(container, args, (line) => {
       lines.push(line);
       cb.onLine(line);
     }, { timeoutMs: timeout, onChild: ctx.registrarProceso });
