@@ -533,6 +533,13 @@ async function registerRoutes(): Promise<void> {
   });
 
   // Frontend estático (web/index.html)
+  // La UI se compila desde app/web/*.ts a web/dist/ con tsc. Si nunca se compiló, la API
+  // funciona igual pero el navegador pide /dist/app.js y recibe un 404 mudo: avisamos acá.
+  try {
+    await fs.access(path.join(PATHS.web, 'dist', 'app.js'));
+  } catch {
+    console.warn('[web] Falta web/dist/. Corré `npm run build:web` (o `npm run dev` para recompilar solo).');
+  }
   await app.register(fastifyStatic, {
     root: PATHS.web,
     prefix: '/',

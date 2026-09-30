@@ -14,7 +14,7 @@ export const NS = 'http://www.w3.org/2000/svg';
  * @param {string} tag @param {Record<string, string | number>} attrs @param {Element} [padre]
  * @returns {SVGElement}
  */
-export function el(tag, attrs = {}, padre) {
+export function el(tag: string, attrs: Record<string, string | number> = {}, padre?: Element) {
   const e = document.createElementNS(NS, tag);
   for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, String(v));
   if (padre) padre.append(e);
@@ -58,7 +58,7 @@ const escXml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<':
 function sustituir(markup, def, props) {
   const vars = {};
   for (const [k, v] of Object.entries(def.vars ?? {})) {
-    const d = /** @type {any} */ (v);
+    const d = (v as any);
     vars[k] = d.map?.[String(props?.[d.prop])] ?? d.default;
   }
   return markup.replace(/\{\{\s*(props|vars)\.([A-Za-z0-9_]+)\s*\}\}/g, (_, tipo, k) =>
@@ -153,10 +153,10 @@ export function defDesconocido(type) {
  */
 export function miniatura(def) {
   const props = {};
-  for (const [k, p] of Object.entries(def.props ?? {})) props[k] = /** @type {any} */ (p).default;
-  const svg = /** @type {SVGSVGElement} */ (/** @type {unknown} */ (el('svg', {
+  for (const [k, p] of Object.entries(def.props ?? {})) props[k] = (p as any).default;
+  const svg = ((el('svg', {
     viewBox: `-10 -4 ${def.width + 20} ${def.height + 8}`, class: 'miniatura', 'aria-hidden': 'true',
-  })));
+  }) as unknown) as SVGSVGElement);
   const g = el('g', {}, svg);
   dibujarModulo(g, def, { props }, def.bridge?.role === 'output' ? { on: true } : {});
   for (const p of def.pins) {

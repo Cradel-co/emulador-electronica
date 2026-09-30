@@ -11,17 +11,19 @@ import { crearDepuracion } from './depuracion.js';
  */
 const CLIENTE = globalThis.crypto?.randomUUID?.() ?? `c-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 
-const $ = (id) => document.getElementById(id);
-/** @param {string} id */
-const btn = (id) => /** @type {HTMLButtonElement} */ (document.getElementById(id));
-/** @param {string} id */
-const inp = (id) => /** @type {HTMLInputElement} */ (document.getElementById(id));
-/** @param {string} id */
-const ta = (id) => /** @type {HTMLTextAreaElement} */ (document.getElementById(id));
-/** @param {string} id */
-const sel = (id) => /** @type {HTMLSelectElement} */ (document.getElementById(id));
+/**
+ * Buscadores por id. Devuelven el tipo concreto que el elemento tiene en el HTML: `$` es
+ * el comodín, y los otros cinco existen para no perder `.value` / `.disabled` / `.showModal()`.
+ * El `as` es seguro porque el id no cambia entre el HTML y acá; si el elemento no estuviera,
+ * el error lo daria la primera lectura de la propiedad, no el typecheck.
+ */
+const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
+const btn = (id: string) => document.getElementById(id) as HTMLButtonElement;
+const inp = (id: string) => document.getElementById(id) as HTMLInputElement;
+const ta = (id: string) => document.getElementById(id) as HTMLTextAreaElement;
+const sel = (id: string) => document.getElementById(id) as HTMLSelectElement;
 /** Diálogo de nuevo proyecto. */
-const dlg = () => /** @type {HTMLDialogElement} */ (document.getElementById('dlg-nuevo'));
+const dlg = () => document.getElementById('dlg-nuevo') as HTMLDialogElement;
 
 /** Id fijo de la placa en el dibujo (shared/project.ts). */
 const BOARD_ID = 'board';
@@ -74,18 +76,18 @@ const state = {
   /** Hay cambios en el editor que todavía no se guardaron. */
   editorSucio: false,
   /** Últimas notificaciones (globos), para la ventana de notificaciones. */
-  notificaciones: /** @type {{ texto: string, hora: Date }[]} */ ([]),
+  notificaciones: ([] as { texto: string, hora: Date }[]),
   /** Errores de la última compilación (para la pestaña Problemas). */
-  errores: /** @type {{ file?: string, line?: number, message: string }[]} */ ([]),
+  errores: ([] as { file?: string, line?: number, message: string }[]),
   /** Avisos circuito ↔ código (para la pestaña Problemas). */
-  avisosDibujo: /** @type {{ message: string, pin?: number }[]} */ ([]),
+  avisosDibujo: ([] as { message: string, pin?: number }[]),
   /** Placas conocidas (GET /api/boards, o las programables del catálogo si no existe). */
-  placas: /** @type {any[]} */ ([]),
+  placas: ([] as any[]),
   /** Veredicto del motor eléctrico por LED (GET /pins → electrico.leds): id → { mA, estado }. */
-  electrico: /** @type {Map<string, { id: string, mA: number, estado: string }>} */ (new Map()),
+  electrico: (new Map() as Map<string, { id: string, mA: number, estado: string }>),
   placaPorDefecto: '',
   /** Placa del proyecto abierto (GET /api/projects/:name → placa): nombre + descriptor `board`. */
-  placa: /** @type {any} */ (null),
+  placa: (null as any),
   sim: {
     /** El puente está listo: los controles de los módulos funcionan. */
     listo: false,
@@ -150,7 +152,7 @@ function pintarNotificaciones() {
 
 // --- API --------------------------------------------------------------------
 
-async function api(path, opts = {}) {
+async function api(path: string, opts: RequestInit = {}) {
   // content-type solo con cuerpo: Fastify rechaza (400) un JSON vacío, y Parar/Reset no mandan cuerpo.
   const res = await fetch(path, {
     ...opts,
@@ -521,8 +523,8 @@ async function guardar(silencioso = false) {
     state.editorSucio = false;
     if (!silencioso) log('build', `guardado ${state.activo}`);
     void refrescarAvisos();
-  } catch (e) {
-    log('build', `[error] no se pudo guardar: ${String((/** @type {Error} */ (e))?.message ?? e)}`);
+  } catch (e: any) {
+    log('build', `[error] no se pudo guardar: ${String(((e as Error))?.message ?? e)}`);
   }
 }
 
@@ -684,8 +686,8 @@ function guardarDiagrama() {
         body: JSON.stringify(state.diagrama),
       });
       if (state.proyecto?.name === proyecto) await refrescarAvisos();
-    } catch (e) {
-      nota(`No se pudo guardar el circuito: ${String((/** @type {Error} */ (e))?.message ?? e)}`);
+    } catch (e: any) {
+      nota(`No se pudo guardar el circuito: ${String(((e as Error))?.message ?? e)}`);
     }
   }, 300);
 }
@@ -741,7 +743,7 @@ function lugarLibre(w, h, centro) {
   return { x: x0, y: y0 };
 }
 
-function agregarModulo(type, x, y) {
+function agregarModulo(type, x?: number, y?: number) {
   const def = state.catalogo.get(type);
   if (!def || !state.proyecto) return;
   if (def.programmable) {
@@ -751,7 +753,7 @@ function agregarModulo(type, x, y) {
   }
   const props = {};
   for (const [k, p] of Object.entries(def.props ?? {})) {
-    if (/** @type {any} */ (p).default !== undefined) props[k] = /** @type {any} */ (p).default;
+    if ((p as any).default !== undefined) props[k] = (p as any).default;
   }
   // Click en el catálogo: el lugar libre más cercano al centro de lo visible.
   // Soltado con el mouse: donde se soltó.
@@ -962,6 +964,8 @@ function vivoDe(inst) {
     activo: Boolean(state.sim.controles.get(inst.id)),
     boton: state.sim.boton.get(inst.id),
     on: false,
+    quemado: false,
+    explotando: false,
   };
   if (def?.bridge?.role === 'output') {
     const gpio = gpioDe(inst.id, def.bridge.pin);
@@ -1046,7 +1050,7 @@ function clasePin(ref) {
 
 // --- Canvas -----------------------------------------------------------------
 
-const lienzo = crearLienzo(/** @type {SVGSVGElement} */ (/** @type {unknown} */ ($('lienzo'))), {
+const lienzo = crearLienzo((($('lienzo') as unknown) as SVGSVGElement), {
   diagrama: () => state.diagrama,
   def: (type) => state.catalogo.get(type),
   seleccion: () => state.seleccion,
@@ -1096,7 +1100,7 @@ function fijarRotacion(inst, grados, fin) {
   }
   guardarDiagrama();
   lienzo.render();
-  const campo = /** @type {HTMLInputElement | null} */ (document.querySelector('#panel-modulo [data-rotacion]'));
+  const campo = (document.querySelector<HTMLElement>('#panel-modulo [data-rotacion]') as HTMLInputElement | null);
   if (campo) campo.value = String(r);
 }
 
@@ -1187,7 +1191,7 @@ function controlesPanel(inst, def) {
   return '';
 }
 
-function pintarPanelModulo(panel, inst, def) {
+function pintarPanelModulo(panel: HTMLElement, inst, def) {
   const esAire = def.bridge?.role === 'air';
   const controles = controlesPanel(inst, def);
   const filasPines = def.pins.map((p) => {
@@ -1205,7 +1209,7 @@ function pintarPanelModulo(panel, inst, def) {
   }).join('');
 
   const propsHtml = Object.entries(def.props ?? {}).map(([k, p]) => {
-    const pd = /** @type {any} */ (p);
+    const pd = (p as any);
     const valor = inst.props?.[k] ?? pd.default ?? '';
     const etiqueta = escapar(pd.label ?? k);
     if (pd.enum) {
@@ -1252,15 +1256,15 @@ function pintarPanelModulo(panel, inst, def) {
       ${propsHtml ? `<h3>Propiedades</h3><div class="insp-props">${propsHtml}</div>` : ''}
       <button class="peligro" id="insp-eliminar">Eliminar módulo</button>
     </div>`;
-  panel.querySelector('.insp-mini').append(miniatura(def));
+  panel.querySelector<HTMLElement>('.insp-mini').append(miniatura(def));
   $('insp-eliminar').onclick = () => eliminarModulo(inst.id);
   const reemplazar = $('insp-reemplazar');
   if (reemplazar) reemplazar.onclick = () => reemplazarQuemado(inst.id);
   for (const b of panel.querySelectorAll('[data-girar]')) {
-    /** @type {HTMLElement} */ (b).onclick = () => fijarRotacion(inst, (inst.rotation ?? 0) + Number(/** @type {HTMLElement} */ (b).dataset.girar), true);
+    (b as HTMLElement).onclick = () => fijarRotacion(inst, (inst.rotation ?? 0) + Number((b as HTMLElement).dataset.girar), true);
   }
-  const rango = /** @type {HTMLInputElement} */ (panel.querySelector('[data-rotacion-rango]'));
-  const numero = /** @type {HTMLInputElement} */ (panel.querySelector('[data-rotacion]'));
+  const rango = (panel.querySelector<HTMLElement>('[data-rotacion-rango]') as HTMLInputElement);
+  const numero = (panel.querySelector<HTMLElement>('[data-rotacion]') as HTMLInputElement);
   rango.addEventListener('input', () => {
     numero.value = rango.value;
     fijarRotacion(inst, Number(rango.value), false);
@@ -1271,15 +1275,15 @@ function pintarPanelModulo(panel, inst, def) {
     rango.value = String(inst.rotation ?? 0);
   });
   for (const b of panel.querySelectorAll('button.quitar')) {
-    /** @type {HTMLElement} */ (b).onclick = () => {
-      state.diagrama.wires.splice(Number(/** @type {HTMLElement} */ (b).dataset.cable), 1);
+    (b as HTMLElement).onclick = () => {
+      state.diagrama.wires.splice(Number((b as HTMLElement).dataset.cable), 1);
       guardarDiagrama();
       pintarPanelDerecho();
       lienzo.render();
     };
   }
   for (const campo of panel.querySelectorAll('[data-prop]')) {
-    const c = /** @type {HTMLInputElement} */ (campo);
+    const c = (campo as HTMLInputElement);
     c.addEventListener('change', () => {
       const k = c.dataset.prop;
       const pd = def.props[k];
@@ -1289,7 +1293,7 @@ function pintarPanelModulo(panel, inst, def) {
     });
   }
   for (const b of panel.querySelectorAll('.btn-accionar')) {
-    const el = /** @type {HTMLButtonElement} */ (b);
+    const el = (b as HTMLButtonElement);
     const accion = el.dataset.accion;
     if (accion === 'momentary') {
       const abajo = (/** @type {Event} */ e) => {
@@ -1508,7 +1512,7 @@ async function ejecutarImportacion(soloValidar) {
       headers: { 'content-type': 'application/json', 'x-cliente': CLIENTE },
       body: JSON.stringify({
         ...solicitud,
-        sobrescribir: /** @type {HTMLInputElement} */ ($('imp-reemplazar')).checked,
+        sobrescribir: ($('imp-reemplazar') as HTMLInputElement).checked,
         soloValidar,
         wokwi: { ...(rol ? { role: rol } : {}), ...(categoria ? { category: categoria } : {}) },
       }),
@@ -1520,8 +1524,8 @@ async function ejecutarImportacion(soloValidar) {
       await recargarCatalogo();
       nota(`Importado(s): ${datos.importados.map((m) => m.name).join(', ')}`);
     }
-  } catch (e) {
-    cont.innerHTML = `<ul><li class="error">✗ ${escapar(String(/** @type {Error} */ (e)?.message ?? e))}</li></ul>`;
+  } catch (e: any) {
+    cont.innerHTML = `<ul><li class="error">✗ ${escapar(String((e as Error)?.message ?? e))}</li></ul>`;
   } finally {
     botones.forEach((b) => (b.disabled = false));
   }
@@ -1530,10 +1534,10 @@ async function ejecutarImportacion(soloValidar) {
 function elegirFuente(fuente) {
   fuenteImportacion = fuente;
   for (const b of document.querySelectorAll('.imp-fuentes [data-fuente]')) {
-    b.classList.toggle('activa', /** @type {HTMLElement} */ (b).dataset.fuente === fuente);
+    b.classList.toggle('activa', (b as HTMLElement).dataset.fuente === fuente);
   }
   for (const p of document.querySelectorAll('#dlg-importar [data-panel]')) {
-    /** @type {HTMLElement} */ (p).hidden = /** @type {HTMLElement} */ (p).dataset.panel !== fuente;
+    (p as HTMLElement).hidden = (p as HTMLElement).dataset.panel !== fuente;
   }
   $('imp-resultado').textContent = '';
 }
@@ -1544,8 +1548,8 @@ async function quitarDelCatalogo(m) {
     await api(`/api/modules/${m.type}`, { method: 'DELETE' });
     await recargarCatalogo();
     nota(`"${m.name}" quitado del catálogo.`);
-  } catch (e) {
-    nota(String(/** @type {Error} */ (e)?.message ?? e));
+  } catch (e: any) {
+    nota(String((e as Error)?.message ?? e));
   }
 }
 
@@ -1580,7 +1584,7 @@ async function refrescarAvisos() {
 
 // --- Proyectos --------------------------------------------------------------
 
-async function cargarProyectos(seleccionarNombre) {
+async function cargarProyectos(seleccionarNombre?: string) {
   const { projects } = await api('/api/projects');
   state.proyectos = projects;
   const s = sel('proyecto');
@@ -1720,8 +1724,8 @@ async function eliminarProyecto(nombre) {
       history.replaceState(null, '', location.pathname + location.search);
     }
     await cargarProyectos();
-  } catch (e) {
-    nota(String(/** @type {Error} */ (e)?.message ?? e));
+  } catch (e: any) {
+    nota(String((e as Error)?.message ?? e));
   }
 }
 
@@ -1778,7 +1782,7 @@ ta('editor').addEventListener('input', () => {
 ta('editor').addEventListener('scroll', sincronizarScroll, { passive: true });
 for (const ev of ['keyup', 'mouseup', 'focus', 'blur']) ta('editor').addEventListener(ev, pintarCursor);
 ta('editor').addEventListener('keydown', (e) => {
-  const t = /** @type {HTMLTextAreaElement} */ (e.target);
+  const t = (e.target as HTMLTextAreaElement);
   if (e.key === 'Tab' && !e.ctrlKey && !e.altKey) {
     e.preventDefault();
     // insertText (y no tocar .value): conserva Ctrl+Z y dispara "input" como una tecla normal.
@@ -1803,10 +1807,10 @@ inp('buscar-modulos').addEventListener('input', () => {
 
 $('importar-modulo').onclick = () => {
   $('imp-resultado').textContent = '';
-  /** @type {HTMLDialogElement} */ ($('dlg-importar')).showModal();
+  ($('dlg-importar') as HTMLDialogElement).showModal();
 };
 for (const b of document.querySelectorAll('.imp-fuentes [data-fuente]')) {
-  /** @type {HTMLElement} */ (b).onclick = () => elegirFuente(/** @type {HTMLElement} */ (b).dataset.fuente);
+  (b as HTMLElement).onclick = () => elegirFuente((b as HTMLElement).dataset.fuente);
 }
 $('imp-importar').onclick = () => void ejecutarImportacion(false);
 $('imp-validar').onclick = () => void ejecutarImportacion(true);
@@ -1871,7 +1875,7 @@ function abrirNuevoProyecto() {
   // La última elegida en esta sesión; si no, la que el server marca por defecto (no la primera
   // de la lista: está en orden alfabético y sería el Arduino Uno).
   s.value = antes && state.placas.some((b) => b.id === antes) ? antes : state.placaPorDefecto;
-  /** @type {HTMLElement} */ (s.closest('label')).hidden = state.placas.length <= 1;
+  (s.closest('label') as HTMLElement).hidden = state.placas.length <= 1;
   filtrarLenguajesNuevo();
   dlg().showModal();
 }
@@ -1880,7 +1884,7 @@ function abrirNuevoProyecto() {
 function filtrarLenguajesNuevo() {
   const placa = state.placas.find((b) => b.id === sel('nuevo-placa').value);
   const soportados = placa?.languages ?? placa?.lenguajes ?? null;
-  const lenguaje = /** @type {HTMLSelectElement} */ (dlg().querySelector('select[name="language"]'));
+  const lenguaje = (dlg().querySelector<HTMLElement>('select[name="language"]') as HTMLSelectElement);
   for (const o of lenguaje.options) o.disabled = Array.isArray(soportados) && !soportados.includes(o.value);
   if (lenguaje.selectedOptions[0]?.disabled) lenguaje.value = [...lenguaje.options].find((o) => !o.disabled)?.value ?? '';
 }
@@ -1891,16 +1895,16 @@ $('nuevo-inicio').onclick = abrirNuevoProyecto;
 $('dlg-nuevo').addEventListener('close', async () => {
   const d = dlg();
   if (d.returnValue !== 'crear') return;
-  const form = /** @type {HTMLFormElement} */ (d.querySelector('form'));
-  const name = /** @type {HTMLInputElement} */ (form.elements.namedItem('name')).value.trim();
-  const language = /** @type {HTMLSelectElement} */ (form.elements.namedItem('language')).value;
+  const form = (d.querySelector<HTMLElement>('form') as HTMLFormElement);
+  const name = (form.elements.namedItem('name') as HTMLInputElement).value.trim();
+  const language = (form.elements.namedItem('language') as HTMLSelectElement).value;
   const board = sel('nuevo-placa').value || undefined;
   try {
     await api('/api/projects', { method: 'POST', body: JSON.stringify({ name, language, board }) });
     await cargarProyectos(name);
-  } catch (e) {
-    log('build', `[error] ${String((/** @type {Error} */ (e))?.message ?? e)}`);
-    nota(String((/** @type {Error} */ (e))?.message ?? e));
+  } catch (e: any) {
+    log('build', `[error] ${String(((e as Error))?.message ?? e)}`);
+    nota(String(((e as Error))?.message ?? e));
   }
 });
 
@@ -1918,7 +1922,7 @@ $('ejecutar').onclick = async () => {
   const avisos = state.avisosDibujo.length;
   if (avisos > 0) log('build', `Chequeo circuito ↔ código: ${avisos} aviso(s) (no bloquea)`);
   await api(`/api/projects/${state.proyecto.name}/run`, { method: 'POST', body: JSON.stringify({}) }).catch((e) =>
-    nota(String(/** @type {Error} */ (e)?.message ?? e)),
+    nota(String((e as Error)?.message ?? e)),
   );
 };
 
@@ -1927,8 +1931,8 @@ $('reset').onclick = async () => {
   try {
     const r = await api('/api/emulator/reset', { method: 'POST' });
     log('emu', `[control] ${r.output}`);
-  } catch (e) {
-    log('emu', `[control] ${String((/** @type {Error} */ (e))?.message ?? e)}`);
+  } catch (e: any) {
+    log('emu', `[control] ${String(((e as Error))?.message ?? e)}`);
   }
 };
 $('abrir-web').onclick = () => {
@@ -1941,7 +1945,7 @@ $('abrir-web').onclick = () => {
 const VENTANAS = { izq: 'sin-izq', der: 'sin-der', abajo: 'sin-abajo' };
 
 /** @param {'izq' | 'der' | 'abajo'} cual @param {boolean} [visible] sin valor: alterna */
-function mostrarVentana(cual, visible) {
+function mostrarVentana(cual, visible?: boolean) {
   const clase = VENTANAS[cual];
   const ver = visible ?? document.body.classList.contains(clase);
   document.body.classList.toggle(clase, !ver);
@@ -1964,7 +1968,7 @@ function sincronizarFranjas() {
   }
 }
 
-const tabsConsola = /** @type {HTMLElement[]} */ ([...document.querySelectorAll('.consola-tabs [data-tab]')]);
+const tabsConsola = ([...document.querySelectorAll('.consola-tabs [data-tab]')] as HTMLElement[]);
 
 function elegirTabConsola(tab) {
   state.tab = tab;
@@ -1983,10 +1987,10 @@ function alternarConsola(tab) {
 
 for (const b of tabsConsola) b.onclick = () => elegirTabConsola(b.dataset.tab);
 for (const b of document.querySelectorAll('[data-tw-tab]')) {
-  /** @type {HTMLElement} */ (b).onclick = () => alternarConsola(/** @type {HTMLElement} */ (b).dataset.twTab);
+  (b as HTMLElement).onclick = () => alternarConsola((b as HTMLElement).dataset.twTab);
 }
 for (const b of document.querySelectorAll('[data-ocultar]')) {
-  /** @type {HTMLElement} */ (b).onclick = () => mostrarVentana(/** @type {any} */ (/** @type {HTMLElement} */ (b).dataset.ocultar), false);
+  (b as HTMLElement).onclick = () => mostrarVentana(((b as HTMLElement).dataset.ocultar as any), false);
 }
 $('tw-catalogo').onclick = () => mostrarVentana('izq');
 $('act-codigo').onclick = () => {
@@ -2005,7 +2009,7 @@ function alternarModoMover() {
 $('act-mover').onclick = alternarModoMover;
 
 function restaurarVentanas() {
-  for (const cual of /** @type {const} */ (['izq', 'der', 'abajo'])) {
+  for (const cual of (['izq', 'der', 'abajo'] as const)) {
     try {
       if (localStorage.getItem(`ventana-${cual}`) === '0') document.body.classList.add(VENTANAS[cual]);
     } catch {
@@ -2055,7 +2059,7 @@ const hayProyecto = () => Boolean(state.proyecto);
 function abrirImportador() {
   cerrarMenus();
   $('imp-resultado').textContent = '';
-  /** @type {HTMLDialogElement} */ ($('dlg-importar')).showModal();
+  ($('dlg-importar') as HTMLDialogElement).showModal();
 }
 
 function borrarSeleccion() {
@@ -2144,7 +2148,7 @@ const ACCIONES = [
     habilitada: () => Boolean(state.activo),
   },
   { id: 'buscar-todo', titulo: 'Buscar en todo…', menu: 'Ayuda', atajo: 'Ctrl+Shift+P', teclas: ['Ctrl+Shift+P', 'Ctrl+K', 'Ctrl+Shift+A'], hacer: () => abrirPaleta() },
-  { id: 'acerca', titulo: 'Atajos y acerca de', menu: 'Ayuda', hacer: () => /** @type {HTMLDialogElement} */ ($('dlg-acerca')).showModal() },
+  { id: 'acerca', titulo: 'Atajos y acerca de', menu: 'Ayuda', hacer: () => ($('dlg-acerca') as HTMLDialogElement).showModal() },
 ];
 const MENUS = ['Archivo', 'Editar', 'Ver', 'Simulación', 'Depurar', 'Ayuda'];
 
@@ -2166,10 +2170,10 @@ for (const a of ACCIONES) for (const t of a.teclas ?? (a.atajo ? [a.atajo] : [])
 let ultimoShift = 0;
 
 document.addEventListener('keydown', (e) => {
-  const t = /** @type {HTMLElement} */ (e.target);
+  const t = (e.target as HTMLElement);
   if (e.key === 'Shift' && !e.repeat) {
     const ahora = performance.now();
-    if (ahora - ultimoShift < 350 && !document.querySelector('dialog[open]')) {
+    if (ahora - ultimoShift < 350 && !document.querySelector<HTMLElement>('dialog[open]')) {
       ultimoShift = 0;
       abrirPaleta();
     } else {
@@ -2232,7 +2236,7 @@ function pintarMenu() {
     item.addEventListener('keydown', (ev) => {
       if (ev.key === 'ArrowRight' || ev.key === 'Enter') {
         abrir();
-        /** @type {HTMLElement | null} */ (sub.querySelector('button:not(:disabled)'))?.focus();
+        (sub.querySelector<HTMLElement>('button:not(:disabled)') as HTMLElement | null)?.focus();
         ev.preventDefault();
       }
     });
@@ -2241,15 +2245,15 @@ function pintarMenu() {
   // Flechas arriba/abajo entre los items del mismo nivel.
   menu.onkeydown = (ev) => {
     if (ev.key !== 'ArrowDown' && ev.key !== 'ArrowUp' && ev.key !== 'ArrowLeft') return;
-    const actual = /** @type {HTMLElement} */ (document.activeElement);
+    const actual = (document.activeElement as HTMLElement);
     if (ev.key === 'ArrowLeft') {
-      /** @type {HTMLElement | null} */ (actual.closest('.menu-item.sub'))?.focus();
+      (actual.closest('.menu-item.sub') as HTMLElement | null)?.focus();
       ev.preventDefault();
       return;
     }
     const nivel = actual.parentElement;
     if (!nivel) return;
-    const hermanos = /** @type {HTMLElement[]} */ ([...nivel.children].filter((c) => c.matches('.menu-item:not(:disabled)')));
+    const hermanos = ([...nivel.children].filter((c) => c.matches('.menu-item:not(:disabled)')) as HTMLElement[]);
     const i = hermanos.indexOf(actual);
     hermanos[(i + (ev.key === 'ArrowDown' ? 1 : -1) + hermanos.length) % hermanos.length]?.focus();
     ev.preventDefault();
@@ -2269,21 +2273,21 @@ $('menu-principal').onclick = () => {
   pintarMenu();
   $('menu').hidden = false;
   $('menu-principal').setAttribute('aria-expanded', 'true');
-  /** @type {HTMLElement | null} */ ($('menu').querySelector('.menu-item'))?.focus();
+  ($('menu').querySelector<HTMLElement>('.menu-item') as HTMLElement | null)?.focus();
 };
 document.addEventListener('mousedown', (e) => {
-  const t = /** @type {HTMLElement} */ (e.target);
+  const t = (e.target as HTMLElement);
   if (!$('menu').hidden && !t.closest('#menu, #menu-principal')) cerrarMenus();
   if (!$('lista-notificaciones').hidden && !t.closest('#lista-notificaciones, #tw-notificaciones')) cerrarMenus();
 });
 
 // --- Buscar en todo (paleta de comandos) -------------------------------------------------
 
-const paleta = { items: /** @type {any[]} */ ([]), sel: 0 };
+const paleta = { items: ([] as any[]), sel: 0 };
 
 function abrirPaleta() {
   cerrarMenus();
-  const d = /** @type {HTMLDialogElement} */ ($('dlg-buscar'));
+  const d = ($('dlg-buscar') as HTMLDialogElement);
   if (d.open) return;
   inp('pc-entrada').value = '';
   d.showModal();
@@ -2364,15 +2368,15 @@ function moverSeleccionPaleta(delta) {
   if (!paleta.items.length) return;
   paleta.sel = (paleta.sel + delta + paleta.items.length) % paleta.items.length;
   const ul = $('pc-lista');
-  ul.querySelector('.sel')?.classList.remove('sel');
-  const li = ul.querySelector(`[data-i="${paleta.sel}"]`);
+  ul.querySelector<HTMLElement>('.sel')?.classList.remove('sel');
+  const li = ul.querySelector<HTMLElement>(`[data-i="${paleta.sel}"]`);
   li?.classList.add('sel');
   li?.scrollIntoView({ block: 'nearest' });
 }
 
 function ejecutarPaleta(i) {
   const it = paleta.items[i];
-  /** @type {HTMLDialogElement} */ ($('dlg-buscar')).close();
+  ($('dlg-buscar') as HTMLDialogElement).close();
   it?.hacer();
 }
 
@@ -2387,15 +2391,15 @@ inp('pc-entrada').addEventListener('keydown', (e) => {
   }
 });
 $('pc-lista').addEventListener('click', (e) => {
-  const li = /** @type {HTMLElement} */ (e.target).closest('li[data-i]');
-  if (li) ejecutarPaleta(Number(/** @type {HTMLElement} */ (li).dataset.i));
+  const li = (e.target as HTMLElement).closest('li[data-i]');
+  if (li) ejecutarPaleta(Number((li as HTMLElement).dataset.i));
 });
 $('dlg-buscar').addEventListener('click', (e) => {
-  if (e.target === e.currentTarget) /** @type {HTMLDialogElement} */ ($('dlg-buscar')).close(); // click en el fondo
+  if (e.target === e.currentTarget) ($('dlg-buscar') as HTMLDialogElement).close(); // click en el fondo
 });
 $('buscar-todo').onclick = () => abrirPaleta();
-$('act-ajustes').onclick = () => /** @type {HTMLDialogElement} */ ($('dlg-acerca')).showModal();
-$('bienvenida-acerca').onclick = () => /** @type {HTMLDialogElement} */ ($('dlg-acerca')).showModal();
+$('act-ajustes').onclick = () => ($('dlg-acerca') as HTMLDialogElement).showModal();
+$('bienvenida-acerca').onclick = () => ($('dlg-acerca') as HTMLDialogElement).showModal();
 $('bienvenida-importar').onclick = abrirImportador;
 
 // --- Paneles redimensionables -----------------------------------------------
@@ -2424,8 +2428,8 @@ function iniciarRedimension() {
   }
 
   for (const handle of document.querySelectorAll('[data-resize]')) {
-    const el = /** @type {HTMLElement} */ (handle);
-    const tipo = /** @type {keyof typeof LIMITES_REDIMENSION} */ (el.dataset.resize);
+    const el = (handle as HTMLElement);
+    const tipo = (el.dataset.resize as keyof typeof LIMITES_REDIMENSION);
     const cfg = LIMITES_REDIMENSION[tipo];
     const horizontal = tipo !== 'consola';
     // La consola y el panel derecho crecen hacia el lado contrario al que se arrastra.
@@ -2434,7 +2438,7 @@ function iniciarRedimension() {
     el.addEventListener('mousedown', (e) => {
       e.preventDefault();
       const inicioPos = horizontal ? e.clientX : e.clientY;
-      const panel = /** @type {HTMLElement} */ (document.querySelector(cfg.selector));
+      const panel = (document.querySelector<HTMLElement>(cfg.selector) as HTMLElement);
       const valorInicial = panel.getBoundingClientRect()[cfg.prop];
       el.classList.add('arrastrando');
       document.body.style.userSelect = 'none';

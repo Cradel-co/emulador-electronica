@@ -8,10 +8,11 @@
     "noImplicitAny": false,
     "strictNullChecks": false,
     "noUncheckedIndexedAccess": false,
-    "noEmit": true,
-    "allowJs": true,
-    "checkJs": true,
+    "forceConsistentCasingInFileNames": true,
+    "sourceMap": true,
+    "rootDir": ".",
+    "outDir": "dist",
     "types": []
   },
-  "include": ["*.js"]
+  "include": ["*.ts"]
 }
