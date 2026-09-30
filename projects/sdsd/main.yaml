@@ -1,0 +1,36 @@
+esphome:
+  name: sdsd
+  friendly_name: sdsd
+
+esp32:
+  board: esp32-s3-devkitc-1
+  framework:
+    type: esp-idf
+
+logger:
+
+# --- salida: LED en GPIO7 (E3) --------------------------------------------
+output:
+  - platform: gpio
+    id: led
+    pin: GPIO7
+
+# --- entrada: botón en GPIO6 (E2), con pull-up ----------------------------
+binary_sensor:
+  - platform: gpio
+    id: boton
+    name: Boton
+    pin:
+      number: GPIO6
+      mode:
+        input: true
+        pullup: true
+    filters:
+      - delayed_on: 0s
+      - delayed_off: 0s
+    on_press:
+      - logger.log: "Boton presionado"
+      - output.turn_on: led
+    on_release:
+      - logger.log: "Boton suelto"
+      - output.turn_off: led

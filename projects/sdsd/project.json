@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "name": "sdsd",
+  "board": "esp32-s3-devkitc-1",
+  "language": "esphome",
+  "modules": [],
+  "wires": [],
+  "sim": {
+    "wifiSsid": "sim-wifi",
+    "wifiPassword": "sim-password"
+  }
+}

@@ -1,0 +1,477 @@
+{
+  "type": "arduino-uno",
+  "name": "Arduino Uno R3",
+  "category": "Placas",
+  "programmable": true,
+  "description": "Arduino Uno R3 (ATmega328P a 16 MHz, lógica de 5 V). Se programa en Arduino (C++) y se emula ciclo a ciclo con avr8js.",
+  "width": 378,
+  "height": 294,
+  "pins": [
+    {
+      "name": "D0",
+      "x": 364.0,
+      "y": 0,
+      "kind": "digital-io"
+    },
+    {
+      "name": "D1",
+      "x": 350.0,
+      "y": 0,
+      "kind": "digital-io"
+    },
+    {
+      "name": "D2",
+      "x": 336.0,
+      "y": 0,
+      "kind": "digital-io"
+    },
+    {
+      "name": "D3",
+      "x": 322.0,
+      "y": 0,
+      "kind": "digital-io"
+    },
+    {
+      "name": "D4",
+      "x": 308.0,
+      "y": 0,
+      "kind": "digital-io"
+    },
+    {
+      "name": "D5",
+      "x": 294.0,
+      "y": 0,
+      "kind": "digital-io"
+    },
+    {
+      "name": "D6",
+      "x": 280.0,
+      "y": 0,
+      "kind": "digital-io"
+    },
+    {
+      "name": "D7",
+      "x": 266.0,
+      "y": 0,
+      "kind": "digital-io"
+    },
+    {
+      "name": "D8",
+      "x": 243.6,
+      "y": 0,
+      "kind": "digital-io"
+    },
+    {
+      "name": "D9",
+      "x": 229.6,
+      "y": 0,
+      "kind": "digital-io"
+    },
+    {
+      "name": "D10",
+      "x": 215.6,
+      "y": 0,
+      "kind": "digital-io"
+    },
+    {
+      "name": "D11",
+      "x": 201.6,
+      "y": 0,
+      "kind": "digital-io"
+    },
+    {
+      "name": "D12",
+      "x": 187.6,
+      "y": 0,
+      "kind": "digital-io"
+    },
+    {
+      "name": "D13",
+      "x": 173.6,
+      "y": 0,
+      "kind": "digital-io"
+    },
+    {
+      "name": "A0",
+      "x": 266.0,
+      "y": 294,
+      "kind": "digital-io"
+    },
+    {
+      "name": "A1",
+      "x": 280.0,
+      "y": 294,
+      "kind": "digital-io"
+    },
+    {
+      "name": "A2",
+      "x": 294.0,
+      "y": 294,
+      "kind": "digital-io"
+    },
+    {
+      "name": "A3",
+      "x": 308.0,
+      "y": 294,
+      "kind": "digital-io"
+    },
+    {
+      "name": "A4",
+      "x": 322.0,
+      "y": 294,
+      "kind": "digital-io"
+    },
+    {
+      "name": "A5",
+      "x": 336.0,
+      "y": 294,
+      "kind": "digital-io"
+    },
+    {
+      "name": "SCL",
+      "x": 117.6,
+      "y": 0,
+      "kind": "digital-io"
+    },
+    {
+      "name": "SDA",
+      "x": 131.6,
+      "y": 0,
+      "kind": "digital-io"
+    },
+    {
+      "name": "AREF",
+      "x": 145.6,
+      "y": 0,
+      "kind": "other"
+    },
+    {
+      "name": "GND",
+      "x": 159.6,
+      "y": 0,
+      "kind": "ground"
+    },
+    {
+      "name": "IOREF",
+      "x": 154.0,
+      "y": 294,
+      "kind": "power"
+    },
+    {
+      "name": "RESET",
+      "x": 168.0,
+      "y": 294,
+      "kind": "other"
+    },
+    {
+      "name": "3V3",
+      "x": 182.0,
+      "y": 294,
+      "kind": "power"
+    },
+    {
+      "name": "5V",
+      "x": 196.0,
+      "y": 294,
+      "kind": "power"
+    },
+    {
+      "name": "GND_2",
+      "x": 210.0,
+      "y": 294,
+      "kind": "ground"
+    },
+    {
+      "name": "GND_3",
+      "x": 224.0,
+      "y": 294,
+      "kind": "ground"
+    },
+    {
+      "name": "VIN",
+      "x": 238.0,
+      "y": 294,
+      "kind": "power"
+    }
+  ],
+  "controls": [],
+  "props": {},
+  "svg": "module.svg",
+  "board": {
+    "chip": "atmega328p",
+    "chipName": "ATmega328P",
+    "family": "avr",
+    "backend": {
+      "engine": "avr8js",
+      "options": {
+        "mcu": "atmega328p",
+        "clockHz": 16000000
+      }
+    },
+    "logicVoltage": 5,
+    "maxPinCurrentMa": 40,
+    "recommendedPinCurrentMa": 20,
+    "pinOutputOhm": 25,
+    "supplyOutputOhm": 0.5,
+    "pins": {
+      "D0": {
+        "gpio": 0,
+        "port": "D",
+        "bit": 0,
+        "caps": [
+          "digital-in",
+          "digital-out",
+          "uart"
+        ]
+      },
+      "D1": {
+        "gpio": 1,
+        "port": "D",
+        "bit": 1,
+        "caps": [
+          "digital-in",
+          "digital-out",
+          "uart"
+        ]
+      },
+      "D2": {
+        "gpio": 2,
+        "port": "D",
+        "bit": 2,
+        "caps": [
+          "digital-in",
+          "digital-out"
+        ]
+      },
+      "D3": {
+        "gpio": 3,
+        "port": "D",
+        "bit": 3,
+        "caps": [
+          "digital-in",
+          "digital-out",
+          "pwm"
+        ]
+      },
+      "D4": {
+        "gpio": 4,
+        "port": "D",
+        "bit": 4,
+        "caps": [
+          "digital-in",
+          "digital-out"
+        ]
+      },
+      "D5": {
+        "gpio": 5,
+        "port": "D",
+        "bit": 5,
+        "caps": [
+          "digital-in",
+          "digital-out",
+          "pwm"
+        ]
+      },
+      "D6": {
+        "gpio": 6,
+        "port": "D",
+        "bit": 6,
+        "caps": [
+          "digital-in",
+          "digital-out",
+          "pwm"
+        ]
+      },
+      "D7": {
+        "gpio": 7,
+        "port": "D",
+        "bit": 7,
+        "caps": [
+          "digital-in",
+          "digital-out"
+        ]
+      },
+      "D8": {
+        "gpio": 8,
+        "port": "B",
+        "bit": 0,
+        "caps": [
+          "digital-in",
+          "digital-out"
+        ]
+      },
+      "D9": {
+        "gpio": 9,
+        "port": "B",
+        "bit": 1,
+        "caps": [
+          "digital-in",
+          "digital-out",
+          "pwm"
+        ]
+      },
+      "D10": {
+        "gpio": 10,
+        "port": "B",
+        "bit": 2,
+        "caps": [
+          "digital-in",
+          "digital-out",
+          "pwm",
+          "spi"
+        ]
+      },
+      "D11": {
+        "gpio": 11,
+        "port": "B",
+        "bit": 3,
+        "caps": [
+          "digital-in",
+          "digital-out",
+          "pwm",
+          "spi"
+        ]
+      },
+      "D12": {
+        "gpio": 12,
+        "port": "B",
+        "bit": 4,
+        "caps": [
+          "digital-in",
+          "digital-out",
+          "spi"
+        ]
+      },
+      "D13": {
+        "gpio": 13,
+        "port": "B",
+        "bit": 5,
+        "caps": [
+          "digital-in",
+          "digital-out",
+          "spi"
+        ]
+      },
+      "A0": {
+        "gpio": 14,
+        "port": "C",
+        "bit": 0,
+        "caps": [
+          "digital-in",
+          "digital-out",
+          "adc"
+        ]
+      },
+      "A1": {
+        "gpio": 15,
+        "port": "C",
+        "bit": 1,
+        "caps": [
+          "digital-in",
+          "digital-out",
+          "adc"
+        ]
+      },
+      "A2": {
+        "gpio": 16,
+        "port": "C",
+        "bit": 2,
+        "caps": [
+          "digital-in",
+          "digital-out",
+          "adc"
+        ]
+      },
+      "A3": {
+        "gpio": 17,
+        "port": "C",
+        "bit": 3,
+        "caps": [
+          "digital-in",
+          "digital-out",
+          "adc"
+        ]
+      },
+      "A4": {
+        "gpio": 18,
+        "port": "C",
+        "bit": 4,
+        "caps": [
+          "digital-in",
+          "digital-out",
+          "adc",
+          "i2c"
+        ]
+      },
+      "A5": {
+        "gpio": 19,
+        "port": "C",
+        "bit": 5,
+        "caps": [
+          "digital-in",
+          "digital-out",
+          "adc",
+          "i2c"
+        ]
+      },
+      "SDA": {
+        "gpio": 18,
+        "port": "C",
+        "bit": 4,
+        "caps": [
+          "digital-in",
+          "digital-out",
+          "adc",
+          "i2c"
+        ]
+      },
+      "SCL": {
+        "gpio": 19,
+        "port": "C",
+        "bit": 5,
+        "caps": [
+          "digital-in",
+          "digital-out",
+          "adc",
+          "i2c"
+        ]
+      }
+    },
+    "reservedPins": {},
+    "warningPins": {
+      "0": "es el RX del Serial (USB): si usás Serial, no lo uses para otra cosa",
+      "1": "es el TX del Serial (USB): si usás Serial, no lo uses para otra cosa",
+      "13": "tiene el LED \"L\" de la placa conectado"
+    },
+    "io": {
+      "mode": "native"
+    },
+    "console": {
+      "uart": 0,
+      "tx": 1,
+      "rx": 0,
+      "baud": 9600
+    },
+    "features": [],
+    "languages": {
+      "arduino": {
+        "toolchain": "arduino-cli",
+        "options": {
+          "fqbn": "arduino:avr:uno"
+        }
+      }
+    },
+    "demo": {
+      "input": "D2",
+      "output": "D13",
+      "ground": "GND",
+      "resistorOhms": 220
+    },
+    "notes": [
+      "Emulado con avr8js (el núcleo AVR de Wokwi), ciclo a ciclo a 16 MHz.",
+      "Las entradas llegan al pad real del chip: digitalRead, interrupciones y pull-ups se comportan como en la placa.",
+      "Periféricos emulados: GPIO, Serial (USART0), timers 0/1/2 (millis, delay, PWM), ADC (lee 0 V) y EEPROM.",
+      "Todavía sin I2C/SPI hacia módulos del dibujo ni RF 433; solo las librerías que trae el core arduino:avr."
+    ]
+  }
+}

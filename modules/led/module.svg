@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 50 74">
+  <line x1="16" y1="52" x2="16" y2="74" stroke="#aab4be" stroke-width="2"/>
+  <line x1="34" y1="52" x2="34" y2="74" stroke="#aab4be" stroke-width="2"/>
+  <circle data-si="on" cx="25" cy="26" r="26" fill="{{vars.claro}}" opacity="0.25" class="brillo"/>
+  <path data-si="on" d="M10 48 V24 A15 15 0 0 1 40 24 V48 Z" fill="{{vars.claro}}" stroke="{{vars.claro}}" stroke-width="1.2"/>
+  <path data-si="!on" d="M10 48 V24 A15 15 0 0 1 40 24 V48 Z" fill="{{vars.oscuro}}" stroke="#6b7785" stroke-width="1.2" opacity="0.9"/>
+  <path d="M16 22 A9 9 0 0 1 24 14" stroke="#ffffff" stroke-opacity="0.5" stroke-width="2" fill="none"/>
+  <rect data-si="on" x="6" y="46" width="38" height="6" rx="1.5" fill="{{vars.claro}}" stroke="#6b7785"/>
+  <rect data-si="!on" x="6" y="46" width="38" height="6" rx="1.5" fill="{{vars.oscuro}}" stroke="#6b7785"/>
+</svg>

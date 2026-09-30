@@ -1,0 +1,327 @@
+import { promises as fs } from 'node:fs';
+import { Worker } from 'node:worker_threads';
+import type { EmulatorState } from '@emu/shared';
+import type { BuildArtifacts } from './buildService.js';
+import type { EmulatorEvents, EmulatorStatus } from './emulator.js';
+import type { Emulador, OpcionesArranque, PuenteSim } from './emulatorBackend.js';
+import { AvrSimulador, PINES_UNO, RelojAvr, type PinMcu } from './avrSim.js';
+import type { MensajeAlWorker, MensajeDelWorker } from './avrWorker.js';
+import { ControlDepuracionAvr, type EventoAvr, type PedidoAvr, type RespuestaAvr } from './debug/avrControl.js';
+
+/** Largo máximo de una línea del Serial antes de cortarla (un sketch sin println). */
+const MAX_LINEA = 1024;
+/**
+ * Una línea sin "\n" se muestra igual cuando lleva 200 ms de tiempo SIMULADO sin
+ * terminarse (aviso 'flush' del núcleo: AvrSimulador.lineaVencida). Esto es solo el
+ * respaldo por reloj de pared, holgado: con la PC cargada el Arduino va más lento que el
+ * tiempo real y cortar por reloj de pared partía líneas ("H" / "ola...").
+ */
+const FLUSH_MS = 10_000;
+
+/**
+ * Motor de emulación del Arduino Uno (ATmega328P) con avr8js. Tiene la misma cara
+ * que EmulatorManager (esp-emu), así index.ts no distingue: arranca, para, resetea,
+ * manda el Serial como `emu.log` y los pines como mensajes del puente (`@OUT`).
+ *
+ * No hay puente dentro del firmware: el emulador ve los registros del chip, así que
+ * "el puente" está listo apenas arranca la CPU y las entradas van directo al pad.
+ *
+ * Modo 'worker' (el normal): la CPU corre en un worker_thread. Modo 'local': en el
+ * mismo hilo, por tramos (para pruebas, o si un worker no se puede crear).
+ */
+export class AvrEmulator implements Emulador {
+  private status: EmulatorStatus = AvrEmulator.emptyStatus();
+  private lineas: string[] = [];
+  private linea = '';
+  private flushTimer: NodeJS.Timeout | null = null;
+  private worker: Worker | null = null;
+  private local: { sim: AvrSimulador; reloj: RelojAvr } | null = null;
+  private puente: PuenteSim | null = null;
+  private hex = '';
+  private frecuenciaHz = 16_000_000;
+  private pines: PinMcu[] = PINES_UNO;
+  private avisoLento = false;
+  private readonly decodificador = new TextDecoder('utf-8');
+  // Modo debug (debug/adaptadorAvr.ts): pedidos al control de depuración que vive junto a la CPU.
+  private readonly pedidosDepuracion = new Map<number, (r: RespuestaAvr) => void>();
+  private siguientePedido = 1;
+  private controlLocal: ControlDepuracionAvr | null = null;
+  /** Avisos del depurador (frenó en un breakpoint, siguió). */
+  oyenteDepuracion: ((e: EventoAvr) => void) | null = null;
+
+  constructor(
+    private readonly events: EmulatorEvents,
+    private readonly modo: 'worker' | 'local' = 'worker',
+  ) {}
+
+  private static emptyStatus(): EmulatorStatus {
+    return { state: 'stopped', running: false, pid: null, project: null, ports: null, ip: null, startedAt: null, exitInfo: null };
+  }
+
+  getStatus(): EmulatorStatus {
+    return { ...this.status };
+  }
+
+  getRecentLog(limit = 200): string[] {
+    return this.lineas.slice(-limit);
+  }
+
+  getBridge(): PuenteSim | null {
+    return this.puente;
+  }
+
+  markBridgeReady(): void {
+    this.setState('bridge');
+  }
+
+  async start(projectName: string, artifacts: BuildArtifacts, opts: OpcionesArranque = {}): Promise<EmulatorStatus> {
+    if (this.status.running) await this.stop();
+    this.hex = await fs.readFile(artifacts.firmware, 'utf8');
+    this.frecuenciaHz = opts.frecuenciaHz ?? 16_000_000;
+    this.pines = opts.pinesMcu ?? PINES_UNO;
+    this.lineas = [];
+    this.linea = '';
+    this.avisoLento = false;
+    this.status = { ...AvrEmulator.emptyStatus(), state: 'starting', running: true, project: projectName, startedAt: Date.now() };
+    this.emitState();
+    this.log(`$ avr8js atmega328p @ ${this.frecuenciaHz / 1e6} MHz ${artifacts.firmware}`);
+
+    this.puente = {
+      watch: (pin) => this.mandar({ t: 'vigilar', pin }),
+      setInput: (pin, level) => this.mandar({ t: 'entrada', pin, nivel: level ? 1 : 0 }),
+      sendRf: () => this.log('[avr] RF 433 MHz todavía no se simula en el Arduino Uno.'),
+    };
+
+    if (this.modo === 'worker') {
+      try {
+        this.arrancarWorker();
+      } catch (err) {
+        this.log(`[avr] no se pudo crear el hilo del emulador (${(err as Error).message}): corre en el hilo principal.`);
+        this.arrancarLocal();
+      }
+    } else {
+      this.arrancarLocal();
+    }
+    return this.getStatus();
+  }
+
+  private arrancarWorker(): void {
+    const worker = new Worker(new URL('./avrWorker.mjs', import.meta.url));
+    this.worker = worker;
+    worker.on('message', (m: MensajeDelWorker) => {
+      if (this.worker === worker) this.recibir(m);
+    });
+    worker.on('error', (err) => {
+      if (this.worker !== worker) return;
+      this.log(`[avr] el emulador falló: ${err.message}`);
+      this.teardown(`falló: ${err.message}`, 'crashed');
+    });
+    worker.on('exit', (code) => {
+      if (this.worker !== worker) return;
+      this.log(`[emu] el emulador terminó (code=${code})`);
+      this.teardown(`terminó con código ${code}`);
+    });
+    worker.postMessage({ t: 'iniciar', hex: this.hex, frecuenciaHz: this.frecuenciaHz, pines: this.pines } satisfies MensajeAlWorker);
+  }
+
+  private arrancarLocal(): void {
+    try {
+      const sim = new AvrSimulador(this.hex, {
+        onSerial: (b) => this.serial([b]),
+        onPin: (pin, nivel) => this.recibir({ t: 'pin', pin, nivel }),
+      }, this.frecuenciaHz, this.pines);
+      this.controlLocal ??= new ControlDepuracionAvr(
+        { sim: () => this.local?.sim ?? null, reloj: () => this.local?.reloj ?? null },
+        (evento) => this.recibir({ t: 'depurar-evento', evento }),
+      );
+      const reloj = new RelojAvr(sim, () => {
+        if (sim.lineaVencida()) this.recibir({ t: 'flush' });
+        this.controlLocal?.alTerminarTramo();
+      });
+      this.local = { sim, reloj };
+      this.controlLocal.alCrearSim(sim);
+      reloj.arrancar();
+      this.recibir({ t: 'listo' });
+    } catch (err) {
+      this.log(`[avr] no se pudo cargar el firmware: ${(err as Error).message}`);
+      this.teardown((err as Error).message, 'crashed');
+    }
+  }
+
+  private mandar(m: MensajeAlWorker): void {
+    if (this.worker) {
+      this.worker.postMessage(m);
+      return;
+    }
+    const l = this.local;
+    if (!l) return;
+    switch (m.t) {
+      case 'entrada':
+        l.sim.ponerEntrada(m.pin, m.nivel);
+        break;
+      case 'vigilar':
+        l.sim.vigilar(m.pin);
+        break;
+      case 'serial':
+        l.sim.escribirSerial(m.datos);
+        break;
+      default:
+        break;
+    }
+  }
+
+  private recibir(m: MensajeDelWorker): void {
+    switch (m.t) {
+      case 'listo':
+        // Sin bootloader ni WiFi: la CPU arranca en el vector de reset y el sketch ya corre.
+        this.setState('booted');
+        this.events.onBridgeState(true);
+        // Mismo aviso que manda el puente de los ESP32: la UI habilita el modo "En vivo".
+        this.events.onBridgeMessage({ type: 'READY', version: 1, esphomeVersion: 'avr8js' });
+        break;
+      case 'serial':
+        this.serial(m.datos);
+        break;
+      case 'flush':
+        if (this.linea) this.emitirLinea(this.linea);
+        this.linea = '';
+        break;
+      case 'pin':
+        this.events.onBridgeMessage({ type: 'OUT', pin: m.pin, level: m.nivel });
+        break;
+      case 'velocidad':
+        if (m.valor < 0.8 && !this.avisoLento) {
+          this.avisoLento = true;
+          this.log(`[avr] la PC no llega a tiempo real: el Arduino corre al ${Math.round(m.valor * 100)} % de su velocidad.`);
+        }
+        break;
+      case 'error':
+        this.log(`[avr] error: ${m.mensaje}`);
+        break;
+      case 'depurar':
+        this.pedidosDepuracion.get(m.id)?.(m.respuesta);
+        this.pedidosDepuracion.delete(m.id);
+        break;
+      case 'depurar-evento':
+        this.oyenteDepuracion?.(m.evento);
+        break;
+    }
+  }
+
+  /** Pedido al control de depuración (memoria, registros, breakpoints, pausa, paso). */
+  depurar(pedido: PedidoAvr, timeoutMs = 3000): Promise<RespuestaAvr> {
+    if (!this.worker) {
+      return Promise.resolve(this.controlLocal && this.local ? this.controlLocal.atender(pedido) : { ok: false, error: 'el Arduino no está corriendo' });
+    }
+    const id = this.siguientePedido++;
+    const worker = this.worker;
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        this.pedidosDepuracion.delete(id);
+        resolve({ ok: false, error: 'el emulador no respondió al depurador' });
+      }, timeoutMs);
+      this.pedidosDepuracion.set(id, (r) => {
+        clearTimeout(timer);
+        resolve(r);
+      });
+      worker.postMessage({ t: 'depurar', id, pedido } satisfies MensajeAlWorker);
+    });
+  }
+
+  /** Bytes del Serial → líneas del log (como el monitor serie del IDE de Arduino). */
+  private serial(datos: number[]): void {
+    this.linea += this.decodificador.decode(Uint8Array.from(datos), { stream: true });
+    let i: number;
+    while ((i = this.linea.indexOf('\n')) !== -1) {
+      this.emitirLinea(this.linea.slice(0, i));
+      this.linea = this.linea.slice(i + 1);
+    }
+    if (this.linea.length > MAX_LINEA) {
+      this.emitirLinea(this.linea);
+      this.linea = '';
+    }
+    if (this.flushTimer) clearTimeout(this.flushTimer);
+    this.flushTimer = null;
+    if (this.linea) {
+      this.flushTimer = setTimeout(() => {
+        if (this.linea) this.emitirLinea(this.linea);
+        this.linea = '';
+      }, FLUSH_MS);
+      this.flushTimer.unref();
+    }
+  }
+
+  private emitirLinea(raw: string): void {
+    this.log(raw.replace(/\r$/, ''));
+  }
+
+  private log(line: string): void {
+    this.lineas.push(line);
+    if (this.lineas.length > 2000) this.lineas.shift();
+    this.events.onLog(line);
+  }
+
+  private setState(state: EmulatorState): void {
+    if (this.status.state === state) return;
+    this.status.state = state;
+    this.log(`[emu] estado: ${state}`);
+    this.emitState();
+  }
+
+  private emitState(): void {
+    this.events.onState(this.getStatus());
+  }
+
+  writeConsole(data: string): boolean {
+    if (!this.status.running) return false;
+    this.mandar({ t: 'serial', datos: [...Buffer.from(data, 'utf8')] });
+    return true;
+  }
+
+  /** Como apretar RESET en la placa: el sketch arranca de cero (las entradas siguen como estaban). */
+  async reset(): Promise<string> {
+    if (!this.status.running) throw new Error('El emulador no está corriendo');
+    this.log('[emu] reset');
+    if (this.worker) {
+      this.worker.postMessage({ t: 'reset' } satisfies MensajeAlWorker);
+    } else if (this.local) {
+      this.local.reloj.parar();
+      this.local = null;
+      this.arrancarLocal();
+    }
+    this.events.onBridgeMessage({ type: 'READY', version: 1, esphomeVersion: 'avr8js' });
+    return 'ok';
+  }
+
+  async stop(): Promise<void> {
+    if (!this.status.running && !this.worker && !this.local) return;
+    this.log('[emu] detenido por la app');
+    const worker = this.worker;
+    this.worker = null;
+    if (worker) {
+      worker.postMessage({ t: 'parar' } satisfies MensajeAlWorker);
+      await worker.terminate().catch(() => undefined);
+    }
+    this.teardown('parado');
+  }
+
+  private teardown(exitInfo: string, state: EmulatorState = 'stopped'): void {
+    this.local?.reloj.parar();
+    this.local = null;
+    this.worker?.terminate().catch(() => undefined);
+    this.worker = null;
+    this.puente = null;
+    for (const r of this.pedidosDepuracion.values()) r({ ok: false, error: 'el emulador se detuvo' });
+    this.pedidosDepuracion.clear();
+    if (this.flushTimer) clearTimeout(this.flushTimer);
+    this.flushTimer = null;
+    const estabaCorriendo = this.status.running;
+    this.status = { ...this.status, state, running: false, exitInfo };
+    this.emitState();
+    if (estabaCorriendo) this.events.onBridgeState(false);
+  }
+
+  async shutdown(): Promise<void> {
+    await this.stop();
+  }
+}

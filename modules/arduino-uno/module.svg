@@ -1,0 +1,122 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 378 294">
+  <!-- Arduino Uno R3: 68.6 × 53.3 mm, a 140 px por pulgada. Headers en su posición real
+       (con el corrimiento de 0.06" entre D7 y D8 que tiene la placa de verdad). -->
+  <path d="M6 0 H354 L368 14 V224.0 L378 238.0 V288 a6 6 0 0 1 -6 6 H6 a6 6 0 0 1 -6 -6 V6 a6 6 0 0 1 6 -6 Z" fill="#00797f" stroke="#005a5e" stroke-width="1.5"/>
+  <circle cx="77.0" cy="14.0" r="6" fill="#0b0f14" stroke="#c9cdd2" stroke-width="2"/>
+  <circle cx="364.0" cy="98.0" r="6" fill="#0b0f14" stroke="#c9cdd2" stroke-width="2"/>
+  <circle cx="364.0" cy="252.0" r="6" fill="#0b0f14" stroke="#c9cdd2" stroke-width="2"/>
+  <circle cx="84.0" cy="280.0" r="6" fill="#0b0f14" stroke="#c9cdd2" stroke-width="2"/>
+  <!-- USB-B y jack de alimentación, saliendo por el borde izquierdo -->
+  <rect x="-18" y="53.2" width="86.8" height="65.8" rx="2" fill="#b8bec6" stroke="#7d858f"/>
+  <rect x="-10" y="64.4" width="58.8" height="43.4" fill="#8d959e"/>
+  <text x="16.8" y="135.8" class="txt-micro">USB</text>
+  <rect x="-22" y="196.0" width="86.8" height="50.4" rx="3" fill="#161616" stroke="#000"/>
+  <circle cx="11.2" cy="221.2" r="7" fill="#2c2c2c"/>
+  <!-- botón de reset -->
+  <rect x="19.6" y="8.4" width="20" height="20" rx="2" fill="#c9cdd2" stroke="#7d858f"/>
+  <circle cx="29.6" cy="18.4" r="6" fill="#b3261e"/>
+  <text x="29.6" y="40.4" class="txt-micro" text-anchor="middle">RESET</text>
+  <!-- LEDs L / TX / RX y ON -->
+  <rect x="168.0" y="58.8" width="7" height="4" fill="#f2b705"/><text x="180.0" y="63.8" class="txt-micro">L</text>
+  <rect x="168.0" y="72.8" width="7" height="4" fill="#f2b705"/><text x="180.0" y="77.8" class="txt-micro">TX</text>
+  <rect x="168.0" y="86.8" width="7" height="4" fill="#f2b705"/><text x="180.0" y="91.8" class="txt-micro">RX</text>
+  <rect x="277.2" y="133.0" width="7" height="4" fill="#4caf50"/><text x="289.2" y="138.0" class="txt-micro">ON</text>
+  <!-- USB-serie ATmega16U2 y cristal de 16 MHz -->
+  <rect x="105.0" y="63.0" width="26" height="26" fill="#1b1b1b" transform="rotate(45 118.0 76.0)"/>
+  <rect x="133.0" y="142.8" width="30" height="12" rx="6" fill="#c9cdd2" stroke="#7d858f"/>
+  <text x="148.0" y="151.8" class="txt-micro oscuro" text-anchor="middle">16.000</text>
+  <!-- ICSP -->
+  <rect x="313.6" y="128.8" width="26" height="40" rx="1.5" fill="#1b1b1b"/>
+  <text x="326.6" y="178.8" class="txt-micro" text-anchor="middle">ICSP</text>
+  <!-- ATmega328P DIP-28 -->
+  <rect x="179.2" y="190.4" width="170.8" height="38" rx="2" fill="#1b1b1b" stroke="#000"/>
+  <rect x="185.2" y="186.4" width="4" height="4" fill="#c9cdd2"/><rect x="185.2" y="228.4" width="4" height="4" fill="#c9cdd2"/>
+  <rect x="197.4" y="186.4" width="4" height="4" fill="#c9cdd2"/><rect x="197.4" y="228.4" width="4" height="4" fill="#c9cdd2"/>
+  <rect x="209.6" y="186.4" width="4" height="4" fill="#c9cdd2"/><rect x="209.6" y="228.4" width="4" height="4" fill="#c9cdd2"/>
+  <rect x="221.8" y="186.4" width="4" height="4" fill="#c9cdd2"/><rect x="221.8" y="228.4" width="4" height="4" fill="#c9cdd2"/>
+  <rect x="234.1" y="186.4" width="4" height="4" fill="#c9cdd2"/><rect x="234.1" y="228.4" width="4" height="4" fill="#c9cdd2"/>
+  <rect x="246.3" y="186.4" width="4" height="4" fill="#c9cdd2"/><rect x="246.3" y="228.4" width="4" height="4" fill="#c9cdd2"/>
+  <rect x="258.5" y="186.4" width="4" height="4" fill="#c9cdd2"/><rect x="258.5" y="228.4" width="4" height="4" fill="#c9cdd2"/>
+  <rect x="270.7" y="186.4" width="4" height="4" fill="#c9cdd2"/><rect x="270.7" y="228.4" width="4" height="4" fill="#c9cdd2"/>
+  <rect x="282.9" y="186.4" width="4" height="4" fill="#c9cdd2"/><rect x="282.9" y="228.4" width="4" height="4" fill="#c9cdd2"/>
+  <rect x="295.1" y="186.4" width="4" height="4" fill="#c9cdd2"/><rect x="295.1" y="228.4" width="4" height="4" fill="#c9cdd2"/>
+  <rect x="307.4" y="186.4" width="4" height="4" fill="#c9cdd2"/><rect x="307.4" y="228.4" width="4" height="4" fill="#c9cdd2"/>
+  <rect x="319.6" y="186.4" width="4" height="4" fill="#c9cdd2"/><rect x="319.6" y="228.4" width="4" height="4" fill="#c9cdd2"/>
+  <rect x="331.8" y="186.4" width="4" height="4" fill="#c9cdd2"/><rect x="331.8" y="228.4" width="4" height="4" fill="#c9cdd2"/>
+  <rect x="344.0" y="186.4" width="4" height="4" fill="#c9cdd2"/><rect x="344.0" y="228.4" width="4" height="4" fill="#c9cdd2"/>
+  <path d="M179.2 204.4 a5 5 0 0 1 0 10" fill="#333"/>
+  <text x="264.6" y="213.4" class="txt-mini" text-anchor="middle">ATMEGA328P-PU</text>
+  <!-- rótulos -->
+  <text x="105.0" y="154.0" class="txt-chico" font-size="18">UNO</text>
+  <text x="105.0" y="170.8" class="txt-mini">ARDUINO</text>
+  <text x="240.8" y="53.2" class="txt-micro" text-anchor="middle">DIGITAL (PWM ~)</text>
+  <text x="196.0" y="246.4" class="txt-micro" text-anchor="middle">POWER</text>
+  <text x="301.0" y="246.4" class="txt-micro" text-anchor="middle">ANALOG IN</text>
+  <!-- headers -->
+  <rect x="110.6" y="2" width="140.0" height="14" rx="1.5" fill="#1b1b1b" stroke="#000"/>
+  <rect x="259.0" y="2" width="112.0" height="14" rx="1.5" fill="#1b1b1b" stroke="#000"/>
+  <rect x="133.0" y="278" width="112.0" height="14" rx="1.5" fill="#1b1b1b" stroke="#000"/>
+  <rect x="259.0" y="278" width="84.0" height="14" rx="1.5" fill="#1b1b1b" stroke="#000"/>
+  <rect x="115.1" y="4.5" width="5" height="5" fill="#000"/>
+  <rect x="129.1" y="4.5" width="5" height="5" fill="#000"/>
+  <rect x="143.1" y="4.5" width="5" height="5" fill="#000"/>
+  <rect x="157.1" y="4.5" width="5" height="5" fill="#000"/>
+  <rect x="171.1" y="4.5" width="5" height="5" fill="#000"/>
+  <rect x="185.1" y="4.5" width="5" height="5" fill="#000"/>
+  <rect x="199.1" y="4.5" width="5" height="5" fill="#000"/>
+  <rect x="213.1" y="4.5" width="5" height="5" fill="#000"/>
+  <rect x="227.1" y="4.5" width="5" height="5" fill="#000"/>
+  <rect x="241.1" y="4.5" width="5" height="5" fill="#000"/>
+  <rect x="263.5" y="4.5" width="5" height="5" fill="#000"/>
+  <rect x="277.5" y="4.5" width="5" height="5" fill="#000"/>
+  <rect x="291.5" y="4.5" width="5" height="5" fill="#000"/>
+  <rect x="305.5" y="4.5" width="5" height="5" fill="#000"/>
+  <rect x="319.5" y="4.5" width="5" height="5" fill="#000"/>
+  <rect x="333.5" y="4.5" width="5" height="5" fill="#000"/>
+  <rect x="347.5" y="4.5" width="5" height="5" fill="#000"/>
+  <rect x="361.5" y="4.5" width="5" height="5" fill="#000"/>
+  <rect x="151.5" y="284.5" width="5" height="5" fill="#000"/>
+  <rect x="165.5" y="284.5" width="5" height="5" fill="#000"/>
+  <rect x="179.5" y="284.5" width="5" height="5" fill="#000"/>
+  <rect x="193.5" y="284.5" width="5" height="5" fill="#000"/>
+  <rect x="207.5" y="284.5" width="5" height="5" fill="#000"/>
+  <rect x="221.5" y="284.5" width="5" height="5" fill="#000"/>
+  <rect x="235.5" y="284.5" width="5" height="5" fill="#000"/>
+  <rect x="263.5" y="284.5" width="5" height="5" fill="#000"/>
+  <rect x="277.5" y="284.5" width="5" height="5" fill="#000"/>
+  <rect x="291.5" y="284.5" width="5" height="5" fill="#000"/>
+  <rect x="305.5" y="284.5" width="5" height="5" fill="#000"/>
+  <rect x="319.5" y="284.5" width="5" height="5" fill="#000"/>
+  <rect x="333.5" y="284.5" width="5" height="5" fill="#000"/>
+  <text transform="translate(120.6 24) rotate(-90)" class="txt-pin" text-anchor="end">SCL</text>
+  <text transform="translate(134.6 24) rotate(-90)" class="txt-pin" text-anchor="end">SDA</text>
+  <text transform="translate(148.6 24) rotate(-90)" class="txt-pin" text-anchor="end">AREF</text>
+  <text transform="translate(162.6 24) rotate(-90)" class="txt-pin" text-anchor="end">GND</text>
+  <text transform="translate(176.6 24) rotate(-90)" class="txt-pin" text-anchor="end">13</text>
+  <text transform="translate(190.6 24) rotate(-90)" class="txt-pin" text-anchor="end">12</text>
+  <text transform="translate(204.6 24) rotate(-90)" class="txt-pin" text-anchor="end">~11</text>
+  <text transform="translate(218.6 24) rotate(-90)" class="txt-pin" text-anchor="end">~10</text>
+  <text transform="translate(232.6 24) rotate(-90)" class="txt-pin" text-anchor="end">~9</text>
+  <text transform="translate(246.6 24) rotate(-90)" class="txt-pin" text-anchor="end">8</text>
+  <text transform="translate(269.0 24) rotate(-90)" class="txt-pin" text-anchor="end">7</text>
+  <text transform="translate(283.0 24) rotate(-90)" class="txt-pin" text-anchor="end">~6</text>
+  <text transform="translate(297.0 24) rotate(-90)" class="txt-pin" text-anchor="end">~5</text>
+  <text transform="translate(311.0 24) rotate(-90)" class="txt-pin" text-anchor="end">4</text>
+  <text transform="translate(325.0 24) rotate(-90)" class="txt-pin" text-anchor="end">~3</text>
+  <text transform="translate(339.0 24) rotate(-90)" class="txt-pin" text-anchor="end">2</text>
+  <text transform="translate(353.0 24) rotate(-90)" class="txt-pin" text-anchor="end">TX▸1</text>
+  <text transform="translate(367.0 24) rotate(-90)" class="txt-pin" text-anchor="end">RX◂0</text>
+  <text transform="translate(157.0 270) rotate(-90)" class="txt-pin" text-anchor="start">IOREF</text>
+  <text transform="translate(171.0 270) rotate(-90)" class="txt-pin" text-anchor="start">RESET</text>
+  <text transform="translate(185.0 270) rotate(-90)" class="txt-pin" text-anchor="start">3V3</text>
+  <text transform="translate(199.0 270) rotate(-90)" class="txt-pin" text-anchor="start">5V</text>
+  <text transform="translate(213.0 270) rotate(-90)" class="txt-pin" text-anchor="start">GND</text>
+  <text transform="translate(227.0 270) rotate(-90)" class="txt-pin" text-anchor="start">GND</text>
+  <text transform="translate(241.0 270) rotate(-90)" class="txt-pin" text-anchor="start">VIN</text>
+  <text transform="translate(269.0 270) rotate(-90)" class="txt-pin" text-anchor="start">A0</text>
+  <text transform="translate(283.0 270) rotate(-90)" class="txt-pin" text-anchor="start">A1</text>
+  <text transform="translate(297.0 270) rotate(-90)" class="txt-pin" text-anchor="start">A2</text>
+  <text transform="translate(311.0 270) rotate(-90)" class="txt-pin" text-anchor="start">A3</text>
+  <text transform="translate(325.0 270) rotate(-90)" class="txt-pin" text-anchor="start">A4</text>
+  <text transform="translate(339.0 270) rotate(-90)" class="txt-pin" text-anchor="start">A5</text>
+</svg>

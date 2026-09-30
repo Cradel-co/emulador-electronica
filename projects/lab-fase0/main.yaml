@@ -1,0 +1,115 @@
+# Laboratorio Fase 0 — valida las estrategias de 7.2 con el puente real.
+#
+# No es parte de la app: los experimentos E1-E4 de la guía se corren contra
+# este firmware con un script de Node (app/tests/exp/fase0.ts).
+#
+#  GPIO6  botón      (entrada)  -> llega con @IN
+#  GPIO7  LED        (salida)   -> llega con @OUT
+#  GPIO4  DATA del RX (rf_rx)   -> se inyecta la forma de onda con @RF
+#  GPIO5  DATA del TX (rf_tx)   -> se captura con @TX
+#  GPIO17/18 UART1 del puente   (hostfwd por --uart1-tcp)
+
+esphome:
+  name: lab-fase0
+  on_boot:
+    priority: 800
+    then:
+      - script.execute: transmitir_de_prueba
+
+esp32:
+  board: esp32-s3-devkitc-1
+  framework:
+    type: esp-idf
+
+logger:
+  hardware_uart: UART0 # obligatorio en esp-emu (docs/esp-emulator.md)
+
+wifi:
+  ssid: sim-wifi
+  password: sim-password
+
+external_components:
+  # Montado por el comando de compilación: -v <repo>/firmware:/components:ro
+  - source:
+      type: local
+      path: /components
+
+uart:
+  - id: sim_bridge_uart
+    tx_pin: GPIO17
+    rx_pin: GPIO18
+    baud_rate: 115200
+
+sim_bridge:
+  id: puente
+  uart_id: sim_bridge_uart
+  poll_interval: 10ms
+  # Canales RMT: el transmisor del usuario usa el 0, el receptor el 4.
+  rf_tx_channel: 0
+  rf_rx_channel: 4
+  bridge_rf_tx_channel: 1
+  bridge_rf_rx_channel: 5
+  bridge_rf_rx_gpio: 5
+  rf_protocol: 1
+  rf_repeat: 5
+  verbose: true
+
+# --- salida: LED que alterna (E1) -----------------------------------------
+output:
+  - platform: gpio
+    id: lab_led
+    pin: GPIO7
+
+# --- entrada: botón (E2) ---------------------------------------------------
+binary_sensor:
+  - platform: template
+    id: lab_boton
+    name: "Boton"
+    lambda: |-
+      return id(puente)->input_state(6) == 0;
+    filters:
+      - delayed_on: 0s
+      - delayed_off: 0s
+    on_press:
+      - logger.log: "E2 boton PRESIONADO"
+      - output.turn_on: lab_led
+    on_release:
+      - logger.log: "E2 boton SUELTO"
+      - output.turn_off: lab_led
+
+# --- RF: transmisor y receptor reales (E3) --------------------------------
+remote_receiver:
+  id: lab_receptor
+  pin:
+    number: GPIO4
+    inverted: false
+  dump: all
+  tolerance: 50%
+  filter: 250us
+  idle: 4ms
+  buffer_size: 2kb
+  # Con 192 símbolos (el default) se come los 4 canales RX del S3 y el puente
+  # no puede capturar. 96 alcanza para una trama RCSwitch (24 bits + sync).
+  rmt_symbols: 96
+
+remote_transmitter:
+  id: lab_transmisor
+  pin: GPIO5
+  carrier_duty_percent: 100%
+  non_blocking: true
+
+script:
+  # E4 se mide esperando la trama: se repite cada 10 s para no perderla por
+  # timing (el reloj del emulador corre más rápido que el real).
+  - id: transmitir_de_prueba
+    mode: restart
+    then:
+      - delay: 8s
+      - remote_transmitter.transmit_rc_switch_raw:
+          code: "101100111000101001011010"
+          protocol: 1
+          repeat:
+            times: 3
+            wait_time: 10ms
+      - delay: 2s
+      - script.execute: transmitir_de_prueba

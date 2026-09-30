@@ -1,0 +1,35 @@
+{
+  "controls": [],
+  "props": {},
+  "type": "rxb6",
+  "name": "Receptor RF RXB6",
+  "category": "Radio 433 MHz",
+  "description": "Receptor de 433 MHz. Recibe los códigos del control remoto y del sensor de puerta y se los pasa al ESP32 por DATA.",
+  "width": 116,
+  "height": 54,
+  "pins": [
+    {
+      "name": "DATA",
+      "x": 30,
+      "y": 54,
+      "kind": "digital-out"
+    },
+    {
+      "name": "VCC",
+      "x": 58,
+      "y": 54,
+      "kind": "power"
+    },
+    {
+      "name": "GND",
+      "x": 86,
+      "y": 54,
+      "kind": "ground"
+    }
+  ],
+  "bridge": {
+    "role": "rf-rx",
+    "pin": "DATA"
+  },
+  "svg": "module.svg"
+}

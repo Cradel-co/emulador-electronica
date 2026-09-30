@@ -1,0 +1,34 @@
+{
+  "controls": [
+    {
+      "kind": "toggle",
+      "label": "Abrir/Cerrar"
+    }
+  ],
+  "props": {
+    "code": {
+      "type": "string",
+      "default": "101100111000101001011010",
+      "label": "Código"
+    },
+    "protocol": {
+      "type": "number",
+      "default": 1,
+      "label": "Protocolo",
+      "min": 1,
+      "max": 12
+    }
+  },
+  "type": "door-sensor-433",
+  "name": "Sensor de puerta 433",
+  "category": "Inalámbricos",
+  "description": "Sensor magnético inalámbrico. Al abrir la puerta manda su código por radio al receptor RXB6.",
+  "width": 96,
+  "height": 64,
+  "pins": [],
+  "bridge": {
+    "role": "air",
+    "pin": "-"
+  },
+  "svg": "module.svg"
+}

@@ -1,0 +1,42 @@
+{
+  "controls": [
+    {
+      "kind": "momentary",
+      "label": "Apretar"
+    }
+  ],
+  "props": {
+    "label": {
+      "type": "string",
+      "default": "Botón",
+      "label": "Nombre"
+    }
+  },
+  "type": "button",
+  "name": "Pulsador",
+  "category": "Entradas",
+  "description": "Botón momentáneo. Mientras lo apretás pone el pin a GND (pull-up: activo en 0).",
+  "width": 70,
+  "height": 64,
+  "pins": [
+    {
+      "name": "OUT",
+      "x": 22,
+      "y": 64,
+      "kind": "digital-out"
+    },
+    {
+      "name": "GND",
+      "x": 48,
+      "y": 64,
+      "kind": "ground"
+    }
+  ],
+  "bridge": {
+    "role": "input",
+    "pin": "OUT",
+    "activeLevel": 0,
+    "pull": "up"
+  },
+  "svg": "module.svg"
+}

@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "name": "prueba",
+  "board": "esp32-s3-devkitc-1",
+  "language": "micropython",
+  "modules": [
+    {
+      "id": "board",
+      "type": "esp32-s3-devkitc-1",
+      "x": 133,
+      "y": 22,
+      "props": {}
+    },
+    {
+      "id": "led1",
+      "type": "led",
+      "x": -500,
+      "y": 212,
+      "props": {
+        "color": "red"
+      }
+    },
+    {
+      "id": "sw1",
+      "type": "switch",
+      "x": -255,
+      "y": 108,
+      "props": {
+        "label": "Interruptor"
+      }
+    }
+  ],
+  "wires": [
+    {
+      "from": "led1.IN",
+      "to": "board.GPIO7"
+    },
+    {
+      "from": "sw1.OUT",
+      "to": "board.GPIO6"
+    },
+    {
+      "from": "sw1.GND",
+      "to": "board.GND"
+    },
+    {
+      "from": "led1.GND",
+      "to": "board.GND"
+    }
+  ],
+  "sim": {
+    "wifiSsid": "sim-wifi",
+    "wifiPassword": "sim-password"
+  }
+}

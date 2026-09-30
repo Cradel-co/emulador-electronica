@@ -1,0 +1,41 @@
+{
+  "controls": [],
+  "props": {
+    "label": {
+      "type": "string",
+      "default": "Relé",
+      "label": "Nombre"
+    }
+  },
+  "type": "relay",
+  "name": "Relé",
+  "category": "Salidas",
+  "description": "Módulo de relé: se cierra cuando el ESP32 pone su pin en 1.",
+  "width": 96,
+  "height": 70,
+  "pins": [
+    {
+      "name": "IN",
+      "x": 24,
+      "y": 70,
+      "kind": "digital-in"
+    },
+    {
+      "name": "VCC",
+      "x": 48,
+      "y": 70,
+      "kind": "power"
+    },
+    {
+      "name": "GND",
+      "x": 72,
+      "y": 70,
+      "kind": "ground"
+    }
+  ],
+  "bridge": {
+    "role": "output",
+    "pin": "IN"
+  },
+  "svg": "module.svg"
+}

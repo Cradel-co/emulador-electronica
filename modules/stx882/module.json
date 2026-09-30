@@ -1,0 +1,35 @@
+{
+  "controls": [],
+  "props": {},
+  "type": "stx882",
+  "name": "Transmisor RF STX882",
+  "category": "Radio 433 MHz",
+  "description": "Transmisor de 433 MHz. Lo que el ESP32 transmite por DATA llega a los módulos inalámbricos (sirena).",
+  "width": 96,
+  "height": 54,
+  "pins": [
+    {
+      "name": "DATA",
+      "x": 24,
+      "y": 54,
+      "kind": "digital-in"
+    },
+    {
+      "name": "VCC",
+      "x": 48,
+      "y": 54,
+      "kind": "power"
+    },
+    {
+      "name": "GND",
+      "x": 72,
+      "y": 54,
+      "kind": "ground"
+    }
+  ],
+  "bridge": {
+    "role": "rf-tx",
+    "pin": "DATA"
+  },
+  "svg": "module.svg"
+}

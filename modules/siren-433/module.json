@@ -1,0 +1,29 @@
+{
+  "controls": [],
+  "props": {
+    "learnedCode": {
+      "type": "string",
+      "default": "",
+      "label": "Código aprendido (vacío = cualquiera)"
+    },
+    "protocol": {
+      "type": "number",
+      "default": 1,
+      "label": "Protocolo",
+      "min": 1,
+      "max": 12
+    }
+  },
+  "type": "siren-433",
+  "name": "Sirena 433",
+  "category": "Inalámbricos",
+  "description": "Sirena inalámbrica. Suena cuando el transmisor STX882 manda su código aprendido.",
+  "width": 76,
+  "height": 76,
+  "pins": [],
+  "bridge": {
+    "role": "air",
+    "pin": "-"
+  },
+  "svg": "module.svg"
+}

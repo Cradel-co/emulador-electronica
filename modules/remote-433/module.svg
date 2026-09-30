@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 72 116">
+  <rect x="0" y="0" width="72" height="116" rx="30" fill="#20252c" stroke="#3d4a58" stroke-width="1.5"/>
+  <circle data-si="flash" cx="36" cy="22" r="4" fill="#ff4d3d" class="brilla"/>
+  <circle data-si="!flash" cx="36" cy="22" r="4" fill="#4a1c18"/>
+  <g data-ctrl="boton" data-indice="0">
+    <circle data-si="boton0" cx="22" cy="50" r="11" fill="#56c271" stroke="#566374"/>
+    <circle data-si="!boton0" cx="22" cy="50" r="11" fill="#3c4654" stroke="#566374"/>
+    <text x="22" y="54" class="txt-chico claro" text-anchor="middle">A</text>
+  </g>
+  <g data-ctrl="boton" data-indice="1">
+    <circle data-si="boton1" cx="50" cy="50" r="11" fill="#56c271" stroke="#566374"/>
+    <circle data-si="!boton1" cx="50" cy="50" r="11" fill="#3c4654" stroke="#566374"/>
+    <text x="50" y="54" class="txt-chico claro" text-anchor="middle">B</text>
+  </g>
+  <g data-ctrl="boton" data-indice="2">
+    <circle data-si="boton2" cx="22" cy="80" r="11" fill="#56c271" stroke="#566374"/>
+    <circle data-si="!boton2" cx="22" cy="80" r="11" fill="#3c4654" stroke="#566374"/>
+    <text x="22" y="84" class="txt-chico claro" text-anchor="middle">C</text>
+  </g>
+  <g data-ctrl="boton" data-indice="3">
+    <circle data-si="boton3" cx="50" cy="80" r="11" fill="#56c271" stroke="#566374"/>
+    <circle data-si="!boton3" cx="50" cy="80" r="11" fill="#3c4654" stroke="#566374"/>
+    <text x="50" y="84" class="txt-chico claro" text-anchor="middle">D</text>
+  </g>
+</svg>

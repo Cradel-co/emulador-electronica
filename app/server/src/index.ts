@@ -1,0 +1,867 @@
+import { promises as fs } from 'node:fs';
+import path from 'node:path';
+import Fastify from 'fastify';
+import { WebSocketServer, type WebSocket } from 'ws';
+import {
+  DEFAULT_BOARD,
+  lenguajesDe,
+  ClientEventSchema,
+  LanguageSchema,
+  ServerEventSchema,
+  type Language,
+  type Project,
+  type ServerEvent,
+} from '@emu/shared';
+import { PATHS } from './paths.js';
+import { ProjectStore, ProjectError } from './projectStore.js';
+import { BuildService, type BuildError as BuildErrorLike, type BuildResult } from './buildService.js';
+import { EmulatorManager, type EmulatorEvents } from './emulator.js';
+import type { Emulador } from './emulatorBackend.js';
+import { ENGINES } from './engines/index.js';
+import { TOOLCHAINS } from './toolchains/index.js';
+import { buscarPlaca, listarPlacas, nivelDeclarado, validarPlaca, type Placa } from './boardRegistry.js';
+import { esquemaJsonPlaca } from './boardSchema.js';
+import { certificar, leerCertificacion, type ReporteCertificacion } from './certificacion.js';
+import { invalidarCatalogo, loadCatalog, type ModuloCatalogo } from './catalog.js';
+import { ImportError, ModuleInstaller, importar, type OpcionesImportacion, type SolicitudImportacion } from './moduleImporter.js';
+import { crearServidorMcp, type McpContexto } from './mcp.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { scanPins, diffDiagramVsCode, type DiagramWarning } from './pinScan.js';
+import { conPlaca } from './diagramOps.js';
+import { analizarCircuito, type LedElectrico } from './circuitPhysics.js';
+import { Depurador } from './debug/depurador.js';
+import { registrarRutasDepuracion } from './debug/rutas.js';
+
+const PORT = Number(process.env.PORT ?? 5180);
+const HOST = '127.0.0.1'; // nunca 0.0.0.0 (sección 13)
+
+export interface ServerDeps {
+  store: ProjectStore;
+  builder: BuildService;
+  emulator: Emulador;
+}
+
+const logger = Fastify({ logger: false });
+
+const store = new ProjectStore();
+const builder = new BuildService();
+
+// --- Estado compartido ------------------------------------------------------
+
+let lastBuild: { project: string; result: BuildResult } | null = null;
+let runningProject: string | null = null;
+
+const clients = new Set<WebSocket>();
+
+/** Últimas líneas de compilación (para el MCP; las del emulador las guarda EmulatorManager). */
+const logCompilacion: string[] = [];
+/** Último nivel de salida reportado por el firmware para cada GPIO. */
+const niveles = new Map<number, 0 | 1>();
+const oyentesLog = new Set<(line: string) => void>();
+const oyentesEstado = new Set<(state: string) => void>();
+
+const instalador = new ModuleInstaller(PATHS.modules);
+
+function logBuild(line: string): void {
+  logCompilacion.push(line);
+  if (logCompilacion.length > 2000) logCompilacion.shift();
+  broadcast({ type: 'build.log', line });
+}
+
+/** Espera a que se cumpla algo que avisan los oyentes, con tiempo límite. */
+function esperar<T>(oyentes: Set<(x: T) => void>, cumple: (x: T) => boolean, timeoutMs: number): Promise<T | null> {
+  return new Promise((resolve) => {
+    const oyente = (x: T): void => {
+      if (!cumple(x)) return;
+      terminar(x);
+    };
+    const timer = setTimeout(() => terminar(null), timeoutMs);
+    function terminar(x: T | null): void {
+      clearTimeout(timer);
+      oyentes.delete(oyente);
+      resolve(x);
+    }
+    oyentes.add(oyente);
+  });
+}
+
+/** `line: null` del parser de build → `undefined` del esquema de eventos. */
+function eventErrors(errors: BuildErrorLike[]): { line?: number; file?: string; message: string }[] {
+  return errors.map((e) => ({
+    ...(e.line == null ? {} : { line: e.line }),
+    ...(e.file ? { file: e.file } : {}),
+    message: e.message,
+  }));
+}
+
+/** Log del servidor que además va a la consola del cliente. */
+function broadcastLog(line: string): void {
+  console.log(line);
+  const data = JSON.stringify({ type: 'emu.log', line } satisfies ServerEvent);
+  for (const ws of clients) if (ws.readyState === 1) ws.send(data);
+}
+
+function broadcast(msg: ServerEvent): void {
+  const parsed = ServerEventSchema.safeParse(msg);
+  if (!parsed.success) {
+    // Un evento mal formado no debe caer al cliente ni romper la sesión.
+    broadcastLog(`evento inválido: ${parsed.error.message}`);
+    return;
+  }
+  const data = JSON.stringify(parsed.data);
+  for (const ws of clients) {
+    if (ws.readyState === 1) ws.send(data);
+  }
+}
+
+// Un motor por familia de chip (registro de placas): esp-emu para los ESP32, avr8js
+// para el Arduino Uno. `emulator` es el que está en uso; runProject lo cambia según
+// la placa del proyecto. Los eventos son los mismos para los dos.
+const eventosEmulador: EmulatorEvents = {
+  onLog: (line) => {
+    broadcast({ type: 'emu.log', line });
+    for (const o of oyentesLog) o(line);
+    depurador.alLog(line);
+  },
+  onState: (status) => {
+    if (status.state === 'stopped' || status.state === 'starting') niveles.clear();
+    depurador.alEstado(status);
+    broadcast({ type: 'emu.state', state: status.state, status: { ...status, paused: depurador.pausado() } });
+    for (const o of oyentesEstado) o(status.state);
+  },
+  onBridgeState: (connected) => broadcast({ type: 'bridge.state', connected }),
+  onBridgeMessage: (msg) => {
+    depurador.alMensajePuente(msg);
+    switch (msg.type) {
+      case 'READY':
+        emulator.markBridgeReady();
+        broadcast({ type: 'bridge.ready', version: msg.version });
+        break;
+      case 'OUT':
+        niveles.set(msg.pin, msg.level);
+        broadcast({ type: 'pin.out', pin: msg.pin, level: msg.level });
+        break;
+      case 'TX':
+        broadcast({ type: 'rf.tx', bits: msg.bits, protocol: msg.protocol });
+        break;
+      case 'PONG':
+        broadcast({ type: 'bridge.pong', n: msg.n });
+        break;
+      case 'ERR':
+        broadcast({ type: 'bridge.error', code: msg.code, message: msg.message });
+        break;
+      default:
+        break;
+    }
+  },
+};
+
+/** Una instancia por motor (plugin de engines/), creada la primera vez que se usa. */
+const instancias = new Map<string, Emulador>();
+function emuladorDe(motor: string): Emulador {
+  let e = instancias.get(motor);
+  if (!e) {
+    const m = ENGINES[motor];
+    if (!m) throw new ProjectError(`El motor de emulación "${motor}" no existe en este server.`, 400);
+    if (!m.disponible) throw new ProjectError(`El motor de emulación "${motor}" todavía no está implementado.`, 400);
+    e = m.crear(eventosEmulador);
+    instancias.set(motor, e);
+  }
+  return e;
+}
+/** El motor en uso (el de la última placa que se ejecutó). Arranca con esp-emu, el de siempre. */
+let emulator: Emulador = emuladorDe('esp-emu');
+
+/** Modo debug (debug/, docs/depuracion.md): grabadora + instantánea + depurador por motor, siempre activo. */
+const depurador = new Depurador({
+  emitir: (e) => broadcast(e as ServerEvent),
+  emulador: () => emulator,
+  catalogo: loadCatalog,
+  leerProyecto: (n) => store.read(n),
+});
+
+export { store, builder, emulator };
+
+/**
+ * Placa tal como la ve la UI / el MCP: id, nombre, el descriptor completo (`board` del
+ * module.json: pines con su número lógico, reservados, advertencias, lenguajes...) y el
+ * nivel de soporte (declarado por sus datos y, si se certificó, el comprobado).
+ */
+async function placaParaUi(p: Placa) {
+  return {
+    id: p.id,
+    nombre: p.nombre,
+    descripcion: p.modulo.description ?? null,
+    deFabrica: p.modulo.builtin,
+    lenguajes: lenguajesDe(p.desc),
+    board: p.desc,
+    soporte: { declarado: nivelDeclarado(p.desc), certificado: await leerCertificacion(p.id) },
+  };
+}
+
+/** Certificaciones en curso, por placa (una a la vez por placa). */
+const certificando = new Map<string, Promise<ReporteCertificacion>>();
+
+function certificarPlaca(placa: Placa, lenguaje?: Language): Promise<ReporteCertificacion> {
+  const enCurso = certificando.get(placa.id);
+  if (enCurso) return enCurso;
+  const job = certificar(placa, { builder, lenguaje, onLine: logBuild }).finally(() => certificando.delete(placa.id));
+  certificando.set(placa.id, job);
+  return job;
+}
+
+/** Para la API: arranca y no espera (puede tardar minutos la primera vez). */
+function certificarEnFondo(placa: Placa, lenguaje?: Language): 'iniciada' | 'ya-en-curso' {
+  const ya = certificando.has(placa.id);
+  void certificarPlaca(placa, lenguaje).catch((err) => logBuild(`[certificar ${placa.id}] error: ${(err as Error).message}`));
+  return ya ? 'ya-en-curso' : 'iniciada';
+}
+
+/** Crea un proyecto: valida placa ↔ lenguaje y escribe la plantilla (la de la placa o la de su toolchain). */
+async function crearProyecto(nombre: string, lenguaje: Language, board = DEFAULT_BOARD): Promise<Project> {
+  const placa = await buscarPlaca(board);
+  if (!placa) {
+    const ids = (await listarPlacas()).map((p) => p.id).join(', ');
+    throw new ProjectError(`Placa desconocida: "${board}". Placas: ${ids}`, 400);
+  }
+  const destino = placa.desc.languages[lenguaje];
+  if (!destino) {
+    throw new ProjectError(
+      `${placa.nombre} no se puede programar en ${lenguaje}. Lenguajes de esta placa: ${lenguajesDe(placa.desc).join(', ')}.`,
+      400,
+    );
+  }
+  const propia = placa.desc.templates[lenguaje]?.files;
+  const archivos =
+    propia && Object.keys(propia).length > 0
+      ? propia
+      : (TOOLCHAINS[destino.toolchain]?.plantilla(lenguaje, placa, destino.options) ?? {});
+  return store.create(nombre, lenguaje, { id: placa.id, desc: placa.desc }, archivos);
+}
+
+// --- Utilidades -------------------------------------------------------------
+
+function fail(reply: { code: (n: number) => { send: (b: unknown) => void } }, err: unknown): void {
+  // ProjectError, ImportError y DiagramError traen su código HTTP.
+  const codigo = (err as { statusCode?: unknown })?.statusCode;
+  const status = err instanceof ProjectError ? err.statusCode : typeof codigo === 'number' ? codigo : 500;
+  const message = err instanceof Error ? err.message : String(err);
+  reply.code(status).send({ error: message });
+}
+
+async function requireProject(name: string) {
+  const project = await store.read(name);
+  return project;
+}
+
+// --- Rutas ------------------------------------------------------------------
+
+async function registerRoutes(): Promise<void> {
+  const app = logger;
+
+  app.addHook('onRequest', async (req, reply) => {
+    const origin = typeof req.headers.origin === 'string' ? req.headers.origin : undefined;
+    if (!origenPermitido(origin, req.headers.host)) {
+      return reply.code(403).send({ error: 'Origen no permitido' });
+    }
+  });
+
+  app.get('/api/health', async () => ({ ok: true, port: PORT }));
+
+  // Registro de placas: sale del catálogo (módulos programables con bloque `board`).
+  app.get('/api/boards', async () => ({
+    porDefecto: DEFAULT_BOARD,
+    motores: Object.values(ENGINES).map((m) => ({ nombre: m.nombre, descripcion: m.descripcion, disponible: m.disponible })),
+    toolchains: Object.values(TOOLCHAINS).map((t) => ({ nombre: t.nombre, descripcion: t.descripcion, disponible: t.disponible, lenguajes: t.lenguajes })),
+    boards: await Promise.all((await listarPlacas()).map(placaParaUi)),
+  }));
+
+  app.get('/api/boards/schema', async () => esquemaJsonPlaca());
+
+  // Valida un module.json de placa sin instalarlo (el importador instala; esto solo revisa).
+  app.post('/api/boards/validate', { bodyLimit: 5 * 1024 * 1024 }, async (req, reply) => {
+    const body = (req.body ?? {}) as { module?: unknown };
+    const r = validarPlaca(body.module ?? req.body);
+    reply.code(r.ok ? 200 : 400).send(r);
+  });
+
+  // Certificación: compila y emula la plantilla de la placa, y prueba botón → LED.
+  app.post('/api/boards/:id/certify', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const body = (req.body ?? {}) as { language?: string };
+    try {
+      const placa = await buscarPlaca(id);
+      if (!placa) {
+        reply.code(404).send({ error: `No hay una placa "${id}" en el catálogo` });
+        return;
+      }
+      const lenguaje = body.language ? (LanguageSchema.parse(body.language) as Language) : undefined;
+      const job = certificarEnFondo(placa, lenguaje);
+      reply.code(202).send({ started: true, estado: job });
+    } catch (err) {
+      fail(reply, err);
+    }
+  });
+
+  app.get('/api/boards/:id/certification', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const enCurso = certificando.get(id);
+    reply.send({ enCurso: Boolean(enCurso), ultimo: await leerCertificacion(id) });
+  });
+
+  app.get('/api/modules', async () => ({ modules: await loadCatalog() }));
+
+  // Importador de módulos (carpeta, zip, chip de Wokwi, URL / GitHub).
+  app.post('/api/modules/import', { bodyLimit: 25 * 1024 * 1024 }, async (req, reply) => {
+    const body = (req.body ?? {}) as Record<string, unknown> & OpcionesImportacion;
+    try {
+      const solicitud = solicitudDe(body);
+      const resultado = await importarModulos(solicitud, body);
+      reply.code(resultado.importados.length === 0 && resultado.errores.length > 0 ? 400 : 200).send(resultado);
+    } catch (err) {
+      fail(reply, err);
+    }
+  });
+
+  app.delete('/api/modules/:type', async (req, reply) => {
+    const { type } = req.params as { type: string };
+    try {
+      await quitarDelCatalogo(type);
+      reply.send({ ok: true });
+    } catch (err) {
+      fail(reply, err);
+    }
+  });
+
+  // MCP (Streamable HTTP, sin sesión): control completo de la app para agentes.
+  app.post('/mcp', { bodyLimit: 25 * 1024 * 1024 }, async (req, reply) => {
+    const server = crearServidorMcp(contextoMcp);
+    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
+    reply.hijack();
+    reply.raw.on('close', () => {
+      void transport.close();
+      void server.close();
+    });
+    try {
+      await server.connect(transport);
+      await transport.handleRequest(req.raw, reply.raw, req.body);
+    } catch (err) {
+      if (!reply.raw.headersSent) {
+        reply.raw.writeHead(500, { 'content-type': 'application/json' });
+        reply.raw.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32603, message: (err as Error).message }, id: null }));
+      }
+    }
+  });
+  // Sin sesiones no hay stream de notificaciones (GET) ni cierre de sesión (DELETE).
+  const sinSesion = async (_req: unknown, reply: { code: (n: number) => { send: (b: unknown) => void } }): Promise<void> => {
+    reply.code(405).send({ jsonrpc: '2.0', error: { code: -32000, message: 'Método no permitido (MCP sin sesión: usar POST)' }, id: null });
+  };
+  app.get('/mcp', sinSesion);
+  app.delete('/mcp', sinSesion);
+
+  app.get('/api/projects', async () => ({ projects: await store.list() }));
+
+  app.post('/api/projects', async (req, reply) => {
+    const body = (req.body ?? {}) as { name?: string; language?: string; board?: string };
+    try {
+      const language = LanguageSchema.parse(body.language) as Language;
+      const project = await crearProyecto(String(body.name ?? ''), language, body.board ?? DEFAULT_BOARD);
+      reply.code(201).send({ project });
+    } catch (err) {
+      fail(reply, err);
+    }
+  });
+
+  app.get('/api/projects/:name', async (req, reply) => {
+    const { name } = req.params as { name: string };
+    try {
+      const project = await requireProject(name);
+      const files = await store.listFiles(name, project.language);
+      const placa = await buscarPlaca(project.board);
+      reply.send({ project, files, placa: placa ? await placaParaUi(placa) : null });
+    } catch (err) {
+      fail(reply, err);
+    }
+  });
+
+  app.delete('/api/projects/:name', async (req, reply) => {
+    const { name } = req.params as { name: string };
+    try {
+      await store.delete(name);
+      reply.send({ ok: true });
+    } catch (err) {
+      fail(reply, err);
+    }
+  });
+
+  app.put('/api/projects/:name', async (req, reply) => {
+    const { name } = req.params as { name: string };
+    try {
+      const project = await requireProject(name);
+      const body = (req.body ?? {}) as Partial<Project>;
+      // La placa y el lenguaje se eligen al crear el proyecto: sus archivos (sdkconfig,
+      // CMake, plantilla) dependen de eso, y cambiarlos a mano dejaría un proyecto que no compila.
+      if (body.board !== undefined && body.board !== project.board) {
+        reply.code(400).send({ error: 'La placa se elige al crear el proyecto: creá uno nuevo para otra placa.' });
+        return;
+      }
+      if (body.language !== undefined && body.language !== project.language) {
+        reply.code(400).send({ error: 'El lenguaje se elige al crear el proyecto.' });
+        return;
+      }
+      const updated = await store.save({ ...project, ...body });
+      reply.send({ project: updated });
+    } catch (err) {
+      fail(reply, err);
+    }
+  });
+
+  app.get('/api/projects/:name/files/*', async (req, reply) => {
+    const { name } = req.params as { name: string };
+    const file = (req.params as Record<string, string>)['*'] ?? '';
+    try {
+      const project = await requireProject(name);
+      const content = await store.readFile(name, file, project.language);
+      reply.send({ path: file, content });
+    } catch (err) {
+      fail(reply, err);
+    }
+  });
+
+  app.put('/api/projects/:name/files/*', async (req, reply) => {
+    const { name } = req.params as { name: string };
+    const file = (req.params as Record<string, string>)['*'] ?? '';
+    const body = (req.body ?? {}) as { content?: string };
+    try {
+      const project = await requireProject(name);
+      await store.writeFile(name, file, project.language, String(body.content ?? ''));
+      broadcast({ type: 'project.changed', project: name, what: 'file', file, origin: clienteDe(req) });
+      reply.send({ ok: true, path: file });
+    } catch (err) {
+      fail(reply, err);
+    }
+  });
+
+  app.delete('/api/projects/:name/files/*', async (req, reply) => {
+    const { name } = req.params as { name: string };
+    const file = (req.params as Record<string, string>)['*'] ?? '';
+    try {
+      const project = await requireProject(name);
+      await store.deleteFile(name, file, project.language);
+      reply.send({ ok: true });
+    } catch (err) {
+      fail(reply, err);
+    }
+  });
+
+  app.put('/api/projects/:name/diagram', async (req, reply) => {
+    const { name } = req.params as { name: string };
+    try {
+      const project = await requireProject(name);
+      const body = (req.body ?? {}) as { modules?: unknown[]; wires?: unknown[] };
+      const updated = await store.save({
+        ...project,
+        modules: (body.modules ?? project.modules) as never,
+        wires: (body.wires ?? project.wires) as never,
+      });
+      broadcast({ type: 'project.changed', project: name, what: 'diagram', origin: clienteDe(req) });
+      reply.send({ project: updated });
+    } catch (err) {
+      fail(reply, err);
+    }
+  });
+
+  app.post('/api/projects/:name/build', async (req, reply) => {
+    const { name } = req.params as { name: string };
+    try {
+      const project = await requireProject(name);
+      if (builder.isBuilding(name)) {
+        reply.code(409).send({ error: 'Ya hay una compilación en curso para este proyecto.' });
+        return;
+      }
+      reply.send({ started: true });
+      void runBuild(project);
+    } catch (err) {
+      fail(reply, err);
+    }
+  });
+
+  app.post('/api/projects/:name/run', async (req, reply) => {
+    const { name } = req.params as { name: string };
+    try {
+      const project = await requireProject(name);
+      const body = (req.body ?? {}) as { forceBuild?: boolean };
+      reply.send({ started: true });
+      void runProject(project, body.forceBuild !== false);
+    } catch (err) {
+      fail(reply, err);
+    }
+  });
+
+  registrarRutasDepuracion(app, depurador);
+
+  app.get('/api/emulator', async () => ({
+    status: { ...emulator.getStatus(), paused: depurador.pausado() },
+    running: runningProject,
+    lastBuild,
+    recentLog: emulator.getRecentLog(120),
+  }));
+
+  app.post('/api/emulator/stop', async (req, reply) => {
+    await emulator.stop();
+    runningProject = null;
+    reply.send({ ok: true });
+  });
+
+  app.post('/api/emulator/reset', async (req, reply) => {
+    try {
+      const out = await emulator.reset();
+      reply.send({ ok: true, output: out });
+    } catch (err) {
+      fail(reply, err);
+    }
+  });
+
+  app.get('/api/projects/:name/pins', async (req, reply) => {
+    const { name } = req.params as { name: string };
+    try {
+      const project = await requireProject(name);
+      reply.send(await avisosDelProyecto(project));
+    } catch (err) {
+      fail(reply, err);
+    }
+  });
+
+  // Frontend estático (web/index.html)
+  await app.register(fastifyStatic, {
+    root: PATHS.web,
+    prefix: '/',
+    index: ['index.html'],
+    // Sirve solo dentro de web/: sin traversal.
+    list: false,
+  });
+}
+
+// --- Orquestación -----------------------------------------------------------
+
+async function runBuild(project: { name: string }): Promise<BuildResult> {
+  const full = await store.read(project.name);
+  broadcast({ type: 'build.start', project: full.name });
+  const result = await builder.build(full, { onLine: logBuild, onNotice: logBuild });
+  lastBuild = { project: full.name, result };
+  depurador.alCompilacion(full.name, result);
+  broadcast({
+    type: 'build.done',
+    ok: result.ok,
+    durationMs: result.durationMs,
+    errors: eventErrors(result.errors),
+  });
+  if (result.artifacts) {
+    broadcast({
+      type: 'build.artifacts',
+      firmware: path.basename(result.artifacts.firmware),
+      elf: result.artifacts.elf ? path.basename(result.artifacts.elf) : null,
+    });
+  }
+  return result;
+}
+
+async function runProject(project: { name: string }, forceBuild: boolean): Promise<{ ok: boolean; errors: BuildErrorLike[] }> {
+  const full = await store.read(project.name);
+  if (builder.isBuilding(full.name)) {
+    logBuild('Ya se está compilando; se espera a que termine.');
+  }
+  let artifacts = lastBuild?.project === full.name && !forceBuild ? lastBuild.result.artifacts : null;
+  if (!artifacts) {
+    logBuild('Compilando antes de arrancar…');
+    const result = await builder.build(full, { onLine: logBuild, onNotice: logBuild });
+    lastBuild = { project: full.name, result };
+    depurador.alCompilacion(full.name, result);
+    broadcast({ type: 'build.done', ok: result.ok, durationMs: result.durationMs, errors: eventErrors(result.errors) });
+    if (!result.ok || !result.artifacts) return { ok: false, errors: result.errors };
+    artifacts = result.artifacts;
+  }
+  // El motor sale de la placa (`board.backend` del module.json): esp-emu, avr8js...
+  const placa = await buscarPlaca(full.board);
+  if (!placa) {
+    logBuild(`[error] la placa "${full.board}" no está en el catálogo`);
+    return { ok: false, errors: [{ line: null, file: null, message: `La placa "${full.board}" no está en el catálogo.` }] };
+  }
+  const motor = ENGINES[placa.desc.backend.engine];
+  let siguiente: Emulador;
+  try {
+    siguiente = emuladorDe(placa.desc.backend.engine);
+  } catch (err) {
+    logBuild(`[error] ${(err as Error).message}`);
+    return { ok: false, errors: [{ line: null, file: null, message: (err as Error).message }] };
+  }
+  if (siguiente !== emulator && emulator.getStatus().running) await emulator.stop();
+  emulator = siguiente;
+  runningProject = full.name;
+  depurador.alIniciarCorrida({ proyecto: full.name, placa: full.board, lenguaje: full.language, motor: placa.desc.backend.engine, artefactos: artifacts });
+  await emulator.start(full.name, artifacts, motor!.opcionesArranque(placa.desc, artifacts));
+  void depurador.alArrancado();
+
+  if (artifacts.repl && emulator instanceof EmulatorManager) {
+    // Sin esto, el chip arranca a un REPL vacío: nada ejecuta el código del usuario (8.8).
+    logBuild('Subiendo el código por el REPL…');
+    const delProyecto = await Promise.all(
+      artifacts.repl.delProyecto.map(async (ruta) => ({
+        path: ruta,
+        content: await store.readFile(full.name, ruta, full.language).catch(() => ''),
+      })),
+    );
+    const subida = await emulator.uploadMicroPython([...artifacts.repl.generados, ...delProyecto]);
+    logBuild(subida.ok ? `Código subido (${subida.output}).` : `[error] no se pudo subir el código: ${subida.output}`);
+  }
+
+  // Al arrancar se vigilan los pines que usa el código, así la UI muestra los
+  // LED/salidas sin que el usuario tenga que seleccionarlos uno por uno.
+  const pins = await pinsDeCodigo(full).catch(() => []);
+  for (const pin of pins) emulator.getBridge()?.watch(pin);
+  return { ok: true, errors: [] };
+}
+
+/** Todos los pines que el código del proyecto usa (archivos de código). */
+async function pinsDeCodigo(project: { name: string; language: Language; board: string }): Promise<number[]> {
+  const files = await store.listFiles(project.name, project.language);
+  const desc = (await buscarPlaca(project.board))?.desc;
+  const pines = new Set<number>();
+  for (const f of files) {
+    const content = await store.readFile(project.name, f.path, project.language).catch(() => '');
+    for (const pin of scanPins(project.language, content, desc)) pines.add(pin);
+  }
+  return [...pines].sort((a, b) => a - b);
+}
+
+/** Avisos de circuito ↔ código (11.6) + Ley de Ohm (cortocircuitos, sobrecorriente): lo que ve la UI y el MCP. */
+async function avisosDelProyecto(
+  project: Project,
+): Promise<{ pins: number[]; warnings: DiagramWarning[]; electrico: { leds: LedElectrico[] } }> {
+  const pins = await pinsDeCodigo(project);
+  const catalogo = await loadCatalog();
+  const buscar = (t: string): ModuloCatalogo | undefined => catalogo.find((m) => m.type === t);
+  const conLaPlaca = conPlaca(project);
+  const electricos = analizarCircuito(conLaPlaca, buscar, niveles).avisos;
+  // Estado de cada LED con su pin/fuente EN ALTO (peor caso, sin mirar la simulación):
+  // la UI lo usa para "quemar" el LED cuando la simulación lo prende.
+  const { leds } = analizarCircuito(conLaPlaca, buscar);
+  return {
+    pins,
+    electrico: { leds },
+    warnings: [
+      ...diffDiagramVsCode(project, pins, buscar(project.board)?.board),
+      ...electricos.map((a) => ({
+        kind: a.severidad === 'peligro' ? ('peligro-electrico' as const) : ('advertencia-electrica' as const),
+        pin: a.pin,
+        message: a.mensaje,
+      })),
+    ],
+  };
+}
+
+// --- Cambios que la UI tiene que ver en vivo -----------------------------------
+
+/** Id de la pestaña que hizo el cambio (header x-cliente), para que no se recargue a sí misma. */
+function clienteDe(req: { headers: Record<string, string | string[] | undefined> }): string | undefined {
+  const c = req.headers['x-cliente'];
+  return typeof c === 'string' && /^[\w-]{1,64}$/.test(c) ? c : undefined;
+}
+
+/** Lee el proyecto, aplica el cambio, lo guarda y avisa a la UI (origen: mcp). */
+async function cambiarDiagrama(nombre: string, cambio: (p: Project) => Project): Promise<Project> {
+  const actual = await store.read(nombre);
+  const guardado = await store.save(cambio(actual));
+  broadcast({ type: 'project.changed', project: nombre, what: 'diagram', origin: 'mcp' });
+  return guardado;
+}
+
+function solicitudDe(body: Record<string, unknown>): SolicitudImportacion {
+  switch (body.fuente) {
+    case 'archivos':
+      if (!body.archivos || typeof body.archivos !== 'object') throw new ImportError('faltan los archivos');
+      return { fuente: 'archivos', archivos: body.archivos as Record<string, string> };
+    case 'zip':
+      if (typeof body.base64 !== 'string') throw new ImportError('falta el zip (base64)');
+      return { fuente: 'zip', base64: body.base64 };
+    case 'wokwi':
+      if (typeof body.chipJson !== 'string') throw new ImportError('falta el .chip.json');
+      return { fuente: 'wokwi', chipJson: body.chipJson };
+    case 'url':
+      if (typeof body.url !== 'string') throw new ImportError('falta la URL');
+      return { fuente: 'url', url: body.url };
+    default:
+      throw new ImportError('fuente inválida: archivos, zip, wokwi o url');
+  }
+}
+
+async function importarModulos(solicitud: SolicitudImportacion, opciones: OpcionesImportacion) {
+  const resultado = await importar(solicitud, instalador, {
+    sobrescribir: Boolean(opciones.sobrescribir),
+    soloValidar: Boolean(opciones.soloValidar),
+    wokwi: opciones.wokwi,
+  });
+  if (resultado.importados.length > 0 && !opciones.soloValidar) {
+    invalidarCatalogo();
+    broadcast({ type: 'catalog.changed' });
+  }
+  return resultado;
+}
+
+async function quitarDelCatalogo(type: string): Promise<void> {
+  await instalador.quitar(type);
+  invalidarCatalogo();
+  broadcast({ type: 'catalog.changed' });
+}
+
+const contextoMcp: McpContexto = {
+  store,
+  crearProyecto,
+  async placas() {
+    return Promise.all((await listarPlacas()).map(placaParaUi));
+  },
+  esquemaPlaca: esquemaJsonPlaca,
+  validarPlaca,
+  async certificarPlaca(id, lenguaje) {
+    const placa = await buscarPlaca(id);
+    if (!placa) throw new Error(`No hay una placa "${id}" en el catálogo (importala primero con importar_modulo).`);
+    return certificarPlaca(placa, lenguaje);
+  },
+  catalogo: loadCatalog,
+  cambiarDiagrama,
+  async escribirArchivo(nombre, ruta, contenido) {
+    const p = await store.read(nombre);
+    await store.writeFile(nombre, ruta, p.language, contenido);
+    broadcast({ type: 'project.changed', project: nombre, what: 'file', file: ruta, origin: 'mcp' });
+  },
+  pinesYAvisos: (nombre) => store.read(nombre).then(avisosDelProyecto),
+  compilar: (nombre) => runBuild({ name: nombre }),
+  ejecutar: (nombre, recompilar) => runProject({ name: nombre }, recompilar),
+  async parar() {
+    await emulator.stop();
+    runningProject = null;
+  },
+  resetear: () => emulator.reset(),
+  estadoEmulador: () => emulator.getStatus(),
+  proyectoCorriendo: () => (emulator.getStatus().running ? runningProject : null),
+  async esperarEstado(estados, timeoutMs) {
+    const ahora = emulator.getStatus().state;
+    if (estados.includes(ahora)) return ahora;
+    return esperar(oyentesEstado, (e) => estados.includes(e), timeoutMs);
+  },
+  ponerPin(gpio, nivel) {
+    const bridge = emulator.getBridge();
+    if (!bridge || emulator.getStatus().state !== 'bridge') return false;
+    bridge.setInput(gpio, nivel);
+    depurador.alEntrada(gpio, nivel, 'mcp');
+    return true;
+  },
+  enviarRf(bits, protocolo) {
+    const bridge = emulator.getBridge();
+    if (!bridge || emulator.getStatus().state !== 'bridge') return false;
+    bridge.sendRf(bits, protocolo);
+    return true;
+  },
+  niveles: () => Object.fromEntries(niveles) as Record<number, 0 | 1>,
+  logs: (fuente, n) => (fuente === 'build' ? logCompilacion.slice(-n) : emulator.getRecentLog(n)),
+  esperarLog: (re, timeoutMs) => esperar(oyentesLog, (l) => re.test(l), timeoutMs),
+  importar: importarModulos,
+  quitarDelCatalogo,
+  depurador,
+};
+
+// --- Seguridad: solo la propia UI y clientes locales ------------------------------
+
+/**
+ * La app escucha solo en 127.0.0.1, pero una página web cualquiera abierta en el
+ * navegador podría mandarle pedidos (o abrir el WebSocket / MCP). Los navegadores
+ * mandan Origin: si viene y no es la propia UI, se rechaza. Clientes sin navegador
+ * (MCP de Claude Code, curl) no mandan Origin. El Host se valida contra DNS rebinding.
+ */
+const ORIGENES = new Set([`http://127.0.0.1:${PORT}`, `http://localhost:${PORT}`]);
+const HOSTS = new Set([`127.0.0.1:${PORT}`, `localhost:${PORT}`]);
+
+function origenPermitido(origin: string | undefined, host: string | undefined): boolean {
+  if (host !== undefined && !HOSTS.has(host)) return false;
+  return origin === undefined || ORIGENES.has(origin);
+}
+
+// --- WebSocket --------------------------------------------------------------
+
+function attachWebSocket(server: import('node:http').Server): void {
+  const wss = new WebSocketServer({
+    server,
+    path: '/ws',
+    verifyClient: (info: { origin: string; req: import('node:http').IncomingMessage }) =>
+      origenPermitido(info.origin || undefined, info.req.headers.host),
+  });
+  wss.on('connection', (ws) => {
+    clients.add(ws);
+    ws.send(JSON.stringify({ type: 'hello', state: emulator.getStatus().state }));
+    ws.on('message', (raw) => {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(raw.toString());
+      } catch {
+        return;
+      }
+      const msg = ClientEventSchema.safeParse(parsed);
+      if (!msg.success) {
+        ws.send(JSON.stringify({ type: 'error', message: 'Mensaje inválido' }));
+        return;
+      }
+      const m = msg.data;
+      switch (m.type) {
+        case 'pin.in':
+          emulator.getBridge()?.setInput(m.pin, m.level);
+          depurador.alEntrada(m.pin, m.level, 'ui');
+          break;
+        case 'pin.watch':
+          emulator.getBridge()?.watch(m.pin);
+          break;
+        case 'rf.send':
+          emulator.getBridge()?.sendRf(m.bits, m.protocol);
+          break;
+        case 'console.input':
+          emulator.writeConsole(m.data);
+          break;
+      }
+    });
+    ws.on('close', () => clients.delete(ws));
+    ws.on('error', () => clients.delete(ws));
+  });
+}
+
+// --- Arranque ---------------------------------------------------------------
+
+// Import diferido para no cargar el plugin estático en las pruebas.
+let fastifyStatic: typeof import('@fastify/static').default;
+
+export async function startServer(): Promise<{ close: () => Promise<void>; port: number }> {
+  fastifyStatic = (await import('@fastify/static')).default;
+  await store.init();
+  await registerRoutes();
+
+  await logger.listen({ port: PORT, host: HOST });
+  attachWebSocket(logger.server);
+  console.log(`Emulador listo en http://${HOST}:${PORT}`);
+
+  const shutdown = async (): Promise<void> => {
+    await emulator.shutdown();
+    // Sin esto, close() espera a que el navegador suelte el WebSocket: nunca termina.
+    for (const ws of clients) ws.terminate();
+    await logger.close();
+    process.exit(0);
+  };
+  process.on('SIGINT', () => void shutdown());
+  process.on('SIGTERM', () => void shutdown());
+
+  return { close: () => logger.close(), port: PORT };
+}
+
+if (process.argv[1]?.endsWith('index.ts') || process.argv[1]?.endsWith('index.js')) {
+  startServer().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}

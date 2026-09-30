@@ -1,0 +1,414 @@
+{
+  "type": "esp32-c3-devkitm-1",
+  "name": "ESP32-C3 DevKitM-1",
+  "category": "Placas",
+  "programmable": true,
+  "description": "Placa con ESP32-C3 (RISC-V, WiFi/BLE). Se programa en ESPHome, ESP-IDF (C/C++), Arduino o MicroPython; se emula con esp-emu.",
+  "width": 180,
+  "height": 338,
+  "pins": [
+    {
+      "name": "GND",
+      "x": 0,
+      "y": 60,
+      "kind": "ground"
+    },
+    {
+      "name": "3V3",
+      "x": 0,
+      "y": 77,
+      "kind": "power"
+    },
+    {
+      "name": "3V3_2",
+      "x": 0,
+      "y": 94,
+      "kind": "power"
+    },
+    {
+      "name": "GPIO2",
+      "x": 0,
+      "y": 111,
+      "kind": "digital-io"
+    },
+    {
+      "name": "GPIO3",
+      "x": 0,
+      "y": 128,
+      "kind": "digital-io"
+    },
+    {
+      "name": "GND_2",
+      "x": 0,
+      "y": 145,
+      "kind": "ground"
+    },
+    {
+      "name": "RST",
+      "x": 0,
+      "y": 162,
+      "kind": "other"
+    },
+    {
+      "name": "GND_3",
+      "x": 0,
+      "y": 179,
+      "kind": "ground"
+    },
+    {
+      "name": "GPIO0",
+      "x": 0,
+      "y": 196,
+      "kind": "digital-io"
+    },
+    {
+      "name": "GPIO1",
+      "x": 0,
+      "y": 213,
+      "kind": "digital-io"
+    },
+    {
+      "name": "GPIO10",
+      "x": 0,
+      "y": 230,
+      "kind": "digital-io"
+    },
+    {
+      "name": "GND_4",
+      "x": 0,
+      "y": 247,
+      "kind": "ground"
+    },
+    {
+      "name": "5V",
+      "x": 0,
+      "y": 264,
+      "kind": "power"
+    },
+    {
+      "name": "5V_2",
+      "x": 0,
+      "y": 281,
+      "kind": "power"
+    },
+    {
+      "name": "GND_5",
+      "x": 0,
+      "y": 298,
+      "kind": "ground"
+    },
+    {
+      "name": "GND_6",
+      "x": 180,
+      "y": 60,
+      "kind": "ground"
+    },
+    {
+      "name": "GPIO21",
+      "x": 180,
+      "y": 77,
+      "kind": "digital-io"
+    },
+    {
+      "name": "GPIO20",
+      "x": 180,
+      "y": 94,
+      "kind": "digital-io"
+    },
+    {
+      "name": "GND_7",
+      "x": 180,
+      "y": 111,
+      "kind": "ground"
+    },
+    {
+      "name": "GPIO9",
+      "x": 180,
+      "y": 128,
+      "kind": "digital-io"
+    },
+    {
+      "name": "GPIO8",
+      "x": 180,
+      "y": 145,
+      "kind": "digital-io"
+    },
+    {
+      "name": "GND_8",
+      "x": 180,
+      "y": 162,
+      "kind": "ground"
+    },
+    {
+      "name": "GPIO7",
+      "x": 180,
+      "y": 179,
+      "kind": "digital-io"
+    },
+    {
+      "name": "GPIO6",
+      "x": 180,
+      "y": 196,
+      "kind": "digital-io"
+    },
+    {
+      "name": "GPIO5",
+      "x": 180,
+      "y": 213,
+      "kind": "digital-io"
+    },
+    {
+      "name": "GPIO4",
+      "x": 180,
+      "y": 230,
+      "kind": "digital-io"
+    },
+    {
+      "name": "GND_9",
+      "x": 180,
+      "y": 247,
+      "kind": "ground"
+    },
+    {
+      "name": "GPIO18",
+      "x": 180,
+      "y": 264,
+      "kind": "digital-io"
+    },
+    {
+      "name": "GPIO19",
+      "x": 180,
+      "y": 281,
+      "kind": "digital-io"
+    },
+    {
+      "name": "GND_10",
+      "x": 180,
+      "y": 298,
+      "kind": "ground"
+    }
+  ],
+  "controls": [],
+  "props": {},
+  "svg": "module.svg",
+  "board": {
+    "chip": "esp32c3",
+    "chipName": "ESP32-C3",
+    "family": "esp32",
+    "backend": {
+      "engine": "esp-emu",
+      "options": {
+        "chip": "esp32c3"
+      }
+    },
+    "logicVoltage": 3.3,
+    "maxPinCurrentMa": 40,
+    "recommendedPinCurrentMa": 20,
+    "pinOutputOhm": 33,
+    "supplyOutputOhm": 0.5,
+    "pins": {
+      "GPIO2": {
+        "gpio": 2,
+        "caps": [
+          "digital-in",
+          "digital-out",
+          "pwm",
+          "adc"
+        ]
+      },
+      "GPIO3": {
+        "gpio": 3,
+        "caps": [
+          "digital-in",
+          "digital-out",
+          "pwm",
+          "adc"
+        ]
+      },
+      "GPIO0": {
+        "gpio": 0,
+        "caps": [
+          "digital-in",
+          "digital-out",
+          "pwm",
+          "adc"
+        ]
+      },
+      "GPIO1": {
+        "gpio": 1,
+        "caps": [
+          "digital-in",
+          "digital-out",
+          "pwm",
+          "adc"
+        ]
+      },
+      "GPIO10": {
+        "gpio": 10,
+        "caps": [
+          "digital-in",
+          "digital-out",
+          "pwm"
+        ]
+      },
+      "GPIO21": {
+        "gpio": 21,
+        "caps": [
+          "digital-in",
+          "digital-out",
+          "pwm",
+          "uart"
+        ]
+      },
+      "GPIO20": {
+        "gpio": 20,
+        "caps": [
+          "digital-in",
+          "digital-out",
+          "pwm",
+          "uart"
+        ]
+      },
+      "GPIO9": {
+        "gpio": 9,
+        "caps": [
+          "digital-in",
+          "digital-out",
+          "pwm"
+        ]
+      },
+      "GPIO8": {
+        "gpio": 8,
+        "caps": [
+          "digital-in",
+          "digital-out",
+          "pwm"
+        ]
+      },
+      "GPIO7": {
+        "gpio": 7,
+        "caps": [
+          "digital-in",
+          "digital-out",
+          "pwm"
+        ]
+      },
+      "GPIO6": {
+        "gpio": 6,
+        "caps": [
+          "digital-in",
+          "digital-out",
+          "pwm"
+        ]
+      },
+      "GPIO5": {
+        "gpio": 5,
+        "caps": [
+          "digital-in",
+          "digital-out",
+          "pwm"
+        ]
+      },
+      "GPIO4": {
+        "gpio": 4,
+        "caps": [
+          "digital-in",
+          "digital-out",
+          "pwm",
+          "adc"
+        ]
+      },
+      "GPIO18": {
+        "gpio": 18,
+        "caps": [
+          "digital-in",
+          "digital-out",
+          "pwm",
+          "usb"
+        ]
+      },
+      "GPIO19": {
+        "gpio": 19,
+        "caps": [
+          "digital-in",
+          "digital-out",
+          "pwm",
+          "usb"
+        ]
+      }
+    },
+    "reservedPins": {
+      "0": "lo usa el puente de simulación (UART1 TX)",
+      "1": "lo usa el puente de simulación (UART1 RX)",
+      "21": "es la consola del emulador (UART0 TX)",
+      "20": "es la consola del emulador (UART0 RX)"
+    },
+    "warningPins": {
+      "2": "pin de arranque (strapping): mejor no usarlo",
+      "9": "pin de arranque (strapping): es el botón BOOT",
+      "8": "pin de arranque (strapping) y LED RGB integrado de la placa",
+      "18": "USB nativo del ESP32-C3",
+      "19": "USB nativo del ESP32-C3"
+    },
+    "io": {
+      "mode": "bridge-uart",
+      "uart": 1,
+      "tx": 0,
+      "rx": 1
+    },
+    "console": {
+      "uart": 0,
+      "tx": 21,
+      "rx": 20,
+      "baud": 115200
+    },
+    "features": [],
+    "languages": {
+      "esphome": {
+        "toolchain": "esphome",
+        "options": {
+          "board": "esp32-c3-devkitm-1",
+          "variant": "esp32c3"
+        }
+      },
+      "idf-c": {
+        "toolchain": "esp-idf",
+        "options": {
+          "target": "esp32c3"
+        }
+      },
+      "idf-cpp": {
+        "toolchain": "esp-idf",
+        "options": {
+          "target": "esp32c3"
+        }
+      },
+      "arduino": {
+        "toolchain": "esp-idf",
+        "options": {
+          "target": "esp32c3",
+          "arduino": true
+        }
+      },
+      "micropython": {
+        "toolchain": "micropython",
+        "options": {
+          "firmware": "ESP32_GENERIC_C3-20260824-v1.29.0.bin",
+          "gpioOutRegs": [
+            1610629124
+          ]
+        }
+      }
+    },
+    "demo": {
+      "input": "GPIO6",
+      "output": "GPIO7",
+      "ground": "GND"
+    },
+    "notes": [
+      "Emulado con esp-emu (RISC-V).",
+      "Las entradas llegan al código por el puente de simulación (UART1 en GPIO0/GPIO1), no por el pad del GPIO (límite de esp-emu).",
+      "RF 433 MHz todavía no se simula en esta placa (el RMT del C3 tiene otra numeración de canales)."
+    ]
+  }
+}

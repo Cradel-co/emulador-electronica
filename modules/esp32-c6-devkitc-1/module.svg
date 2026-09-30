@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 355">
+  <rect x="0" y="0" width="180" height="355" rx="7" fill="#141c25" stroke="#34495c" stroke-width="1.5"/>
+  <rect x="-6" y="51" width="12" height="273" rx="2" fill="#0b0f14"/>
+  <rect x="174" y="51" width="12" height="273" rx="2" fill="#0b0f14"/>
+  <rect x="50" y="10" width="80" height="140" rx="3" fill="#1f2a36" stroke="#3a4a5a"/>
+  <path d="M58 18 h12 v14 h10 v-14 h10 v14 h10 v-14 h12" stroke="#c8a24a" stroke-width="2" fill="none"/>
+  <rect x="54" y="44" width="72" height="100" rx="2" fill="#b9c2cc" stroke="#8d97a1"/>
+  <text x="90" y="88" class="txt-chico oscuro" text-anchor="middle">ESP32-C6</text>
+  <text x="90" y="102" class="txt-mini oscuro" text-anchor="middle">WROOM-1</text>
+  <circle cx="90" cy="180" r="6" fill="#2a3441" stroke="#566374"/>
+  <text x="90" y="196" class="txt-micro" text-anchor="middle">RGB (GPIO8)</text>
+  <rect x="54" y="301" width="16" height="12" rx="2" fill="#2a3441" stroke="#566374"/>
+  <rect x="110" y="301" width="16" height="12" rx="2" fill="#2a3441" stroke="#566374"/>
+  <text x="62" y="297" class="txt-micro" text-anchor="middle">BOOT</text>
+  <text x="118" y="297" class="txt-micro" text-anchor="middle">RST</text>
+  <rect x="44" y="349" width="28" height="16" rx="4" fill="#9aa4ae" stroke="#6b7785"/>
+  <rect x="108" y="349" width="28" height="16" rx="4" fill="#9aa4ae" stroke="#6b7785"/>
+  <text x="90" y="333" class="txt-mini" text-anchor="middle">ESP32-C6-DevKitC-1</text>
+  <text x="10" y="63" class="txt-pin" text-anchor="start">3V3</text>
+  <text x="10" y="80" class="txt-pin" text-anchor="start">RST</text>
+  <text x="10" y="97" class="txt-pin" text-anchor="start">GPIO4</text>
+  <text x="10" y="114" class="txt-pin" text-anchor="start">GPIO5</text>
+  <text x="10" y="131" class="txt-pin" text-anchor="start">GPIO6</text>
+  <text x="10" y="148" class="txt-pin" text-anchor="start">GPIO7</text>
+  <text x="10" y="165" class="txt-pin" text-anchor="start">GPIO0</text>
+  <text x="10" y="182" class="txt-pin" text-anchor="start">GPIO1</text>
+  <text x="10" y="199" class="txt-pin" text-anchor="start">GPIO8</text>
+  <text x="10" y="216" class="txt-pin" text-anchor="start">GPIO10</text>
+  <text x="10" y="233" class="txt-pin" text-anchor="start">GPIO11</text>
+  <text x="10" y="250" class="txt-pin" text-anchor="start">GPIO2</text>
+  <text x="10" y="267" class="txt-pin" text-anchor="start">GPIO3</text>
+  <text x="10" y="284" class="txt-pin" text-anchor="start">5V</text>
+  <text x="10" y="301" class="txt-pin" text-anchor="start">GND</text>
+  <text x="170" y="63" class="txt-pin" text-anchor="end">GND</text>
+  <text x="170" y="80" class="txt-pin" text-anchor="end">GPIO16</text>
+  <text x="170" y="97" class="txt-pin" text-anchor="end">GPIO17</text>
+  <text x="170" y="114" class="txt-pin" text-anchor="end">GPIO15</text>
+  <text x="170" y="131" class="txt-pin" text-anchor="end">GPIO23</text>
+  <text x="170" y="148" class="txt-pin" text-anchor="end">GPIO22</text>
+  <text x="170" y="165" class="txt-pin" text-anchor="end">GPIO21</text>
+  <text x="170" y="182" class="txt-pin" text-anchor="end">GPIO20</text>
+  <text x="170" y="199" class="txt-pin" text-anchor="end">GPIO19</text>
+  <text x="170" y="216" class="txt-pin" text-anchor="end">GPIO18</text>
+  <text x="170" y="233" class="txt-pin" text-anchor="end">GPIO9</text>
+  <text x="170" y="250" class="txt-pin" text-anchor="end">GND</text>
+  <text x="170" y="267" class="txt-pin" text-anchor="end">GPIO13</text>
+  <text x="170" y="284" class="txt-pin" text-anchor="end">GPIO12</text>
+  <text x="170" y="301" class="txt-pin" text-anchor="end">GND</text>
+</svg>

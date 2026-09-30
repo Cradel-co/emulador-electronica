@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 76 76">
+  <rect x="10" y="44" width="56" height="28" rx="4" fill="#2b3440" stroke="#3d4a58"/>
+  <path data-si="sonando" d="M12 46 A26 26 0 0 1 64 46 Z" fill="#ff4d3d" class="brilla"/>
+  <path data-si="!sonando" d="M12 46 A26 26 0 0 1 64 46 Z" fill="#7a2a22"/>
+  <path data-si="sonando" d="M4 40 A34 34 0 0 1 72 40" stroke="#ff4d3d" stroke-width="2.5" stroke-linecap="round" fill="none" class="ondas"/>
+  <path data-si="sonando" d="M-4 40 A42 42 0 0 1 80 40" stroke="#ff4d3d" stroke-width="2.5" stroke-linecap="round" fill="none" class="ondas"/>
+  <text data-si="sonando" x="38" y="63" class="txt-mini claro" text-anchor="middle">¡SUENA!</text>
+  <text data-si="!sonando" x="38" y="63" class="txt-mini claro" text-anchor="middle">SIRENA</text>
+</svg>

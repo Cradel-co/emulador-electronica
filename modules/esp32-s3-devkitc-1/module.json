@@ -1,0 +1,713 @@
+{
+  "controls": [],
+  "props": {},
+  "type": "esp32-s3-devkitc-1",
+  "name": "ESP32-S3 DevKitC-1",
+  "category": "Placas",
+  "programmable": true,
+  "description": "Placa con ESP32-S3 (Xtensa LX7, WiFi/BLE). Se programa en ESPHome, ESP-IDF (C/C++), Arduino o MicroPython; se emula con esp-emu.",
+  "width": 180,
+  "height": 457,
+  "pins": [
+    {
+      "name": "3V3",
+      "x": 0,
+      "y": 60,
+      "kind": "other"
+    },
+    {
+      "name": "3V3_2",
+      "x": 0,
+      "y": 77,
+      "kind": "other"
+    },
+    {
+      "name": "RST",
+      "x": 0,
+      "y": 94,
+      "kind": "other"
+    },
+    {
+      "name": "GPIO4",
+      "x": 0,
+      "y": 111,
+      "kind": "digital-io"
+    },
+    {
+      "name": "GPIO5",
+      "x": 0,
+      "y": 128,
+      "kind": "digital-io"
+    },
+    {
+      "name": "GPIO6",
+      "x": 0,
+      "y": 145,
+      "kind": "digital-io"
+    },
+    {
+      "name": "GPIO7",
+      "x": 0,
+      "y": 162,
+      "kind": "digital-io"
+    },
+    {
+      "name": "GPIO15",
+      "x": 0,
+      "y": 179,
+      "kind": "digital-io"
+    },
+    {
+      "name": "GPIO16",
+      "x": 0,
+      "y": 196,
+      "kind": "digital-io"
+    },
+    {
+      "name": "GPIO17",
+      "x": 0,
+      "y": 213,
+      "kind": "digital-io"
+    },
+    {
+      "name": "GPIO18",
+      "x": 0,
+      "y": 230,
+      "kind": "digital-io"
+    },
+    {
+      "name": "GPIO8",
+      "x": 0,
+      "y": 247,
+      "kind": "digital-io"
+    },
+    {
+      "name": "GPIO3",
+      "x": 0,
+      "y": 264,
+      "kind": "digital-io"
+    },
+    {
+      "name": "GPIO46",
+      "x": 0,
+      "y": 281,
+      "kind": "digital-io"
+    },
+    {
+      "name": "GPIO9",
+      "x": 0,
+      "y": 298,
+      "kind": "digital-io"
+    },
+    {
+      "name": "GPIO10",
+      "x": 0,
+      "y": 315,
+      "kind": "digital-io"
+    },
+    {
+      "name": "GPIO11",
+      "x": 0,
+      "y": 332,
+      "kind": "digital-io"
+    },
+    {
+      "name": "GPIO12",
+      "x": 0,
+      "y": 349,
+      "kind": "digital-io"
+    },
+    {
+      "name": "GPIO13",
+      "x": 0,
+      "y": 366,
+      "kind": "digital-io"
+    },
+    {
+      "name": "GPIO14",
+      "x": 0,
+      "y": 383,
+      "kind": "digital-io"
+    },
+    {
+      "name": "5V",
+      "x": 0,
+      "y": 400,
+      "kind": "power"
+    },
+    {
+      "name": "GND",
+      "x": 0,
+      "y": 417,
+      "kind": "ground"
+    },
+    {
+      "name": "GND_2",
+      "x": 180,
+      "y": 60,
+      "kind": "ground"
+    },
+    {
+      "name": "GPIO43",
+      "x": 180,
+      "y": 77,
+      "kind": "digital-io"
+    },
+    {
+      "name": "GPIO44",
+      "x": 180,
+      "y": 94,
+      "kind": "digital-io"
+    },
+    {
+      "name": "GPIO1",
+      "x": 180,
+      "y": 111,
+      "kind": "digital-io"
+    },
+    {
+      "name": "GPIO2",
+      "x": 180,
+      "y": 128,
+      "kind": "digital-io"
+    },
+    {
+      "name": "GPIO42",
+      "x": 180,
+      "y": 145,
+      "kind": "digital-io"
+    },
+    {
+      "name": "GPIO41",
+      "x": 180,
+      "y": 162,
+      "kind": "digital-io"
+    },
+    {
+      "name": "GPIO40",
+      "x": 180,
+      "y": 179,
+      "kind": "digital-io"
+    },
+    {
+      "name": "GPIO39",
+      "x": 180,
+      "y": 196,
+      "kind": "digital-io"
+    },
+    {
+      "name": "GPIO38",
+      "x": 180,
+      "y": 213,
+      "kind": "digital-io"
+    },
+    {
+      "name": "GPIO37",
+      "x": 180,
+      "y": 230,
+      "kind": "digital-io"
+    },
+    {
+      "name": "GPIO36",
+      "x": 180,
+      "y": 247,
+      "kind": "digital-io"
+    },
+    {
+      "name": "GPIO35",
+      "x": 180,
+      "y": 264,
+      "kind": "digital-io"
+    },
+    {
+      "name": "GPIO0",
+      "x": 180,
+      "y": 281,
+      "kind": "digital-io"
+    },
+    {
+      "name": "GPIO45",
+      "x": 180,
+      "y": 298,
+      "kind": "digital-io"
+    },
+    {
+      "name": "GPIO48",
+      "x": 180,
+      "y": 315,
+      "kind": "digital-io"
+    },
+    {
+      "name": "GPIO47",
+      "x": 180,
+      "y": 332,
+      "kind": "digital-io"
+    },
+    {
+      "name": "GPIO21",
+      "x": 180,
+      "y": 349,
+      "kind": "digital-io"
+    },
+    {
+      "name": "GPIO20",
+      "x": 180,
+      "y": 366,
+      "kind": "digital-io"
+    },
+    {
+      "name": "GPIO19",
+      "x": 180,
+      "y": 383,
+      "kind": "digital-io"
+    },
+    {
+      "name": "GND_3",
+      "x": 180,
+      "y": 400,
+      "kind": "ground"
+    },
+    {
+      "name": "GND_4",
+      "x": 180,
+      "y": 417,
+      "kind": "ground"
+    }
+  ],
+  "svg": "module.svg",
+  "board": {
+    "chip": "esp32s3",
+    "chipName": "ESP32-S3",
+    "family": "esp32",
+    "backend": {
+      "engine": "esp-emu",
+      "options": {
+        "chip": "esp32s3"
+      }
+    },
+    "logicVoltage": 3.3,
+    "maxPinCurrentMa": 40,
+    "recommendedPinCurrentMa": 20,
+    "pinOutputOhm": 33,
+    "supplyOutputOhm": 0.5,
+    "pins": {
+      "GPIO4": {
+        "gpio": 4,
+        "caps": [
+          "digital-in",
+          "digital-out",
+          "pwm",
+          "adc",
+          "touch"
+        ]
+      },
+      "GPIO5": {
+        "gpio": 5,
+        "caps": [
+          "digital-in",
+          "digital-out",
+          "pwm",
+          "adc",
+          "touch"
+        ]
+      },
+      "GPIO6": {
+        "gpio": 6,
+        "caps": [
+          "digital-in",
+          "digital-out",
+          "pwm",
+          "adc",
+          "touch"
+        ]
+      },
+      "GPIO7": {
+        "gpio": 7,
+        "caps": [
+          "digital-in",
+          "digital-out",
+          "pwm",
+          "adc",
+          "touch"
+        ]
+      },
+      "GPIO15": {
+        "gpio": 15,
+        "caps": [
+          "digital-in",
+          "digital-out",
+          "pwm",
+          "adc"
+        ]
+      },
+      "GPIO16": {
+        "gpio": 16,
+        "caps": [
+          "digital-in",
+          "digital-out",
+          "pwm",
+          "adc"
+        ]
+      },
+      "GPIO17": {
+        "gpio": 17,
+        "caps": [
+          "digital-in",
+          "digital-out",
+          "pwm",
+          "adc"
+        ]
+      },
+      "GPIO18": {
+        "gpio": 18,
+        "caps": [
+          "digital-in",
+          "digital-out",
+          "pwm",
+          "adc"
+        ]
+      },
+      "GPIO8": {
+        "gpio": 8,
+        "caps": [
+          "digital-in",
+          "digital-out",
+          "pwm",
+          "adc",
+          "touch"
+        ]
+      },
+      "GPIO3": {
+        "gpio": 3,
+        "caps": [
+          "digital-in",
+          "digital-out",
+          "pwm",
+          "adc",
+          "touch"
+        ]
+      },
+      "GPIO46": {
+        "gpio": 46,
+        "caps": [
+          "digital-in",
+          "digital-out",
+          "pwm"
+        ]
+      },
+      "GPIO9": {
+        "gpio": 9,
+        "caps": [
+          "digital-in",
+          "digital-out",
+          "pwm",
+          "adc",
+          "touch"
+        ]
+      },
+      "GPIO10": {
+        "gpio": 10,
+        "caps": [
+          "digital-in",
+          "digital-out",
+          "pwm",
+          "adc",
+          "touch"
+        ]
+      },
+      "GPIO11": {
+        "gpio": 11,
+        "caps": [
+          "digital-in",
+          "digital-out",
+          "pwm",
+          "adc",
+          "touch"
+        ]
+      },
+      "GPIO12": {
+        "gpio": 12,
+        "caps": [
+          "digital-in",
+          "digital-out",
+          "pwm",
+          "adc",
+          "touch"
+        ]
+      },
+      "GPIO13": {
+        "gpio": 13,
+        "caps": [
+          "digital-in",
+          "digital-out",
+          "pwm",
+          "adc",
+          "touch"
+        ]
+      },
+      "GPIO14": {
+        "gpio": 14,
+        "caps": [
+          "digital-in",
+          "digital-out",
+          "pwm",
+          "adc",
+          "touch"
+        ]
+      },
+      "GPIO43": {
+        "gpio": 43,
+        "caps": [
+          "digital-in",
+          "digital-out",
+          "pwm",
+          "uart"
+        ]
+      },
+      "GPIO44": {
+        "gpio": 44,
+        "caps": [
+          "digital-in",
+          "digital-out",
+          "pwm",
+          "uart"
+        ]
+      },
+      "GPIO1": {
+        "gpio": 1,
+        "caps": [
+          "digital-in",
+          "digital-out",
+          "pwm",
+          "adc",
+          "touch"
+        ]
+      },
+      "GPIO2": {
+        "gpio": 2,
+        "caps": [
+          "digital-in",
+          "digital-out",
+          "pwm",
+          "adc",
+          "touch"
+        ]
+      },
+      "GPIO42": {
+        "gpio": 42,
+        "caps": [
+          "digital-in",
+          "digital-out",
+          "pwm"
+        ]
+      },
+      "GPIO41": {
+        "gpio": 41,
+        "caps": [
+          "digital-in",
+          "digital-out",
+          "pwm"
+        ]
+      },
+      "GPIO40": {
+        "gpio": 40,
+        "caps": [
+          "digital-in",
+          "digital-out",
+          "pwm"
+        ]
+      },
+      "GPIO39": {
+        "gpio": 39,
+        "caps": [
+          "digital-in",
+          "digital-out",
+          "pwm"
+        ]
+      },
+      "GPIO38": {
+        "gpio": 38,
+        "caps": [
+          "digital-in",
+          "digital-out",
+          "pwm"
+        ]
+      },
+      "GPIO37": {
+        "gpio": 37,
+        "caps": [
+          "digital-in",
+          "digital-out",
+          "pwm"
+        ]
+      },
+      "GPIO36": {
+        "gpio": 36,
+        "caps": [
+          "digital-in",
+          "digital-out",
+          "pwm"
+        ]
+      },
+      "GPIO35": {
+        "gpio": 35,
+        "caps": [
+          "digital-in",
+          "digital-out",
+          "pwm"
+        ]
+      },
+      "GPIO0": {
+        "gpio": 0,
+        "caps": [
+          "digital-in",
+          "digital-out",
+          "pwm"
+        ]
+      },
+      "GPIO45": {
+        "gpio": 45,
+        "caps": [
+          "digital-in",
+          "digital-out",
+          "pwm"
+        ]
+      },
+      "GPIO48": {
+        "gpio": 48,
+        "caps": [
+          "digital-in",
+          "digital-out",
+          "pwm"
+        ]
+      },
+      "GPIO47": {
+        "gpio": 47,
+        "caps": [
+          "digital-in",
+          "digital-out",
+          "pwm"
+        ]
+      },
+      "GPIO21": {
+        "gpio": 21,
+        "caps": [
+          "digital-in",
+          "digital-out",
+          "pwm"
+        ]
+      },
+      "GPIO20": {
+        "gpio": 20,
+        "caps": [
+          "digital-in",
+          "digital-out",
+          "pwm",
+          "adc",
+          "usb"
+        ]
+      },
+      "GPIO19": {
+        "gpio": 19,
+        "caps": [
+          "digital-in",
+          "digital-out",
+          "pwm",
+          "adc",
+          "usb"
+        ]
+      }
+    },
+    "reservedPins": {
+      "17": "lo usa el puente de simulación (UART1 TX)",
+      "18": "lo usa el puente de simulación (UART1 RX)",
+      "43": "es la consola del emulador (UART0 TX)",
+      "44": "es la consola del emulador (UART0 RX)"
+    },
+    "warningPins": {
+      "0": "pin de arranque (strapping): mejor no usarlo",
+      "3": "pin de arranque (strapping): mejor no usarlo",
+      "45": "pin de arranque (strapping): mejor no usarlo",
+      "46": "pin de arranque (strapping): mejor no usarlo",
+      "19": "USB nativo del ESP32-S3",
+      "20": "USB nativo del ESP32-S3",
+      "35": "lo ocupa la PSRAM en los módulos N8R8/N16R8",
+      "36": "lo ocupa la PSRAM en los módulos N8R8/N16R8",
+      "37": "lo ocupa la PSRAM en los módulos N8R8/N16R8",
+      "47": "la simulación no lo acepta como entrada",
+      "48": "LED RGB integrado en algunas revisiones de la placa"
+    },
+    "io": {
+      "mode": "bridge-uart",
+      "uart": 1,
+      "tx": 17,
+      "rx": 18
+    },
+    "console": {
+      "uart": 0,
+      "tx": 43,
+      "rx": 44,
+      "baud": 115200
+    },
+    "features": [
+      "rf433"
+    ],
+    "languages": {
+      "esphome": {
+        "toolchain": "esphome",
+        "options": {
+          "board": "esp32-s3-devkitc-1",
+          "variant": "esp32s3",
+          "unsupportedInputPins": [
+            0,
+            3,
+            19,
+            20,
+            45,
+            46,
+            47,
+            48
+          ]
+        }
+      },
+      "idf-c": {
+        "toolchain": "esp-idf",
+        "options": {
+          "target": "esp32s3"
+        }
+      },
+      "idf-cpp": {
+        "toolchain": "esp-idf",
+        "options": {
+          "target": "esp32s3"
+        }
+      },
+      "arduino": {
+        "toolchain": "esp-idf",
+        "options": {
+          "target": "esp32s3",
+          "arduino": true
+        }
+      },
+      "micropython": {
+        "toolchain": "micropython",
+        "options": {
+          "firmware": "ESP32_GENERIC_S3-20260824-v1.29.0.bin",
+          "gpioOutRegs": [
+            1610629124,
+            1610629136
+          ]
+        }
+      }
+    },
+    "demo": {
+      "input": "GPIO6",
+      "output": "GPIO7",
+      "ground": "GND"
+    },
+    "notes": [
+      "Emulado con esp-emu (Espressif): el firmware real corre en un Xtensa LX7 emulado.",
+      "Las entradas llegan al código por el puente de simulación, no por el pad del GPIO (límite de esp-emu)."
+    ]
+  }
+}

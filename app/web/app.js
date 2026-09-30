@@ -1,0 +1,2497 @@
+// Frontend sin bundler: ES modules nativos contra la API local (sección 11).
+import { crearLienzo } from './canvas.js';
+import { miniatura } from './modulos.js';
+import { lenguajeDeArchivo, NOMBRE_LENGUAJE, resaltar } from './editor.js';
+import { crearDepuracion } from './depuracion.js';
+
+/** Id de esta pestaña: el server lo devuelve en los eventos para no recargar los cambios propios. */
+const CLIENTE = crypto.randomUUID();
+
+const $ = (id) => document.getElementById(id);
+/** @param {string} id */
+const btn = (id) => /** @type {HTMLButtonElement} */ (document.getElementById(id));
+/** @param {string} id */
+const inp = (id) => /** @type {HTMLInputElement} */ (document.getElementById(id));
+/** @param {string} id */
+const ta = (id) => /** @type {HTMLTextAreaElement} */ (document.getElementById(id));
+/** @param {string} id */
+const sel = (id) => /** @type {HTMLSelectElement} */ (document.getElementById(id));
+/** Diálogo de nuevo proyecto. */
+const dlg = () => /** @type {HTMLDialogElement} */ (document.getElementById('dlg-nuevo'));
+
+/** Id fijo de la placa en el dibujo (shared/project.ts). */
+const BOARD_ID = 'board';
+
+// Pines de la DevKitC-1 que usa la propia simulación (guía 6.3 y 8.2).
+/** Los del ESP32-S3: solo si el server no manda el descriptor de la placa (versiones viejas). */
+const PINES_BLOQUEADOS_S3 = new Map([
+  [17, 'lo usa el puente de simulación (UART1 TX)'],
+  [18, 'lo usa el puente de simulación (UART1 RX)'],
+  [43, 'es la consola del emulador (UART0 TX)'],
+  [44, 'es la consola del emulador (UART0 RX)'],
+]);
+/** @type {(ns: number[], motivo: string) => [number, string][]} */
+const conMotivo = (ns, motivo) => ns.map((n) => [n, motivo]);
+const PINES_ADVERTENCIA_S3 = new Map([
+  ...conMotivo([0, 3, 45, 46], 'pin de arranque (strapping): mejor no usarlo'),
+  ...conMotivo([19, 20], 'USB nativo del ESP32-S3'),
+  ...conMotivo([35, 36, 37], 'lo ocupa la PSRAM en los módulos N8R8/N16R8'),
+  ...conMotivo([47], 'la simulación no lo acepta como entrada'),
+  ...conMotivo([48], 'LED RGB integrado en algunas revisiones de la placa'),
+]);
+
+/** Orden de las categorías en el catálogo. */
+const ORDEN_CATEGORIAS = ['Placas', 'Entradas', 'Salidas', 'Pasivos', 'Radio 433 MHz', 'Inalámbricos'];
+
+const state = {
+  proyectos: [],
+  proyecto: null,
+  archivos: [],
+  activo: null,
+  /** @type {Map<string, any>} */
+  catalogo: new Map(),
+  filtroModulos: '',
+  /** Herramienta "mover" activa (barra de iconos): no deja empezar cables al tocar un pin, para
+   * poder reacomodar módulos sobre un circuito ya cableado sin arrancar un cable por accidente. */
+  modoMover: false,
+  /** Dibujo del proyecto abierto: se edita en el canvas y se guarda con PUT /diagram. */
+  diagrama: { modules: [], wires: [] },
+  /** @type {import('./canvas.js').Seleccion} */
+  seleccion: null,
+  /** Pines que usa el código (GET /pins). */
+  codePins: new Set(),
+  lineas: { build: [], emu: [] },
+  tab: 'build',
+  filtro: '',
+  marcas: new Map(), // línea -> mensaje
+  timerGuardado: null,
+  timerDiagrama: null,
+  timerNota: null,
+  /** Hay cambios en el editor que todavía no se guardaron. */
+  editorSucio: false,
+  /** Últimas notificaciones (globos), para la ventana de notificaciones. */
+  notificaciones: /** @type {{ texto: string, hora: Date }[]} */ ([]),
+  /** Errores de la última compilación (para la pestaña Problemas). */
+  errores: /** @type {{ file?: string, line?: number, message: string }[]} */ ([]),
+  /** Avisos circuito ↔ código (para la pestaña Problemas). */
+  avisosDibujo: /** @type {{ message: string, pin?: number }[]} */ ([]),
+  /** Placas conocidas (GET /api/boards, o las programables del catálogo si no existe). */
+  placas: /** @type {any[]} */ ([]),
+  /** Veredicto del motor eléctrico por LED (GET /pins → electrico.leds): id → { mA, estado }. */
+  electrico: /** @type {Map<string, { id: string, mA: number, estado: string }>} */ (new Map()),
+  placaPorDefecto: '',
+  /** Placa del proyecto abierto (GET /api/projects/:name → placa): nombre + descriptor `board`. */
+  placa: /** @type {any} */ (null),
+  sim: {
+    /** El puente está listo: los controles de los módulos funcionan. */
+    listo: false,
+    /** Nivel de salida de cada GPIO (pin.out). */
+    niveles: new Map(),
+    /** Estado de cada control por id de módulo (botón apretado, interruptor, puerta). */
+    controles: new Map(),
+    /** Hasta cuándo parpadea / suena cada módulo (id → timestamp). */
+    flash: new Map(),
+    sonando: new Map(),
+    /**
+     * LEDs quemados (id → cuándo y con cuántos mA). No se borra al parar la simulación ni al
+     * arreglar el circuito: un LED quemado queda muerto hasta que se reemplaza, como en la realidad.
+     * @type {Map<string, { hora: number, mA: number }>}
+     */
+    quemados: new Map(),
+    boton: new Map(),
+  },
+};
+
+// --- Íconos -------------------------------------------------------------
+
+const ICONOS = {
+  modulo:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4a2 2 0 0 0 1-1.73Z"/><path d="M3.3 7 12 12l8.7-5"/><path d="M12 22V12"/></svg>',
+  cable:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M8.5 6H13a3 3 0 0 1 3 3v6.5"/></svg>',
+};
+
+/**
+ * Bloque de estado vacío con ícono + explicación, para no dejar un panel en blanco.
+ * @param {string} icono @param {string} titulo @param {string} subtexto
+ */
+function vacioPanel(icono, titulo, subtexto) {
+  return `<div class="vacio-panel">${icono}<p>${titulo}</p><span>${subtexto}</span></div>`;
+}
+
+/** @param {string} s */
+const escapar = (s) =>
+  String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+
+/** Globo de notificación abajo a la derecha (como los de Android Studio); queda en el historial. */
+function nota(texto) {
+  $('nota').textContent = texto;
+  clearTimeout(state.timerNota);
+  if (!texto) return;
+  state.timerNota = setTimeout(() => ($('nota').textContent = ''), 7000);
+  state.notificaciones.unshift({ texto, hora: new Date() });
+  state.notificaciones.length = Math.min(state.notificaciones.length, 30);
+  if ($('lista-notificaciones').hidden) $('punto-notificaciones').hidden = false;
+  else pintarNotificaciones();
+}
+
+function pintarNotificaciones() {
+  const cont = $('lista-notificaciones');
+  cont.innerHTML = `<h4>Notificaciones</h4>${
+    state.notificaciones.length
+      ? state.notificaciones.map((n) => `<div class="notif"><time>${n.hora.toLocaleTimeString()}</time>${escapar(n.texto)}</div>`).join('')
+      : '<p class="vacio">Sin notificaciones.</p>'
+  }`;
+}
+
+// --- API --------------------------------------------------------------------
+
+async function api(path, opts = {}) {
+  // content-type solo con cuerpo: Fastify rechaza (400) un JSON vacío, y Parar/Reset no mandan cuerpo.
+  const res = await fetch(path, {
+    ...opts,
+    headers: { 'x-cliente': CLIENTE, ...(opts.body ? { 'content-type': 'application/json' } : {}) },
+  });
+  const texto = await res.text();
+  const datos = texto ? JSON.parse(texto) : {};
+  if (!res.ok) throw new Error(datos.error ?? `HTTP ${res.status}`);
+  return datos;
+}
+
+// --- Consola ----------------------------------------------------------------
+
+const MAX_LINEAS = 10000;
+
+/**
+ * La consola se pinta a lo sumo una vez por frame y, si no cambió la pestaña ni el filtro,
+ * solo agrega las líneas nuevas: una compilación de ESPHome larga manda miles de líneas
+ * seguidas y repintar todo en cada una trababa la página.
+ */
+const consola = {
+  frame: 0,
+  /** Qué hay pintado ahora en el <pre>: pestaña, filtro y cuántas líneas del arreglo ya se mostraron. */
+  pintado: { tab: '', filtro: '', hasta: 0, recortes: 0 },
+  /** Cuántas veces se recortó cada arreglo (si cambió, lo pintado ya no coincide: se repinta todo). */
+  recortes: { build: 0, emu: 0 },
+};
+
+function log(tab, texto) {
+  const lineas = state.lineas[tab];
+  lineas.push(texto);
+  // Recorte por tandas: `shift()` en cada línea es O(n) sobre 10.000 elementos.
+  if (lineas.length > MAX_LINEAS + 1000) {
+    lineas.splice(0, lineas.length - MAX_LINEAS);
+    consola.recortes[tab]++;
+  }
+  if (state.tab === tab) pedirConsola();
+}
+
+function pedirConsola() {
+  if (!consola.frame) consola.frame = requestAnimationFrame(pintarConsola);
+}
+
+function pintarConsola() {
+  cancelAnimationFrame(consola.frame);
+  consola.frame = 0;
+  const problemas = state.tab === 'problemas';
+  const debug = state.tab === 'debug';
+  $('consola').hidden = problemas || debug;
+  $('problemas').hidden = !problemas;
+  $('debug').hidden = !debug;
+  $('entrada-console').closest('label').hidden = problemas || debug;
+  if (problemas) return pintarProblemas();
+  if (debug) return depuracion?.alMostrar();
+  const pre = $('consola');
+  const tab = state.tab;
+  const lineas = state.lineas[tab];
+  const filtro = state.filtro.toLowerCase();
+  const p = consola.pintado;
+  const alFinal = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 30;
+  const pasa = (/** @type {string} */ l) => !filtro || l.toLowerCase().includes(filtro);
+  if (p.tab === tab && p.filtro === filtro && p.recortes === consola.recortes[tab] && p.hasta <= lineas.length) {
+    const nuevas = lineas.slice(p.hasta).filter(pasa);
+    if (nuevas.length) pre.append((pre.firstChild ? '\n' : '') + nuevas.join('\n'));
+  } else {
+    pre.textContent = lineas.filter(pasa).join('\n');
+  }
+  Object.assign(p, { tab, filtro, hasta: lineas.length, recortes: consola.recortes[tab] });
+  if (alFinal) pre.scrollTop = pre.scrollHeight;
+}
+
+/** Pestaña "Problemas": errores de compilación + avisos del circuito, clickeables. */
+function pintarProblemas() {
+  const cont = $('problemas');
+  const items = [
+    ...state.errores.map((e) => ({ error: true, texto: e.message, donde: e.file ? `${e.file}:${e.line ?? '?'}` : '', e })),
+    ...state.avisosDibujo.map((w) => ({ error: false, texto: w.message, donde: w.pin != null ? `GPIO${w.pin}` : 'circuito', e: null })),
+  ];
+  if (!items.length) {
+    cont.innerHTML = '<p class="vacio">Sin problemas. El circuito y el código coinciden.</p>';
+    return;
+  }
+  cont.textContent = '';
+  for (const it of items) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = `problema${it.error ? ' error' : ''}`;
+    b.innerHTML = `<span class="ico">${it.error ? '✕' : '⚠'}</span><span>${escapar(it.texto)}</span><span class="donde">${escapar(it.donde)}</span>`;
+    b.onclick = () => {
+      if (it.e?.line) irALinea(it.e.file, it.e.line);
+    };
+    cont.append(b);
+  }
+}
+
+/** Contadores de problemas (pestaña y franja izquierda). */
+function actualizarCuentaProblemas() {
+  const n = state.errores.length + state.avisosDibujo.length;
+  $('cuenta-problemas-tab').textContent = n ? String(n) : '';
+  const punto = $('cuenta-problemas');
+  punto.hidden = state.errores.length === 0;
+  punto.textContent = String(state.errores.length);
+  if (state.tab === 'problemas') pintarProblemas();
+}
+
+// --- WebSocket --------------------------------------------------------------
+
+let ws = null;
+function conectarWS() {
+  ws = new WebSocket(`ws://${location.host}/ws`);
+  ws.onmessage = (ev) => {
+    const msg = JSON.parse(ev.data);
+    switch (msg.type) {
+      case 'build.log':
+        log('build', msg.line);
+        break;
+      case 'build.start':
+        log('build', `── compilando ${msg.project} ──`);
+        limpiarMarcas();
+        break;
+      case 'build.done':
+        log(
+          'build',
+          msg.ok
+            ? `── compilación OK en ${(msg.durationMs / 1000).toFixed(1)} s ──`
+            : `── compilación FALLÓ (${(msg.durationMs / 1000).toFixed(1)} s) ──`,
+        );
+        if (!msg.ok) {
+          mostrarErrores(msg.errors ?? []);
+          mostrarVentana('der', true);
+          seleccionar(null); // los errores son del código: mostrar el editor
+        }
+        break;
+      case 'emu.log':
+        log('emu', msg.line);
+        break;
+      case 'emu.state':
+        aplicarEstadoEmulador(msg.status ?? { state: msg.state });
+        depuracion?.alMensaje(msg);
+        break;
+      case 'bridge.state':
+        $('puente').textContent = `puente: ${msg.connected ? 'conectado' : 'caído'}`;
+        if (!msg.connected) marcarSimulacion(false);
+        break;
+      case 'bridge.ready':
+        log('emu', `puente listo (protocolo ${msg.version})`);
+        marcarSimulacion(true);
+        break;
+      case 'pin.out':
+        // Un firmware que parpadea rápido manda muchos: se redibuja una vez por frame.
+        state.sim.niveles.set(msg.pin, msg.level);
+        revisarQuemaduras();
+        lienzo.pedirRender();
+        break;
+      case 'rf.tx':
+        log('emu', `[rf] ${nombrePlaca()} transmitió ${msg.bits} (protocolo ${msg.protocol})`);
+        recibirRfTx(msg.bits);
+        break;
+      case 'bridge.error':
+        log('emu', `[puente] error ${msg.code}: ${msg.message}`);
+        break;
+      case 'error':
+        log('build', `[error] ${msg.message}`);
+        break;
+      case 'catalog.changed':
+        void recargarCatalogo();
+        break;
+      case 'debug.stopped':
+      case 'debug.continued':
+      case 'debug.trace':
+      case 'debug.exception':
+        depuracion?.alMensaje(msg);
+        if (msg.type === 'debug.stopped') $('punto-debug').hidden = false;
+        if (msg.type === 'debug.continued') $('punto-debug').hidden = true;
+        break;
+      case 'project.changed':
+        if (msg.project === state.proyecto?.name && msg.origin !== CLIENTE) void aplicarCambioExterno(msg);
+        break;
+    }
+  };
+  ws.onclose = () => setTimeout(conectarWS, 1500);
+}
+
+function enviar(msg) {
+  if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
+}
+
+const NOMBRE_ESTADO = {
+  stopped: 'detenido',
+  starting: 'compilando / arrancando…',
+  booted: 'arrancó',
+  wifi: 'WiFi conectado',
+  bridge: 'corriendo',
+  crashed: 'se reinició con error',
+  hung: 'colgado',
+};
+
+function aplicarEstadoEmulador(status) {
+  $('estado').textContent = NOMBRE_ESTADO[status.state] ?? status.state;
+  $('estado').dataset.s = status.state;
+  const corriendo = Boolean(status.running);
+  document.body.classList.toggle('corriendo', corriendo);
+  btn('ejecutar').disabled = corriendo;
+  btn('parar').disabled = !corriendo;
+  const web = status.ports?.web;
+  btn('abrir-web').disabled = !(corriendo && web && status.usesWeb !== false);
+  btn('abrir-web').dataset.url = web ? `http://127.0.0.1:${web}` : '';
+  marcarSimulacion(status.state === 'bridge');
+  // Por si el panel de un módulo está abierto mostrando "Apretá Ejecutar": que pase a "esperando..." sin
+  // que haga falta reseleccionarlo (marcarSimulacion no repinta en los estados intermedios, solo al llegar a "bridge").
+  pintarPanelDerecho();
+}
+
+function marcarSimulacion(listo) {
+  if (state.sim.listo === listo) return;
+  state.sim.listo = listo;
+  if (listo) {
+    // Vigilar las salidas del dibujo (el servidor ya vigila las del código).
+    for (const inst of state.diagrama.modules) {
+      const def = state.catalogo.get(inst.type);
+      if (def?.bridge?.role !== 'output') continue;
+      const gpio = gpioDe(inst.id, def.bridge.pin);
+      if (gpio !== null) enviar({ type: 'pin.watch', pin: gpio });
+    }
+  } else {
+    state.sim.niveles.clear();
+    state.sim.controles.clear();
+  }
+  $('ayuda-lienzo').textContent = listo
+    ? 'Simulación corriendo: usá los controles de los módulos (botones, interruptores, control remoto).'
+    : 'Para cablear: click en un pin y después en otro.';
+  $('badge-modo').hidden = !listo;
+  document.body.classList.toggle('simulando', listo);
+  lienzo.render();
+  pintarPanelDerecho(); // si hay un módulo seleccionado, sus controles aparecen/desaparecen con el modo
+}
+
+// --- Editor -----------------------------------------------------------------
+
+const ALTO_LINEA = 19.5; // igual a --alto-linea en style.css
+/** Padding superior del editor (el mismo en el textarea, el resaltado y el gutter). */
+const PAD_EDITOR = 8;
+
+const editor = {
+  frame: 0,
+  /** Cantidad de líneas pintadas en el gutter: solo se rearma si cambia. */
+  lineas: 0,
+  lenguaje: 'texto',
+};
+
+function pintarGutter() {
+  const n = ta('editor').value.split('\n').length;
+  if (n === editor.lineas) return;
+  editor.lineas = n;
+  $('gutter-num').textContent = Array.from({ length: n }, (_, i) => i + 1).join('\n');
+}
+
+/** Resalta y actualiza gutter/línea actual en el próximo frame (tipear rápido no repinta por tecla). */
+function pedirEditor() {
+  if (!editor.frame) editor.frame = requestAnimationFrame(pintarEditor);
+}
+
+function pintarEditor() {
+  cancelAnimationFrame(editor.frame);
+  editor.frame = 0;
+  const t = ta('editor');
+  $('resaltado').innerHTML = resaltar(t.value, editor.lenguaje);
+  pintarGutter();
+  sincronizarScroll();
+  pintarCursor();
+}
+
+function sincronizarScroll() {
+  const t = ta('editor');
+  const r = $('resaltado');
+  r.scrollTop = t.scrollTop;
+  r.scrollLeft = t.scrollLeft;
+  $('gutter').scrollTop = t.scrollTop;
+  pintarMarcas();
+  pintarCursor();
+  depuracion?.alScroll();
+}
+
+/** Resalta la línea del cursor y muestra "Ln, Col" en la barra de estado, como el IDE. */
+function pintarCursor() {
+  const t = ta('editor');
+  const antes = t.value.slice(0, t.selectionStart);
+  const linea = antes.split('\n').length;
+  const col = t.selectionStart - antes.lastIndexOf('\n');
+  const la = $('linea-actual');
+  la.style.transform = `translateY(${PAD_EDITOR + (linea - 1) * ALTO_LINEA - t.scrollTop}px)`;
+  la.hidden = document.activeElement !== t;
+  $('pos-cursor').textContent = state.activo ? `${linea}:${col}` : '';
+}
+
+function pintarMarcas() {
+  const cont = $('marcas');
+  cont.textContent = '';
+  for (const [linea, msg] of state.marcas) {
+    const div = document.createElement('div');
+    div.className = 'marca-error';
+    div.style.top = `${(linea - 1) * ALTO_LINEA - ta('editor').scrollTop}px`;
+    div.textContent = `línea ${linea}: ${msg}`;
+    cont.append(div);
+  }
+}
+
+function mostrarErrores(errores) {
+  limpiarMarcas();
+  state.errores = errores;
+  const avisos = $('avisos');
+  avisos.textContent = '';
+  for (const e of errores) {
+    const div = document.createElement('div');
+    div.className = 'error';
+    div.textContent = e.file ? `${e.file}:${e.line ?? '?'} — ${e.message}` : e.message;
+    avisos.append(div);
+    if (e.line) state.marcas.set(e.line, e.message);
+  }
+  pintarMarcas();
+  actualizarCuentaProblemas();
+}
+
+function limpiarMarcas() {
+  state.marcas.clear();
+  state.errores = [];
+  $('avisos').textContent = '';
+  pintarMarcas();
+  actualizarCuentaProblemas();
+}
+
+function editarContenido(contenido) {
+  ta('editor').value = contenido;
+  ta('editor').scrollTop = 0;
+  limpiarMarcas();
+  pintarEditor();
+}
+
+/** Abre el archivo (si hace falta) y lleva el cursor a esa línea. */
+async function irALinea(archivo, linea) {
+  mostrarVentana('der', true);
+  seleccionar(null);
+  const destino = archivo && state.archivos.some((f) => f.path === archivo) ? archivo : state.activo;
+  if (destino && destino !== state.activo) await abrirArchivo(destino);
+  const t = ta('editor');
+  const lineas = t.value.split('\n');
+  let pos = 0;
+  for (let i = 0; i < Math.min(linea - 1, lineas.length); i++) pos += lineas[i].length + 1;
+  t.focus();
+  t.setSelectionRange(pos, pos);
+  t.scrollTop = Math.max(0, (linea - 5) * ALTO_LINEA);
+  sincronizarScroll();
+}
+
+function guardarAuto() {
+  clearTimeout(state.timerGuardado);
+  state.timerGuardado = setTimeout(() => guardar(true), 1000);
+}
+
+async function guardar(silencioso = false) {
+  if (!state.proyecto || !state.activo) return;
+  clearTimeout(state.timerGuardado);
+  try {
+    await api(`/api/projects/${state.proyecto.name}/files/${state.activo}`, {
+      method: 'PUT',
+      body: JSON.stringify({ content: ta('editor').value }),
+    });
+    state.editorSucio = false;
+    if (!silencioso) log('build', `guardado ${state.activo}`);
+    void refrescarAvisos();
+  } catch (e) {
+    log('build', `[error] no se pudo guardar: ${String((/** @type {Error} */ (e))?.message ?? e)}`);
+  }
+}
+
+function pintarTabs() {
+  const cont = $('tabs-archivos');
+  cont.textContent = '';
+  for (const f of state.archivos) {
+    const b = document.createElement('button');
+    b.textContent = f.path;
+    b.dataset.tipo = lenguajeDeArchivo(f.path);
+    b.title = f.path;
+    if (f.path === state.activo) b.classList.add('activa');
+    b.onclick = () => abrirArchivo(f.path);
+    cont.append(b);
+  }
+}
+
+async function abrirArchivo(ruta) {
+  if (!state.proyecto) return;
+  const proyecto = state.proyecto.name;
+  if (state.activo && state.activo !== ruta) await guardar(true);
+  const { content } = await api(`/api/projects/${proyecto}/files/${ruta}`);
+  // Si mientras cargaba se cambió de proyecto, este contenido es de otro: no se muestra
+  // (si no, el autoguardado lo escribiría en el proyecto equivocado).
+  if (state.proyecto?.name !== proyecto) return;
+  state.activo = ruta;
+  editor.lenguaje = lenguajeDeArchivo(ruta);
+  $('lenguaje-status').textContent = NOMBRE_LENGUAJE[editor.lenguaje];
+  editarContenido(content);
+  pintarTabs();
+  pintarMiga();
+  depuracion?.alCambiarArchivo();
+}
+
+// --- Dibujo: consultas ------------------------------------------------------
+
+/** GPIO de la placa en una punta "board.GPIO6", o null. */
+// --- Placa del proyecto (descriptor del module.json: `board`) -------------------------
+// Todo lo específico de la placa sale de acá: los nombres de sus pines (GPIO6 en un ESP32,
+// D13 en un Uno), qué GPIO es cada uno, cuáles están reservados y cuáles conviene evitar.
+
+/** Descriptor `board` de la placa del proyecto abierto, o null. */
+const descriptorPlaca = () => state.placa?.board ?? null;
+
+/** Nombre corto para textos: "Arduino Uno R3", "ESP32-S3 DevKitC-1"… */
+const nombrePlaca = () => state.placa?.nombre ?? state.catalogo.get(state.proyecto?.board ?? '')?.name ?? 'la placa';
+
+/** @param {Record<string, string> | undefined} obj claves = número de GPIO */
+const mapaDePines = (obj) => new Map(Object.entries(obj ?? {}).map(([k, v]) => [Number(k), v]));
+
+/** GPIO → motivo por el que no se puede usar (lo usa la simulación, la consola…). */
+function pinesBloqueados() {
+  const d = descriptorPlaca();
+  return d ? mapaDePines(d.reservedPins) : PINES_BLOQUEADOS_S3;
+}
+
+/** GPIO → motivo por el que conviene no usarlo (arranque, USB, LED de la placa…). */
+function pinesAdvertencia() {
+  const d = descriptorPlaca();
+  return d ? mapaDePines(d.warningPins) : PINES_ADVERTENCIA_S3;
+}
+
+/** GPIO de una punta en la placa ("board.GPIO6" → 6, "board.D13" → 13), o null si no es un GPIO. */
+function gpioDeRef(ref) {
+  if (!ref.startsWith(`${BOARD_ID}.`)) return null;
+  const pin = ref.slice(BOARD_ID.length + 1);
+  const d = descriptorPlaca();
+  if (d?.pins) {
+    const g = d.pins[pin]?.gpio;
+    return typeof g === 'number' ? g : null;
+  }
+  const m = /^GPIO(\d{1,2})$/.exec(pin);
+  return m ? Number(m[1]) : null;
+}
+
+/** Nombre del pin de la placa para un GPIO ("D13" en un Uno, "GPIO13" en un ESP32). */
+function nombrePinGpio(g) {
+  const d = descriptorPlaca();
+  const nombre = d?.pins && Object.keys(d.pins).find((k) => d.pins[k]?.gpio === g);
+  return nombre ?? `GPIO${g}`;
+}
+
+/** Cables que tocan un pin "id.PIN". */
+function cablesDe(ref) {
+  return state.diagrama.wires.filter((w) => w.from === ref || w.to === ref);
+}
+
+/**
+ * GPIO del ESP32 al que está cableado un pin de un módulo, o null.
+ * Atraviesa componentes "de paso" (p. ej. una resistencia en serie con un LED):
+ * para la lógica digital es como si el cable siguiera derecho (eléctricamente
+ * sí cuenta su resistencia — eso lo maneja el chequeo de Ley de Ohm aparte).
+ */
+function gpioDe(id, pin, visitados = new Set()) {
+  const ref = `${id}.${pin}`;
+  if (visitados.has(ref)) return null; // corta un lazo
+  visitados.add(ref);
+  for (const w of cablesDe(ref)) {
+    const otro = w.from === ref ? w.to : w.from;
+    const g = gpioDeRef(otro);
+    if (g !== null) return g;
+    const punto = otro.indexOf('.');
+    const otroId = otro.slice(0, punto);
+    const otroInst = state.diagrama.modules.find((m) => m.id === otroId);
+    const otroDef = otroInst && state.catalogo.get(otroInst.type);
+    if (!otroDef?.passthrough || otroDef.pins.length !== 2) continue;
+    const siguientePin = otroDef.pins.find((p) => p.name !== otro.slice(punto + 1));
+    if (siguientePin) {
+      const g2 = gpioDe(otroId, siguientePin.name, visitados);
+      if (g2 !== null) return g2;
+    }
+  }
+  return null;
+}
+
+/** Nombre legible de una punta de cable: "ESP32 · GPIO6" / "Pulsador btn1 · OUT". */
+function nombreRef(ref) {
+  const [id, pin] = [ref.slice(0, ref.indexOf('.')), ref.slice(ref.indexOf('.') + 1)];
+  const inst = state.diagrama.modules.find((m) => m.id === id);
+  const def = inst && state.catalogo.get(inst.type);
+  const limpio = pin.replace(/_\d+$/, '');
+  if (id === BOARD_ID) return `${nombrePlaca()} · ${limpio}`;
+  return `${def?.name ?? id} ${id} · ${limpio}`;
+}
+
+/**
+ * Pines de alimentación (GND/VCC) de un módulo que no están cableados a nada.
+ * Como en la vida real: sin tierra (y sin VCC si lo necesita) el módulo no funciona,
+ * aunque su pin de señal sí esté conectado.
+ */
+function pinesSinAlimentar(inst, def) {
+  return def.pins
+    .filter((p) => p.kind === 'ground' || p.kind === 'power')
+    .filter((p) => cablesDe(`${inst.id}.${p.name}`).length === 0)
+    .map((p) => p.name);
+}
+
+/** Módulos de un rol, cableados a un GPIO y alimentados (p. ej. el receptor RF listo para recibir). */
+function cableadosConRol(rol) {
+  return state.diagrama.modules.filter((inst) => {
+    const def = state.catalogo.get(inst.type);
+    if (def?.bridge?.role !== rol) return false;
+    if (gpioDe(inst.id, def.bridge.pin) === null) return false;
+    return pinesSinAlimentar(inst, def).length === 0;
+  });
+}
+
+// --- Dibujo: cambios --------------------------------------------------------
+
+function guardarDiagrama() {
+  clearTimeout(state.timerDiagrama);
+  const proyecto = state.proyecto?.name;
+  if (!proyecto) return;
+  state.timerDiagrama = setTimeout(async () => {
+    state.timerDiagrama = null;
+    try {
+      await api(`/api/projects/${proyecto}/diagram`, {
+        method: 'PUT',
+        body: JSON.stringify(state.diagrama),
+      });
+      if (state.proyecto?.name === proyecto) await refrescarAvisos();
+    } catch (e) {
+      nota(`No se pudo guardar el circuito: ${String((/** @type {Error} */ (e))?.message ?? e)}`);
+    }
+  }, 300);
+}
+
+/** Manda ya el guardado pendiente (al recargar/cerrar la pestaña o cambiar de proyecto). */
+function guardarDiagramaYa() {
+  if (!state.timerDiagrama || !state.proyecto) return;
+  clearTimeout(state.timerDiagrama);
+  state.timerDiagrama = null;
+  // keepalive: el pedido sale aunque la página se esté cerrando.
+  void fetch(`/api/projects/${state.proyecto.name}/diagram`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json', 'x-cliente': CLIENTE },
+    body: JSON.stringify(state.diagrama),
+    keepalive: true,
+  }).catch(() => {});
+}
+window.addEventListener('pagehide', guardarDiagramaYa);
+
+function nuevoId(type) {
+  const PREFIJOS = {
+    button: 'btn', switch: 'sw', led: 'led', relay: 'rele', resistor: 'r', rxb6: 'rx', stx882: 'tx',
+    'remote-433': 'control', 'door-sensor-433': 'puerta', 'siren-433': 'sirena',
+  };
+  const base = PREFIJOS[type] ?? (type.replace(/[^a-z0-9]/g, '').slice(0, 10) || 'mod');
+  const usados = new Set(state.diagrama.modules.map((m) => m.id));
+  let n = 1;
+  while (usados.has(`${base}${n}`)) n++;
+  return `${base}${n}`;
+}
+
+/** Posiciones candidatas alrededor de (0,0), de la más cercana a la más lejana (en pasos de 30). */
+const CANDIDATOS = (() => {
+  const lista = [];
+  for (let i = -30; i <= 30; i++) for (let j = -30; j <= 30; j++) lista.push([i * 30, j * 30]);
+  return lista.sort((a, b) => Math.hypot(a[0], a[1] * 1.3) - Math.hypot(b[0], b[1] * 1.3));
+})();
+
+/** Primer lugar cerca de `centro` donde un módulo de w×h no pisa a otro (ni su etiqueta de arriba). */
+function lugarLibre(w, h, centro) {
+  const M = 24;
+  const cajas = state.diagrama.modules.map((m) => {
+    const d = state.catalogo.get(m.type) ?? { width: 110, height: 50 };
+    return { x0: m.x - M, y0: m.y - 30 - M, x1: m.x + d.width + M, y1: m.y + d.height + M };
+  });
+  const x0 = centro.x - w / 2;
+  const y0 = centro.y - h / 2;
+  for (const [dx, dy] of CANDIDATOS) {
+    const x = x0 + dx;
+    const y = y0 + dy;
+    if (cajas.every((c) => x + w < c.x0 || x > c.x1 || y + h < c.y0 - 0 || y - 30 > c.y1)) return { x, y };
+  }
+  return { x: x0, y: y0 };
+}
+
+function agregarModulo(type, x, y) {
+  const def = state.catalogo.get(type);
+  if (!def || !state.proyecto) return;
+  if (def.programmable) {
+    nota(`El proyecto ya tiene su placa (${nombrePlaca()}): la simulación corre un solo microcontrolador a la vez.`);
+    seleccionar({ tipo: 'modulo', id: BOARD_ID });
+    return;
+  }
+  const props = {};
+  for (const [k, p] of Object.entries(def.props ?? {})) {
+    if (/** @type {any} */ (p).default !== undefined) props[k] = /** @type {any} */ (p).default;
+  }
+  // Click en el catálogo: el lugar libre más cercano al centro de lo visible.
+  // Soltado con el mouse: donde se soltó.
+  const pos = x === undefined
+    ? lugarLibre(def.width, def.height, lienzo.centroVisible())
+    : { x: x - def.width / 2, y: y - def.height / 2 };
+  const inst = {
+    id: nuevoId(type), type,
+    x: Math.round(pos.x), y: Math.round(pos.y), props,
+  };
+  state.diagrama.modules.push(inst);
+  guardarDiagrama();
+  seleccionar({ tipo: 'modulo', id: inst.id });
+  nota(def.pins.length
+    ? `${def.name} agregado: conectá sus pines a la ${nombrePlaca()} (click en un pin y después en otro).`
+    : `${def.name} agregado: es inalámbrico, no lleva cables.`);
+}
+
+function eliminarModulo(id) {
+  if (id === BOARD_ID) {
+    nota(`La ${nombrePlaca()} no se puede quitar: es la que corre el código del proyecto.`);
+    return;
+  }
+  const prefijo = `${id}.`;
+  state.diagrama.modules = state.diagrama.modules.filter((m) => m.id !== id);
+  state.diagrama.wires = state.diagrama.wires.filter((w) => !w.from.startsWith(prefijo) && !w.to.startsWith(prefijo));
+  guardarDiagrama();
+  seleccionar(null);
+}
+
+function eliminarCable(indice) {
+  state.diagrama.wires.splice(indice, 1);
+  guardarDiagrama();
+  seleccionar(null);
+}
+
+/** Motivo por el que no se puede cablear a este pin, o null si se puede. */
+function motivoBloqueo(ref) {
+  const g = gpioDeRef(ref);
+  const bloqueados = pinesBloqueados();
+  if (g !== null && bloqueados.has(g)) return `${nombrePinGpio(g)} no se puede usar: ${bloqueados.get(g)}.`;
+  return null;
+}
+
+function conectar(a, b) {
+  const idA = a.slice(0, a.indexOf('.'));
+  const idB = b.slice(0, b.indexOf('.'));
+  if (idA === idB) {
+    nota('Conectá el pin con un pin de otro módulo.');
+    return;
+  }
+  const bloqueo = motivoBloqueo(a) ?? motivoBloqueo(b);
+  if (bloqueo) {
+    nota(bloqueo);
+    return;
+  }
+  if (state.diagrama.wires.some((w) => (w.from === a && w.to === b) || (w.from === b && w.to === a))) {
+    nota('Esos dos pines ya están conectados.');
+    return;
+  }
+  // Convención de la guía (6.1): el módulo en `from`, la placa en `to`.
+  const wire = idA === BOARD_ID ? { from: b, to: a } : { from: a, to: b };
+  state.diagrama.wires.push(wire);
+  guardarDiagrama();
+  nota(`Conectado: ${nombreRef(wire.from)} → ${nombreRef(wire.to)}`);
+  // Si el módulo está seleccionado, el panel muestra la conexión nueva.
+  pintarPanelDerecho();
+  lienzo.render();
+}
+
+// --- Simulación sobre el canvas ----------------------------------------------
+
+/** El mensaje correcto según si hay que arrancar la simulación o ya está arrancando (no confundir las dos cosas). */
+function textoEsperaSimulacion() {
+  const s = $('estado').dataset.s;
+  if (s === 'starting' || s === 'booted' || s === 'wifi') return 'Esperando a que la simulación termine de arrancar…';
+  return 'Apretá ▶ Ejecutar para poder usarlo.';
+}
+
+function controlModulo(inst, control, indice, evento) {
+  const def = state.catalogo.get(inst.type);
+  if (!def) return;
+  if (!state.sim.listo) {
+    if (evento === 'down') {
+      seleccionar({ tipo: 'modulo', id: inst.id });
+      nota(`Los controles funcionan con la simulación corriendo. ${textoEsperaSimulacion()}`);
+    }
+    return;
+  }
+  const rol = def.bridge?.role;
+  if (rol === 'input') {
+    const gpio = gpioDe(inst.id, def.bridge.pin);
+    if (gpio === null) {
+      if (evento === 'down') nota(`Conectá el pin ${def.bridge.pin} del ${def.name} a un pin de la ${nombrePlaca()}.`);
+      return;
+    }
+    const faltan = pinesSinAlimentar(inst, def);
+    if (faltan.length > 0) {
+      if (evento === 'down') nota(`${def.name} sin alimentación: conectá también ${faltan.join(' y ')}, como en la vida real.`);
+      return;
+    }
+    const activo = def.bridge.activeLevel ?? 1;
+    let presionado;
+    if (control === 'momentary') {
+      presionado = evento === 'down';
+    } else {
+      if (evento !== 'down') return;
+      presionado = !state.sim.controles.get(inst.id);
+    }
+    state.sim.controles.set(inst.id, presionado);
+    enviar({ type: 'pin.in', pin: gpio, level: presionado ? activo : 1 - activo });
+    lienzo.render();
+    return;
+  }
+  if (rol === 'air' && evento === 'down') {
+    let bits = null;
+    if (def.type === 'remote-433') {
+      const letra = 'ABCD'[indice] ?? 'A';
+      bits = inst.props?.[`code${letra}`];
+      state.sim.boton.set(inst.id, indice);
+      setTimeout(() => {
+        state.sim.boton.delete(inst.id);
+        lienzo.render();
+      }, 250);
+    } else if (def.type === 'door-sensor-433') {
+      const abierta = !state.sim.controles.get(inst.id);
+      state.sim.controles.set(inst.id, abierta);
+      bits = abierta ? inst.props?.code : null; // el sensor solo transmite al abrir
+    } else {
+      nota(`${def.name}: se activa sola cuando la ${nombrePlaca()} transmite su código.`);
+      return;
+    }
+    if (bits) enviarRf(inst, String(bits), Number(inst.props?.protocol ?? 1));
+    lienzo.render();
+  }
+}
+
+/** Control "momentary" apretado desde el panel (no desde el dibujo): para soltarlo aunque el mouse se vaya del botón. */
+let panelPresionado = null;
+function soltarPanelPresionado() {
+  if (!panelPresionado) return;
+  controlModulo(panelPresionado, 'momentary', 0, 'up');
+  panelPresionado = null;
+  pintarPanelDerecho();
+}
+window.addEventListener('mouseup', soltarPanelPresionado);
+window.addEventListener('touchend', soltarPanelPresionado);
+window.addEventListener('touchcancel', soltarPanelPresionado);
+
+/** Módulos de un rol con el pin de señal cableado, sin importar si les falta alimentación (para avisos). */
+function cableadosSinFiltrarAlimentacion(rol) {
+  return state.diagrama.modules.filter((inst) => {
+    const def = state.catalogo.get(inst.type);
+    return def?.bridge?.role === rol && gpioDe(inst.id, def.bridge.pin) !== null;
+  });
+}
+
+function enviarRf(inst, bits, protocolo) {
+  const receptores = cableadosConRol('rf-rx');
+  if (receptores.length === 0) {
+    const sinAlimentar = cableadosSinFiltrarAlimentacion('rf-rx')[0];
+    if (sinAlimentar) {
+      const def = state.catalogo.get(sinAlimentar.type);
+      nota(`${def.name} sin alimentación: conectá también ${pinesSinAlimentar(sinAlimentar, def).join(' y ')}, como en la vida real.`);
+    } else {
+      nota(`Nadie recibe la señal: agregá un Receptor RF RXB6 y conectá su DATA a un pin de la ${nombrePlaca()}.`);
+    }
+    return;
+  }
+  if (!/^[01]+$/.test(bits)) {
+    nota(`El código "${bits}" no es válido: tiene que ser una secuencia de 0 y 1.`);
+    return;
+  }
+  enviar({ type: 'rf.send', bits, protocol: protocolo });
+  log('emu', `[rf] ${inst.id} transmitió ${bits} (protocolo ${protocolo})`);
+  destellar([inst.id, ...receptores.map((r) => r.id)]);
+}
+
+function recibirRfTx(bits) {
+  const transmisores = cableadosConRol('rf-tx').map((m) => m.id);
+  destellar(transmisores);
+  if (transmisores.length === 0) return;
+  for (const inst of state.diagrama.modules) {
+    if (inst.type !== 'siren-433') continue;
+    const aprendido = String(inst.props?.learnedCode ?? '');
+    if (aprendido && aprendido !== bits) continue;
+    state.sim.sonando.set(inst.id, Date.now() + 3000);
+    setTimeout(() => lienzo.render(), 3050);
+  }
+  lienzo.render();
+}
+
+function destellar(ids) {
+  const hasta = Date.now() + 400;
+  for (const id of ids) state.sim.flash.set(id, hasta);
+  setTimeout(() => lienzo.render(), 450);
+  lienzo.render();
+}
+
+/** Estado visual en vivo de un módulo durante la simulación. */
+function vivoDe(inst) {
+  const def = state.catalogo.get(inst.type);
+  const ahora = Date.now();
+  const vivo = {
+    flash: (state.sim.flash.get(inst.id) ?? 0) > ahora,
+    sonando: (state.sim.sonando.get(inst.id) ?? 0) > ahora,
+    presionado: Boolean(state.sim.controles.get(inst.id)),
+    activo: Boolean(state.sim.controles.get(inst.id)),
+    boton: state.sim.boton.get(inst.id),
+    on: false,
+  };
+  if (def?.bridge?.role === 'output') {
+    const gpio = gpioDe(inst.id, def.bridge.pin);
+    // Sin GND (y VCC si lo necesita) no prende, aunque el ESP32 ponga el pin en 1: como en la vida real.
+    vivo.on = gpio !== null && state.sim.niveles.get(gpio) === 1 && pinesSinAlimentar(inst, def).length === 0;
+  }
+  const quemado = state.sim.quemados.get(inst.id);
+  if (quemado) {
+    vivo.on = false;
+    vivo.quemado = true;
+    vivo.explotando = ahora - quemado.hora < 1400;
+  }
+  return vivo;
+}
+
+// --- LEDs que se queman ------------------------------------------------------------
+// El motor eléctrico del server dice, por LED, si con su pin en alto la corriente lo
+// destruye (estado "se-quema"). Si la simulación lo enciende así, se quema de verdad:
+// destello y humo, y queda muerto hasta reemplazarlo.
+
+function revisarQuemaduras() {
+  if (!state.sim.listo) return;
+  for (const inst of state.diagrama.modules) {
+    const veredicto = state.electrico.get(inst.id);
+    if (veredicto?.estado !== 'se-quema' || state.sim.quemados.has(inst.id)) continue;
+    if (!vivoDe(inst).on) continue;
+    state.sim.quemados.set(inst.id, { hora: Date.now(), mA: veredicto.mA });
+    const def = state.catalogo.get(inst.type);
+    nota(`Se quemó ${def?.name ?? 'el LED'} (${inst.id}): le pasaban ~${Math.round(veredicto.mA)} mA. Quedó muerto, como pasaría en la vida real: reemplazalo y poné una resistencia en serie.`);
+    log('emu', `[física] ${inst.id} se quemó con ~${Math.round(veredicto.mA)} mA`);
+    lienzo.render();
+    setTimeout(() => lienzo.render(), 1450); // termina la explosión, queda el humo
+    if (state.seleccion?.tipo === 'modulo' && state.seleccion.id === inst.id) pintarPanelDerecho();
+  }
+}
+
+function reemplazarQuemado(id) {
+  state.sim.quemados.delete(id);
+  nota(`${id} reemplazado por uno nuevo.`);
+  lienzo.render();
+  pintarPanelDerecho();
+}
+
+/** ¿Este pin de un módulo (no de la placa) es de alimentación y le falta cablear? */
+function esPinSinAlimentar(ref) {
+  const punto = ref.indexOf('.');
+  const id = ref.slice(0, punto);
+  if (id === BOARD_ID || cablesDe(ref).length > 0) return false;
+  const inst = state.diagrama.modules.find((m) => m.id === id);
+  const def = inst && state.catalogo.get(inst.type);
+  const pin = def?.pins.find((p) => p.name === ref.slice(punto + 1));
+  return pin?.kind === 'ground' || pin?.kind === 'power';
+}
+
+/** Texto extra del tooltip de un pin (por qué está reservado, conviene evitarlo, o hace falta cablearlo). */
+function descripcionPin(ref) {
+  const g = gpioDeRef(ref);
+  if (g === null) {
+    return esPinSinAlimentar(ref) ? 'sin esto el módulo no funciona, como en la vida real' : '';
+  }
+  if (pinesBloqueados().has(g)) return `reservado: ${pinesBloqueados().get(g)}`;
+  if (pinesAdvertencia().has(g)) return `ojo: ${pinesAdvertencia().get(g)}`;
+  if (state.codePins.has(g) && cablesDe(ref).length === 0) return 'el código lo usa pero no tiene nada conectado';
+  return '';
+}
+
+/** Clases de un pin según su estado: bloqueado, conectado, lo usa el código sin cable... */
+function clasePin(ref) {
+  const clases = [];
+  if (cablesDe(ref).length > 0) clases.push('conectado');
+  const g = gpioDeRef(ref);
+  if (g !== null) {
+    if (pinesBloqueados().has(g)) clases.push('bloqueado');
+    else if (pinesAdvertencia().has(g)) clases.push('advertencia');
+    if (state.codePins.has(g)) clases.push(cablesDe(ref).length > 0 ? 'en-codigo' : 'falta-modulo');
+    if (state.sim.niveles.get(g) === 1) clases.push('alto');
+  } else if (esPinSinAlimentar(ref)) {
+    clases.push('sin-alimentar');
+  }
+  return clases.join(' ');
+}
+
+// --- Canvas -----------------------------------------------------------------
+
+const lienzo = crearLienzo(/** @type {SVGSVGElement} */ (/** @type {unknown} */ ($('lienzo'))), {
+  diagrama: () => state.diagrama,
+  def: (type) => state.catalogo.get(type),
+  seleccion: () => state.seleccion,
+  vivo: vivoDe,
+  clasePin,
+  descripcionPin,
+  seleccionar,
+  moverModulo(id, x, y, fin) {
+    const inst = state.diagrama.modules.find((m) => m.id === id);
+    if (!inst) return;
+    inst.x = x;
+    inst.y = y;
+    if (fin) {
+      guardarDiagrama();
+      lienzo.render();
+    } else {
+      // Mientras se arrastra: solo se mueve ese módulo y sus cables, sin rearmar todo el dibujo.
+      lienzo.moverVisual(id);
+    }
+  },
+  rotarModulo(id, grados, fin) {
+    const inst = state.diagrama.modules.find((m) => m.id === id);
+    if (!inst) return;
+    fijarRotacion(inst, grados, fin);
+  },
+  conectar,
+  puedeEmpezarCable(ref) {
+    if (state.modoMover) return false;
+    const bloqueo = motivoBloqueo(ref);
+    if (bloqueo) nota(bloqueo);
+    return !bloqueo;
+  },
+  control: controlModulo,
+  soltarModulo: (type, x, y) => agregarModulo(type, x, y),
+});
+
+// --- Rotación -------------------------------------------------------------------
+
+/** Guarda el ángulo (0–359) de un módulo; `fin` = soltó el mouse o fue un paso de teclado. */
+function fijarRotacion(inst, grados, fin) {
+  const r = ((Math.round(grados) % 360) + 360) % 360;
+  if (r === 0) delete inst.rotation;
+  else inst.rotation = r;
+  if (!fin) {
+    lienzo.moverVisual(inst.id); // mientras se arrastra el asa: solo ese módulo y sus cables
+    return;
+  }
+  guardarDiagrama();
+  lienzo.render();
+  const campo = /** @type {HTMLInputElement | null} */ (document.querySelector('#panel-modulo [data-rotacion]'));
+  if (campo) campo.value = String(r);
+}
+
+/** Gira el módulo seleccionado (R: +90°, Shift+R: −90°). */
+function girarSeleccion(delta) {
+  const s = state.seleccion;
+  if (s?.tipo !== 'modulo') return;
+  const inst = state.diagrama.modules.find((m) => m.id === s.id);
+  if (inst) fijarRotacion(inst, (inst.rotation ?? 0) + delta, true);
+}
+
+// --- Selección y panel derecho ------------------------------------------------
+
+function seleccionar(s) {
+  state.seleccion = s;
+  pintarPanelDerecho();
+  lienzo.render();
+}
+
+/** El panel derecho muestra el código si se eligió el ESP32 (o nada); si no, el módulo o el cable. */
+function pintarPanelDerecho() {
+  const s = state.seleccion;
+  const inst = s?.tipo === 'modulo' ? state.diagrama.modules.find((m) => m.id === s.id) : null;
+  const def = inst ? state.catalogo.get(inst.type) : null;
+  const muestraCodigo = !s || (s.tipo === 'modulo' && (!inst || def?.programmable));
+  $('panel-codigo').hidden = !muestraCodigo;
+  const panel = $('panel-modulo');
+  panel.hidden = muestraCodigo;
+  if (muestraCodigo) return;
+  if (s.tipo === 'cable') return pintarPanelCable(panel, s.indice);
+  if (!def) return pintarPanelDesconocido(panel, inst);
+  pintarPanelModulo(panel, inst, def);
+}
+
+function pintarPanelCable(panel, indice) {
+  const w = state.diagrama.wires[indice];
+  if (!w) {
+    seleccionar(null);
+    return;
+  }
+  panel.innerHTML = `
+    <h2 class="panel-header">${ICONOS.cable} Cable</h2>
+    <div class="insp">
+      <p class="insp-conexion"><b>${escapar(nombreRef(w.from))}</b><span>↔</span><b>${escapar(nombreRef(w.to))}</b></p>
+      <button class="peligro" id="insp-borrar-cable">Eliminar cable</button>
+      <p class="hint">También podés seleccionarlo y apretar Supr.</p>
+    </div>`;
+  $('insp-borrar-cable').onclick = () => eliminarCable(indice);
+}
+
+function pintarPanelDesconocido(panel, inst) {
+  panel.innerHTML = `
+    <h2 class="panel-header">${ICONOS.modulo} Módulo desconocido <span class="sub">· ${escapar(inst.id)}</span></h2>
+    <div class="insp">
+      <div class="insp-badge aire">El tipo <b>${escapar(inst.type)}</b> no está en el catálogo (¿se quitó?).
+      Podés volver a importarlo o eliminarlo del circuito.</div>
+      <button class="peligro" id="insp-eliminar">Eliminar módulo</button>
+    </div>`;
+  $('insp-eliminar').onclick = () => eliminarModulo(inst.id);
+}
+
+const NOMBRE_KIND = {
+  'digital-in': 'entrada', 'digital-out': 'salida', 'digital-io': 'E/S',
+  power: 'alimentación', ground: 'tierra', 'analog-in': 'analógica', other: '—',
+};
+
+/**
+ * Controles de simulación para el panel: la forma fácil de "apretar" un módulo,
+ * sin tener que encontrar el dibujo chico en el circuito.
+ */
+function controlesPanel(inst, def) {
+  const kind = def.controls?.[0]?.kind;
+  if (def.bridge?.role === 'input' && kind === 'momentary') {
+    return '<button type="button" class="btn-accionar" data-accion="momentary">Mantener presionado</button>';
+  }
+  if (def.bridge?.role === 'input' && kind === 'toggle') {
+    const on = Boolean(state.sim.controles.get(inst.id));
+    return `<button type="button" class="btn-accionar ${on ? 'activo' : ''}" data-accion="toggle">${on ? 'Apagar' : 'Encender'}</button>`;
+  }
+  if (def.type === 'remote-433') {
+    return `<div class="botonera-remoto">${['A', 'B', 'C', 'D'].map((l, i) =>
+      `<button type="button" class="btn-accionar" data-accion="boton" data-indice="${i}">${l}</button>`).join('')}</div>`;
+  }
+  if (def.type === 'door-sensor-433') {
+    const abierta = Boolean(state.sim.controles.get(inst.id));
+    return `<button type="button" class="btn-accionar ${abierta ? 'activo' : ''}" data-accion="toggle">${abierta ? 'Cerrar puerta' : 'Abrir puerta'}</button>`;
+  }
+  return '';
+}
+
+function pintarPanelModulo(panel, inst, def) {
+  const esAire = def.bridge?.role === 'air';
+  const controles = controlesPanel(inst, def);
+  const filasPines = def.pins.map((p) => {
+    const ref = `${inst.id}.${p.name}`;
+    const conexiones = cablesDe(ref).map((w) => {
+      const otro = w.from === ref ? w.to : w.from;
+      const i = state.diagrama.wires.indexOf(w);
+      return `<span class="conexion">→ ${escapar(nombreRef(otro))}<button class="quitar" data-cable="${i}" title="Desconectar">×</button></span>`;
+    });
+    return `<tr>
+      <td class="pin-nombre ${p.kind}">${escapar(p.name)}</td>
+      <td class="pin-kind">${NOMBRE_KIND[p.kind] ?? p.kind}</td>
+      <td>${conexiones.join('') || '<span class="sin">sin conectar</span>'}</td>
+    </tr>`;
+  }).join('');
+
+  const propsHtml = Object.entries(def.props ?? {}).map(([k, p]) => {
+    const pd = /** @type {any} */ (p);
+    const valor = inst.props?.[k] ?? pd.default ?? '';
+    const etiqueta = escapar(pd.label ?? k);
+    if (pd.enum) {
+      const opciones = pd.enum.map((o) => `<option ${o === valor ? 'selected' : ''}>${escapar(o)}</option>`).join('');
+      return `<label>${etiqueta}<select data-prop="${k}">${opciones}</select></label>`;
+    }
+    if (pd.type === 'boolean') {
+      return `<label class="check"><input type="checkbox" data-prop="${k}" ${valor ? 'checked' : ''}/> ${etiqueta}</label>`;
+    }
+    const tipo = pd.type === 'number' ? 'number' : 'text';
+    return `<label>${etiqueta}<input type="${tipo}" data-prop="${k}" value="${escapar(valor)}"/></label>`;
+  }).join('');
+
+  panel.innerHTML = `
+    <h2 class="panel-header">${ICONOS.modulo} ${escapar(def.name)} <span class="sub">· ${escapar(inst.id)}</span></h2>
+    <div class="insp">
+      <div class="insp-mini"></div>
+      <p class="insp-desc">${escapar(def.description ?? '')}</p>
+      <div class="insp-badge ${esAire ? 'aire' : ''}">
+        ${esAire
+          ? `<b>Inalámbrico</b> — no se programa ni lleva cables: se comunica por radio 433 MHz con el receptor o transmisor conectado a la ${escapar(nombrePlaca())}.`
+          : `<b>Sin código</b> — este módulo no se programa: se conecta a la ${escapar(nombrePlaca())} con cables y el código de la placa lo controla.`}
+      </div>
+      ${state.sim.quemados.has(inst.id) ? `
+        <div class="insp-badge quemado"><b>Quemado</b>: le pasaron ~${Math.round(state.sim.quemados.get(inst.id)?.mA ?? 0)} mA. Ya no enciende aunque arregles el circuito, igual que un LED real.
+        <button type="button" id="insp-reemplazar" class="btn-accionar">Reemplazar LED</button></div>` : ''}
+      ${pinesSinAlimentar(inst, def).length > 0 ? `
+        <div class="insp-badge advertencia">⚠ <b>Sin alimentación</b> — conectá también ${escapar(pinesSinAlimentar(inst, def).join(' y '))}: sin eso no funciona en la simulación, como en la vida real.</div>` : ''}
+      ${controles ? `
+        <h3>Simulación</h3>
+        <div class="insp-control ${state.sim.listo ? '' : 'deshabilitado'}">${controles}</div>
+        <p class="hint">${state.sim.listo ? 'También podés tocar el dibujo del módulo en el circuito.' : textoEsperaSimulacion()}</p>` : ''}
+      ${def.pins.length ? `
+        <h3>Pines</h3>
+        <table class="insp-pines"><tbody>${filasPines}</tbody></table>
+        <p class="hint">Para cablear: click en un pin del módulo en el circuito y después en un pin de la ${escapar(nombrePlaca())}.</p>` : ''}
+      <h3>Rotación</h3>
+      <div class="insp-rotacion">
+        <button type="button" data-girar="-90" title="Girar 90° a la izquierda (Shift+R)" aria-label="Girar a la izquierda">⟲</button>
+        <input type="range" min="0" max="359" step="1" value="${inst.rotation ?? 0}" data-rotacion-rango aria-label="Ángulo" />
+        <label class="grados"><input type="number" min="0" max="359" value="${inst.rotation ?? 0}" data-rotacion aria-label="Grados" />°</label>
+        <button type="button" data-girar="90" title="Girar 90° a la derecha (R)" aria-label="Girar a la derecha">⟳</button>
+      </div>
+      ${propsHtml ? `<h3>Propiedades</h3><div class="insp-props">${propsHtml}</div>` : ''}
+      <button class="peligro" id="insp-eliminar">Eliminar módulo</button>
+    </div>`;
+  panel.querySelector('.insp-mini').append(miniatura(def));
+  $('insp-eliminar').onclick = () => eliminarModulo(inst.id);
+  const reemplazar = $('insp-reemplazar');
+  if (reemplazar) reemplazar.onclick = () => reemplazarQuemado(inst.id);
+  for (const b of panel.querySelectorAll('[data-girar]')) {
+    /** @type {HTMLElement} */ (b).onclick = () => fijarRotacion(inst, (inst.rotation ?? 0) + Number(/** @type {HTMLElement} */ (b).dataset.girar), true);
+  }
+  const rango = /** @type {HTMLInputElement} */ (panel.querySelector('[data-rotacion-rango]'));
+  const numero = /** @type {HTMLInputElement} */ (panel.querySelector('[data-rotacion]'));
+  rango.addEventListener('input', () => {
+    numero.value = rango.value;
+    fijarRotacion(inst, Number(rango.value), false);
+  });
+  rango.addEventListener('change', () => fijarRotacion(inst, Number(rango.value), true));
+  numero.addEventListener('change', () => {
+    fijarRotacion(inst, Number(numero.value) || 0, true);
+    rango.value = String(inst.rotation ?? 0);
+  });
+  for (const b of panel.querySelectorAll('button.quitar')) {
+    /** @type {HTMLElement} */ (b).onclick = () => {
+      state.diagrama.wires.splice(Number(/** @type {HTMLElement} */ (b).dataset.cable), 1);
+      guardarDiagrama();
+      pintarPanelDerecho();
+      lienzo.render();
+    };
+  }
+  for (const campo of panel.querySelectorAll('[data-prop]')) {
+    const c = /** @type {HTMLInputElement} */ (campo);
+    c.addEventListener('change', () => {
+      const k = c.dataset.prop;
+      const pd = def.props[k];
+      inst.props = { ...inst.props, [k]: pd.type === 'number' ? Number(c.value) : pd.type === 'boolean' ? c.checked : c.value };
+      guardarDiagrama();
+      lienzo.render();
+    });
+  }
+  for (const b of panel.querySelectorAll('.btn-accionar')) {
+    const el = /** @type {HTMLButtonElement} */ (b);
+    const accion = el.dataset.accion;
+    if (accion === 'momentary') {
+      const abajo = (/** @type {Event} */ e) => {
+        e.preventDefault();
+        panelPresionado = inst;
+        controlModulo(inst, 'momentary', 0, 'down');
+        el.classList.add('activo');
+      };
+      el.addEventListener('mousedown', abajo);
+      el.addEventListener('touchstart', abajo, { passive: false });
+    } else if (accion === 'toggle') {
+      el.onclick = () => {
+        controlModulo(inst, 'toggle', 0, 'down');
+        pintarPanelDerecho(); // refleja el nuevo estado (Encender/Apagar, Abrir/Cerrar puerta)
+      };
+    } else if (accion === 'boton') {
+      el.onclick = () => controlModulo(inst, 'boton', Number(el.dataset.indice), 'down');
+    }
+  }
+}
+
+// --- Catálogo -----------------------------------------------------------------
+
+/**
+ * Tarjetas del catálogo ya armadas, por tipo: armar cada miniatura SVG es lo caro, y el
+ * buscador repinta la lista en cada tecla. Se vacía cuando cambia el catálogo.
+ * @type {Map<string, HTMLElement>}
+ */
+const tarjetas = new Map();
+
+function tarjetaModulo(m) {
+  const hecha = tarjetas.get(m.type);
+  if (hecha) return hecha;
+  const b = document.createElement('button');
+  b.className = 'modulo-card';
+  b.draggable = true;
+  b.dataset.type = m.type;
+  b.title = m.description ?? m.name;
+  b.append(miniatura(m));
+  const nombre = document.createElement('span');
+  nombre.textContent = m.name;
+  b.append(nombre);
+  if (m.programmable || !m.builtin) {
+    const etiqueta = document.createElement('small');
+    etiqueta.className = m.programmable ? 'tag-programable' : 'tag-importado';
+    etiqueta.textContent = m.programmable ? 'programable' : 'importado';
+    if (m.origin) etiqueta.title = `Importado desde ${m.origin.from}`;
+    b.append(etiqueta);
+  }
+  b.onclick = () => agregarModulo(m.type);
+  b.addEventListener('dragstart', (e) => {
+    e.dataTransfer?.setData('text/x-modulo', m.type);
+    if (e.dataTransfer) e.dataTransfer.effectAllowed = 'copy';
+  });
+  // La tarjeta es un botón: el "quitar" va al lado (un botón no puede ir dentro de otro).
+  const envoltorio = document.createElement('div');
+  envoltorio.className = 'card-wrap';
+  envoltorio.append(b);
+  if (!m.builtin) {
+    const quitar = document.createElement('button');
+    quitar.className = 'card-quitar';
+    quitar.title = `Quitar "${m.name}" del catálogo`;
+    quitar.setAttribute('aria-label', quitar.title);
+    quitar.textContent = '×';
+    quitar.onclick = () => void quitarDelCatalogo(m);
+    envoltorio.append(quitar);
+  }
+  tarjetas.set(m.type, envoltorio);
+  return envoltorio;
+}
+
+function pintarModulosCatalogo() {
+  const cont = $('lista-modulos');
+  cont.textContent = '';
+  if (state.catalogo.size === 0) {
+    cont.innerHTML = vacioPanel(ICONOS.modulo, 'Sin módulos todavía', 'No se encontró el catálogo (carpeta modules/).');
+    return;
+  }
+  const filtro = state.filtroModulos.toLowerCase();
+  const porCategoria = new Map();
+  for (const m of state.catalogo.values()) {
+    const texto = `${m.name} ${m.category} ${m.type}`.toLowerCase();
+    if (filtro && !texto.includes(filtro)) continue;
+    if (!porCategoria.has(m.category)) porCategoria.set(m.category, []);
+    porCategoria.get(m.category).push(m);
+  }
+  if (porCategoria.size === 0) {
+    cont.innerHTML = '<p class="vacio">Sin resultados.</p>';
+    return;
+  }
+  const orden = (c) => (ORDEN_CATEGORIAS.indexOf(c) + 1 || 99);
+  for (const categoria of [...porCategoria.keys()].sort((a, b) => orden(a) - orden(b))) {
+    const h = document.createElement('div');
+    h.className = 'cat-header';
+    h.textContent = categoria;
+    cont.append(h);
+    const grid = document.createElement('div');
+    grid.className = 'cat-grid';
+    for (const m of porCategoria.get(categoria)) grid.append(tarjetaModulo(m));
+    cont.append(grid);
+  }
+}
+
+// --- Cambios desde afuera (MCP u otra pestaña) -------------------------------------
+
+async function recargarCatalogo() {
+  const { modules } = await api('/api/modules').catch(() => ({ modules: [] }));
+  state.catalogo = new Map(modules.map((m) => [m.type, m]));
+  tarjetas.clear();
+  pintarModulosCatalogo();
+  pintarPanelDerecho();
+  lienzo.render();
+}
+
+async function aplicarCambioExterno(msg) {
+  const nombre = state.proyecto?.name;
+  if (!nombre) return;
+  const { project, files } = await api(`/api/projects/${nombre}`);
+  if (state.proyecto?.name !== nombre) return;
+  if (msg.what === 'diagram') {
+    // El cambio de afuera gana: lo pendiente de esta pestaña se descarta.
+    clearTimeout(state.timerDiagrama);
+    state.timerDiagrama = null;
+    state.diagrama = { modules: [...project.modules], wires: [...project.wires] };
+    if (!state.diagrama.modules.some((m) => m.id === BOARD_ID)) {
+      state.diagrama.modules.unshift({ id: BOARD_ID, type: project.board, x: 0, y: 0, props: {} });
+    }
+    const s = state.seleccion;
+    if (s?.tipo === 'cable' || (s?.tipo === 'modulo' && !state.diagrama.modules.some((m) => m.id === s.id))) {
+      state.seleccion = null;
+    }
+    pintarPanelDerecho();
+    lienzo.render();
+    nota(msg.origin === 'mcp' ? 'Circuito actualizado por MCP.' : 'Circuito actualizado desde otra pestaña.');
+  } else {
+    state.archivos = files.filter((f) => !/(^|\/)(secrets\.yaml|project\.json)$/.test(f.path));
+    pintarTabs();
+    if (msg.file === state.activo) {
+      if (state.editorSucio) {
+        nota(`${msg.file} cambió afuera, pero tenés cambios sin guardar: se mantienen los tuyos.`);
+      } else {
+        const { content } = await api(`/api/projects/${nombre}/files/${msg.file}`);
+        const scroll = ta('editor').scrollTop;
+        editarContenido(content);
+        ta('editor').scrollTop = scroll;
+        nota(`${msg.file} actualizado ${msg.origin === 'mcp' ? 'por MCP' : 'desde otra pestaña'}.`);
+      }
+    }
+  }
+  await refrescarAvisos();
+}
+
+// --- Importador de módulos ---------------------------------------------------------
+
+let fuenteImportacion = 'carpeta';
+
+const bytesABase64 = (bytes) => {
+  let s = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(s);
+};
+
+/** Lo que se va a mandar al server según la fuente elegida. */
+async function solicitudImportacion() {
+  switch (fuenteImportacion) {
+    case 'carpeta': {
+      const archivos = {};
+      const lista = [...(inp('imp-carpeta').files ?? [])].filter((f) => /\.(json|svg)$/i.test(f.name));
+      if (lista.length === 0) throw new Error('Elegí una carpeta que tenga module.json (o .chip.json).');
+      if (lista.length > 1000) throw new Error('La carpeta tiene demasiados archivos .json/.svg.');
+      for (const f of lista) {
+        if (f.size > 512 * 1024) continue;
+        archivos[f.webkitRelativePath || f.name] = await f.text();
+      }
+      return { fuente: 'archivos', archivos };
+    }
+    case 'zip': {
+      const f = inp('imp-zip').files?.[0];
+      if (!f) throw new Error('Elegí un archivo .zip.');
+      return { fuente: 'zip', base64: bytesABase64(new Uint8Array(await f.arrayBuffer())) };
+    }
+    case 'wokwi': {
+      const f = inp('imp-chip').files?.[0];
+      if (!f) throw new Error('Elegí el .chip.json del chip de Wokwi.');
+      return { fuente: 'wokwi', chipJson: await f.text() };
+    }
+    default: {
+      const url = inp('imp-url').value.trim();
+      if (!url) throw new Error('Pegá una URL https://');
+      return { fuente: 'url', url };
+    }
+  }
+}
+
+function mostrarResultadoImportacion(r) {
+  const cont = $('imp-resultado');
+  const filas = [
+    ...r.importados.map((m) => `<li class="ok">✓ <b>${escapar(m.name)}</b> <code>${escapar(m.type)}</code></li>`),
+    ...r.errores.map((e) => `<li class="error">✗ <code>${escapar(e.origen)}</code><ul>${e.mensajes.map((x) => `<li>${escapar(x)}</li>`).join('')}</ul></li>`),
+    ...r.avisos.map((a) => `<li class="aviso">⚠ <code>${escapar(a.origen)}</code><ul>${a.mensajes.map((x) => `<li>${escapar(x)}</li>`).join('')}</ul></li>`),
+  ];
+  cont.innerHTML = filas.length ? `<ul>${filas.join('')}</ul>` : '';
+}
+
+async function ejecutarImportacion(soloValidar) {
+  const cont = $('imp-resultado');
+  const botones = [btn('imp-importar'), btn('imp-validar')];
+  try {
+    const solicitud = await solicitudImportacion();
+    const rol = sel('imp-rol').value;
+    const categoria = inp('imp-categoria').value.trim();
+    botones.forEach((b) => (b.disabled = true));
+    cont.innerHTML = `<p class="hint">${soloValidar ? 'Validando' : 'Importando'}…</p>`;
+    const res = await fetch('/api/modules/import', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-cliente': CLIENTE },
+      body: JSON.stringify({
+        ...solicitud,
+        sobrescribir: /** @type {HTMLInputElement} */ ($('imp-reemplazar')).checked,
+        soloValidar,
+        wokwi: { ...(rol ? { role: rol } : {}), ...(categoria ? { category: categoria } : {}) },
+      }),
+    });
+    const datos = await res.json();
+    if (datos.error) throw new Error(datos.error);
+    mostrarResultadoImportacion(datos);
+    if (datos.importados.length && !soloValidar) {
+      await recargarCatalogo();
+      nota(`Importado(s): ${datos.importados.map((m) => m.name).join(', ')}`);
+    }
+  } catch (e) {
+    cont.innerHTML = `<ul><li class="error">✗ ${escapar(String(/** @type {Error} */ (e)?.message ?? e))}</li></ul>`;
+  } finally {
+    botones.forEach((b) => (b.disabled = false));
+  }
+}
+
+function elegirFuente(fuente) {
+  fuenteImportacion = fuente;
+  for (const b of document.querySelectorAll('.imp-fuentes [data-fuente]')) {
+    b.classList.toggle('activa', /** @type {HTMLElement} */ (b).dataset.fuente === fuente);
+  }
+  for (const p of document.querySelectorAll('#dlg-importar [data-panel]')) {
+    /** @type {HTMLElement} */ (p).hidden = /** @type {HTMLElement} */ (p).dataset.panel !== fuente;
+  }
+  $('imp-resultado').textContent = '';
+}
+
+async function quitarDelCatalogo(m) {
+  if (!confirm(`¿Quitar "${m.name}" del catálogo?\nLos circuitos que lo usan lo van a mostrar como desconocido.`)) return;
+  try {
+    await api(`/api/modules/${m.type}`, { method: 'DELETE' });
+    await recargarCatalogo();
+    nota(`"${m.name}" quitado del catálogo.`);
+  } catch (e) {
+    nota(String(/** @type {Error} */ (e)?.message ?? e));
+  }
+}
+
+// --- Avisos dibujo ↔ código -----------------------------------------------------
+
+async function refrescarAvisos() {
+  if (!state.proyecto) return;
+  try {
+    const respuesta = await api(`/api/projects/${state.proyecto.name}/pins`);
+    const { pins, warnings } = respuesta;
+    state.codePins = new Set(pins);
+    state.avisosDibujo = warnings;
+    state.electrico = new Map((respuesta.electrico?.leds ?? []).map((l) => [l.id, l]));
+    actualizarCuentaProblemas();
+    revisarQuemaduras();
+    const cont = $('avisos-dibujo');
+    cont.textContent = '';
+    for (const w of warnings.slice(0, 6)) {
+      const div = document.createElement('div');
+      div.textContent = w.message;
+      div.dataset.pin = String(w.pin);
+      cont.append(div);
+    }
+    // Compacto por defecto (una línea + "+N más"): el circuito no pierde lugar. Click: despliega.
+    cont.dataset.mas = warnings.length > 1 ? `+${warnings.length - 1} más` : '';
+    if (!warnings.length) cont.classList.remove('abiertos');
+    lienzo.render();
+  } catch {
+    /* el proyecto puede no tener archivos aún */
+  }
+}
+
+// --- Proyectos --------------------------------------------------------------
+
+async function cargarProyectos(seleccionarNombre) {
+  const { projects } = await api('/api/projects');
+  state.proyectos = projects;
+  const s = sel('proyecto');
+  s.textContent = '';
+  // Opción vacía (oculta en la lista desplegada): sin ella, un <select> nativo muestra
+  // el primer proyecto como "elegido" aunque en realidad no haya ninguno abierto.
+  const vacio = document.createElement('option');
+  vacio.value = '';
+  vacio.hidden = true;
+  s.append(vacio);
+  for (const p of projects) {
+    const o = document.createElement('option');
+    o.value = p.name;
+    o.textContent = `${p.name} (${p.language})`;
+    s.append(o);
+  }
+  if (document.body.classList.contains('inicio')) pintarListaProyectos();
+  // Al recargar se vuelve al proyecto que estaba abierto (queda en la URL: #nombre).
+  // Sin eso (primera visita, o volviste a la lista a propósito): la pantalla de inicio.
+  const enUrl = decodeURIComponent(location.hash.slice(1));
+  const desdeUrl = projects.some((p) => p.name === enUrl) ? enUrl : undefined;
+  const nombre = seleccionarNombre ?? state.proyecto?.name ?? desdeUrl;
+  if (nombre) await abrirProyecto(nombre);
+  else mostrarInicio();
+}
+
+// --- Pantalla de inicio: lista de proyectos ----------------------------------
+
+function mostrarInicio() {
+  document.body.classList.add('inicio');
+  state.proyecto = null;
+  state.activo = null;
+  history.replaceState(null, '', location.pathname + location.search);
+  sel('proyecto').value = '';
+  pintarWidgetsProyecto();
+  pintarListaProyectos();
+  cerrarMenus();
+}
+
+/** Color estable por nombre de proyecto (la insignia y el tinte de la barra, como en Android Studio). */
+function colorProyecto(nombre) {
+  let h = 0;
+  for (const c of nombre) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return `hsl(${h % 360} 42% 46%)`;
+}
+
+/** Iniciales para la insignia: "demo-boton-led" → "DB". */
+function iniciales(nombre) {
+  const partes = nombre.split(/[-_\s]+/).filter(Boolean);
+  return ((partes[0]?.[0] ?? '') + (partes[1]?.[0] ?? partes[0]?.[1] ?? '')).toUpperCase() || '?';
+}
+
+const NOMBRE_LENGUAJE_PROYECTO = {
+  esphome: 'ESPHome', 'idf-c': 'ESP-IDF C', 'idf-cpp': 'ESP-IDF C++', arduino: 'Arduino', micropython: 'MicroPython',
+};
+
+/** Barra de título y de estado según el proyecto abierto (o ninguno). */
+function pintarWidgetsProyecto() {
+  const p = state.proyecto;
+  const raiz = document.body.style;
+  if (p) {
+    raiz.setProperty('--color-proyecto', colorProyecto(p.name));
+    raiz.setProperty('--tinte', colorProyecto(p.name).replace(')', ' / .22)'));
+    $('insignia-proyecto').textContent = iniciales(p.name);
+    const placa = state.catalogo.get(p.board);
+    $('dispositivo-texto').textContent = placa?.name ?? p.board ?? '–';
+    $('config-run-texto').textContent = NOMBRE_LENGUAJE_PROYECTO[p.language] ?? p.language;
+    document.title = `${p.name} – Emulador de electrónica`;
+  } else {
+    raiz.removeProperty('--color-proyecto');
+    raiz.removeProperty('--tinte');
+    $('insignia-proyecto').textContent = '–';
+    $('pos-cursor').textContent = '';
+    $('lenguaje-status').textContent = '';
+    document.title = 'Emulador de electrónica';
+  }
+  pintarMiga();
+}
+
+/** Migas de pan de la barra de estado: proyecto › archivo. */
+function pintarMiga() {
+  const p = state.proyecto;
+  $('miga').innerHTML = p
+    ? `${escapar(p.name)}${state.activo ? `<span class="sep">›</span>${escapar(state.activo)}` : ''}`
+    : 'Bienvenida';
+}
+
+function pintarListaProyectos() {
+  const cont = $('lista-proyectos');
+  if (state.proyectos.length === 0) {
+    cont.innerHTML = vacioPanel(ICONOS.modulo, 'Todavía no tenés proyectos', 'Creá el primero con "Nuevo proyecto".');
+    return;
+  }
+  const filtro = inp('buscar-proyectos').value.trim().toLowerCase();
+  const lista = state.proyectos.filter((p) => !filtro || `${p.name} ${p.language}`.toLowerCase().includes(filtro));
+  if (lista.length === 0) {
+    cont.innerHTML = '<p class="vacio">Ningún proyecto coincide con la búsqueda.</p>';
+    return;
+  }
+  cont.textContent = '';
+  for (const p of lista) {
+    const card = document.createElement('div');
+    card.className = 'proyecto-card';
+    const abrir = document.createElement('button');
+    abrir.type = 'button';
+    abrir.className = 'proyecto-abrir';
+    const placa = state.catalogo.get(p.board)?.name ?? p.board ?? '';
+    abrir.innerHTML = `
+      <span class="insignia" style="--color-proyecto:${colorProyecto(p.name)}">${escapar(iniciales(p.name))}</span>
+      <span class="nombre">${escapar(p.name)}</span>
+      <span class="linea2">
+        <span class="lenguaje">${escapar(p.language)}</span>
+        <span class="detalle">${p.modules.length} módulo(s) en el circuito${placa ? ` · ${escapar(placa)}` : ''}</span>
+      </span>
+    `;
+    abrir.onclick = () => void cambiarDeProyecto(p.name);
+    const quitar = document.createElement('button');
+    quitar.type = 'button';
+    quitar.className = 'quitar';
+    quitar.title = `Eliminar "${p.name}"`;
+    quitar.setAttribute('aria-label', quitar.title);
+    quitar.textContent = '×';
+    quitar.onclick = () => void eliminarProyecto(p.name);
+    card.append(abrir, quitar);
+    cont.append(card);
+  }
+}
+
+async function eliminarProyecto(nombre) {
+  if (!confirm(`¿Eliminar el proyecto "${nombre}"? No se puede deshacer.`)) return;
+  try {
+    await api(`/api/projects/${nombre}`, { method: 'DELETE' });
+    // Si era el proyecto abierto (p.ej. desde la barra de iconos), hay que soltarlo antes de
+    // recargar la lista: si no, cargarProyectos() intenta reabrir un proyecto que ya no existe.
+    if (state.proyecto?.name === nombre) {
+      state.proyecto = null;
+      history.replaceState(null, '', location.pathname + location.search);
+    }
+    await cargarProyectos();
+  } catch (e) {
+    nota(String(/** @type {Error} */ (e)?.message ?? e));
+  }
+}
+
+async function irAInicio() {
+  guardarDiagramaYa();
+  await guardar(true);
+  // Si no se limpia antes, cargarProyectos() vuelve a abrir este mismo proyecto (es su primer candidato).
+  state.proyecto = null;
+  history.replaceState(null, '', location.pathname + location.search);
+  await cargarProyectos();
+}
+
+/** Cuenta las aperturas: si se pide otro proyecto mientras uno carga, la carga vieja se descarta. */
+let aperturas = 0;
+
+async function abrirProyecto(nombre) {
+  const mia = ++aperturas;
+  const { project, files, placa } = await api(`/api/projects/${nombre}`);
+  if (mia !== aperturas) return;
+  document.body.classList.remove('inicio');
+  state.proyecto = project;
+  state.placa = placa ?? null;
+  history.replaceState(null, '', `#${encodeURIComponent(nombre)}`);
+  // project.json lo edita el canvas; secrets.yaml no se muestra.
+  state.archivos = files.filter((f) => !/(^|\/)(secrets\.yaml|project\.json)$/.test(f.path));
+  sel('proyecto').value = nombre;
+  state.diagrama = { modules: [...project.modules], wires: [...project.wires] };
+  if (!state.diagrama.modules.some((m) => m.id === BOARD_ID)) {
+    // Proyectos anteriores al canvas: la placa se agrega sola.
+    state.diagrama.modules.unshift({ id: BOARD_ID, type: project.board, x: 0, y: 0, props: {} });
+  }
+  state.seleccion = null;
+  state.activo = null;
+  const main = state.archivos.find((f) => /main\.(yaml|c|cpp|py)$|sketch\.cpp$/.test(f.path));
+  if (main) await abrirArchivo(main.path);
+  else pintarTabs();
+  if (mia !== aperturas) return;
+  pintarPanelDerecho();
+  pintarWidgetsProyecto();
+  lienzo.render();
+  lienzo.ajustar();
+  log('build', `── proyecto ${nombre} (${project.language}) ──`);
+  void depuracion?.alAbrirProyecto();
+  await refrescarAvisos();
+}
+
+// --- Eventos ----------------------------------------------------------------
+
+ta('editor').addEventListener('input', () => {
+  state.editorSucio = true;
+  pedirEditor();
+  guardarAuto();
+});
+ta('editor').addEventListener('scroll', sincronizarScroll, { passive: true });
+for (const ev of ['keyup', 'mouseup', 'focus', 'blur']) ta('editor').addEventListener(ev, pintarCursor);
+ta('editor').addEventListener('keydown', (e) => {
+  const t = /** @type {HTMLTextAreaElement} */ (e.target);
+  if (e.key === 'Tab' && !e.ctrlKey && !e.altKey) {
+    e.preventDefault();
+    // insertText (y no tocar .value): conserva Ctrl+Z y dispara "input" como una tecla normal.
+    document.execCommand('insertText', false, editor.lenguaje === 'python' ? '    ' : '  ');
+    return;
+  }
+  if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey) {
+    // Sangría automática, como en el IDE: mantiene la de la línea y suma un nivel tras ":" o "{".
+    const inicio = t.value.lastIndexOf('\n', t.selectionStart - 1) + 1;
+    const linea = t.value.slice(inicio, t.selectionStart);
+    let sangria = /^[ \t]*/.exec(linea)?.[0] ?? '';
+    if (/[:{(\[]\s*$/.test(linea)) sangria += editor.lenguaje === 'python' ? '    ' : '  ';
+    e.preventDefault();
+    document.execCommand('insertText', false, '\n' + sangria);
+  }
+});
+
+inp('buscar-modulos').addEventListener('input', () => {
+  state.filtroModulos = inp('buscar-modulos').value;
+  pintarModulosCatalogo();
+});
+
+$('importar-modulo').onclick = () => {
+  $('imp-resultado').textContent = '';
+  /** @type {HTMLDialogElement} */ ($('dlg-importar')).showModal();
+};
+for (const b of document.querySelectorAll('.imp-fuentes [data-fuente]')) {
+  /** @type {HTMLElement} */ (b).onclick = () => elegirFuente(/** @type {HTMLElement} */ (b).dataset.fuente);
+}
+$('imp-importar').onclick = () => void ejecutarImportacion(false);
+$('imp-validar').onclick = () => void ejecutarImportacion(true);
+
+$('avisos-dibujo').onclick = () => $('avisos-dibujo').classList.toggle('abiertos');
+$('zoom-mas').onclick = () => lienzo.zoom(1.2);
+$('zoom-menos').onclick = () => lienzo.zoom(1 / 1.2);
+$('zoom-ajustar').onclick = () => lienzo.ajustar();
+
+async function cambiarDeProyecto(nombre) {
+  if (!nombre || nombre === state.proyecto?.name) return;
+  guardarDiagramaYa();
+  await guardar(true);
+  await abrirProyecto(nombre);
+}
+
+sel('proyecto').addEventListener('change', () => void cambiarDeProyecto(sel('proyecto').value));
+
+// La URL (#proyecto) también elige el proyecto: atrás/adelante o editarla a mano.
+window.addEventListener('hashchange', async () => {
+  const nombre = decodeURIComponent(location.hash.slice(1));
+  if (!nombre) {
+    // "Atrás" del navegador hasta antes de abrir un proyecto: vuelve a la lista.
+    if (state.proyecto) await irAInicio();
+    return;
+  }
+  if (nombre === state.proyecto?.name) return;
+  if (state.proyectos.some((p) => p.name === nombre)) return cambiarDeProyecto(nombre);
+  // Puede ser un proyecto creado después de abrir la página (otra pestaña): se refresca la lista.
+  const { projects } = await api('/api/projects');
+  if (!projects.some((p) => p.name === nombre)) return;
+  guardarDiagramaYa();
+  await guardar(true);
+  await cargarProyectos(nombre);
+});
+
+$('ir-inicio').onclick = () => void irAInicio();
+$('act-proyectos').onclick = () => void irAInicio();
+
+// --- Nuevo proyecto: placa y lenguaje ----------------------------------------------
+
+/** Placas: las del server (GET /api/boards) o, si no existe, las programables del catálogo. */
+async function cargarPlacas() {
+  const r = await api('/api/boards').catch(() => null);
+  state.placas = r?.boards?.length
+    ? r.boards
+    : [...state.catalogo.values()].filter((m) => m.programmable).map((m) => ({ id: m.type, name: m.name }));
+  state.placaPorDefecto = r?.porDefecto ?? state.placas[0]?.id ?? '';
+}
+
+function abrirNuevoProyecto() {
+  cerrarMenus();
+  const s = sel('nuevo-placa');
+  const antes = s.value;
+  s.textContent = '';
+  for (const b of state.placas) {
+    const o = document.createElement('option');
+    o.value = b.id;
+    o.textContent = b.nombre ?? b.name ?? b.id;
+    s.append(o);
+  }
+  // La última elegida en esta sesión; si no, la que el server marca por defecto (no la primera
+  // de la lista: está en orden alfabético y sería el Arduino Uno).
+  s.value = antes && state.placas.some((b) => b.id === antes) ? antes : state.placaPorDefecto;
+  /** @type {HTMLElement} */ (s.closest('label')).hidden = state.placas.length <= 1;
+  filtrarLenguajesNuevo();
+  dlg().showModal();
+}
+
+/** Deshabilita los lenguajes que la placa elegida no soporta (si el server lo informa). */
+function filtrarLenguajesNuevo() {
+  const placa = state.placas.find((b) => b.id === sel('nuevo-placa').value);
+  const soportados = placa?.languages ?? placa?.lenguajes ?? null;
+  const lenguaje = /** @type {HTMLSelectElement} */ (dlg().querySelector('select[name="language"]'));
+  for (const o of lenguaje.options) o.disabled = Array.isArray(soportados) && !soportados.includes(o.value);
+  if (lenguaje.selectedOptions[0]?.disabled) lenguaje.value = [...lenguaje.options].find((o) => !o.disabled)?.value ?? '';
+}
+sel('nuevo-placa').addEventListener('change', filtrarLenguajesNuevo);
+$('nuevo').onclick = abrirNuevoProyecto;
+$('nuevo-inicio').onclick = abrirNuevoProyecto;
+
+$('dlg-nuevo').addEventListener('close', async () => {
+  const d = dlg();
+  if (d.returnValue !== 'crear') return;
+  const form = /** @type {HTMLFormElement} */ (d.querySelector('form'));
+  const name = /** @type {HTMLInputElement} */ (form.elements.namedItem('name')).value.trim();
+  const language = /** @type {HTMLSelectElement} */ (form.elements.namedItem('language')).value;
+  const board = sel('nuevo-placa').value || undefined;
+  try {
+    await api('/api/projects', { method: 'POST', body: JSON.stringify({ name, language, board }) });
+    await cargarProyectos(name);
+  } catch (e) {
+    log('build', `[error] ${String((/** @type {Error} */ (e))?.message ?? e)}`);
+    nota(String((/** @type {Error} */ (e))?.message ?? e));
+  }
+});
+
+// --- Simulación ----------------------------------------------------------------------
+
+$('ejecutar').onclick = async () => {
+  if (!state.proyecto) return;
+  // Como "Run" en el IDE: se abre la consola de compilación si estaba oculta.
+  if (document.body.classList.contains('sin-abajo')) {
+    mostrarVentana('abajo', true);
+    elegirTabConsola('build');
+  }
+  await guardar(true);
+  await refrescarAvisos();
+  const avisos = state.avisosDibujo.length;
+  if (avisos > 0) log('build', `Chequeo circuito ↔ código: ${avisos} aviso(s) (no bloquea)`);
+  await api(`/api/projects/${state.proyecto.name}/run`, { method: 'POST', body: JSON.stringify({}) }).catch((e) =>
+    nota(String(/** @type {Error} */ (e)?.message ?? e)),
+  );
+};
+
+$('parar').onclick = () => api('/api/emulator/stop', { method: 'POST' });
+$('reset').onclick = async () => {
+  try {
+    const r = await api('/api/emulator/reset', { method: 'POST' });
+    log('emu', `[control] ${r.output}`);
+  } catch (e) {
+    log('emu', `[control] ${String((/** @type {Error} */ (e))?.message ?? e)}`);
+  }
+};
+$('abrir-web').onclick = () => {
+  const url = btn('abrir-web').dataset.url;
+  if (url) window.open(url, '_blank');
+};
+
+// --- Ventanas de herramientas (se muestran/ocultan como en Android Studio y VS Code) ---
+
+const VENTANAS = { izq: 'sin-izq', der: 'sin-der', abajo: 'sin-abajo' };
+
+/** @param {'izq' | 'der' | 'abajo'} cual @param {boolean} [visible] sin valor: alterna */
+function mostrarVentana(cual, visible) {
+  const clase = VENTANAS[cual];
+  const ver = visible ?? document.body.classList.contains(clase);
+  document.body.classList.toggle(clase, !ver);
+  try {
+    localStorage.setItem(`ventana-${cual}`, ver ? '1' : '0');
+  } catch {
+    /* no es crítico */
+  }
+  sincronizarFranjas();
+  if (ver && cual === 'abajo') pintarConsola();
+}
+
+function sincronizarFranjas() {
+  const b = document.body.classList;
+  $('tw-catalogo').classList.toggle('activa', !b.contains('sin-izq'));
+  $('act-codigo').classList.toggle('activa', !b.contains('sin-der'));
+  const abajo = !b.contains('sin-abajo');
+  for (const id of ['tw-build', 'tw-emu', 'tw-debug', 'tw-problemas']) {
+    $(id).classList.toggle('activa', abajo && $(id).dataset.twTab === state.tab);
+  }
+}
+
+const tabsConsola = /** @type {HTMLElement[]} */ ([...document.querySelectorAll('.consola-tabs [data-tab]')]);
+
+function elegirTabConsola(tab) {
+  state.tab = tab;
+  for (const o of tabsConsola) o.classList.toggle('activa', o.dataset.tab === tab);
+  sincronizarFranjas();
+  pintarConsola();
+}
+
+/** Click en la franja: abre la consola en esa pestaña; si ya estaba ahí, la oculta. */
+function alternarConsola(tab) {
+  const visible = !document.body.classList.contains('sin-abajo');
+  if (visible && state.tab === tab) return mostrarVentana('abajo', false);
+  mostrarVentana('abajo', true);
+  elegirTabConsola(tab);
+}
+
+for (const b of tabsConsola) b.onclick = () => elegirTabConsola(b.dataset.tab);
+for (const b of document.querySelectorAll('[data-tw-tab]')) {
+  /** @type {HTMLElement} */ (b).onclick = () => alternarConsola(/** @type {HTMLElement} */ (b).dataset.twTab);
+}
+for (const b of document.querySelectorAll('[data-ocultar]')) {
+  /** @type {HTMLElement} */ (b).onclick = () => mostrarVentana(/** @type {any} */ (/** @type {HTMLElement} */ (b).dataset.ocultar), false);
+}
+$('tw-catalogo').onclick = () => mostrarVentana('izq');
+$('act-codigo').onclick = () => {
+  // Oculto: se abre. Abierto con un módulo elegido: vuelve al código. Abierto con el código: se oculta.
+  if (document.body.classList.contains('sin-der')) mostrarVentana('der', true);
+  else if (state.seleccion) seleccionar(null);
+  else mostrarVentana('der', false);
+};
+
+function alternarModoMover() {
+  state.modoMover = !state.modoMover;
+  btn('act-mover').classList.toggle('activa', state.modoMover);
+  document.body.classList.toggle('modo-mover', state.modoMover);
+  nota(state.modoMover ? 'Modo mover: los pines no arrancan cables (M para volver).' : '');
+}
+$('act-mover').onclick = alternarModoMover;
+
+function restaurarVentanas() {
+  for (const cual of /** @type {const} */ (['izq', 'der', 'abajo'])) {
+    try {
+      if (localStorage.getItem(`ventana-${cual}`) === '0') document.body.classList.add(VENTANAS[cual]);
+    } catch {
+      /* no es crítico */
+    }
+  }
+  sincronizarFranjas();
+}
+
+inp('filtro').addEventListener('input', () => {
+  state.filtro = inp('filtro').value;
+  pintarConsola();
+});
+$('limpiar').onclick = () => {
+  state.lineas.build = [];
+  state.lineas.emu = [];
+  consola.recortes.build++;
+  consola.recortes.emu++;
+  pintarConsola();
+};
+inp('entrada-console').addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter') return;
+  const data = inp('entrada-console').value;
+  inp('entrada-console').value = '';
+  log('emu', `> ${data}`);
+  enviar({ type: 'console.input', data: data + '\n' });
+});
+inp('buscar-proyectos').addEventListener('input', pintarListaProyectos);
+
+// --- Notificaciones -------------------------------------------------------------------
+
+$('globo-cerrar').onclick = () => nota('');
+$('tw-notificaciones').onclick = () => {
+  const c = $('lista-notificaciones');
+  c.hidden = !c.hidden;
+  $('tw-notificaciones').classList.toggle('activa', !c.hidden);
+  if (!c.hidden) {
+    pintarNotificaciones();
+    $('punto-notificaciones').hidden = true;
+  }
+};
+
+// --- Acciones: una sola lista para el menú, la paleta de comandos y los atajos ---------
+
+const hayProyecto = () => Boolean(state.proyecto);
+
+function abrirImportador() {
+  cerrarMenus();
+  $('imp-resultado').textContent = '';
+  /** @type {HTMLDialogElement} */ ($('dlg-importar')).showModal();
+}
+
+function borrarSeleccion() {
+  const s = state.seleccion;
+  if (s?.tipo === 'modulo') eliminarModulo(s.id);
+  else if (s?.tipo === 'cable') eliminarCable(s.indice);
+}
+
+function buscarModulo() {
+  mostrarVentana('izq', true);
+  inp('buscar-modulos').focus();
+  inp('buscar-modulos').select();
+}
+
+/**
+ * @typedef {{ id: string, titulo: string, menu: string, atajo?: string, teclas?: string[],
+ *   hacer: () => void, habilitada?: () => boolean }} Accion
+ * `atajo` es lo que se muestra; `teclas`, las combinaciones que la disparan (si no, la del atajo).
+ */
+/** @type {Accion[]} */
+const ACCIONES = [
+  { id: 'nuevo', titulo: 'Nuevo proyecto…', menu: 'Archivo', hacer: abrirNuevoProyecto },
+  { id: 'abrir', titulo: 'Abrir otro proyecto…', menu: 'Archivo', hacer: () => void irAInicio(), habilitada: hayProyecto },
+  { id: 'guardar', titulo: 'Guardar', menu: 'Archivo', atajo: 'Ctrl+S', hacer: () => void guardar(false), habilitada: hayProyecto },
+  { id: 'importar', titulo: 'Importar módulos…', menu: 'Archivo', hacer: abrirImportador },
+  {
+    id: 'eliminar-proyecto', titulo: 'Eliminar este proyecto…', menu: 'Archivo',
+    hacer: () => state.proyecto && void eliminarProyecto(state.proyecto.name), habilitada: hayProyecto,
+  },
+  {
+    id: 'borrar', titulo: 'Borrar lo seleccionado', menu: 'Editar', atajo: 'Supr', teclas: ['Delete', 'Backspace'],
+    hacer: borrarSeleccion, habilitada: () => Boolean(state.seleccion),
+  },
+  {
+    id: 'deseleccionar', titulo: 'Deseleccionar / cancelar el cable', menu: 'Editar', atajo: 'Esc', teclas: ['Escape'],
+    hacer: () => {
+      if (!lienzo.cancelarCable()) seleccionar(null);
+    },
+    habilitada: hayProyecto,
+  },
+  {
+    id: 'girar', titulo: 'Girar 90° a la derecha', menu: 'Editar', atajo: 'R', hacer: () => girarSeleccion(90),
+    habilitada: () => state.seleccion?.tipo === 'modulo',
+  },
+  {
+    id: 'girar-izq', titulo: 'Girar 90° a la izquierda', menu: 'Editar', atajo: 'Shift+R', hacer: () => girarSeleccion(-90),
+    habilitada: () => state.seleccion?.tipo === 'modulo',
+  },
+  { id: 'buscar-modulo', titulo: 'Buscar un módulo en el catálogo', menu: 'Editar', hacer: buscarModulo, habilitada: hayProyecto },
+  { id: 'ver-catalogo', titulo: 'Catálogo', menu: 'Ver', atajo: 'Alt+1', teclas: ['Alt+1', 'Ctrl+B'], hacer: () => mostrarVentana('izq') },
+  { id: 'ver-codigo', titulo: 'Código / propiedades', menu: 'Ver', atajo: 'Alt+2', hacer: () => mostrarVentana('der') },
+  { id: 'ver-consola', titulo: 'Consola', menu: 'Ver', atajo: 'Ctrl+J', teclas: ['Ctrl+J', 'Ctrl+`'], hacer: () => mostrarVentana('abajo') },
+  { id: 'ver-build', titulo: 'Compilación', menu: 'Ver', atajo: 'Alt+0', hacer: () => alternarConsola('build') },
+  { id: 'ver-emu', titulo: 'Emulador (consola serie)', menu: 'Ver', atajo: 'Alt+F12', hacer: () => alternarConsola('emu') },
+  { id: 'ver-problemas', titulo: 'Problemas', menu: 'Ver', atajo: 'Alt+6', hacer: () => alternarConsola('problemas') },
+  { id: 'ocultar-consola', titulo: 'Ocultar la consola', menu: 'Ver', atajo: 'Shift+Esc', teclas: ['Shift+Escape'], hacer: () => mostrarVentana('abajo', false) },
+  { id: 'modo-mover', titulo: 'Modo mover (sin cablear)', menu: 'Ver', atajo: 'M', hacer: alternarModoMover, habilitada: hayProyecto },
+  { id: 'zoom-ajustar', titulo: 'Encuadrar el circuito', menu: 'Ver', atajo: 'Ctrl+0', hacer: () => lienzo.ajustar(), habilitada: hayProyecto },
+  { id: 'zoom-mas', titulo: 'Acercar', menu: 'Ver', atajo: 'Ctrl+=', teclas: ['Ctrl+=', 'Ctrl++', 'Ctrl+Shift++'], hacer: () => lienzo.zoom(1.2), habilitada: hayProyecto },
+  { id: 'zoom-menos', titulo: 'Alejar', menu: 'Ver', atajo: 'Ctrl+−', teclas: ['Ctrl+-'], hacer: () => lienzo.zoom(1 / 1.2), habilitada: hayProyecto },
+  {
+    id: 'ejecutar', titulo: 'Ejecutar', menu: 'Simulación', atajo: 'Shift+F10', teclas: ['Shift+F10', 'Ctrl+Enter', 'F5'],
+    hacer: () => btn('ejecutar').click(), habilitada: () => hayProyecto() && !btn('ejecutar').disabled,
+  },
+  {
+    id: 'parar', titulo: 'Parar', menu: 'Simulación', atajo: 'Ctrl+F2', teclas: ['Ctrl+F2', 'Shift+F5'],
+    hacer: () => btn('parar').click(), habilitada: () => !btn('parar').disabled,
+  },
+  { id: 'reset', titulo: 'Reset', menu: 'Simulación', hacer: () => btn('reset').click(), habilitada: hayProyecto },
+  { id: 'abrir-web', titulo: 'Abrir la web del dispositivo', menu: 'Simulación', hacer: () => btn('abrir-web').click(), habilitada: () => !btn('abrir-web').disabled },
+  { id: 'ver-debug', titulo: 'Ventana Debug', menu: 'Depurar', atajo: 'Alt+5', hacer: () => alternarConsola('debug') },
+  {
+    id: 'dbg-continuar', titulo: 'Continuar', menu: 'Depurar', atajo: 'F9', hacer: () => void depuracion.control('continue'),
+    habilitada: () => depuracion.estaParado(),
+  },
+  { id: 'dbg-pausa', titulo: 'Pausar', menu: 'Depurar', hacer: () => void depuracion.control('pause'), habilitada: () => !btn('parar').disabled },
+  { id: 'dbg-sobre', titulo: 'Paso por encima', menu: 'Depurar', atajo: 'F8', hacer: () => void depuracion.control('next'), habilitada: () => depuracion.estaParado() },
+  { id: 'dbg-adentro', titulo: 'Paso adentro', menu: 'Depurar', atajo: 'F7', hacer: () => void depuracion.control('stepIn'), habilitada: () => depuracion.estaParado() },
+  { id: 'dbg-afuera', titulo: 'Salir de la función', menu: 'Depurar', atajo: 'Shift+F8', hacer: () => void depuracion.control('stepOut'), habilitada: () => depuracion.estaParado() },
+  {
+    id: 'dbg-breakpoint', titulo: 'Poner / sacar breakpoint en esta línea', menu: 'Depurar', atajo: 'Ctrl+F8',
+    hacer: () => {
+      const t = ta('editor');
+      depuracion.alternarBreakpointEnCursor(t.value.slice(0, t.selectionStart).split('\n').length);
+    },
+    habilitada: () => Boolean(state.activo),
+  },
+  { id: 'buscar-todo', titulo: 'Buscar en todo…', menu: 'Ayuda', atajo: 'Ctrl+Shift+P', teclas: ['Ctrl+Shift+P', 'Ctrl+K', 'Ctrl+Shift+A'], hacer: () => abrirPaleta() },
+  { id: 'acerca', titulo: 'Atajos y acerca de', menu: 'Ayuda', hacer: () => /** @type {HTMLDialogElement} */ ($('dlg-acerca')).showModal() },
+];
+const MENUS = ['Archivo', 'Editar', 'Ver', 'Simulación', 'Depurar', 'Ayuda'];
+
+/** Combinación de teclas normalizada: "Ctrl+Shift+P", "Alt+1", "Delete". */
+function combo(e) {
+  let k = e.key;
+  if (k === ' ') k = 'Space';
+  else if (k.length === 1) k = k.toUpperCase();
+  if (['Control', 'Shift', 'Alt', 'Meta'].includes(k)) return '';
+  // Alt+número: en algunos teclados e.key trae otro símbolo; e.code no depende de la distribución.
+  if (e.altKey && /^Digit\d$/.test(e.code)) k = e.code.slice(5);
+  return [(e.ctrlKey || e.metaKey) && 'Ctrl', e.altKey && 'Alt', e.shiftKey && 'Shift', k].filter(Boolean).join('+');
+}
+
+const ATAJOS = new Map();
+for (const a of ACCIONES) for (const t of a.teclas ?? (a.atajo ? [a.atajo] : [])) ATAJOS.set(t, a);
+
+/** Shift doble abre "Buscar en todo", como en Android Studio. */
+let ultimoShift = 0;
+
+document.addEventListener('keydown', (e) => {
+  const t = /** @type {HTMLElement} */ (e.target);
+  if (e.key === 'Shift' && !e.repeat) {
+    const ahora = performance.now();
+    if (ahora - ultimoShift < 350 && !document.querySelector('dialog[open]')) {
+      ultimoShift = 0;
+      abrirPaleta();
+    } else {
+      ultimoShift = ahora;
+    }
+    return;
+  }
+  ultimoShift = 0;
+  if (e.key === 'Escape' && (!$('menu').hidden || !$('lista-notificaciones').hidden)) {
+    cerrarMenus();
+    return;
+  }
+  if (t.closest?.('dialog')) return; // cada diálogo maneja sus teclas
+  const accion = ATAJOS.get(combo(e));
+  if (!accion) return;
+  // Las teclas sueltas (M, Supr, Esc) no cuentan mientras se escribe en un campo.
+  const suelta = !e.ctrlKey && !e.metaKey && !e.altKey && !/^F\d+$/.test(e.key) && !(e.shiftKey && e.key === 'Escape');
+  if (suelta && t.closest?.('input, textarea, select, [contenteditable]')) return;
+  if (accion.habilitada && !accion.habilitada()) return;
+  e.preventDefault();
+  accion.hacer();
+});
+
+// --- Menú principal (hamburguesa) ---------------------------------------------------------
+
+function pintarMenu() {
+  const menu = $('menu');
+  menu.textContent = '';
+  for (const grupo of MENUS) {
+    const item = document.createElement('div');
+    item.className = 'menu-item sub';
+    item.tabIndex = 0;
+    item.setAttribute('role', 'menuitem');
+    item.setAttribute('aria-haspopup', 'menu');
+    item.append(grupo);
+    const sub = document.createElement('div');
+    sub.className = 'menu submenu';
+    sub.setAttribute('role', 'menu');
+    for (const a of ACCIONES.filter((x) => x.menu === grupo)) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'menu-item';
+      b.setAttribute('role', 'menuitem');
+      b.innerHTML = `<span>${escapar(a.titulo)}</span>${a.atajo ? `<span class="atajo">${escapar(a.atajo)}</span>` : ''}`;
+      b.disabled = Boolean(a.habilitada && !a.habilitada());
+      b.onclick = (ev) => {
+        ev.stopPropagation();
+        cerrarMenus();
+        a.hacer();
+      };
+      sub.append(b);
+    }
+    item.append(sub);
+    const abrir = () => {
+      for (const o of menu.querySelectorAll('.abierto')) o.classList.remove('abierto');
+      item.classList.add('abierto');
+    };
+    item.addEventListener('mouseenter', abrir);
+    item.addEventListener('focus', abrir);
+    item.addEventListener('keydown', (ev) => {
+      if (ev.key === 'ArrowRight' || ev.key === 'Enter') {
+        abrir();
+        /** @type {HTMLElement | null} */ (sub.querySelector('button:not(:disabled)'))?.focus();
+        ev.preventDefault();
+      }
+    });
+    menu.append(item);
+  }
+  // Flechas arriba/abajo entre los items del mismo nivel.
+  menu.onkeydown = (ev) => {
+    if (ev.key !== 'ArrowDown' && ev.key !== 'ArrowUp' && ev.key !== 'ArrowLeft') return;
+    const actual = /** @type {HTMLElement} */ (document.activeElement);
+    if (ev.key === 'ArrowLeft') {
+      /** @type {HTMLElement | null} */ (actual.closest('.menu-item.sub'))?.focus();
+      ev.preventDefault();
+      return;
+    }
+    const nivel = actual.parentElement;
+    if (!nivel) return;
+    const hermanos = /** @type {HTMLElement[]} */ ([...nivel.children].filter((c) => c.matches('.menu-item:not(:disabled)')));
+    const i = hermanos.indexOf(actual);
+    hermanos[(i + (ev.key === 'ArrowDown' ? 1 : -1) + hermanos.length) % hermanos.length]?.focus();
+    ev.preventDefault();
+    ev.stopPropagation();
+  };
+}
+
+function cerrarMenus() {
+  $('menu').hidden = true;
+  $('menu-principal').setAttribute('aria-expanded', 'false');
+  $('lista-notificaciones').hidden = true;
+  $('tw-notificaciones').classList.remove('activa');
+}
+
+$('menu-principal').onclick = () => {
+  if (!$('menu').hidden) return cerrarMenus();
+  pintarMenu();
+  $('menu').hidden = false;
+  $('menu-principal').setAttribute('aria-expanded', 'true');
+  /** @type {HTMLElement | null} */ ($('menu').querySelector('.menu-item'))?.focus();
+};
+document.addEventListener('mousedown', (e) => {
+  const t = /** @type {HTMLElement} */ (e.target);
+  if (!$('menu').hidden && !t.closest('#menu, #menu-principal')) cerrarMenus();
+  if (!$('lista-notificaciones').hidden && !t.closest('#lista-notificaciones, #tw-notificaciones')) cerrarMenus();
+});
+
+// --- Buscar en todo (paleta de comandos) -------------------------------------------------
+
+const paleta = { items: /** @type {any[]} */ ([]), sel: 0 };
+
+function abrirPaleta() {
+  cerrarMenus();
+  const d = /** @type {HTMLDialogElement} */ ($('dlg-buscar'));
+  if (d.open) return;
+  inp('pc-entrada').value = '';
+  d.showModal();
+  filtrarPaleta();
+}
+
+function candidatosPaleta() {
+  const out = [];
+  for (const a of ACCIONES) {
+    if (!a.habilitada || a.habilitada()) out.push({ tipo: 'Acción', titulo: a.titulo, atajo: a.atajo, hacer: a.hacer });
+  }
+  for (const p of state.proyectos) {
+    if (p.name !== state.proyecto?.name) out.push({ tipo: 'Proyecto', titulo: `Abrir ${p.name}`, hacer: () => void cambiarDeProyecto(p.name) });
+  }
+  if (state.proyecto) {
+    for (const f of state.archivos) {
+      out.push({ tipo: 'Archivo', titulo: f.path, hacer: () => { mostrarVentana('der', true); seleccionar(null); void abrirArchivo(f.path); } });
+    }
+    for (const inst of state.diagrama.modules) {
+      const def = state.catalogo.get(inst.type);
+      out.push({ tipo: 'Circuito', titulo: `${def?.name ?? inst.type} · ${inst.id}`, hacer: () => { mostrarVentana('der', true); seleccionar({ tipo: 'modulo', id: inst.id }); } });
+    }
+    for (const m of state.catalogo.values()) {
+      out.push({ tipo: 'Módulo', titulo: `Agregar ${m.name}`, hacer: () => agregarModulo(m.type) });
+    }
+  }
+  return out;
+}
+
+/** Puntaje simple: todas las palabras tienen que aparecer; gana la que empieza antes. */
+function puntaje(titulo, palabras) {
+  const t = titulo.toLowerCase();
+  let total = 0;
+  for (const w of palabras) {
+    const i = t.indexOf(w);
+    if (i < 0) return -1;
+    total += i === 0 ? 0 : /[\s·\-_./]/.test(t[i - 1]) ? 1 : 3;
+  }
+  return total;
+}
+
+function filtrarPaleta() {
+  const q = inp('pc-entrada').value.trim().toLowerCase();
+  const palabras = q.split(/\s+/).filter(Boolean);
+  const todos = candidatosPaleta();
+  paleta.items = palabras.length
+    ? todos
+        .map((c, i) => ({ c, p: puntaje(c.titulo, palabras), i }))
+        .filter((x) => x.p >= 0)
+        .sort((a, b) => a.p - b.p || a.i - b.i)
+        .map((x) => x.c)
+        .slice(0, 80)
+    : todos.slice(0, 80);
+  paleta.sel = 0;
+  pintarPaleta(palabras);
+}
+
+function pintarPaleta(palabras = []) {
+  const ul = $('pc-lista');
+  if (!paleta.items.length) {
+    ul.innerHTML = '<li class="pc-vacio">Nada coincide.</li>';
+    return;
+  }
+  const marcar = (t) => {
+    let html = escapar(t);
+    for (const w of palabras) {
+      const re = new RegExp(escapar(w).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+      html = html.replace(re, (m) => `<mark>${m}</mark>`);
+    }
+    return html;
+  };
+  ul.innerHTML = paleta.items
+    .map((it, i) => `<li role="option" data-i="${i}" class="${i === paleta.sel ? 'sel' : ''}"><span class="pc-tipo">${it.tipo}</span><span class="pc-titulo">${marcar(it.titulo)}</span>${it.atajo ? `<span class="atajo">${escapar(it.atajo)}</span>` : ''}</li>`)
+    .join('');
+}
+
+function moverSeleccionPaleta(delta) {
+  if (!paleta.items.length) return;
+  paleta.sel = (paleta.sel + delta + paleta.items.length) % paleta.items.length;
+  const ul = $('pc-lista');
+  ul.querySelector('.sel')?.classList.remove('sel');
+  const li = ul.querySelector(`[data-i="${paleta.sel}"]`);
+  li?.classList.add('sel');
+  li?.scrollIntoView({ block: 'nearest' });
+}
+
+function ejecutarPaleta(i) {
+  const it = paleta.items[i];
+  /** @type {HTMLDialogElement} */ ($('dlg-buscar')).close();
+  it?.hacer();
+}
+
+inp('pc-entrada').addEventListener('input', filtrarPaleta);
+inp('pc-entrada').addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    moverSeleccionPaleta(e.key === 'ArrowDown' ? 1 : -1);
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    ejecutarPaleta(paleta.sel);
+  }
+});
+$('pc-lista').addEventListener('click', (e) => {
+  const li = /** @type {HTMLElement} */ (e.target).closest('li[data-i]');
+  if (li) ejecutarPaleta(Number(/** @type {HTMLElement} */ (li).dataset.i));
+});
+$('dlg-buscar').addEventListener('click', (e) => {
+  if (e.target === e.currentTarget) /** @type {HTMLDialogElement} */ ($('dlg-buscar')).close(); // click en el fondo
+});
+$('buscar-todo').onclick = () => abrirPaleta();
+$('act-ajustes').onclick = () => /** @type {HTMLDialogElement} */ ($('dlg-acerca')).showModal();
+$('bienvenida-acerca').onclick = () => /** @type {HTMLDialogElement} */ ($('dlg-acerca')).showModal();
+$('bienvenida-importar').onclick = abrirImportador;
+
+// --- Paneles redimensionables -----------------------------------------------
+
+/**
+ * Límites y variable CSS de cada separador arrastrable.
+ * `izq`/`der` mueven columnas de `main`; `consola` mueve la fila de la consola.
+ */
+const LIMITES_REDIMENSION = {
+  izq: { variable: '--col-izq', min: 200, max: 480, selector: '.paleta', prop: 'width' },
+  der: { variable: '--col-der', min: 280, max: 900, selector: '.derecha', prop: 'width' },
+  consola: { variable: '--alto-consola', min: 100, max: 600, selector: '.consola-panel', prop: 'height' },
+};
+
+function iniciarRedimension() {
+  const raiz = document.documentElement;
+
+  // Restaurar tamaños de la última sesión.
+  for (const cfg of Object.values(LIMITES_REDIMENSION)) {
+    try {
+      const guardado = localStorage.getItem(cfg.variable);
+      if (guardado) raiz.style.setProperty(cfg.variable, guardado);
+    } catch {
+      /* localStorage puede no estar disponible; no es crítico */
+    }
+  }
+
+  for (const handle of document.querySelectorAll('[data-resize]')) {
+    const el = /** @type {HTMLElement} */ (handle);
+    const tipo = /** @type {keyof typeof LIMITES_REDIMENSION} */ (el.dataset.resize);
+    const cfg = LIMITES_REDIMENSION[tipo];
+    const horizontal = tipo !== 'consola';
+    // La consola y el panel derecho crecen hacia el lado contrario al que se arrastra.
+    const signo = tipo === 'izq' ? 1 : -1;
+
+    el.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      const inicioPos = horizontal ? e.clientX : e.clientY;
+      const panel = /** @type {HTMLElement} */ (document.querySelector(cfg.selector));
+      const valorInicial = panel.getBoundingClientRect()[cfg.prop];
+      el.classList.add('arrastrando');
+      document.body.style.userSelect = 'none';
+
+      const mover = (ev) => {
+        const pos = horizontal ? ev.clientX : ev.clientY;
+        const nuevo = Math.min(cfg.max, Math.max(cfg.min, valorInicial + signo * (pos - inicioPos)));
+        raiz.style.setProperty(cfg.variable, `${nuevo}px`);
+      };
+      const soltar = () => {
+        el.classList.remove('arrastrando');
+        document.body.style.userSelect = '';
+        document.removeEventListener('mousemove', mover);
+        document.removeEventListener('mouseup', soltar);
+        try {
+          localStorage.setItem(cfg.variable, raiz.style.getPropertyValue(cfg.variable));
+        } catch {
+          /* no es crítico si no se puede persistir */
+        }
+      };
+      document.addEventListener('mousemove', mover);
+      document.addEventListener('mouseup', soltar);
+    });
+  }
+}
+
+// --- Arranque ---------------------------------------------------------------
+
+// --- Depuración (ventana Debug) ------------------------------------------------------------
+
+const depuracion = crearDepuracion({
+  api, $, escapar, nota, log,
+  proyecto: () => state.proyecto,
+  archivoActivo: () => state.activo,
+  archivos: () => state.archivos,
+  irALinea,
+  abrirVentanaDebug: () => {
+    mostrarVentana('abajo', true);
+    elegirTabConsola('debug');
+    mostrarVentana('der', true);
+  },
+  debugVisible: () => state.tab === 'debug' && !document.body.classList.contains('sin-abajo'),
+  nombrePin: nombrePinGpio,
+  altoLinea: ALTO_LINEA,
+  padEditor: PAD_EDITOR,
+  scrollEditor: () => ta('editor').scrollTop,
+});
+
+(async function main() {
+  iniciarRedimension();
+  restaurarVentanas();
+  const { modules } = await api('/api/modules').catch(() => ({ modules: [] }));
+  state.catalogo = new Map(modules.map((m) => [m.type, m]));
+  pintarModulosCatalogo();
+  pintarGutter();
+  conectarWS();
+  await cargarPlacas();
+  await cargarProyectos();
+  const emu = await api('/api/emulator').catch(() => null);
+  if (emu?.status) {
+    aplicarEstadoEmulador(emu.status);
+    for (const line of emu.recentLog ?? []) log('emu', line);
+  }
+})();

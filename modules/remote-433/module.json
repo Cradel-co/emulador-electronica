@@ -1,0 +1,61 @@
+{
+  "controls": [
+    {
+      "kind": "button",
+      "label": "A"
+    },
+    {
+      "kind": "button",
+      "label": "B"
+    },
+    {
+      "kind": "button",
+      "label": "C"
+    },
+    {
+      "kind": "button",
+      "label": "D"
+    }
+  ],
+  "props": {
+    "codeA": {
+      "type": "string",
+      "default": "000101010001010101010001",
+      "label": "Código A"
+    },
+    "codeB": {
+      "type": "string",
+      "default": "000101010001010101010100",
+      "label": "Código B"
+    },
+    "codeC": {
+      "type": "string",
+      "default": "000101010001010101000101",
+      "label": "Código C"
+    },
+    "codeD": {
+      "type": "string",
+      "default": "000101010001010100010101",
+      "label": "Código D"
+    },
+    "protocol": {
+      "type": "number",
+      "default": 1,
+      "label": "Protocolo",
+      "min": 1,
+      "max": 12
+    }
+  },
+  "type": "remote-433",
+  "name": "Control remoto 433",
+  "category": "Inalámbricos",
+  "description": "Control de 4 botones. No lleva cables: cada botón manda su código por radio al receptor RXB6.",
+  "width": 72,
+  "height": 116,
+  "pins": [],
+  "bridge": {
+    "role": "air",
+    "pin": "-"
+  },
+  "svg": "module.svg"
+}

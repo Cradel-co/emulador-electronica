@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 70 64">
+  <line x1="22" y1="52" x2="22" y2="64" stroke="#aab4be" stroke-width="2"/>
+  <line x1="48" y1="52" x2="48" y2="64" stroke="#aab4be" stroke-width="2"/>
+  <rect x="0" y="0" width="70" height="52" rx="6" fill="#2b3440" stroke="#3d4a58"/>
+  <g data-ctrl="toggle">
+    <rect data-si="!activo" x="13" y="16" width="44" height="20" rx="10" fill="#475566"/>
+    <rect data-si="activo" x="13" y="16" width="44" height="20" rx="10" fill="#3fc2b2"/>
+    <circle data-si="!activo" cx="23" cy="26" r="8" fill="#e6edf4"/>
+    <circle data-si="activo" cx="47" cy="26" r="8" fill="#e6edf4"/>
+  </g>
+  <text data-si="!activo" x="35" y="48" class="txt-mini" text-anchor="middle">OFF</text>
+  <text data-si="activo" x="35" y="48" class="txt-mini" text-anchor="middle">ON</text>
+</svg>

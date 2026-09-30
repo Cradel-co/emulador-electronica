@@ -1,0 +1,42 @@
+{
+  "controls": [
+    {
+      "kind": "toggle",
+      "label": "Cambiar"
+    }
+  ],
+  "props": {
+    "label": {
+      "type": "string",
+      "default": "Interruptor",
+      "label": "Nombre"
+    }
+  },
+  "type": "switch",
+  "name": "Interruptor",
+  "category": "Entradas",
+  "description": "Interruptor de dos posiciones. Encendido pone el pin a GND (pull-up: activo en 0).",
+  "width": 70,
+  "height": 64,
+  "pins": [
+    {
+      "name": "OUT",
+      "x": 22,
+      "y": 64,
+      "kind": "digital-out"
+    },
+    {
+      "name": "GND",
+      "x": 48,
+      "y": 64,
+      "kind": "ground"
+    }
+  ],
+  "bridge": {
+    "role": "input",
+    "pin": "OUT",
+    "activeLevel": 0,
+    "pull": "up"
+  },
+  "svg": "module.svg"
+}

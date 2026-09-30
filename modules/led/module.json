@@ -1,0 +1,83 @@
+{
+  "controls": [],
+  "props": {
+    "color": {
+      "type": "string",
+      "default": "red",
+      "label": "Color",
+      "enum": [
+        "red",
+        "green",
+        "blue",
+        "yellow",
+        "white"
+      ]
+    }
+  },
+  "type": "led",
+  "name": "LED",
+  "category": "Salidas",
+  "description": "Se enciende cuando el ESP32 pone su pin en 1.",
+  "width": 50,
+  "height": 74,
+  "pins": [
+    {
+      "name": "IN",
+      "x": 16,
+      "y": 74,
+      "kind": "digital-in"
+    },
+    {
+      "name": "GND",
+      "x": 34,
+      "y": 74,
+      "kind": "ground"
+    }
+  ],
+  "bridge": {
+    "role": "output",
+    "pin": "IN"
+  },
+  "diode": true,
+  "electrical": {
+    "seriesOhm": 15,
+    "maxCurrentMa": 20,
+    "burnCurrentMa": 60
+  },
+  "svg": "module.svg",
+  "vars": {
+    "vf": {
+      "prop": "color",
+      "map": {
+        "red": "2",
+        "green": "2.1",
+        "blue": "3",
+        "yellow": "2",
+        "white": "3"
+      },
+      "default": "2"
+    },
+    "claro": {
+      "prop": "color",
+      "map": {
+        "red": "#ff4d3d",
+        "green": "#4dff7a",
+        "blue": "#4da3ff",
+        "yellow": "#ffd83d",
+        "white": "#f4f7fb"
+      },
+      "default": "#ff4d3d"
+    },
+    "oscuro": {
+      "prop": "color",
+      "map": {
+        "red": "#5a1f1a",
+        "green": "#1d4a2a",
+        "blue": "#1c3350",
+        "yellow": "#4d451a",
+        "white": "#454a50"
+      },
+      "default": "#5a1f1a"
+    }
+  }
+}

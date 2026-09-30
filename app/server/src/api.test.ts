@@ -1,0 +1,136 @@
+import { spawn, type ChildProcess } from 'node:child_process';
+import { cpSync, existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { PATHS } from './paths.js';
+
+/**
+ * API de placas y proyectos contra un server de verdad (tsx server/src/index.ts), en
+ * otro puerto y con carpetas temporales de proyectos y módulos: no toca projects/ ni
+ * el server de desarrollo (5180).
+ */
+const PORT = 5300 + Math.floor(Math.random() * 400);
+const BASE = `http://127.0.0.1:${PORT}`;
+let server: ChildProcess;
+const proyectos = mkdtempSync(path.join(os.tmpdir(), 'emu-api-p-'));
+const modulos = mkdtempSync(path.join(os.tmpdir(), 'emu-api-m-'));
+
+const pedir = async (ruta: string, init: { method?: string; body?: unknown } = {}) => {
+  const r = await fetch(BASE + ruta, {
+    method: init.method ?? 'GET',
+    headers: init.body === undefined ? {} : { 'content-type': 'application/json' },
+    body: init.body === undefined ? undefined : JSON.stringify(init.body),
+  });
+  return { status: r.status, body: (await r.json()) as any };
+};
+
+beforeAll(async () => {
+  cpSync(path.join(PATHS.root, 'modules'), modulos, { recursive: true });
+  server = spawn('npx', ['tsx', 'server/src/index.ts'], {
+    cwd: PATHS.app,
+    env: { ...process.env, PORT: String(PORT), EMU_PROJECTS_DIR: proyectos, EMU_MODULES_DIR: modulos },
+    stdio: 'ignore',
+  });
+  const limite = Date.now() + 20_000;
+  while (Date.now() < limite) {
+    try {
+      if ((await fetch(`${BASE}/api/health`)).ok) return;
+    } catch {
+      /* todavía no */
+    }
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  throw new Error('el server de prueba no arrancó');
+}, 30_000);
+
+afterAll(() => {
+  server?.kill('SIGTERM');
+  rmSync(proyectos, { recursive: true, force: true });
+  rmSync(modulos, { recursive: true, force: true });
+});
+
+describe('GET /api/boards', () => {
+  it('lista las placas del catálogo con su descriptor, lenguajes y nivel de soporte', async () => {
+    const { status, body } = await pedir('/api/boards');
+    expect(status).toBe(200);
+    expect(body.porDefecto).toBe('esp32-s3-devkitc-1');
+    const uno = body.boards.find((b: any) => b.id === 'arduino-uno');
+    expect(uno).toMatchObject({ nombre: 'Arduino Uno R3', lenguajes: ['arduino'], soporte: { declarado: 'emula' } });
+    expect(uno.board.pins.D13.gpio).toBe(13);
+    expect(uno.board.logicVoltage).toBe(5);
+    const s3 = body.boards.find((b: any) => b.id === 'esp32-s3-devkitc-1');
+    expect(Object.keys(s3.board.reservedPins)).toEqual(expect.arrayContaining(['17', '18', '43', '44']));
+    expect(body.motores.map((m: any) => m.nombre)).toEqual(expect.arrayContaining(['esp-emu', 'avr8js']));
+    expect(body.toolchains.map((t: any) => t.nombre)).toEqual(expect.arrayContaining(['esphome', 'esp-idf', 'arduino-cli', 'micropython']));
+  });
+
+  it('GET /api/boards/schema devuelve el JSON Schema', async () => {
+    const { status, body } = await pedir('/api/boards/schema');
+    expect(status).toBe(200);
+    expect(body.board.definitions.BoardDescriptor.required).toEqual(expect.arrayContaining(['chip', 'backend', 'pins', 'io', 'languages']));
+  });
+});
+
+describe('POST /api/boards/validate', () => {
+  it('acepta una placa válida y rechaza una rota con los motivos', async () => {
+    const ok = await pedir('/api/boards/validate', {
+      method: 'POST',
+      body: { module: { type: 'placa-x', name: 'X', category: 'Placas', svg: 'module.svg', programmable: true, pins: [{ name: 'P1', x: 0, y: 0 }, { name: 'GND', x: 0, y: 10, kind: 'ground' }],
+        board: { chip: 'atmega328p', backend: { engine: 'avr8js' }, logicVoltage: 5, maxPinCurrentMa: 40, io: { mode: 'native' },
+          pins: { P1: { gpio: 0, port: 'D', bit: 0 } }, languages: { arduino: { toolchain: 'arduino-cli', options: { fqbn: 'arduino:avr:uno' } } } } } },
+    });
+    expect(ok.status).toBe(200);
+    expect(ok.body).toMatchObject({ ok: true, nivel: 'emula' });
+
+    const mal = await pedir('/api/boards/validate', { method: 'POST', body: { module: { type: 'placa-y', name: 'Y', category: 'Placas', svg: 's', programmable: true, board: { chip: 'x' } } } });
+    expect(mal.status).toBe(400);
+    expect(mal.body.ok).toBe(false);
+    expect(mal.body.errores.length).toBeGreaterThan(0);
+  });
+
+  it('POST /api/boards/:id/certify: 404 si la placa no existe', async () => {
+    expect((await pedir('/api/boards/no-existe/certify', { method: 'POST', body: {} })).status).toBe(404);
+  });
+});
+
+describe('POST /api/projects con placa', () => {
+  it('Arduino Uno + arduino: 201, sketch.cpp de AVR y circuito D2 → D13 con resistencia', async () => {
+    const { status, body } = await pedir('/api/projects', { method: 'POST', body: { name: 'uno-api', language: 'arduino', board: 'arduino-uno' } });
+    expect(status).toBe(201);
+    expect(body.project.board).toBe('arduino-uno');
+    expect(body.project.wires).toContainEqual({ from: 'btn1.OUT', to: 'board.D2' });
+    expect(readdirSync(path.join(proyectos, 'uno-api')).sort()).toEqual(['project.json', 'sketch.cpp']);
+    const det = await pedir('/api/projects/uno-api');
+    expect(det.body.placa.id).toBe('arduino-uno');
+    expect(det.body.files.map((f: any) => f.path)).toContain('sketch.cpp');
+  });
+
+  it('lenguaje que la placa no soporta: 400 con los que sí', async () => {
+    const r = await pedir('/api/projects', { method: 'POST', body: { name: 'uno-yaml', language: 'esphome', board: 'arduino-uno' } });
+    expect(r.status).toBe(400);
+    expect(r.body.error).toContain('arduino');
+    expect(existsSync(path.join(proyectos, 'uno-yaml'))).toBe(false);
+  });
+
+  it('placa desconocida: 400', async () => {
+    const r = await pedir('/api/projects', { method: 'POST', body: { name: 'x1', language: 'arduino', board: 'arduino-mega' } });
+    expect(r.status).toBe(400);
+    expect(r.body.error).toContain('Placa desconocida');
+  });
+
+  it('sin placa: ESP32-S3 como siempre; en C3, ESPHome con su board', async () => {
+    const s3 = await pedir('/api/projects', { method: 'POST', body: { name: 's3-api', language: 'esphome' } });
+    expect(s3.status).toBe(201);
+    expect(s3.body.project.board).toBe('esp32-s3-devkitc-1');
+    const c3 = await pedir('/api/projects', { method: 'POST', body: { name: 'c3-api', language: 'esphome', board: 'esp32-c3-devkitm-1' } });
+    expect(c3.status).toBe(201);
+    const yaml = await pedir('/api/projects/c3-api/files/main.yaml');
+    expect(yaml.body.content).toContain('board: esp32-c3-devkitm-1');
+  });
+
+  it('PUT no deja cambiar la placa de un proyecto', async () => {
+    const r = await pedir('/api/projects/s3-api', { method: 'PUT', body: { board: 'arduino-uno' } });
+    expect(r.status).toBe(400);
+  });
+});

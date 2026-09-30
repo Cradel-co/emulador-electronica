@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 116 54">
+  <line x1="30" y1="42" x2="30" y2="54" stroke="#aab4be" stroke-width="2"/>
+  <line x1="58" y1="42" x2="58" y2="54" stroke="#aab4be" stroke-width="2"/>
+  <line x1="86" y1="42" x2="86" y2="54" stroke="#aab4be" stroke-width="2"/>
+  <rect x="0" y="0" width="116" height="42" rx="3" fill="#1f6f43" stroke="#123a24"/>
+  <text x="8" y="14" class="txt-chico claro">RXB6</text>
+  <text x="8" y="26" class="txt-mini claro">433 MHz</text>
+  <rect x="72" y="8" width="14" height="22" rx="2" fill="#c7ccd1"/>
+  <path d="M94 8 q6 3 0 6 q-6 3 0 6 q6 3 0 6 q-6 3 0 6" stroke="#d4a54a" stroke-width="2" fill="none"/>
+  <circle data-si="flash" cx="58" cy="10" r="3.5" fill="#56c271" class="brilla"/>
+  <circle data-si="!flash" cx="58" cy="10" r="3.5" fill="#20442c"/>
+</svg>
