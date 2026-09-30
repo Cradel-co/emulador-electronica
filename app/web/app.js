@@ -4,8 +4,12 @@ import { miniatura } from './modulos.js';
 import { lenguajeDeArchivo, NOMBRE_LENGUAJE, resaltar } from './editor.js';
 import { crearDepuracion } from './depuracion.js';
 
-/** Id de esta pestaña: el server lo devuelve en los eventos para no recargar los cambios propios. */
-const CLIENTE = crypto.randomUUID();
+/**
+ * Id de esta pestaña: el server lo devuelve en los eventos para no recargar los cambios propios.
+ * `crypto.randomUUID` solo existe en contextos seguros (HTTPS o localhost): si la UI se sirve por
+ * http://<ip-de-tailscale> la API no está y sin este fallback el módulo entero revienta al cargar.
+ */
+const CLIENTE = globalThis.crypto?.randomUUID?.() ?? `c-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 
 const $ = (id) => document.getElementById(id);
 /** @param {string} id */
