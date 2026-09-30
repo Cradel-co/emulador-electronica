@@ -102,27 +102,34 @@ para que herede el `PATH`: si lo levantaste con `npx` desde otra terminal sin
 
 ---
 
-## ESPHome se cuelga en el bootloader (solo ESP32-S3)
+## ESPHome y el puerto de logs del ESP32-S3
 
-**Síntoma.** El firmware ESPHome nunca termina de bootear. Último renglón del
-log y nada más:
+**Esto lo resuelve la app sola.** ESPHome manda la consola del S3 por
+**USB-Serial-JTAG** por defecto, y `esp-emu` se cuelga para siempre esperando ese
+puerto: el firmware nunca termina de bootear y el último renglón del log es un
+`entry 0x403c89xx` y nada más. El arreglo es mandar la consola por UART0.
+
+La app ya lo aplica. Al generar el YAML de simulación fuerza
+`logger.hardware_uart: UART0` en `main.sim.yaml` y crea el bloque `logger:` aunque
+el proyecto no tenga ninguno (`app/server/src/yamlSim.ts`), así que **no hace falta
+que toques tu `main.yaml`**. Durante la compilación puede salir este aviso, que es
+informativo:
 
 ```
-entry 0x403c89xx
+logger.hardware_uart era "USB_CDC"; la simulación lo fuerza a UART0 (si no, el emulador se cuelga).
 ```
 
-**Causa.** ESPHome manda la consola del S3 por **USB-Serial-JTAG** por defecto, y
-`esp-emu` se cuelga para siempre esperando ese puerto.
-
-**Arreglo.** En el YAML:
+**Cuándo sí es un problema.** Si el cuelgue aparece corriendo ESPHome **fuera de la
+app** (por ejemplo `esphome run` sobre tu propio YAML), ahí sí hay que agregar a
+mano:
 
 ```yaml
 logger:
   hardware_uart: UART0
 ```
 
-Con eso bootea completo en segundos. En la placa real no cambia nada
-importante: los logs salen por el puerto USB marcado "UART" en vez del "USB".
+En la placa real no cambia nada importante: los logs salen por el puerto USB
+marcado "UART" en vez del "USB".
 
 ---
 
