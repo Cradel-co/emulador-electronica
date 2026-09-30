@@ -35,12 +35,12 @@ export function crearDepuracion(ctx) {
     /** @type {any} */ parada: null, // state del server cuando status === 'stopped'
     corriendo: false,
     /** archivo → líneas con breakpoint */
-    breakpoints: /** @type {Map<string, Set<number>>} */ (new Map()),
+    breakpoints: (new Map() as Map<string, Set<number>>),
     /** archivo → líneas verificadas por el depurador (las otras se ven huecas) */
-    verificados: /** @type {Map<string, Set<number>>} */ (new Map()),
-    marcoElegido: /** @type {number | undefined} */ (undefined),
+    verificados: (new Map() as Map<string, Set<number>>),
+    marcoElegido: (undefined as number | undefined),
     timerVars: 0,
-    pines: /** @type {Map<number, { t: number, nivel: number, dir: string }[]>} */ (new Map()),
+    pines: (new Map() as Map<number, { t: number, nivel: number, dir: string }[]>),
     ultimoT: 0,
     ultimoPerf: 0,
     corridaTrace: null,
@@ -64,10 +64,10 @@ export function crearDepuracion(ctx) {
     estado.corriendo = s?.status === 'running';
     const c = estado.capacidades ?? {};
     const parado = Boolean(estado.parada);
-    /** @type {HTMLButtonElement} */ ($('dbg-continuar')).disabled = !parado;
-    /** @type {HTMLButtonElement} */ ($('dbg-pausa')).disabled = !(estado.corriendo && c.pause);
-    for (const id of ['dbg-sobre', 'dbg-adentro']) /** @type {HTMLButtonElement} */ ($(id)).disabled = !(parado && c.step);
-    /** @type {HTMLButtonElement} */ ($('dbg-afuera')).disabled = !(parado && c.step && c.stackTrace === 'exacto');
+    ($('dbg-continuar') as HTMLButtonElement).disabled = !parado;
+    ($('dbg-pausa') as HTMLButtonElement).disabled = !(estado.corriendo && c.pause);
+    for (const id of ['dbg-sobre', 'dbg-adentro']) ($(id) as HTMLButtonElement).disabled = !(parado && c.step);
+    ($('dbg-afuera') as HTMLButtonElement).disabled = !(parado && c.step && c.stackTrace === 'exacto');
     const texto = parado
       ? `En pausa${s.reason ? ` (${traducirMotivo(s.reason)})` : ''}${s.source ? ` · ${s.source.name}:${s.line}` : s.function ? ` · ${s.function}` : ''}`
       : estado.corriendo
@@ -104,7 +104,7 @@ export function crearDepuracion(ctx) {
       if (r?.state) aplicarEstado(r.state);
       await refrescarTodo();
     } catch (e) {
-      ctx.nota(String(/** @type {Error} */ (e)?.message ?? e));
+      ctx.nota(String((e as Error)?.message ?? e));
     }
   }
 
@@ -129,8 +129,8 @@ export function crearDepuracion(ctx) {
           .join('')
       : '<li class="dbg-vacio">Sin marcos.</li>';
     for (const li of ul.querySelectorAll('li[data-i]')) {
-      /** @type {HTMLElement} */ (li).onclick = () => {
-        const f = marcos[Number(/** @type {HTMLElement} */ (li).dataset.i)];
+      (li as HTMLElement).onclick = () => {
+        const f = marcos[Number((li as HTMLElement).dataset.i)];
         estado.marcoElegido = f.id;
         if (f.source && f.line) void ctx.irALinea(archivoDe(f.source), f.line);
         void pintarPila();
@@ -181,7 +181,7 @@ export function crearDepuracion(ctx) {
     const envoltorio = document.createElement('div');
     const hijos = document.createElement('div');
     hijos.hidden = true;
-    const abrir = async (sin) => {
+    const abrir = async (sin?: boolean) => {
       const abierta = sin ?? hijos.hidden;
       hijos.hidden = !abierta;
       fila.classList.toggle('abierta', abierta);
@@ -199,7 +199,7 @@ export function crearDepuracion(ctx) {
   }
 
   async function evaluar() {
-    const input = /** @type {HTMLInputElement} */ ($('dbg-eval'));
+    const input = ($('dbg-eval') as HTMLInputElement);
     const expresion = input.value.trim();
     if (!expresion) return;
     const res = $('dbg-eval-res');
@@ -208,7 +208,7 @@ export function crearDepuracion(ctx) {
       res.textContent = '';
       res.append(filaVariable({ name: expresion, value: r.result, type: r.type, variablesReference: r.variablesReference ?? 0 }, 0));
     } catch (e) {
-      res.innerHTML = `<p class="dbg-error">${escapar(String(/** @type {Error} */ (e)?.message ?? e))}</p>`;
+      res.innerHTML = `<p class="dbg-error">${escapar(String((e as Error)?.message ?? e))}</p>`;
     }
   }
 
@@ -272,7 +272,7 @@ export function crearDepuracion(ctx) {
       estado.verificados.set(archivo, new Set(nuevos.filter((b) => b.verified).map((b) => b.line)));
       pintarBreakpoints();
     } catch (e) {
-      ctx.nota(String(/** @type {Error} */ (e)?.message ?? e));
+      ctx.nota(String((e as Error)?.message ?? e));
     }
   }
 
@@ -344,13 +344,13 @@ export function crearDepuracion(ctx) {
 
   function pintarPines() {
     estado.framePines = 0;
-    const canvas = /** @type {HTMLCanvasElement} */ ($('dbg-pines'));
+    const canvas = ($('dbg-pines') as HTMLCanvasElement);
     const caja = canvas.getBoundingClientRect();
     if (!caja.width) return;
     const dpr = window.devicePixelRatio || 1;
     canvas.width = Math.round(caja.width * dpr);
     canvas.height = Math.round(caja.height * dpr);
-    const g = /** @type {CanvasRenderingContext2D} */ (canvas.getContext('2d'));
+    const g = (canvas.getContext('2d') as CanvasRenderingContext2D);
     g.scale(dpr, dpr);
     g.clearRect(0, 0, caja.width, caja.height);
     const pines = [...estado.pines.keys()].sort((a, b) => a - b);

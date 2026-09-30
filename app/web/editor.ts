@@ -95,9 +95,9 @@ export function resaltar(texto, lenguaje) {
       continue;
     }
     html += esc(texto.slice(ultimo, m.index));
-    const g = /** @type {Record<string, string | undefined>} */ (m.groups);
+    const g = (m.groups as Record<string, string | undefined>);
     if (g.pre !== undefined) {
-      html += esc(g.pre) + `<span class="t-key">${esc(/** @type {string} */ (g.key))}</span>`;
+      html += esc(g.pre) + `<span class="t-key">${esc((g.key as string))}</span>`;
     } else {
       for (const nombre in g) {
         if (g[nombre] !== undefined) {

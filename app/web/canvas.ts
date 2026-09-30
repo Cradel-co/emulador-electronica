@@ -1,6 +1,6 @@
 // Canvas del circuito (sección 11.2): módulos arrastrables, cables pin a pin,
 // zoom con la rueda y paneo arrastrando el fondo. No guarda nada: avisa los
-// cambios por callbacks y el que lo usa (app.js) decide qué persistir.
+// cambios por callbacks y el que lo usa (app.ts) decide qué persistir.
 import { el, dibujarModulo, defDesconocido } from './modulos.js';
 
 const COLOR_CABLE = { power: '#e2554b', ground: '#8a96a3', signal: '#56c271' };
@@ -43,7 +43,7 @@ export function crearLienzo(svg, ctx) {
   let arrastre = null;
   /** @type {null | { inst: Instancia, control: string, indice: number }} */
   let controlActivo = null;
-  let hover = /** @type {string | null} */ (null);
+  let hover = (null as string | null);
 
   // --- Geometría -------------------------------------------------------------
 
@@ -120,7 +120,7 @@ export function crearLienzo(svg, ctx) {
 
   // --- Render ----------------------------------------------------------------
 
-  let capa = /** @type {SVGElement | null} */ (null);
+  let capa = (null as SVGElement | null);
 
   function aplicarVista() {
     capa?.setAttribute('transform', `translate(${vista.x} ${vista.y}) scale(${vista.z})`);
@@ -324,7 +324,7 @@ export function crearLienzo(svg, ctx) {
   // --- Interacción -------------------------------------------------------------
 
   /** @param {EventTarget | null} t @param {string} sel */
-  const cerca = (t, sel) => /** @type {Element | null} */ (t instanceof Element ? t.closest(sel) : null);
+  const cerca = (t, sel) => (t instanceof Element ? t.closest(sel) : null as Element | null);
 
   function terminarCable(destino) {
     const desde = cable.desde;
@@ -485,7 +485,7 @@ export function crearLienzo(svg, ctx) {
 
   // --- Vista ---------------------------------------------------------------------
 
-  function zoomEn(factor, clientX, clientY) {
+  function zoomEn(factor: number, clientX?: number, clientY?: number) {
     const r = svg.getBoundingClientRect();
     const mx = (clientX ?? r.left + r.width / 2) - r.left;
     const my = (clientY ?? r.top + r.height / 2) - r.top;

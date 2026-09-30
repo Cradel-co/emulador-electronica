@@ -90,12 +90,12 @@ npm run dev            # server con tsx watch (la UI la sirve el mismo server)
 O, sin watch (lo que corre un servicio):
 
 ```bash
-cd app && npx tsx server/src/index.ts
+cd app && npm run build:web && npx tsx server/src/index.ts
 ```
 
 Abrí **http://127.0.0.1:5180**. Listo.
 
-> **Un solo proceso.** No hay que levantar la UI por separado: el server sirve los estáticos. `npm run dev` corre `dev:server` y `dev:web` juntos.
+> **Un solo proceso.** No hay que levantar la UI por separado: el server sirve los estáticos. `npm run dev` corre `dev:server` y `dev:web` juntos. La UI es TypeScript y se compila a `web/dist/` con `tsc`, así que en el modo sin watch hay que compilar una vez con `npm run build:web`. Si se olvida, el server igual levanta y avisa por consola.
 
 ### La primera compilación de Arduino tarda
 
@@ -200,7 +200,9 @@ cd app
 npm test               # unitarios (Vitest)
 npx playwright test    # e2e, con server y catálogo aislados
 E2E_EMU=1 npx playwright test simulacion   # e2e con Docker y emulador reales
-npx tsc --noEmit -p server      # typecheck (no hay script `typecheck` en package.json)
+npx tsc --noEmit -p server      # typecheck del server (no hay script `typecheck` en package.json)
+npm run build:web               # compila la UI: web/*.ts -> web/dist/*.js
+npx tsc --noEmit -p web         # typecheck de la UI
 ```
 
 Los e2e usan `EMU_PROJECTS_DIR` y `EMU_MODULES_DIR` para no tocar tus proyectos reales.
@@ -220,7 +222,7 @@ emulador-electronica/
 │   │   ├── debug/        # depurador GDB/RSP + DAP
 │   │   └── fixtures/     # binarios y fuentes de prueba
 │   ├── shared/src/       # tipos y schemas compartidos con la UI
-│   └── web/              # UI (sin build step: JS plano)
+│   └── web/              # UI (TypeScript -> web/dist/ con tsc; index.html y style.css en la raíz)
 ├── modules/              # catálogo: <tipo>/module.json + module.svg
 ├── projects/             # un subdirectorio por simulación (+ _template)
 ├── firmware/components/  # sim_bridge: el puente dentro del firmware
