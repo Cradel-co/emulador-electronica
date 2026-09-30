@@ -21,30 +21,43 @@
       }
     },
     {
-      "id": "sw1",
-      "type": "switch",
-      "x": -255,
-      "y": 108,
+      "id": "btn1",
+      "type": "button",
+      "x": -125,
+      "y": 40,
       "props": {
-        "label": "Interruptor"
+        "label": "Botón"
+      }
+    },
+    {
+      "id": "r1",
+      "type": "resistor",
+      "x": -281,
+      "y": 398,
+      "props": {
+        "ohms": 110
       }
     }
   ],
   "wires": [
     {
+      "from": "btn1.GND",
+      "to": "board.GND"
+    },
+    {
+      "from": "btn1.OUT",
+      "to": "board.GPIO6"
+    },
+    {
       "from": "led1.IN",
       "to": "board.GPIO7"
     },
     {
-      "from": "sw1.OUT",
-      "to": "board.GPIO6"
-    },
-    {
-      "from": "sw1.GND",
-      "to": "board.GND"
-    },
-    {
       "from": "led1.GND",
+      "to": "r1.1"
+    },
+    {
+      "from": "r1.2",
       "to": "board.GND"
     }
   ],
