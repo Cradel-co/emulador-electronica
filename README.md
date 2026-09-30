@@ -1,83 +1,170 @@
-# Emulador de electrónica (Wokwi)
+# Emulador de electrónica
 
-Workspace de simulación de hardware **de uso general** — no es parte del proyecto de la alarma, aunque viva dentro de esta carpeta, y no está atado a ESPHome ni a Home Assistant. La idea: antes de comprar un módulo, cargarlo acá y ver cómo funciona junto con el resto del circuito. Hoy emula con precisión real (firmware de verdad en un emulador del chip, no un intérprete) cuatro placas: **ESP32-S3, ESP32-C3 y ESP32-C6** (con `esp-emu`) y **Arduino Uno R3** (ATmega328P, con `avr8js`). Lenguajes: ESPHome, ESP-IDF (C/C++), Arduino y MicroPython, según la placa. Las placas son datos (`modules/<placa>/module.json`, bloque `board`): se pueden sumar otras sin tocar código si su chip ya tiene motor; cada familia nueva (RP2040, STM32...) necesita un motor propio. Ver [`docs/vision-y-alcance.md`](docs/vision-y-alcance.md) para el alcance completo y qué falta.
+Plataforma local de **prototipado de hardware**: armás un circuito con módulos reales, escribís el firmware y lo ves correr sobre un **emulador real del chip**, con física eléctrica calculada (Ley de Ohm de verdad, no un dibujo animado).
 
-## Qué se instaló (2026-09-28)
+No es un emulador de Home Assistant ni está atado a ESPHome. La idea es: **antes de comprar un módulo, probalo acá** y mirá cómo se comporta junto con el resto del circuito.
 
-| Herramienta | Qué es | Instalado en |
+- **Chips emulados de verdad:** ESP32-S3 / C3 / C6 (motor `esp-emu` de Espressif) y ATmega328P (motor `avr8js`). No hay intérprete: corre el firmware compilado de verdad.
+- **Lenguajes:** ESPHome (YAML), ESP-IDF (C y C++), Arduino y MicroPython.
+- **Las placas son datos:** cada placa es un `module.json` con su bloque `board`. Una placa nueva con un chip que ya tiene motor se agrega **sin tocar código**.
+- **Agente de IA:** expone un server **MCP** con 29 herramientas para controlar todo (crear proyectos, editar código, cablear, compilar, ejecutar, accionar módulos, debuggear). Lo que hace el agente se ve en vivo en la UI.
+
+Alcance completo y límites honestos: [`docs/vision-y-alcance.md`](docs/vision-y-alcance.md).
+
+---
+
+## Requisitos
+
+| Herramienta | Para qué | Obligatoria |
 |---|---|---|
-| **[`esp-emu`](https://github.com/espressif/esp-emulator)** (Espressif, beta, gratis pero no open source) | Emulador **100% local** de ESP32-S3/C3/C5/C6/H2/P4 — CPU, WiFi, BLE, RMT, sin ningún servidor externo. Solo terminal, sin interfaz gráfica. **Herramienta principal** de este workspace. En S3 requiere `logger: hardware_uart: UART0` (ver `docs/esp-emulator.md`). | `~/.local/bin/esp-emu`, ya en el `PATH` |
-| [`wokwi-cli`](https://github.com/wokwi/wokwi-cli) | CLI para correr simulaciones Wokwi desde la terminal (motor en la nube, gratis) | `~/.wokwi/bin/wokwi-cli` (symlink en `~/bin/wokwi-cli`, ya en el `PATH` vía `~/.bashrc`) |
-| Extensión **Wokwi Simulator** para VS Code (`wokwi.wokwi-vscode`) | Simulador visual (diagrama + partes arrastrables) para prototipar cableado rápido | Ya instalada en este VS Code |
+| **Node.js ≥ 20** | la app | ✅ sí |
+| **Docker** | compilar ESPHome, ESP-IDF y Arduino | ✅ sí (salvo que solo uses MicroPython) |
+| **[`esp-emu`](https://github.com/espressif/esp-emulator)** (Espressif, beta, gratis, no open source) | emular ESP32-S3/C3/C6 | para las placas ESP32 |
+| **[`wokwi-cli`](https://github.com/wokwi/wokwi-cli)** + cuenta Wokwi | alternativa en la nube, chips custom, diagrama visual | opcional |
+| Extensión **Wokwi Simulator** para VS Code | simulador visual para prototipar cableado rápido | opcional |
 
-Verificar: `esp-emu --version` / `wokwi-cli --version` (en una terminal nueva, o `source ~/.bashrc`).
+`esp-emu` ya está instalado en `~/.local/bin/esp-emu` y `wokwi-cli` en `~/bin/wokwi-cli` (ambos en el `PATH`).
 
-### Por qué dos herramientas
+## Instalación
 
-- **`esp-emu`** es el camino principal: 100% local, sin cuenta, sin nube. Emula ESP32-S3/C3/C6 en la app (el ESP32 clásico no está soportado — ver [`docs/esp-emulator.md`](docs/esp-emulator.md) y la decisión registrada en [`../IDEA.md`](../IDEA.md)).
-- **Wokwi** queda como alternativa: útil para armar/ver el cableado visualmente y para chips custom con interfaz gráfica (botones/sliders), a costa de depender de su servidor. Ver `docs/bridge-mode.md` y `docs/custom-chips.md`.
+```bash
+cd app
+npm install            # instala los 3 workspaces (shared, server, web)
+```
 
-## App gráfica
+La primera compilación de Arduino tarda un poco más: la app construye sola la imagen `emu-arduino-avr:1.5.1-1.8.6` desde [`docker/arduino-avr/Dockerfile`](docker/arduino-avr/Dockerfile).
 
-App web local sobre `esp-emu`: circuito con módulos y cables, editor de código (ESPHome YAML, C/C++ y MicroPython) y simulación interactiva. El diseño completo está en [`GUIA-IMPLEMENTACION.md`](GUIA-IMPLEMENTACION.md).
+## Arranque
+
+```bash
+cd app
+npm run dev            # server con tsx watch (la UI la sirve el mismo server)
+```
+
+Equivale a:
 
 ```bash
 cd app && npx tsx server/src/index.ts     # → http://127.0.0.1:5180
 ```
 
-- **Módulos:** el catálogo vive en [`modules/`](modules/). Se agregan módulos nuevos (carpeta, zip, chip de Wokwi, URL o repo de GitHub) sin tocar código: ver [`modules/README.md`](modules/README.md).
-- **MCP:** la app expone un server MCP en `http://127.0.0.1:5180/mcp` que permite controlarla por completo: proyectos, código, circuito, catálogo, compilar/ejecutar y accionar módulos. Todo lo que hace el agente se ve en vivo en la UI. Para usarlo desde Claude Code, con la app corriendo:
-  ```bash
-  claude mcp add --transport http emulador-esp32 http://127.0.0.1:5180/mcp
-  ```
-  (o abrir Claude Code en esta carpeta: toma [`.mcp.json`](.mcp.json)). Solo acepta clientes locales: las páginas web de otro origen reciben 403.
-- **Tests:** desde `app/`: `npm test` (unitarios), `npx playwright test` (e2e, con un server y un catálogo aislados), `E2E_EMU=1 npx playwright test simulacion` (con Docker y el emulador reales).
+Abrí **http://127.0.0.1:5180**. El server escucha solo en `127.0.0.1` — nunca en `0.0.0.0` — y el puerto se cambia con `PORT=xxxx`.
 
-## Paso pendiente (manual, no lo puedo hacer yo)
+## Cómo se usa
 
-Wokwi es gratuito pero necesita una cuenta:
+### 1. Crear un proyecto
 
-1. Entrar a la extensión en VS Code (ícono de Wokwi en la barra lateral) o a [wokwi.com](https://wokwi.com) y crear cuenta gratis.
-2. Para usar `wokwi-cli` desde la terminal hace falta un token: [wokwi.com/dashboard/ci](https://wokwi.com/dashboard/ci) → copiarlo y exportarlo:
-   ```bash
-   export WOKWI_CLI_TOKEN=tu_token
-   ```
-   (agregalo a `~/.bashrc` si lo vas a usar seguido).
-3. Para el **modo bridge** (que el ESP32 simulado tenga IP real en tu LAN y lo detecte Home Assistant solo) hace falta `wokwigw`, que se instala aparte — ver `docs/bridge-mode.md`.
+En la UI: **Nuevo proyecto** → elegís **placa** y **lenguaje** → la app genera la plantilla con un circuito de prueba (botón → LED). O desde la terminal, partiendo de la plantilla:
 
-## Estructura de esta carpeta
+```bash
+cp -r projects/_template projects/mi-proyecto
+```
+
+### 2. Armar el circuito
+
+En el catálogo de la izquierda agregás módulos y los conectás con cables. Cada módulo viene con sus pines, y el editor te avisa si un cable no coincide con un pin, si un pin queda al aire o si el circuito **no puede** funcionar (cortocircuito, fuente sobre demandada — ver la Ley de Ohm real en [`modules/README.md`](modules/README.md)).
+
+Módulos disponibles de fábrica: `arduino-uno`, `esp32-s3-devkitc-1`, `esp32-c3-devkitm-1`, `esp32-c6-devkitc-1`, `button`, `switch`, `led`, `relay`, `resistor`, `rxb6`, `stx882`, `remote-433`, `door-sensor-433`, `siren-433`.
+
+### 3. Escribir el código
+
+Editor con pestañas en el panel central. Para ESPHome, la app **inyecta el componente `sim_bridge`** automáticamente: es el puente que le lleva al firmware los eventos de los pines (qué botón se apretó, qué pin se puso en 1).
+
+### 4. Compilar y ejecutar
+
+- **Build** (Alt+0) — compila con Docker. Los errores llegan con archivo y línea, y los marcás en el editor.
+- **Emulador** (Alt+F12) — arranca el firmware real. Los botones del diagrama quedan accionables y la consola muestra UART0/Serial en vivo.
+
+### 5. Debuggear
+
+Pestaña **Debug** (Alt+5): breakpoints, paso a paso, variables, pila de llamadas, y un analizador de pines con los últimos 10 segundos. Habla GDB/RSP por debajo. Detalle por motor en [`docs/depuracion.md`](docs/depuracion.md).
+
+## Placas soportadas
+
+| Placa | Chip / motor | Qué anda de punta a ponta | Límites honestos |
+|---|---|---|---|
+| **ESP32-S3 DevKitC-1** | ESP32-S3 (Xtensa LX7) / `esp-emu` | ESPHome y MicroPython: botón → LED en vivo. RF 433. Certificada "emula". | Las entradas llegan por el puente UART, no por el pad (límite de `esp-emu`). ESP-IDF/Arduino sin verificar en esta PC. |
+| **ESP32-C3 DevKitM-1** | ESP32-C3 (RISC-V) / `esp-emu` | ídem S3 | Puente en UART1 = GPIO0/1 (reservados). Sin RF 433. |
+| **ESP32-C6 DevKitC-1** | ESP32-C6 (RISC-V) / `esp-emu` | ídem S3 | ídem C3, sin RF. |
+| **Arduino Uno R3** | ATmega328P 16 MHz / `avr8js` | Compila en ~3 s, corre ciclo a ciclo, D2 → D13 en vivo, entradas al **pad real** (pull-ups, interrupciones). Lógica de 5 V. | Sin I2C/SPI hacia el dibujo, sin RF, ADC siempre en 0 V. |
+
+El **ESP32 clásico (LX6)** no se puede emular: `esp-emu` no lo soporta. Para otras familias (RP2040, STM32, nRF52) hace falta un motor nuevo — la interfaz está preparada (`renode` + `platformio` están planificados pero sin implementar), así que esas placas se pueden cargar igual y quedan en "solo dibujo".
+
+## Agregar cosas
+
+**Un módulo nuevo** (sin tocar código) — desde la UI con **+ Importar**, o `POST /api/modules/import`, o la herramienta MCP `importar_modulo`. Acepta carpeta, zip, chip de Wokwi, URL o repo de GitHub. Formato y seguridad en [`modules/README.md`](modules/README.md).
+
+**Una placa nueva** — el ciclo es: `GET /api/boards/schema` (JSON Schema del bloque `board`) → armar el `module.json` → `POST /api/boards/validate` → importar → `POST /api/boards/:id/certify` (compila la plantilla, la emula y comprueba que el botón de prueba prenda el LED). El nivel resultante es `emula` / `compila` / `solo-dibujo`.
+
+**Un motor de emulación o un toolchain** — plugins en `app/server/src/engines/` y `app/server/src/toolchains/`, cada carpeta con su README y la interfaz a implementar.
+
+## Controlarlo con un agente de IA (MCP)
+
+Con la app corriendo, expone MCP en `http://127.0.0.1:5180/mcp`:
+
+```bash
+claude mcp add --transport http emulador-esp32 http://127.0.0.1:5180/mcp
+```
+
+O abrí Claude Code en esta carpeta: toma [`.mcp.json`](.mcp.json) automáticamente. Solo acepta clientes locales — las páginas de otro origen reciben 403.
+
+29 herramientas: `estado`, `listar_proyectos`, `crear_proyecto`, `ver_proyecto`, `leer_archivo`, `escribir_archivo`, `placas`, `esquema_placa`, `validar_placa`, `certificar_placa`, `catalogo`, `importar_modulo`, `quitar_modulo_catalogo`, `agregar_modulo`, `quitar_modulo`, `mover_modulo`, `configurar_modulo`, `conectar`, `desconectar`, `compilar`, `ejecutar`, `parar`, `resetear`, `accionar_modulo`, `poner_pin`, `enviar_rf`, `leer_pines`, `leer_log`, `esperar_log`. Más las 7 de debug cuando el depurador está activo.
+
+## Tests
+
+```bash
+cd app
+npm test               # unitarios (Vitest)
+npx playwright test    # e2e, con server y catálogo aislados
+E2E_EMU=1 npx playwright test simulacion   # e2e con Docker y emulador reales
+npm run typecheck      # tsc --noEmit
+```
+
+Los e2e usan `EMU_PROJECTS_DIR` y `EMU_MODULES_DIR` para no tocar tus proyectos reales.
+
+## API
+
+REST en `http://127.0.0.1:5180` (`/api/projects`, `/api/modules`, `/api/boards`, `/api/emulator`, `/api/debug/...`) y WebSocket en `/ws` que empuja `emu.log`, `emu.state`, `bridge.state`, `bridge.ready`, `pin.in`, `pin.out`, `pin.watch`. Detalle en [`GUIA-IMPLEMENTACION.md`](GUIA-IMPLEMENTACION.md) §10.
+
+## Estructura
 
 ```
 emulador-electronica/
-├── chips/                # Chips custom REUTILIZABLES entre proyectos (RXB6, STX882, etc.)
-├── projects/
-│   ├── _template/         # Punto de partida para un proyecto nuevo
-│   └── <tu-proyecto>/     # Un subdirectorio por cada simulación
-└── docs/                  # Notas y guías (bridge mode, custom chips, etc.)
+├── app/
+│   ├── server/src/       # API, MCP, compilación, emulación, depuración
+│   │   ├── engines/      # plugins de motor de emulación (esp-emu, avr8js, renode*)
+│   │   ├── toolchains/   # plugins de compilación (esphome, esp-idf, arduino-cli, micropython, platformio*)
+│   │   ├── debug/        # depurador GDB/RSP + DAP
+│   │   └── fixtures/     # binarios y fuentes de prueba
+│   ├── shared/src/       # tipos y schemas compartidos con la UI
+│   └── web/              # UI (sin build step: JS plano)
+├── modules/              # catálogo: <tipo>/module.json + module.svg
+├── projects/             # un subdirectorio por simulación (+ _template)
+├── firmware/components/  # sim_bridge: el puente dentro del firmware
+├── firmware/micropython/ # firmware oficial de MicroPython
+├── chips/                # chips custom de Wokwi reutilizables
+├── docker/arduino-avr/   # imagen de compilación para AVR
+└── docs/
 ```
 
-## Cómo arrancar un proyecto nuevo
+## Documentación
+
+| Documento | Qué cubre |
+|---|---|
+| [`docs/vision-y-alcance.md`](docs/vision-y-alcance.md) | Qué es el proyecto, qué falta, límites reales |
+| [`GUIA-IMPLEMENTACION.md`](GUIA-IMPLEMENTACION.md) | Diseño técnico: arquitectura, protocolo del puente, pipeline por lenguaje, API |
+| [`docs/depuracion.md`](docs/depuracion.md) | Modo debug: qué se puede en cada motor, API REST, DAP |
+| [`docs/esp-emulator.md`](docs/esp-emulator.md) | Qué es y qué no es `esp-emu` |
+| [`docs/bridge-mode.md`](docs/bridge-mode.md) | Que el ESP32 simulado tenga IP real en tu LAN (Home Assistant lo detecta solo) |
+| [`docs/placas-como-datos.md`](docs/placas-como-datos.md) | El bloque `board` en detalle |
+| [`docs/custom-chips.md`](docs/custom-chips.md) | Crear un chip de Wokwi reutilizable |
+| [`modules/README.md`](modules/README.md) | Formato de módulo, importación, Ley de Ohm, seguridad del SVG |
+
+## Wokwi (opcional)
+
+Wokwi es gratuito pero necesita cuenta: creala en [wokwi.com](https://wokwi.com), y para la CLI exportá el token de [wokwi.com/dashboard/ci](https://wokwi.com/dashboard/ci):
 
 ```bash
-cp -r projects/_template projects/mi-proyecto-nuevo
-cd projects/mi-proyecto-nuevo
-# editar diagram.json (agregar/cablear componentes) y wokwi.toml (apuntar al firmware)
+export WOKWI_CLI_TOKEN=tu_token
 ```
 
-- **Desde VS Code**: abrir `diagram.json` del proyecto → botón ▶ (play) en la esquina.
-- **Desde terminal** (útil para probar rápido o en CI): `wokwi-cli .` parado en la carpeta del proyecto.
-
-## Chips custom compartidos (`chips/`)
-
-Ahí van los módulos que no existen en la librería de Wokwi y que probablemente reutilices en varios proyectos (ej. el receptor/transmisor 433 MHz del proyecto de la alarma). Cada chip es una carpeta con su `.chip.json` + `.chip.c` (+ `.wasm` compilado). Wokwi busca los archivos de chips **en la carpeta del proyecto**, así que para usar uno de estos en un proyecto nuevo: symlink en vez de copiar, para no desincronizar versiones:
-
-```bash
-ln -s ../../chips/rxb6/rxb6.chip.json projects/mi-proyecto/rxb6.chip.json
-ln -s ../../chips/rxb6/rxb6.chip.c    projects/mi-proyecto/rxb6.chip.c
-```
-
-Ver `docs/custom-chips.md` para cómo crear uno nuevo.
-
-## Referencia de esta carpeta en el proyecto de la alarma
-
-El primer uso real de este workspace es simular el ESP32 + RF de la alarma: ver [`projects/alarma-esp32/`](projects/alarma-esp32/) (se crea cuando armemos ese proyecto puntual) y el diseño general en [`../IDEA.md`](../IDEA.md).
+Es la alternativa cuando querés el diagrama visual o un chip custom. El camino principal es `esp-emu`: 100% local, sin cuenta, sin nube. Ver [`docs/bridge-mode.md`](docs/bridge-mode.md) para el modo bridge.
