@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process';
+import path from 'node:path';
 
 export interface RunResult {
   code: number | null;
@@ -65,6 +66,45 @@ export function run(
     (child as ChildProcess & { _kill?: (s?: NodeJS.Signals) => void })._kill = kill;
     opts.onChild?.(kill);
   });
+}
+
+/** Nombre del contenedor de compilación: uno por proyecto, para poder limpiarlo. */
+export function containerNameFor(buildDir: string): string {
+  return `emu-build-${path.basename(buildDir)}`;
+}
+
+/** Borra un contenedor por nombre; si no existe, no pasa nada. */
+function removeContainer(name: string, onLine: (line: string) => void): Promise<void> {
+  return new Promise((resolve) => {
+    const p = spawn('docker', ['rm', '-f', name], { stdio: ['ignore', 'pipe', 'pipe'] });
+    let out = '';
+    p.stdout?.on('data', (c: Buffer) => (out += c.toString()));
+    p.stderr?.on('data', (c: Buffer) => (out += c.toString()));
+    p.on('error', () => resolve());
+    p.on('close', (code) => {
+      if (code === 0 && out.trim()) onLine(`(se borró un contenedor huérfano: ${out.trim()})`);
+      resolve();
+    });
+  });
+}
+
+/**
+ * Corre el `docker run` de una compilación limpiando el contenedor por nombre antes y
+ * después. Un build cancelado, que se pasó de tiempo, o cortado a mitad de camino deja
+ * el contenedor en estado `Created` (o vivo huérfano) y `--rm` no lo borra: el nombre
+ * queda tomado y el próximo `docker run` aborta con `Conflict ... already in use`
+ * (código 125) sin llegar a compilar. Borrar por nombre antes de arrancar lo evita.
+ */
+export async function runDockerBuild(
+  name: string,
+  args: string[],
+  onLine: (line: string) => void,
+  opts: { timeoutMs?: number; onChild?: (kill: (s?: NodeJS.Signals) => void) => void } = {},
+): Promise<RunResult> {
+  await removeContainer(name, onLine);
+  const res = await run('docker', args, onLine, opts);
+  await removeContainer(name, () => undefined);
+  return res;
 }
 
 /** Lanza un proceso en segundo plano y devuelve el handle. */

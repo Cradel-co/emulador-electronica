@@ -1,6 +1,6 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { run } from '../dockerRunner.js';
+import { runDockerBuild, containerNameFor } from '../dockerRunner.js';
 import { exists, type BuildResult } from '../buildService.js';
 import { extractBuildErrors } from '../yamlSim.js';
 import {
@@ -74,9 +74,10 @@ export const espIdf: Toolchain = {
       'Aviso: el puente sim_bridge todavía es solo un componente ESPHome; en C/C++ las entradas no llegan al código del usuario (14.2b pendiente).',
     );
 
+    const container = containerNameFor(outDir);
     const args = [
       'run', '--rm',
-      '--name', `emu-build-${path.basename(outDir)}`,
+      '--name', container,
       '-u', `${process.getuid?.() ?? 1000}:${process.getgid?.() ?? 1000}`,
       '-e', 'HOME=/tmp',
       '-v', `${projectDir}:/project`,
@@ -94,7 +95,7 @@ export const espIdf: Toolchain = {
     ];
     cb.onLine(`$ docker ${args.join(' ')}`);
     const lines: string[] = [];
-    const res = await run('docker', args, (line) => {
+    const res = await runDockerBuild(container, args, (line) => {
       lines.push(line);
       cb.onLine(line);
     }, { timeoutMs: ctx.timeoutMs, onChild: ctx.registrarProceso });
