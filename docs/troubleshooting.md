@@ -146,10 +146,11 @@ para que quede claro que es material de trabajo, no un proyecto.
 
 ---
 
-## "Chequeo circuito ↔ código: 3 aviso(s) (no bloquea)"
+## "Chequeo circuito ↔ código: N aviso(s) (no bloquea)"
 
-**Síntoma.** Aparece antes de compilar y no deja avanzar.
+**Esto no es un error.** Es el chequeo que compara el diagrama con el código y
+avisa de pines declarados que el firmware no usa, o al revés. Dice
+explícitamente *no bloquea* y la compilación sigue igual. Aparece mezclado en el
+log de compilación, entre mensajes de Docker, y por su formato parece un fallo.
 
-Esto **no es un error**: es el chequeo que compara el diagrama con el código y
-avisa de pines declarados que el firmware no usa, o al revés. Dice explícitamente
-*no bloquea*. Para verlos todos, abrí la pestaña que los lista.
+Para ver los avisos en detalle, abrí la lista que los muestra en la UI.
