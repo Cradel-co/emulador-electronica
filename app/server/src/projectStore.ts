@@ -21,6 +21,14 @@ export class ProjectError extends Error {
   }
 }
 
+export interface PlantillaProyecto {
+  id: string;
+  nombre: string;
+  descripcion: string;
+  board: string;
+  language: Language;
+}
+
 export interface ProjectFile {
   path: string;
   size: number;
@@ -113,6 +121,54 @@ export class ProjectStore {
     }
     await this.save(project);
     return project;
+  }
+
+  /**
+   * Proyectos plantilla: projects/_template/<id>/, cada uno un proyecto completo (project.json +
+   * código + README.md). No aparecen en la lista de proyectos ("_" no es un nombre válido).
+   */
+  get templatesDir(): string {
+    return path.join(this.root, '_template');
+  }
+
+  /** Plantillas disponibles; nombre y descripción salen del título y primer párrafo del README.md. */
+  async listTemplates(): Promise<PlantillaProyecto[]> {
+    const entries = await fs.readdir(this.templatesDir, { withFileTypes: true }).catch(() => []);
+    const out: PlantillaProyecto[] = [];
+    for (const e of entries) {
+      if (!e.isDirectory() || !isValidProjectName(e.name)) continue;
+      const dir = path.join(this.templatesDir, e.name);
+      try {
+        const p = ProjectSchema.parse(JSON.parse(await fs.readFile(path.join(dir, 'project.json'), 'utf8')));
+        const readme = await fs.readFile(path.join(dir, 'README.md'), 'utf8').catch(() => '');
+        const nombre = /^#\s+(.+)$/m.exec(readme)?.[1]?.trim() ?? e.name;
+        const descripcion = readme.split(/\n\s*\n/).map((s) => s.trim()).find((s) => s && !s.startsWith('#')) ?? '';
+        out.push({ id: e.name, nombre, descripcion: descripcion.replace(/\s*\n\s*/g, ' '), board: p.board, language: p.language });
+      } catch {
+        // Una plantilla rota no tumba la lista.
+      }
+    }
+    return out.sort((a, b) => a.nombre.localeCompare(b.nombre));
+  }
+
+  /** Crea `name` copiando la plantilla `templateId` tal cual (circuito, código, README). */
+  async createFromTemplate(name: string, templateId: string): Promise<Project> {
+    if (!isValidProjectName(name)) {
+      throw new ProjectError(`Nombre inválido: "${name}". Solo [a-z0-9-], hasta 40 caracteres, sin "..".`, 400);
+    }
+    if (!isValidProjectName(templateId)) throw new ProjectError(`Plantilla inválida: "${templateId}"`, 400);
+    if (await this.exists(name)) throw new ProjectError(`El proyecto "${name}" ya existe`, 409);
+    const origen = path.join(this.templatesDir, templateId);
+    const raw = await fs.readFile(path.join(origen, 'project.json'), 'utf8').catch(() => {
+      throw new ProjectError(`No hay una plantilla "${templateId}"`, 404);
+    });
+    const base = ProjectSchema.parse(JSON.parse(raw));
+    // Sin archivos ocultos (caché de compilación, etc.): solo lo que el autor dejó a propósito.
+    await fs.cp(origen, this.projectDir(name), {
+      recursive: true,
+      filter: (src) => src === origen || !path.basename(src).startsWith('.'),
+    });
+    return this.save({ ...base, name });
   }
 
   async save(project: Project): Promise<Project> {

@@ -210,7 +210,7 @@ emulador-electronica/
 └── .build/<nombre>/                ← YAML de simulación y binarios (gitignored)
 ```
 
-La carpeta actual `projects/_template/` y los archivos de Wokwi (`diagram.json`, `wokwi.toml`) quedan como están; la app usa `project.json` y `main.yaml`.
+`projects/_template/<id>/` guarda las plantillas de proyecto (proyectos completos que se copian al crear uno nuevo); la plantilla vieja de Wokwi se eliminó.
 
 ---
 

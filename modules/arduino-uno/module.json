@@ -195,7 +195,9 @@
     }
   ],
   "controls": [],
-  "props": {},
+  "props": {
+    "usb": { "type": "boolean", "default": false, "label": "USB conectado" }
+  },
   "svg": "module.svg",
   "board": {
     "chip": "atmega328p",
@@ -213,6 +215,13 @@
     "recommendedPinCurrentMa": 20,
     "pinOutputOhm": 25,
     "supplyOutputOhm": 0.5,
+    "power": {
+      "inputs": [
+        { "pin": "VIN", "min": 7.0, "max": 20.0, "feeds": "vin" },
+        { "pin": "5V", "min": 4.5, "max": 5.5, "feeds": "5v" }
+      ],
+      "currentMa": 50
+    },
     "pins": {
       "D0": {
         "gpio": 0,

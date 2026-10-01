@@ -76,9 +76,34 @@ export const ModuleDefSchema = z.object({
   diode: z.boolean().default(false),
   diodeVfDefault: z.number().default(2),
   /**
+   * Interruptor mecánico de 2 pines (pulsador, llave): mientras su control está activo
+   * (apretado / encendido) une eléctricamente sus dos pines, como un cable. Así sirve
+   * tanto de entrada para el código como para cortar o cerrar un circuito sin código.
+   */
+  switch: z.boolean().optional(),
+  /**
+   * Fuente de voltaje regulable (p. ej. una fuente de banco): el pin `power` de este
+   * módulo entrega la tensión de `props[source.voltageProp]` en vez de depender de la
+   * placa, y puede ser negativa. Su pin `ground` no fija nada por sí solo: tiene que
+   * cablearse a `board.GND` (u otro punto ya unido a él) para que el motor eléctrico
+   * encuentre el camino de vuelta.
+   */
+  source: z
+    .object({
+      voltageProp: z.string().min(1),
+      /**
+       * Prop con el límite de corriente (mA), como en una fuente de laboratorio: si la carga
+       * pide más, la fuente pasa a modo CC (entrega el límite y baja el voltaje). Sin esta
+       * prop se usa `electrical.maxCurrentMa`.
+       */
+      currentProp: z.string().min(1).optional(),
+    })
+    .optional(),
+  /**
    * Datos eléctricos del componente, de su hoja de datos (los usa circuitPhysics.ts).
    * Para un LED: resistencia serie interna (dinámica) y corrientes límite; la caída
-   * directa (Vf) sigue en `vars.vf` porque depende del color.
+   * directa (Vf) sigue en `vars.vf` porque depende del color. Para una fuente
+   * (`source`): `maxCurrentMa` es el límite de corriente del canal.
    */
   electrical: z
     .object({

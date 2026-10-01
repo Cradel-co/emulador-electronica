@@ -78,6 +78,8 @@ export interface DiagramWarning {
   kind: 'module-pin-unused' | 'code-pin-unwired' | 'blocked-pin-used' | 'peligro-electrico' | 'advertencia-electrica';
   pin: number;
   message: string;
+  /** Refs "id.PIN" involucradas (solo en avisos eléctricos), para resaltar en el canvas. */
+  refs?: string[];
 }
 
 /** Pin lógico de una punta de cable que va a la placa: "board.GPIO6" (6.1), "board.6", "board.D13". */

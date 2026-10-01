@@ -137,11 +137,7 @@ concreto de escucha contra el cual validar. Detalle en
 
 ### 1. Crear un proyecto
 
-En la UI: **Nuevo proyecto** → elegís **placa** y **lenguaje** → la app genera la plantilla con un circuito de prueba (botón → LED). O desde la terminal, partiendo de la plantilla:
-
-```bash
-cp -r projects/_template projects/mi-proyecto
-```
+En la UI: **Nuevo proyecto** → elegís **placa** y **lenguaje** → la app genera un circuito de prueba (botón → LED). O elegís una **plantilla**: un proyecto de ejemplo completo de [`projects/_template/`](projects/_template/) (por ejemplo `circuito-continuo`).
 
 ### 2. Armar el circuito
 
@@ -224,7 +220,7 @@ emulador-electronica/
 │   ├── shared/src/       # tipos y schemas compartidos con la UI
 │   └── web/              # UI (TypeScript -> web/dist/ con tsc; index.html y style.css en la raíz)
 ├── modules/              # catálogo: <tipo>/module.json + module.svg
-├── projects/             # un subdirectorio por simulación (+ _template)
+├── projects/             # un subdirectorio por simulación (no versionado) + _template/ (plantillas)
 ├── firmware/components/  # sim_bridge: el puente dentro del firmware
 ├── firmware/micropython/ # firmware oficial de MicroPython
 ├── chips/                # chips custom de Wokwi reutilizables

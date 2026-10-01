@@ -1,0 +1,19 @@
+{
+  "type": "fuente-regulable",
+  "name": "Fuente regulable",
+  "category": "Alimentación",
+  "description": "Canal de una fuente de laboratorio: voltaje ajustable (positivo o negativo respecto a GND) y límite de corriente. Si la carga pide más que el límite, entra en modo CC (entrega el límite y baja el voltaje). El consumo real se ve en la ventana Debug.",
+  "width": 90,
+  "height": 60,
+  "pins": [
+    { "name": "V", "x": 0, "y": 30, "kind": "power" },
+    { "name": "GND", "x": 90, "y": 30, "kind": "ground" }
+  ],
+  "controls": [],
+  "props": {
+    "voltage": { "type": "number", "default": 5, "label": "Voltaje (V)", "min": -12, "max": 12 },
+    "currentLimitMa": { "type": "number", "default": 500, "label": "Límite de corriente (mA)", "min": 1, "max": 5000 }
+  },
+  "source": { "voltageProp": "voltage", "currentProp": "currentLimitMa" },
+  "svg": "module.svg"
+}

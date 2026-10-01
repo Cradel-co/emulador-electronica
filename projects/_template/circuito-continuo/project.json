@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "name": "circuito-continuo",
+  "board": "esp32-s3-devkitc-1",
+  "language": "micropython",
+  "sim": {
+    "wifiSsid": "sim-wifi",
+    "wifiPassword": "sim-password"
+  },
+  "modules": [
+    { "id": "board", "type": "esp32-s3-devkitc-1", "x": 133, "y": 22, "props": { "usb": false } },
+    { "id": "fuente1", "type": "fuente-regulable", "x": -260, "y": 470, "props": { "voltage": 5, "currentLimitMa": 300 } },
+    { "id": "btn1", "type": "button", "x": -430, "y": 150, "props": { "label": "Botón" } },
+    { "id": "led1", "type": "led", "x": -250, "y": 130, "props": { "color": "red" } },
+    { "id": "r1", "type": "resistor", "x": -150, "y": 300, "props": { "ohms": 150 } }
+  ],
+  "wires": [
+    { "from": "fuente1.V", "to": "board.5V" },
+    { "from": "fuente1.GND", "to": "board.GND" },
+    { "from": "fuente1.V", "to": "btn1.OUT" },
+    { "from": "btn1.GND", "to": "led1.IN" },
+    { "from": "led1.GND", "to": "r1.1" },
+    { "from": "r1.2", "to": "board.GND_2" }
+  ]
+}

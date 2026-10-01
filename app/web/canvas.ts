@@ -16,6 +16,8 @@ const COLOR_CABLE = { power: '#e2554b', ground: '#8a96a3', signal: '#56c271' };
  *   vivo: (inst: Instancia) => any,
  *   clasePin: (ref: string) => string,
  *   descripcionPin: (ref: string) => string,
+ *   enCorto: (ref: string) => boolean,
+ *   cortoExplotando: (ref: string) => boolean,
  *   seleccionar: (sel: Seleccion) => void,
  *   moverModulo: (id: string, x: number, y: number, fin: boolean) => void,
  *   rotarModulo: (id: string, grados: number, fin: boolean) => void,
@@ -162,12 +164,21 @@ export function crearLienzo(svg, ctx) {
       const b = resolver(w.to);
       if (!a || !b) return;
       const d = curva(a.x, a.y, salida(a), b.x, b.y, salida(b));
+      // Las dos puntas cableadas directo entre sí son exactamente el cortocircuito.
+      const enCorto = ctx.enCorto(w.from) && ctx.enCorto(w.to);
       const g = el('g', {
-        class: `cable${sel?.tipo === 'cable' && sel.indice === i ? ' seleccionado' : ''}`,
+        class: `cable${sel?.tipo === 'cable' && sel.indice === i ? ' seleccionado' : ''}${enCorto ? ' en-corto' : ''}`,
         'data-indice': i, 'data-from': w.from, 'data-to': w.to,
       }, gc);
       el('path', { d, class: 'cable-hit' }, g);
-      el('path', { d, class: 'cable-linea', stroke: COLOR_CABLE[tipoCable(a, b)] }, g);
+      const linea = el('path', { d, class: 'cable-linea', stroke: COLOR_CABLE[tipoCable(a, b)] }, g) as SVGPathElement;
+      if (enCorto) {
+        // El medio de la curva, no de la recta entre las puntas (el cable puede ir muy arqueado).
+        const m = linea.getPointAtLength(linea.getTotalLength() / 2);
+        humear(g, m.x, m.y);
+        chisporrotear(g, m.x, m.y);
+        if (ctx.cortoExplotando(w.from) || ctx.cortoExplotando(w.to)) explotar(g, m.x, m.y);
+      }
     });
 
     // Módulos
@@ -233,9 +244,69 @@ export function crearLienzo(svg, ctx) {
     actualizarTemporal();
   }
 
-  /** Una animación SMIL (sigue al elemento aunque el módulo esté rotado; no necesita CSS). */
-  function animar(padre, atributo, desde, hasta, dur, extra = {}) {
-    el('animate', { attributeName: atributo, from: desde, to: hasta, dur, fill: 'freeze', ...extra }, padre);
+  /**
+   * Una animación SMIL (sigue al elemento aunque el módulo esté rotado; no necesita CSS).
+   * Arranca ahora (+ `retraso` s): en SMIL el `begin` se mide desde que cargó la página, no
+   * desde que se insertó el elemento — con `begin: 0` una animación de una sola vez agregada
+   * a los minutos de abrir la página ya "terminó" y se ve directo en su estado final.
+   */
+  function animar(padre, atributo, desde, hasta, dur, extra = {}, retraso = 0) {
+    const begin = `${(svg.getCurrentTime() + retraso).toFixed(3)}s`;
+    el('animate', { attributeName: atributo, from: desde, to: hasta, dur, fill: 'freeze', ...extra, begin }, padre);
+  }
+
+  /** Tres bocanadas de humo que suben desde (cx, cy), en loop. */
+  function humear(padre, cx, cy) {
+    const humo = el('g', { class: 'humo' }, padre);
+    for (let i = 0; i < 3; i++) {
+      // Invisible hasta que le toca arrancar (las bocanadas van desfasadas).
+      const c = el('circle', { cx: cx + (i - 1) * 4, cy, r: 3, opacity: 0 }, humo);
+      const rep = { repeatCount: 'indefinite', fill: 'remove' };
+      animar(c, 'cy', cy, cy - 46, '2.1s', rep, i * 0.7);
+      animar(c, 'r', 3, 11, '2.1s', rep, i * 0.7);
+      animar(c, 'opacity', 0.55, 0, '2.1s', rep, i * 0.7);
+    }
+  }
+
+  /**
+   * Cortocircuito sostenido: resplandor de fuego que titila y chispas cortas que saltan
+   * sin parar desde (cx, cy), mientras el cable siga en corto.
+   */
+  function chisporrotear(padre, cx, cy) {
+    const g = el('g', { class: 'chisporroteo' }, padre);
+    const fuego = el('circle', { cx, cy, r: 9, class: 'fuego' }, g);
+    animar(fuego, 'r', 7, 13, '0.18s', { repeatCount: 'indefinite', fill: 'remove' });
+    animar(fuego, 'opacity', 0.95, 0.45, '0.23s', { repeatCount: 'indefinite', fill: 'remove' });
+    for (let i = 0; i < 7; i++) {
+      const a = i * 2.4; // ángulo áureo aprox.: repartidas sin patrón visible
+      const [ux, uy] = [Math.cos(a), Math.sin(a)];
+      const chispa = el('line', { x1: cx, y1: cy, x2: cx, y2: cy, class: 'chispa', opacity: 0 }, g);
+      const rep = { repeatCount: 'indefinite', fill: 'remove' };
+      const retraso = i * 0.11;
+      animar(chispa, 'x1', cx + ux * 3, cx + ux * 14, '0.4s', rep, retraso);
+      animar(chispa, 'y1', cy + uy * 3, cy + uy * 14 + 4, '0.4s', rep, retraso);
+      animar(chispa, 'x2', cx + ux * 7, cx + ux * 22, '0.4s', rep, retraso);
+      animar(chispa, 'y2', cy + uy * 7, cy + uy * 22 + 8, '0.4s', rep, retraso);
+      animar(chispa, 'opacity', 1, 0, '0.4s', rep, retraso);
+    }
+  }
+
+  /** Destello + 10 chispas radiales centradas en (cx, cy): la explosión, reusada por cualquier daño. */
+  function explotar(padre, cx, cy) {
+    const boom = el('g', { class: 'explosion' }, padre);
+    const destello = el('circle', { cx, cy, r: 2, class: 'destello' }, boom);
+    animar(destello, 'r', 2, 34, '0.45s');
+    animar(destello, 'opacity', 1, 0, '0.6s');
+    for (let i = 0; i < 10; i++) {
+      const a = (i / 10) * Math.PI * 2 + 0.3;
+      const [ux, uy] = [Math.cos(a), Math.sin(a)];
+      const chispa = el('line', { x1: cx, y1: cy, x2: cx, y2: cy, class: 'chispa' }, boom);
+      animar(chispa, 'x1', cx + ux * 4, cx + ux * 26, '0.55s');
+      animar(chispa, 'y1', cy + uy * 4, cy + uy * 26 + 8, '0.55s');
+      animar(chispa, 'x2', cx + ux * 10, cx + ux * 40, '0.55s');
+      animar(chispa, 'y2', cy + uy * 10, cy + uy * 40 + 14, '0.55s');
+      animar(chispa, 'opacity', 1, 0, '0.7s');
+    }
   }
 
   /**
@@ -250,29 +321,8 @@ export function crearLienzo(svg, ctx) {
     const [dx, dy] = girar(bx - def.width / 2, by - def.height / 2, rotacionDe(inst));
     const cx = def.width / 2 + dx;
     const cy = def.height / 2 + dy;
-    const humo = el('g', { class: 'humo' }, g);
-    for (let i = 0; i < 3; i++) {
-      const c = el('circle', { cx: cx + (i - 1) * 4, cy, r: 3 }, humo);
-      const rep = { begin: `${i * 0.7}s`, repeatCount: 'indefinite', fill: 'remove' };
-      animar(c, 'cy', cy, cy - 46, '2.1s', rep);
-      animar(c, 'r', 3, 11, '2.1s', rep);
-      animar(c, 'opacity', 0.55, 0, '2.1s', rep);
-    }
-    if (!explotando) return;
-    const boom = el('g', { class: 'explosion' }, g);
-    const destello = el('circle', { cx, cy, r: 2, class: 'destello' }, boom);
-    animar(destello, 'r', 2, 34, '0.45s');
-    animar(destello, 'opacity', 1, 0, '0.6s');
-    for (let i = 0; i < 10; i++) {
-      const a = (i / 10) * Math.PI * 2 + 0.3;
-      const [ux, uy] = [Math.cos(a), Math.sin(a)];
-      const chispa = el('line', { x1: cx, y1: cy, x2: cx, y2: cy, class: 'chispa' }, boom);
-      animar(chispa, 'x1', cx + ux * 4, cx + ux * 26, '0.55s');
-      animar(chispa, 'y1', cy + uy * 4, cy + uy * 26 + 8, '0.55s');
-      animar(chispa, 'x2', cx + ux * 10, cx + ux * 40, '0.55s');
-      animar(chispa, 'y2', cy + uy * 10, cy + uy * 40 + 14, '0.55s');
-      animar(chispa, 'opacity', 1, 0, '0.7s');
-    }
+    humear(g, cx, cy);
+    if (explotando) explotar(g, cx, cy);
   }
 
   /**

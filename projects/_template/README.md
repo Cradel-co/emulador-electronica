@@ -1,18 +1,9 @@
-# Template de proyecto Wokwi
+# Plantillas de proyecto
 
-Punto de partida genérico: un ESP32 DevKit solo, sin nada cableado.
+Cada subcarpeta (`circuito-continuo/`, ...) es un **proyecto completo de la app**
+(`project.json` + código + `README.md`). Aparecen en *Nuevo proyecto → Plantilla* (y en el
+MCP: `plantillas` / `crear_proyecto` con `plantilla`). El título y el primer párrafo de su
+`README.md` son el nombre y la descripción que se muestran. Para agregar una: armá el
+proyecto en la app y copiá su carpeta acá con un nombre `[a-z0-9-]`.
 
-## Uso
-
-1. Copiar esta carpeta con otro nombre (no editar el template directamente):
-   ```bash
-   cp -r ../_template ../mi-proyecto-nuevo
-   ```
-2. Compilar tu firmware (PlatformIO / ESP-IDF / ESPHome) y ajustar las rutas en `wokwi.toml`.
-3. Editar `diagram.json`:
-   - Agregar partes con el editor visual (VS Code: abrir el archivo, usar el panel de partes) o a mano.
-   - Cablear (`connections`).
-   - Si usás un chip custom de `../../chips/`, symlinkearlo acá (ver README general).
-4. Simular:
-   - VS Code: abrir `diagram.json` → ▶
-   - Terminal: `wokwi-cli .` (requiere `WOKWI_CLI_TOKEN`, ver README general)
+Esta carpeta se versiona; el resto de `projects/` no (ver `.gitignore`).

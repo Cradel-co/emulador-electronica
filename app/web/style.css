@@ -354,6 +354,22 @@ body.simulando .ayuda-lienzo { color: var(--verde); }
   font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
 }
 .badge-modo[hidden] { display: none; } /* el [hidden] del navegador no gana solo contra la regla de arriba */
+/* Alimentación de la placa: USB, fuente (con consumo), sin energía, o quemada (click = reemplazar). */
+.badge-alim {
+  display: flex; align-items: center; margin-left: 8px; padding: 1px 9px; flex: none; border: 0;
+  border-radius: 999px; font: 700 11px var(--font-ui); letter-spacing: .02em; cursor: default;
+}
+.badge-alim[hidden] { display: none; }
+.badge-alim:disabled { opacity: 1; }
+.alim-wrap { display: flex; align-items: center; flex: none; }
+.badge-alim.ok { background: rgba(95, 184, 101, .14); color: var(--verde); }
+.badge-alim.sin { background: rgba(242, 197, 92, .14); color: var(--amarillo); }
+.badge-alim.quemada { background: rgba(219, 92, 92, .18); color: #f3b0b0; cursor: pointer; }
+.badge-alim.quemada:hover { background: rgba(219, 92, 92, .3); }
+.widget-usb { cursor: pointer; color: var(--tenue); }
+.widget-usb[hidden] { display: none; }
+.widget-usb.activa { color: var(--verde); background: rgba(95, 184, 101, .12); }
+.widget-usb.activa svg { color: var(--verde); }
 .badge-modo .punto { width: 7px; height: 7px; border-radius: 50%; background: var(--verde); box-shadow: 0 0 6px var(--verde); animation: modo-pulso 1.4s ease-in-out infinite; }
 @keyframes modo-pulso { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
 .lienzo-wrap { position: relative; min-height: 0; background: var(--isla); }
@@ -412,6 +428,8 @@ body.modo-mover #lienzo .pin { cursor: move; } /* modo mover: los pines no arran
 /* Pin de alimentación (GND/VCC) de un módulo sin cablear: no va a funcionar, como en la vida real. */
 #lienzo .pin.sin-alimentar .pin-punto { stroke: var(--amarillo); stroke-width: 2; stroke-dasharray: 2 1.5; }
 #lienzo .pin.alto .pin-punto { fill: #7dffa0; filter: drop-shadow(0 0 4px #56c271); }
+/* Cortocircuito: mientras el aviso siga llegando (no es daño permanente, se arregla cableando). */
+#lienzo .pin.en-corto .pin-punto { fill: #ff4d3d; stroke: #ff4d3d; filter: drop-shadow(0 0 6px #ff4d3d); animation: corto-pulso .5s ease-in-out infinite alternate; }
 #lienzo .pin:hover .pin-punto, #lienzo.conectando .pin:not(.bloqueado):hover .pin-punto { r: 6.5; stroke: #fff; }
 #lienzo .txt-pin-mod { font: 700 7.5px var(--font-ui); fill: #aab4be; pointer-events: none; }
 
@@ -421,6 +439,8 @@ body.modo-mover #lienzo .pin { cursor: move; } /* modo mover: los pines no arran
 #lienzo .cable-linea { fill: none; stroke-width: 3; stroke-linecap: round; opacity: .9; }
 #lienzo .cable:hover .cable-linea { stroke-width: 4; opacity: 1; }
 #lienzo .cable.seleccionado .cable-linea { stroke-width: 4.5; opacity: 1; filter: drop-shadow(0 0 4px currentColor); stroke-dasharray: 8 4; }
+#lienzo .cable.en-corto .cable-linea { stroke: #ff4d3d; stroke-width: 4; filter: drop-shadow(0 0 6px #ff4d3d); animation: corto-pulso .5s ease-in-out infinite alternate; }
+@keyframes corto-pulso { from { opacity: .6; } to { opacity: 1; } }
 #lienzo .cable-temporal { fill: none; stroke: var(--link); stroke-width: 2.5; stroke-dasharray: 6 5; pointer-events: none; }
 #avisos-dibujo:empty { display: none; }
 
@@ -656,6 +676,9 @@ dialog label[hidden] { display: none; }
 #lienzo .explosion { pointer-events: none; }
 #lienzo .destello { fill: #fff3b0; }
 #lienzo .chispa { stroke: #ffc34d; stroke-width: 2.2; stroke-linecap: round; }
+/* Cortocircuito sostenido: fuego que titila + chispas en loop en el medio del cable (ver chisporrotear). */
+#lienzo .chisporroteo { pointer-events: none; }
+#lienzo .fuego { fill: #ff8a2a; filter: blur(3px); }
 .insp-badge.quemado { display: grid; gap: 8px; background: rgba(219, 92, 92, .1); border-color: rgba(219, 92, 92, .4); color: #f3b0b0; }
 .insp-badge.quemado .btn-accionar { justify-self: start; }
 
@@ -696,7 +719,7 @@ body.depuracion-parada .punto-estado { background: var(--azul); box-shadow: 0 0 
 .dbg-estado[data-s="parado"] { color: var(--link); font-weight: 600; }
 .dbg-estado[data-s="corriendo"] { color: var(--verde); }
 .dbg-motor { font-size: 11.5px; color: var(--tenue2); cursor: help; }
-.dbg-cuerpo { display: grid; grid-template-columns: minmax(160px, 22%) minmax(0, 1fr) minmax(220px, 34%); min-height: 0; }
+.dbg-cuerpo { display: grid; grid-template-columns: minmax(140px, 15%) minmax(0, 1fr) minmax(390px, 36%) minmax(180px, 20%); min-height: 0; }
 .dbg-col { display: flex; flex-direction: column; min-height: 0; min-width: 0; border-right: 1px solid var(--borde-suave); }
 .dbg-col:last-child { border-right: 0; }
 .dbg-col h4 { margin: 0; padding: 6px 12px 4px; font-size: 12px; font-weight: 600; color: var(--tenue); }
@@ -726,4 +749,18 @@ body.depuracion-parada .punto-estado { background: var(--azul); box-shadow: 0 0 
 .dbg-eval-res:empty { display: none; }
 .dbg-error { color: #f09a9a; margin: 2px 8px; font-size: 12px; }
 .dbg-analizador canvas { flex: 1; min-height: 0; width: 100%; }
+/* Ventana Debug → Alimentación: estado de la placa + lo que entrega cada fuente regulable. */
+.dbg-alimentacion { overflow: auto; min-height: 0; flex: 1; font-size: 12px; padding: 0 4px 6px; }
+.dbg-alim-placa { margin: 0 8px 6px; padding: 4px 8px; border-radius: 6px; background: var(--isla2); }
+.dbg-alim-placa.ok { color: var(--verde); }
+.dbg-alim-placa.sin { color: var(--amarillo); }
+.dbg-alim-placa.quemada { color: #f3b0b0; background: rgba(219, 92, 92, .12); }
+.dbg-alim-placa b { color: var(--texto); font-weight: 600; margin-right: 4px; }
+.dbg-fuentes { width: 100%; border-collapse: collapse; font: 12px var(--font-mono); }
+.dbg-fuentes th { text-align: left; font: 600 11px var(--font-ui); color: var(--tenue); padding: 2px 8px; border-bottom: 1px solid var(--borde-suave); }
+.dbg-fuentes td { padding: 3px 8px; white-space: nowrap; }
+.modo-fuente { padding: 0 6px; border-radius: 4px; font: 700 10.5px var(--font-ui); }
+.modo-fuente.CV { background: rgba(95, 184, 101, .15); color: var(--verde); }
+.modo-fuente.CC { background: rgba(242, 197, 92, .15); color: var(--amarillo); }
+.modo-fuente.corto { background: rgba(219, 92, 92, .18); color: #f3b0b0; }
 .consola-entrada[hidden] { display: none; }

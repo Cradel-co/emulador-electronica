@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 90 60">
+  <line x1="0" y1="30" x2="14" y2="30" stroke="#aab4be" stroke-width="2"/>
+  <line x1="76" y1="30" x2="90" y2="30" stroke="#aab4be" stroke-width="2"/>
+  <rect x="14" y="4" width="62" height="52" rx="6" fill="#1c2430" stroke="#3d4a58"/>
+  <rect x="19" y="9" width="52" height="28" rx="2" fill="#0a3d24" stroke="#123"/>
+  <text x="45" y="21" text-anchor="middle" font-size="10" font-family="monospace" fill="#5ef2a0">{{props.voltage}} V</text>
+  <text x="45" y="32" text-anchor="middle" font-size="8" font-family="monospace" fill="#f2c45e">≤{{props.currentLimitMa}} mA</text>
+  <text x="14" y="49" text-anchor="middle" font-size="8" fill="#aab4be">V</text>
+  <text x="76" y="49" text-anchor="middle" font-size="8" fill="#aab4be">GND</text>
+</svg>

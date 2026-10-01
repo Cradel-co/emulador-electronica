@@ -1,6 +1,8 @@
 {
   "controls": [],
-  "props": {},
+  "props": {
+    "usb": { "type": "boolean", "default": false, "label": "USB conectado" }
+  },
   "type": "esp32-s3-devkitc-1",
   "name": "ESP32-S3 DevKitC-1",
   "category": "Placas",
@@ -290,6 +292,13 @@
     "recommendedPinCurrentMa": 20,
     "pinOutputOhm": 33,
     "supplyOutputOhm": 0.5,
+    "power": {
+      "inputs": [
+        { "pin": "5V", "min": 4.0, "max": 6.0, "feeds": "5v" },
+        { "pin": "3V3", "min": 3.0, "max": 3.6, "feeds": "3v3" }
+      ],
+      "currentMa": 120
+    },
     "pins": {
       "GPIO4": {
         "gpio": 4,
