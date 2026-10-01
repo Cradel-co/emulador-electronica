@@ -101,6 +101,15 @@ export function scanPins(language: Language, content: string, desc?: BoardDescri
       if (usadas.has(nombre)) agregar(valorPinAvr(m[3]!));
     }
   }
+  // El I2C usa sus pines sin que el código los nombre: Wire (y las librerías de sensores, que
+  // incluyen Wire.h) toma SDA/SCL del bus de la placa. Sin esto, cablear un sensor I2C avisaba
+  // "un módulo cableado a A5 que el código no usa".
+  if (language === 'arduino' && /#\s*include\s*<Wire\.h>|\bWire\s*\.|\bTwoWire\b/.test(texto)) {
+    for (const bus of desc?.buses?.i2c ?? []) {
+      agregar(bus.sda);
+      agregar(bus.scl);
+    }
+  }
   return [...found].sort((a, b) => a - b);
 }
 

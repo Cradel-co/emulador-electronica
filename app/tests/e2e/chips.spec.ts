@@ -1,0 +1,91 @@
+import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
+import { modulo, seleccionarModulo } from './helpers';
+
+/**
+ * Un BME280 (módulo de Adafruit) cableado al I2C de un Arduino Uno: el panel muestra el chip y
+ * los controles de su entorno; con E2E_EMU=1 además se compila con la librería de Adafruit (se
+ * instala sola), corre el firmware real y el entorno movido desde la UI llega al programa.
+ */
+
+const SKETCH = `#include <Wire.h>
+#include <Adafruit_BME280.h>
+Adafruit_BME280 bme;
+void setup() {
+  Serial.begin(115200);
+  if (!bme.begin(0x77)) { Serial.println("BME280 no encontrado"); while (1) delay(10); }
+  Serial.println("BME280 OK");
+}
+void loop() {
+  Serial.print("T="); Serial.println(bme.readTemperature(), 2);
+  delay(250);
+}
+`;
+
+async function proyectoConBme(page: Page, request: APIRequestContext): Promise<string> {
+  const name = `e2e-chips-${Date.now().toString(36)}`;
+  expect((await request.post('/api/projects', { data: { name, language: 'arduino', board: 'arduino-uno' } })).ok()).toBeTruthy();
+  const { project } = await (await request.get(`/api/projects/${name}`)).json();
+  // La placa con el USB conectado (si no, ▶ no arranca: "sin alimentación", como en la vida real).
+  const placa = project.modules.find((m: { id: string }) => m.id === 'board');
+  const modules = [{ ...placa, props: { ...placa.props, usb: true } }, { id: 'bme1', type: 'bme280-adafruit', x: 760, y: 120, props: {} }];
+  const wires = [
+    { from: 'bme1.VIN', to: 'board.5V' }, { from: 'bme1.GND', to: 'board.GND' },
+    { from: 'bme1.SCK', to: 'board.A5' }, { from: 'bme1.SDI', to: 'board.A4' },
+  ];
+  expect((await request.put(`/api/projects/${name}/diagram`, { data: { modules, wires } })).ok()).toBeTruthy();
+  expect((await request.put(`/api/projects/${name}/files/sketch.cpp`, { data: { content: SKETCH } })).ok()).toBeTruthy();
+  await page.goto(`/#${name}`);
+  await expect(page.locator('#proyecto')).toHaveValue(name);
+  await expect(modulo(page, 'bme1')).toBeVisible();
+  return name;
+}
+
+test('el panel del BME280 muestra el chip, su entorno y lo que no se emula', async ({ page, request }) => {
+  const name = await proyectoConBme(page, request);
+  await seleccionarModulo(page, 'bme1');
+  const panel = page.locator('#panel-modulo');
+  await expect(panel).toContainText('Con chip');
+  await expect(panel).toContainText('BME280');
+  await expect(panel).toContainText('Bosch Sensortec');
+  await expect(panel).toContainText('BST-BME280-DS001');
+  await expect(panel.locator('[data-entorno]')).toHaveCount(3);
+  await expect(panel.locator('[data-entorno="temperatura"]')).toHaveValue('22');
+  await expect(panel.locator('details.insp-limites')).toContainText('Qué no se emula');
+  // 3VO es la salida del regulador: no se pide cablearla. Y Wire usa A4/A5: no son pines "sin usar".
+  await expect(panel).not.toContainText('Sin alimentación');
+  await expect(page.locator('#avisos-dibujo')).not.toContainText('que el código no usa');
+  await page.screenshot({ path: 'test-results/chips-panel.png' });
+  await panel.locator('details.insp-limites').evaluate((d) => { (d as HTMLDetailsElement).open = true; d.scrollIntoView(); });
+  await panel.screenshot({ path: 'test-results/chips-panel-entorno.png' });
+
+  // Mover el control guarda el entorno en el proyecto (sin simulación corriendo).
+  await panel.locator('[data-entorno-num="temperatura"]').fill('31.5');
+  await panel.locator('[data-entorno-num="temperatura"]').press('Enter');
+  await expect.poll(async () => (await (await request.get(`/api/projects/${name}/chips`)).json()).chips[0].entorno.temperatura).toBe(31.5);
+  await expect(panel.locator('[data-entorno="temperatura"]')).toHaveValue('31.5');
+
+  // Fuera de rango, la API lo rechaza con el rango de la hoja.
+  const malo = await request.put(`/api/projects/${name}/modules/bme1/entorno`, { data: { valores: { temperatura: 200 } } });
+  expect(malo.status()).toBe(400);
+  expect((await malo.json()).error).toMatch(/-40 a 85/);
+});
+
+test('con la simulación: compila con la librería de Adafruit, lee el entorno y lo sigue en vivo', async ({ page, request }) => {
+  test.skip(!process.env.E2E_EMU, 'necesita Docker: correr con E2E_EMU=1');
+  test.setTimeout(10 * 60_000);
+  await proyectoConBme(page, request);
+  await page.locator('#ejecutar').click();
+  await expect(page.locator('#estado')).toHaveAttribute('data-s', 'bridge', { timeout: 9 * 60_000 });
+  await page.locator('.consola-tabs [data-tab="emu"]').click();
+  const consola = page.locator('#consola');
+  await expect(consola).toContainText('BME280 OK', { timeout: 30_000 });
+  await expect(consola).toContainText('T=22.0', { timeout: 30_000 });
+
+  await seleccionarModulo(page, 'bme1');
+  const num = page.locator('#panel-modulo [data-entorno-num="temperatura"]');
+  await num.fill('-7.3');
+  await num.press('Enter');
+  await expect(consola).toContainText('T=-7.3', { timeout: 30_000 });
+  await page.screenshot({ path: 'test-results/chips-corriendo.png' });
+  await page.locator('#parar').click();
+});

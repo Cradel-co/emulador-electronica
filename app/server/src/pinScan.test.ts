@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { diffDiagramVsCode, direccionesDeCodigo, scanPins } from './pinScan.js';
 import { esphomeMainYamlPara } from './templates/esphome.js';
 import { arduinoSketchPara, idfCMainCPara, idfCMainCppPara, micropythonMainPara } from './templates/languages.js';
-import type { Project } from '@emu/shared';
+import { readFileSync } from 'node:fs';
+import { BoardDescriptorSchema, type Project } from '@emu/shared';
 
 const project = {
   schemaVersion: 1 as const,
@@ -186,5 +187,17 @@ describe('código comentado y simbridge.pin', () => {
     const pines = scanPins('idf-c', c);
     expect(pines).toContain(7);
     expect(pines).not.toContain(6);
+  });
+});
+
+describe('scanPins: el I2C usa SDA/SCL sin nombrarlos', () => {
+  const uno = BoardDescriptorSchema.parse(JSON.parse(readFileSync(new URL('../../../modules/arduino-uno/module.json', import.meta.url), 'utf8')).board);
+  it('con Wire (o una librería que lo incluye) cuenta A4/A5 del bus del Uno', () => {
+    expect(scanPins('arduino', '#include <Wire.h>\n#include <Adafruit_BME280.h>\nvoid setup(){}', uno)).toEqual([18, 19]);
+    expect(scanPins('arduino', 'void setup(){ Wire.begin(); }', uno)).toEqual([18, 19]);
+  });
+  it('sin Wire no (y un Wire comentado tampoco)', () => {
+    expect(scanPins('arduino', 'void setup(){ pinMode(13, OUTPUT); }', uno)).toEqual([13]);
+    expect(scanPins('arduino', '// #include <Wire.h>\nvoid setup(){}', uno)).toEqual([]);
   });
 });
