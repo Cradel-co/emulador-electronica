@@ -1,0 +1,15 @@
+{
+  "id": "atmel-at24c32",
+  "nombre": "AT24C32",
+  "fabricante": "Atmel (Microchip)",
+  "descripcion": "EEPROM I2C de 32 Kbit (4096 × 8), páginas de 32 bytes. Dirección 0x50 + A2A1A0: prop 'direccion' (0x50 a 0x57). Prop 'tWrMs': tiempo del ciclo de grabado (por defecto 5 ms, el de la AT24C32C/D; la AT24C32 original da hasta 10 ms).",
+  "hojaDeDatos": "AT24C32/64 (Atmel): 4096 × 8, página de 32 bytes, dirección de 2 bytes, t_WR, acknowledge polling",
+  "pines": ["VCC", "GND", "SCL", "SDA", "A0", "A1", "A2", "WP"],
+  "i2c": { "sda": "SDA", "scl": "SCL", "maxHz": 400000 },
+  "comportamiento": "comportamiento.js",
+  "limitaciones": [
+    "La memoria no se guarda entre una ejecución y otra: cada encendido arranca llena de 0xFF (en la placa real conserva lo grabado).",
+    "WP (protección de escritura) no se emula: siempre se puede grabar.",
+    "El ciclo de grabado dura siempre t_WR: en el chip real es 'hasta' t_WR (puede terminar antes)."
+  ]
+}

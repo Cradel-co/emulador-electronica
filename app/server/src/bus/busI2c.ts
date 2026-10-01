@@ -100,6 +100,9 @@ export class BusI2c {
   ponerEntorno(id: string, valores: Record<string, number>): boolean {
     const d = this.dispositivos.find((x) => x.id === id);
     if (!d) return false;
+    // Antes de cambiarlo, el chip se pone al día con el entorno VIEJO: una medición o conversión
+    // que terminó antes de este instante tiene que haber medido lo que había entonces.
+    if (d.alimentado && !d.roto) this.correr(d, [{ tipo: 'tick', t: this.ev.ahoraUs() }]);
     d.entorno = { ...d.entorno, ...valores };
     return true;
   }

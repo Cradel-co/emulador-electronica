@@ -9,7 +9,7 @@ import { z } from 'zod';
  */
 
 export const CHIP_ID_RE = /^[a-z0-9][a-z0-9-]{0,39}$/;
-const NOMBRE_PIN_RE = /^[A-Za-z0-9_+-]{1,20}$/;
+const NOMBRE_PIN_RE = /^[A-Za-z0-9_+\/-]{1,20}$/; // INT/SQW, como en las hojas de datos
 const NOMBRE_RE = /^[a-zA-Z][a-zA-Z0-9_]{0,30}$/;
 
 /** Una magnitud del mundo que el chip mide (temperatura, aceleración...): la mueve el usuario. */

@@ -90,6 +90,11 @@ function __ctxCircuito(e) {
         umbral: __num(o.umbral, 'umbral'), histeresis: o.histeresis == null ? undefined : __num(o.histeresis, 'histeresis'),
         ron: o.ron == null ? undefined : __pos(o.ron, 'ron'), roff: o.roff == null ? undefined : __pos(o.roff, 'roff') });
     },
+    bateria: function (p, q, v, o, n) {
+      o = o || {};
+      op({ tipo: 'V', nombre: nombre(n, 'bat'), a: __nodo(p), b: __nodo(q), voltios: __pos(v, 'voltios'),
+        rSerie: o.rInterna == null ? undefined : __pos(o.rInterna, 'rInterna'), bateria: true });
+    },
     regulador: function (e, s, t, o, n) {
       o = o || {};
       var caida = __num(o.caida, 'caida'); if (caida < 0) __fallo('caida no puede ser negativa');
@@ -259,7 +264,7 @@ export function validarPrimitivas(crudo: unknown, tipo: string, pines: string[])
         return { tipo: 'D', nombre, a, b, modelo: { is: mp('is'), n: mp('n'), rs, bv: mo('bv'), ibv: mo('ibv') } };
       }
       case 'V':
-        return { tipo: 'V', nombre, a, b, voltios: num('voltios'), rSerie: opc('rSerie', pos), limiteA: opc('limiteA', pos), soloEntrega: p.soloEntrega === true };
+        return { tipo: 'V', nombre, a, b, voltios: num('voltios'), rSerie: opc('rSerie', pos), limiteA: opc('limiteA', pos), soloEntrega: p.soloEntrega === true, bateria: p.bateria === true };
       case 'I': return { tipo: 'I', nombre, a, b, amperios: num('amperios') };
       case 'S':
         if (typeof p.cerrado !== 'boolean') malo('cerrado');

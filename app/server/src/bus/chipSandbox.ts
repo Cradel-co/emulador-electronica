@@ -203,7 +203,7 @@ export class SandboxChip {
     const pines: Record<string, 0 | 1 | null> = {};
     if (o.pines && typeof o.pines === 'object') {
       for (const [k, v] of Object.entries(o.pines as Record<string, unknown>).slice(0, 16)) {
-        if (/^[A-Za-z0-9_+-]{1,20}$/.test(k) && (v === 0 || v === 1 || v === null)) pines[k] = v;
+        if (/^[A-Za-z0-9_+\/-]{1,20}$/.test(k) && (v === 0 || v === 1 || v === null)) pines[k] = v;
       }
     }
     const despertarEn = typeof o.despertarEn === 'number' && Number.isFinite(o.despertarEn) ? o.despertarEn : null;

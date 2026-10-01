@@ -75,6 +75,13 @@ export interface CtxCircuito {
     opciones: { voltios: number; caida: number; limiteA: number; iq?: number },
     nombre?: string,
   ): void;
+  /**
+   * Pila o batería (CR2032, LIR2032, 18650...): una fuente de `voltios` con su resistencia interna.
+   * Es energía legítima (no da el aviso de fuenteTension). `lectura.i` es positiva cuando la
+   * corriente entra por el + y la atraviesa (la está CARGANDO) y negativa cuando entrega: el modelo
+   * puede avisar si carga una pila que no es recargable.
+   */
+  bateria(pos: Nodo, neg: Nodo, voltios: number, opciones?: { rInterna?: number }, nombre?: string): void;
   /** Interruptor mecánico (pulsador, llave, contacto de relé). */
   interruptor(a: Nodo, b: Nodo, cerrado: boolean, opciones?: { ron?: number; roff?: number }, nombre?: string): void;
   /**
@@ -128,7 +135,7 @@ export type Primitiva =
   | { tipo: 'C'; nombre: string; a: Nodo; b: Nodo; faradios: number; v0?: number }
   | { tipo: 'L'; nombre: string; a: Nodo; b: Nodo; henrios: number; i0?: number }
   | { tipo: 'D'; nombre: string; a: Nodo; b: Nodo; modelo: ModeloDiodo }
-  | { tipo: 'V'; nombre: string; a: Nodo; b: Nodo; voltios: number; rSerie?: number; limiteA?: number; soloEntrega?: boolean }
+  | { tipo: 'V'; nombre: string; a: Nodo; b: Nodo; voltios: number; rSerie?: number; limiteA?: number; soloEntrega?: boolean; bateria?: boolean }
   | { tipo: 'I'; nombre: string; a: Nodo; b: Nodo; amperios: number }
   | { tipo: 'S'; nombre: string; a: Nodo; b: Nodo; cerrado: boolean; ron?: number; roff?: number }
   | {

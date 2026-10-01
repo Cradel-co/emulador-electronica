@@ -109,7 +109,7 @@ export function chipsDelProyecto(
         entorno: entornoDe(chip, inst.entorno),
         alimentado,
         maxHz: chip.i2c.maxHz,
-        pinesGpio: pinesAlMicro(project, inst.id, uso, buscar),
+        pinesGpio: pinesAlMicro(project, inst.id, uso, buscar, [chip.i2c.sda, chip.i2c.scl]),
         pullUps: uso.pullUps,
       });
     }
@@ -131,9 +131,10 @@ function propsDe(project: Project, id: string, def: ModuleDef, uso: UsoChip, bus
 }
 
 /** Pin del chip → GPIO del micro, para los pines del módulo cableados a la placa (sin contar el bus). */
-function pinesAlMicro(project: Project, id: string, uso: UsoChip, buscar: BuscarDef): Record<string, number> {
+function pinesAlMicro(project: Project, id: string, uso: UsoChip, buscar: BuscarDef, delBus: string[]): Record<string, number> {
   const out: Record<string, number> = {};
   for (const [pinModulo, pinChip] of Object.entries(uso.pines)) {
+    if (delBus.includes(pinChip)) continue; // SDA/SCL los maneja el bus, no el chip por su cuenta
     const g = gpioDe(project, id, pinModulo, buscar);
     if (g !== null) out[pinChip] = g;
   }

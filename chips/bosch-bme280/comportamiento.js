@@ -240,4 +240,6 @@ module.exports = {
   leidos: function (ctx, n) {
     s.puntero = (s.puntero + n) & 0xff;
   },
+  // El bus avisa antes de cambiar el entorno: las mediciones que ya terminaron usan el de antes.
+  tick: function (ctx) { avanzar(ctx.t); },
 };

@@ -1,0 +1,32 @@
+{
+  "type": "ds3231-zs042",
+  "name": "Reloj DS3231 + EEPROM (ZS-042)",
+  "category": "Sensores",
+  "description": "El módulo de reloj más común: DS3231 (0x68) con su pila, más una EEPROM AT24C32 (0x57) en el mismo bus. Pull-ups de 4,7 kΩ a VCC en SCL, SDA, SQW y 32K, LED de encendido y un circuito de carga de la pila (200 Ω + 1N4148) que con 5 V carga también una CR2032, que no es recargable.",
+  "width": 120,
+  "height": 80,
+  "pins": [
+    { "name": "32K", "x": 15, "y": 80, "kind": "digital-out" },
+    { "name": "SQW", "x": 33, "y": 80, "kind": "digital-out" },
+    { "name": "SCL", "x": 51, "y": 80, "kind": "digital-in" },
+    { "name": "SDA", "x": 69, "y": 80, "kind": "digital-io" },
+    { "name": "VCC", "x": 87, "y": 80, "kind": "power" },
+    { "name": "GND", "x": 105, "y": 80, "kind": "ground" }
+  ],
+  "controls": [],
+  "props": {
+    "pila": { "type": "string", "default": "CR2032", "enum": ["CR2032", "LIR2032", "ninguna"], "label": "Pila" },
+    "direccion": { "type": "string", "default": "0x57", "enum": ["0x50", "0x51", "0x52", "0x53", "0x54", "0x55", "0x56", "0x57"], "label": "Dirección de la EEPROM (puentes A0-A2)" }
+  },
+  "chips": [
+    {
+      "id": "maxim-ds3231",
+      "pines": { "SCL": "SCL", "SDA": "SDA", "SQW": "INT/SQW", "32K": "32kHz", "VCC": "VCC", "GND": "GND" },
+      "pullUps": ["INT/SQW", "32kHz"]
+    },
+    { "id": "atmel-at24c32", "pines": { "SCL": "SCL", "SDA": "SDA", "VCC": "VCC", "GND": "GND" } }
+  ],
+  "drivers": { "arduino": { "librerias": ["RTClib@2.1.4", "Adafruit BusIO@1.17.4"] } },
+  "svg": "module.svg",
+  "model": "model.js"
+}

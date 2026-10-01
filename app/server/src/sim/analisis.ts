@@ -285,7 +285,7 @@ async function pasada(c: Contexto, chipEncendido: boolean, propsExtra: Map<strin
     } catch (err) {
       avisosModelos.push({ severidad: 'advertencia', pin: -1, mensaje: `${def.name} (${id}): su modelo falló (${(err as Error).message}); quedó afuera del cálculo eléctrico.` });
     }
-    if (!def.source && prims.some((p) => p.tipo === 'V')) {
+    if (!def.source && prims.some((p) => p.tipo === 'V' && !p.bateria)) {
       // Una fuente de tensión adentro de un módulo que no es una fuente crea energía de la nada
       // (la salida sigue alimentada con la entrada en 0 V). El regulador real es ctx.regulador().
       avisosModelos.push({ severidad: 'advertencia', pin: -1, mensaje: `${def.name} (${id}): su modelo usa fuenteTension sin ser una fuente; eso crea energía de la nada. Para un regulador usá ctx.regulador().` });
