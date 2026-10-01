@@ -13,7 +13,7 @@ const chip = cargarChips().find((c) => c.id === 'bosch-bme280')!;
 const hex = (n: string) => new URL(`../fixtures/chips/${n}/${n}.hex`, import.meta.url).pathname;
 const art = (n: string) => ({ firmware: hex(n), elf: null, usesWebServer: false, usesApi: false, needsRepl: false });
 const bme = (o: Partial<ChipEnBus> = {}): ChipEnBus => ({
-  id: 'bme', chip: chip.id, nombre: 'BME280 (bme)', codigo: chip.codigo, props: { sdo: 'alto' },
+  id: 'bme', instancia: 'bme', chip: chip.id, nombre: 'BME280 (bme)', codigo: chip.codigo, props: { sdo: 'alto' }, pinesGpio: {}, pullUps: [],
   entorno: entornoDe(chip, { temperatura: 18.5 }), alimentado: true, maxHz: chip.i2c?.maxHz, ...o,
 });
 
@@ -46,7 +46,7 @@ describe.each(['worker', 'local'] as const)('AvrEmulator con chips (modo %s)', {
   it('un chip con código roto no tumba la corrida: se avisa y los demás andan', async () => {
     const log: string[] = [];
     const emu = new AvrEmulator({ onLog: (l) => log.push(l), onState: () => undefined, onBridgeMessage: () => undefined, onBridgeState: () => undefined }, modo);
-    await emu.start('t', art('escaner-i2c'), { chips: [bme(), bme({ id: 'roto', codigo: 'esto no es js {{{', props: { sdo: 'bajo' } })], arranqueMs: 66 });
+    await emu.start('t', art('escaner-i2c'), { chips: [bme(), bme({ id: 'roto', instancia: 'roto', codigo: 'esto no es js {{{', props: { sdo: 'bajo' } })], arranqueMs: 66 });
     try {
       await hasta(() => log.some((l) => l.startsWith('encontrados:')));
       expect(log.find((l) => l.startsWith('encontrados:'))).toBe('encontrados: 0x77');

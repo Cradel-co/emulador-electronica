@@ -57,6 +57,10 @@ const state = {
   activo: null,
   /** @type {Map<string, any>} */
   catalogo: new Map(),
+  /** Chips con lógica (GET /api/chips): id → nombre, entorno que miden, hoja de datos, límites. */
+  chips: new Map<string, any>(),
+  /** Lo último que publicó cada chip en la corrida (evento chip.salida): id de instancia → salida. */
+  salidasChips: new Map<string, Record<string, unknown>>(),
   filtroModulos: '',
   /** Herramienta "mover" activa (barra de iconos): no deja empezar cables al tocar un pin, para
    * poder reacomodar módulos sobre un circuito ya cableado sin arrancar un cable por accidente. */
@@ -336,6 +340,17 @@ function conectarWS() {
         break;
       case 'catalog.changed':
         void recargarCatalogo();
+        break;
+      case 'chip.entorno':
+        if (msg.project === state.proyecto?.name) {
+          const inst = state.diagrama.modules.find((m) => m.id === msg.id);
+          if (inst) inst.entorno = { ...inst.entorno, ...msg.entorno };
+          // No repintar el panel mientras se arrastra el control (se perdería el foco).
+          if (state.seleccion?.tipo === 'modulo' && state.seleccion.id === msg.id && !document.activeElement?.matches('[data-entorno]')) pintarPanelDerecho();
+        }
+        break;
+      case 'chip.salida':
+        if (msg.project === state.proyecto?.name) state.salidasChips.set(msg.id, msg.salida);
         break;
       case 'debug.stopped':
       case 'debug.continued':
@@ -739,10 +754,13 @@ function nombreRef(ref) {
  * aunque su pin de señal sí esté conectado.
  */
 function pinesSinAlimentar(inst, def) {
-  return def.pins
-    .filter((p) => p.kind === 'ground' || p.kind === 'power')
-    .filter((p) => cablesDe(`${inst.id}.${p.name}`).length === 0)
-    .map((p) => p.name);
+  // Igual que en el server (diagramOps.pinesSinAlimentar): todas las tierras, y al menos una
+  // alimentación (3VO de una placa con regulador es una salida: no hace falta cablearla).
+  const sinCable = (p) => cablesDe(`${inst.id}.${p.name}`).length === 0;
+  const tierras = def.pins.filter((p) => p.kind === 'ground' && sinCable(p)).map((p) => p.name);
+  const alimentaciones = def.pins.filter((p) => p.kind === 'power');
+  const falta = alimentaciones.length > 0 && alimentaciones.every(sinCable);
+  return def.pins.filter((p) => tierras.includes(p.name) || (falta && p.kind === 'power')).map((p) => p.name);
 }
 
 /** Módulos de un rol, cableados a un GPIO y alimentados (p. ej. el receptor RF listo para recibir). */
@@ -1609,6 +1627,8 @@ function pintarPanelModulo(panel: HTMLElement, inst, def) {
       <div class="insp-badge ${esAire ? 'aire' : ''}">
         ${esAire
           ? `<b>Inalámbrico</b> — no se programa ni lleva cables: se comunica por radio 433 MHz con el receptor o transmisor conectado a la ${escapar(nombrePlaca())}.`
+          : chipsDe(def).length
+            ? `<b>Con chip</b> — adentro tiene ${chipsDe(def).map((c) => `un ${escapar(c.nombre)}`).join(' y ')} que habla${chipsDe(def).length > 1 ? 'n' : ''} por su bus con el código de la ${escapar(nombrePlaca())}: se emula su lógica, no solo su consumo.`
           : sinPlaca()
             ? '<b>Sin código</b> — se cablea al circuito; con ▶ se energiza y funciona por la corriente que le llega.'
             : `<b>Sin código</b> — este módulo no se programa: se conecta a la ${escapar(nombrePlaca())} con cables y el código de la placa lo controla.`}
@@ -1633,11 +1653,13 @@ function pintarPanelModulo(panel: HTMLElement, inst, def) {
         <label class="grados"><input type="number" min="0" max="359" value="${inst.rotation ?? 0}" data-rotacion aria-label="Grados" />°</label>
         <button type="button" data-girar="90" title="Girar 90° a la derecha (R)" aria-label="Girar a la derecha">⟳</button>
       </div>
+      ${seccionChip(inst, def)}
       ${propsHtml ? `<h3>Propiedades</h3><div class="insp-props">${propsHtml}</div>` : ''}
       <button class="peligro" id="insp-eliminar">Eliminar módulo</button>
     </div>`;
   panel.querySelector<HTMLElement>('.insp-mini').append(miniatura(def));
   $('insp-eliminar').onclick = () => eliminarModulo(inst.id);
+  conectarControlesChip(panel, inst);
   const reemplazar = $('insp-reemplazar');
   if (reemplazar) reemplazar.onclick = () => reemplazarQuemado(inst.id);
   for (const b of panel.querySelectorAll('[data-girar]')) {
@@ -1777,11 +1799,77 @@ function pintarModulosCatalogo() {
   }
 }
 
+// --- Chips (sensores con lógica) ----------------------------------------------------
+
+async function cargarChips() {
+  const { chips } = await api('/api/chips').catch(() => ({ chips: [] }));
+  state.chips = new Map(chips.map((c) => [c.id, c]));
+}
+
+/** Los chips de un módulo del catálogo (una placa puede traer varios en el mismo bus). */
+const chipsDe = (def): any[] => (def?.chips ?? []).map((u) => state.chips.get(u.id)).filter(Boolean);
+
+/** Sección del panel con los chips y lo que miden: un control por magnitud, que se aplica en vivo. */
+function seccionChip(inst, def): string {
+  const faltan = (def?.chips ?? []).filter((u) => !state.chips.has(u.id));
+  const avisoFalta = faltan.map((u) => `<div class="insp-badge advertencia">⚠ El chip <b>${escapar(u.id)}</b> no está en el catálogo: no va a responder.</div>`).join('');
+  const chips = chipsDe(def);
+  if (chips.length === 0) return avisoFalta;
+  const magnitudes = Object.assign({}, ...chips.map((c) => c.entorno ?? {}));
+  const filas = Object.entries(magnitudes).map(([k, m]: [string, any]) => {
+    const v = Number(inst.entorno?.[k] ?? m.default);
+    const paso = m.paso ?? (m.max - m.min) / 200;
+    return `<label class="insp-entorno">${escapar(m.etiqueta ?? k)}
+      <span class="fila"><input type="range" data-entorno="${k}" min="${m.min}" max="${m.max}" step="${paso}" value="${v}"/>
+      <input type="number" data-entorno-num="${k}" min="${m.min}" max="${m.max}" step="${paso}" value="${v}"/><span class="unidad">${escapar(m.unidad)}</span></span></label>`;
+  }).join('');
+  const descripcion = chips.map((chip) => `<p class="insp-desc"><b>${escapar(chip.nombre)}</b>${chip.fabricante ? ` · ${escapar(chip.fabricante)}` : ''}${chip.i2c ? ' · I2C' : ''}${chip.hojaDeDatos ? `<br><span class="sub">Según ${escapar(chip.hojaDeDatos)}</span>` : ''}</p>`).join('');
+  const limites = chips.flatMap((chip) => (chip.limitaciones ?? []).map((l) => `<li>${chips.length > 1 ? `<b>${escapar(chip.nombre)}:</b> ` : ''}${escapar(l)}</li>`)).join('');
+  return `${avisoFalta}
+    <h3>${chips.length > 1 ? 'Chips' : 'Chip'}</h3>
+    ${descripcion}
+    ${filas ? `<h3>Entorno</h3><div class="insp-props">${filas}</div>
+      <p class="hint">Lo que mide el sensor. Con la simulación corriendo, el programa lo ve en la próxima medición, sin reiniciar.</p>` : ''}
+    ${limites ? `<details class="insp-limites"><summary>Qué no se emula</summary><ul>${limites}</ul></details>` : ''}`;
+}
+
+function conectarControlesChip(panel: HTMLElement, inst) {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const pendientes: Record<string, number> = {};
+  const mandar = () => {
+    timer = null;
+    const valores = { ...pendientes };
+    for (const k of Object.keys(pendientes)) delete pendientes[k];
+    inst.entorno = { ...inst.entorno, ...valores };
+    void api(`/api/projects/${state.proyecto.name}/modules/${encodeURIComponent(inst.id)}/entorno`, {
+      method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ valores }),
+    }).catch((err) => nota(`No se pudo mover el entorno: ${(err as Error).message}`));
+  };
+  const poner = (k: string, v: number) => {
+    if (!Number.isFinite(v)) return;
+    pendientes[k] = v;
+    for (const el of panel.querySelectorAll<HTMLInputElement>(`[data-entorno="${k}"], [data-entorno-num="${k}"]`)) if (Number(el.value) !== v) el.value = String(v);
+    // Mientras se arrastra, como mucho un pedido cada 150 ms.
+    timer ??= setTimeout(mandar, 150);
+  };
+  for (const el of panel.querySelectorAll<HTMLInputElement>('[data-entorno]')) el.addEventListener('input', () => poner(el.dataset.entorno!, Number(el.value)));
+  // El número se aplica mientras se tipea (si ya es un valor válido dentro del rango) y al confirmar.
+  for (const el of panel.querySelectorAll<HTMLInputElement>('[data-entorno-num]')) {
+    const aplicar = () => {
+      const v = Number(el.value);
+      if (el.value.trim() !== '' && Number.isFinite(v) && v >= Number(el.min) && v <= Number(el.max)) poner(el.dataset.entornoNum!, v);
+    };
+    el.addEventListener('input', aplicar);
+    el.addEventListener('change', aplicar);
+  }
+}
+
 // --- Cambios desde afuera (MCP u otra pestaña) -------------------------------------
 
 async function recargarCatalogo() {
   const { modules } = await api('/api/modules').catch(() => ({ modules: [] }));
   state.catalogo = new Map(modules.map((m) => [m.type, m]));
+  await cargarChips();
   tarjetas.clear();
   pintarModulosCatalogo();
   pintarPanelDerecho();
@@ -3038,6 +3126,7 @@ const depuracion = crearDepuracion({
   restaurarVentanas();
   const { modules } = await api('/api/modules').catch(() => ({ modules: [] }));
   state.catalogo = new Map(modules.map((m) => [m.type, m]));
+  await cargarChips();
   pintarModulosCatalogo();
   pintarGutter();
   conectarWS();

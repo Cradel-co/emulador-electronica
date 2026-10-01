@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import type { ModuleInstance, Project, Wire } from '@emu/shared';
 import { loadCatalog, type ModuloCatalogo } from '../catalog.js';
-import { descriptorDe } from '../diagramOps.js';
+import { descriptorDe, pinesSinAlimentar } from '../diagramOps.js';
 import { analizarCircuito } from '../sim/analisis.js';
 import { precalentar } from '../sim/spice.js';
 import { chipsDelProyecto } from './proyectoChips.js';
@@ -58,6 +58,13 @@ describe('módulo BME280 de Adafruit en el bus del Uno', () => {
     const p = proyecto('arduino-uno', [...BASICO, w('bme.SDO', 'board.D7')]);
     const r = chipsDelProyecto(p, b, descriptorDe(p, b));
     expect(r.avisos.join()).toMatch(/SDO va a un pin del micro/);
+  });
+
+  it('3VO es la salida del regulador: con VIN y GND cableados, no falta alimentación', () => {
+    const p = proyecto('arduino-uno', BASICO);
+    expect(pinesSinAlimentar(p, 'bme', b('bme280-adafruit')!)).toEqual([]);
+    const sinVin = proyecto('arduino-uno', BASICO.slice(1));
+    expect(pinesSinAlimentar(sinVin, 'bme', b('bme280-adafruit')!)).toEqual(['VIN', '3VO']);
   });
 
   it('SDA y SCL cruzados: no responde y se dice por qué', () => {

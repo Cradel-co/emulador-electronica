@@ -12,8 +12,9 @@ import { entornoDe } from './proyectoChips.js';
 
 /** Lo que el server en marcha sabe de la corrida actual (el motor AVR la implementa). */
 export interface CorridaChips {
-  chipsEnCorrida(): { id: string; entorno: Record<string, number>; salida?: SalidaChip; alimentado: boolean }[];
-  ponerEntorno(id: string, valores: Record<string, number>): boolean;
+  chipsEnCorrida(): { id: string; instancia: string; chip: string; entorno: Record<string, number>; salida?: SalidaChip; alimentado: boolean }[];
+  /** Mueve el entorno de todos los chips de una instancia (cada uno toma lo que mide). */
+  ponerEntorno(instancia: string, valores: Record<string, number>): boolean;
 }
 
 export interface DepsChips {
@@ -30,21 +31,22 @@ export const chipPublico = (c: ChipCatalogo) => ({
   pines: c.pines, i2c: c.i2c, entorno: c.entorno, limitaciones: c.limitaciones,
 });
 
-/** Los módulos con chip de un proyecto: entorno (definición y valor), si está en el bus y lo último publicado. */
+/** Los módulos con chips de un proyecto: entorno (definición y valor), si están en el bus y lo último publicado. */
 export async function chipsDe(nombre: string, d: DepsChips) {
   const p = await d.leer(nombre);
   const cat = await d.catalogo();
-  const chips = cargarChips();
-  const enCorrida = new Map((d.corrida(nombre)?.chipsEnCorrida() ?? []).map((c) => [c.id, c]));
+  const catalogoChips = cargarChips();
+  const enCorrida = d.corrida(nombre)?.chipsEnCorrida() ?? [];
   return p.modules.flatMap((inst) => {
     const def = cat.find((m) => m.type === inst.type);
-    const chip = def?.chip && chips.find((c) => c.id === def.chip!.id);
-    if (!def?.chip || !chip) return [];
-    const vivo = enCorrida.get(inst.id);
+    const chips = (def?.chips ?? []).map((u) => catalogoChips.find((c) => c.id === u.id)).filter((c): c is ChipCatalogo => c !== undefined);
+    if (!def || chips.length === 0) return [];
+    const vivos = enCorrida.filter((c) => c.instancia === inst.id);
+    const entorno = Object.assign({}, ...chips.map((c) => entornoDe(c, inst.entorno)), ...vivos.map((v) => v.entorno)) as Record<string, number>;
     return [{
-      id: inst.id, modulo: def.name, chip: chipPublico(chip),
-      entorno: vivo?.entorno ?? entornoDe(chip, inst.entorno),
-      enBus: vivo !== undefined, alimentado: vivo?.alimentado ?? null, salida: vivo?.salida ?? null,
+      id: inst.id, modulo: def.name, chips: chips.map(chipPublico), entorno,
+      enBus: vivos.length > 0, alimentado: vivos[0]?.alimentado ?? null,
+      salidas: Object.fromEntries(vivos.filter((v) => v.salida).map((v) => [v.chip, v.salida])),
     }];
   });
 }
@@ -55,12 +57,13 @@ export async function moverEntorno(nombre: string, id: string, valores: Record<s
   const inst = p.modules.find((m) => m.id === id);
   if (!inst) throw Object.assign(new Error(`no hay un módulo "${id}" en el proyecto`), { statusCode: 404 });
   const def = (await d.catalogo()).find((m) => m.type === inst.type);
-  const chip = def?.chip && cargarChips().find((c) => c.id === def.chip!.id);
-  if (!chip) throw Object.assign(new Error(`"${id}" no tiene un chip con entorno`), { statusCode: 400 });
+  const chips = (def?.chips ?? []).map((u) => cargarChips().find((c) => c.id === u.id)).filter((c): c is ChipCatalogo => c !== undefined);
+  const magnitudes = Object.assign({}, ...chips.map((c) => c.entorno)) as ChipCatalogo['entorno'];
+  if (Object.keys(magnitudes).length === 0) throw Object.assign(new Error(`"${id}" no tiene un chip con entorno`), { statusCode: 400 });
   const limpios: Record<string, number> = {};
   for (const [k, v] of Object.entries(valores)) {
-    const m = chip.entorno[k];
-    if (!m) throw Object.assign(new Error(`el chip ${chip.nombre} no mide "${k}" (mide: ${Object.keys(chip.entorno).join(', ') || 'nada'})`), { statusCode: 400 });
+    const m = magnitudes[k];
+    if (!m) throw Object.assign(new Error(`${def?.name ?? id} no mide "${k}" (mide: ${Object.keys(magnitudes).join(', ')})`), { statusCode: 400 });
     if (typeof v !== 'number' || !Number.isFinite(v)) throw Object.assign(new Error(`${k} tiene que ser un número`), { statusCode: 400 });
     if (v < m.min || v > m.max) throw Object.assign(new Error(`${k} = ${v} fuera del rango del chip (${m.min} a ${m.max} ${m.unidad})`), { statusCode: 400 });
     limpios[k] = v;
@@ -68,7 +71,7 @@ export async function moverEntorno(nombre: string, id: string, valores: Record<s
   inst.entorno = { ...inst.entorno, ...limpios };
   await d.guardar(p);
   const enVivo = d.corrida(nombre)?.ponerEntorno(id, limpios) ?? false;
-  const entorno = entornoDe(chip, inst.entorno);
+  const entorno = Object.assign({}, ...chips.map((c) => entornoDe(c, inst.entorno))) as Record<string, number>;
   d.emitir({ type: 'chip.entorno', project: nombre, id, entorno });
   return { entorno, enVivo };
 }

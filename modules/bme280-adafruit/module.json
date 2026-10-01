@@ -6,23 +6,90 @@
   "width": 112,
   "height": 76,
   "pins": [
-    { "name": "VIN", "x": 10, "y": 76, "kind": "power" },
-    { "name": "3VO", "x": 25, "y": 76, "kind": "power" },
-    { "name": "GND", "x": 40, "y": 76, "kind": "ground" },
-    { "name": "SCK", "x": 55, "y": 76, "kind": "digital-in" },
-    { "name": "SDO", "x": 70, "y": 76, "kind": "digital-io" },
-    { "name": "SDI", "x": 85, "y": 76, "kind": "digital-io" },
-    { "name": "CS", "x": 100, "y": 76, "kind": "digital-in" }
+    {
+      "name": "VIN",
+      "x": 10,
+      "y": 76,
+      "kind": "power"
+    },
+    {
+      "name": "3VO",
+      "x": 25,
+      "y": 76,
+      "kind": "power"
+    },
+    {
+      "name": "GND",
+      "x": 40,
+      "y": 76,
+      "kind": "ground"
+    },
+    {
+      "name": "SCK",
+      "x": 55,
+      "y": 76,
+      "kind": "digital-in"
+    },
+    {
+      "name": "SDO",
+      "x": 70,
+      "y": 76,
+      "kind": "digital-io"
+    },
+    {
+      "name": "SDI",
+      "x": 85,
+      "y": 76,
+      "kind": "digital-io"
+    },
+    {
+      "name": "CS",
+      "x": 100,
+      "y": 76,
+      "kind": "digital-in"
+    }
   ],
   "controls": [],
   "props": {
-    "sdo": { "type": "string", "default": "alto", "enum": ["alto", "bajo"], "label": "SDO sin cablear (pull-up de la placa)" }
-  },
-  "chip": {
-    "id": "bosch-bme280",
-    "pines": { "SCK": "SCK", "SDI": "SDI", "SDO": "SDO", "CS": "CSB", "3VO": "VDD", "GND": "GND" },
-    "porCableado": { "sdo": { "pin": "SDO", "aTierra": "bajo", "aAlimentacion": "alto" } }
+    "sdo": {
+      "type": "string",
+      "default": "alto",
+      "enum": [
+        "alto",
+        "bajo"
+      ],
+      "label": "SDO sin cablear (pull-up de la placa)"
+    }
   },
   "svg": "module.svg",
-  "model": "model.js"
+  "model": "model.js",
+  "drivers": {
+    "arduino": {
+      "librerias": [
+        "Adafruit BME280 Library@2.3.0",
+        "Adafruit Unified Sensor@1.1.15",
+        "Adafruit BusIO@1.17.4"
+      ]
+    }
+  },
+  "chips": [
+    {
+      "id": "bosch-bme280",
+      "pines": {
+        "SCK": "SCK",
+        "SDI": "SDI",
+        "SDO": "SDO",
+        "CS": "CSB",
+        "3VO": "VDD",
+        "GND": "GND"
+      },
+      "porCableado": {
+        "sdo": {
+          "pin": "SDO",
+          "aTierra": "bajo",
+          "aAlimentacion": "alto"
+        }
+      }
+    }
+  ]
 }

@@ -108,7 +108,9 @@ function medir() {
   var it = (s.ctrlMeas >> 5) & 7, ip = (s.ctrlMeas >> 2) & 7, ih = s.osrsH;
   var coef = FILTRO[(s.config >> 2) & 7];
   var tObj = e.temperatura + gauss() * RUIDO_T[Math.min(it, 5)];
-  var adcT = sdk.invertirMonotona(function (a) { return compT(a).t; }, tObj * 100, 0, 0xfffff);
+  // Se invierte contra t_fine (≈ 0,0002 °C por paso), no contra la salida en centésimas: si no,
+  // el valor queda siempre redondeado hacia arriba (sesgo de hasta 0,01 °C).
+  var adcT = sdk.invertirMonotona(function (a) { return compT(a).tFine; }, tObj * 5120, 0, 0xfffff);
   var tFine = compT(adcT).tFine;
   // La presión y la humedad se compensan con la temperatura medida en el mismo ciclo.
   var pObj = e.presion * 100 + gauss() * RUIDO_P[Math.min(ip, 5)];

@@ -49,6 +49,10 @@ interface Dispositivo extends Required<Omit<OpcionesDispositivo, 'maxHz' | 'ence
   ocupadoHasta: number;
   pendientes: EventoChip[];
   roto: string | null;
+  /** Despertador pedido (µs) y si ya está agendado en el host. */
+  despertar: number | null;
+  /** Último nivel de cada pin propio (para volver a aplicarlo si el micro se resetea). */
+  pines: Map<string, 0 | 1 | null>;
 }
 
 export interface EventosBus {
@@ -56,6 +60,10 @@ export interface EventosBus {
   ahoraUs: () => number;
   alSalida?: (id: string, salida: SalidaChip) => void;
   alLog?: (linea: string) => void;
+  /** Un chip cambió un pin propio (INT, SQW): el host lo lleva al pin del micro cableado. */
+  alPin?: (id: string, pin: string, nivel: 0 | 1 | null) => void;
+  /** Llamar a `fn` cuando la emulación llegue a `tUs` (el host lo agenda en su reloj). */
+  programar?: (tUs: number, fn: () => void) => void;
 }
 
 /** Una transacción del bus, para el analizador (la grabadora del modo debug, los tests). */
@@ -82,6 +90,7 @@ export class BusI2c {
     const d: Dispositivo = {
       id: o.id, chip: o.chip, motor: o.motor, props: o.props ?? {}, entorno: o.entorno ?? {},
       alimentado: o.alimentado ?? true, maxHz: o.maxHz, direcciones: [], ocupadoHasta: 0, pendientes: [], roto: null,
+      despertar: null, pines: new Map(),
     };
     this.dispositivos.push(d);
     if (d.alimentado) this.correr(d, [{ tipo: 'encender', t: o.encendidoEnUs ?? this.ev.ahoraUs() }]);
@@ -205,11 +214,43 @@ export class BusI2c {
       d.ocupadoHasta = r.ocupadoHasta;
       for (const l of r.logs) this.ev.alLog?.(`[${d.id}] ${l}`);
       if (r.salida) this.ev.alSalida?.(d.id, r.salida);
+      for (const [pin, nivel] of Object.entries(r.pines)) {
+        if (d.pines.get(pin) === nivel) continue;
+        d.pines.set(pin, nivel);
+        this.ev.alPin?.(d.id, pin, nivel);
+      }
+      if (r.despertarEn !== null && (d.despertar === null || r.despertarEn < d.despertar)) this.agendar(d, r.despertarEn);
       return r;
     } catch (err) {
       d.roto = err instanceof ErrorChip ? err.message : String(err);
       this.ev.alLog?.(`[i2c] ${d.id} dejó de responder: ${d.roto}`);
       return null;
+    }
+  }
+
+  /** Agenda el despertador de un chip en el reloj del host (si el host sabe agendar). */
+  private agendar(d: Dispositivo, t: number): void {
+    if (!this.ev.programar) return;
+    d.despertar = t;
+    this.ev.programar(t, () => {
+      if (d.despertar !== t) return; // lo reemplazó uno más temprano
+      d.despertar = null;
+      this.correr(d, [{ tipo: 'tick', t: this.ev.ahoraUs() }]);
+    });
+  }
+
+  /**
+   * El host cambió de reloj (un reset del micro crea una CPU nueva): vuelve a agendar los
+   * despertadores pendientes y a aplicar los pines que manejan los chips.
+   */
+  reengancharHost(): void {
+    for (const d of this.dispositivos) {
+      if (d.despertar !== null) {
+        const t = d.despertar;
+        d.despertar = null;
+        this.agendar(d, t);
+      }
+      for (const [pin, nivel] of d.pines) this.ev.alPin?.(d.id, pin, nivel);
     }
   }
 

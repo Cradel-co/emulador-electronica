@@ -76,6 +76,11 @@ export const UsoChipSchema = z
     porCableado: z
       .record(z.string(), z.object({ pin: z.string(), aTierra: z.string(), aAlimentacion: z.string() }).strict())
       .default({}),
+    /**
+     * Pines del CHIP que la placa tiene con pull-up (INT/SQW de la ZS-042, por ejemplo): cuando el
+     * chip suelta la línea (colector abierto), el micro lee 1 aunque no active su pull-up interno.
+     */
+    pullUps: z.array(z.string()).default([]),
   })
   .strict();
 

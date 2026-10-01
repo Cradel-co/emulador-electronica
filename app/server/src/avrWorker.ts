@@ -2,7 +2,7 @@ import type { MessagePort } from 'node:worker_threads';
 import type { SalidaChip } from '@emu/shared';
 import { AvrSimulador, RelojAvr, type PinMcu } from './avrSim.js';
 import type { BusI2c } from './bus/busI2c.js';
-import { armarBusI2c } from './bus/armarBus.js';
+import { armarBusI2c, LineasCompartidas } from './bus/armarBus.js';
 import type { ChipEnBus } from './bus/proyectoChips.js';
 import { ControlDepuracionAvr, type EventoAvr, type PedidoAvr, type RespuestaAvr } from './debug/avrControl.js';
 
@@ -47,7 +47,8 @@ export function atenderWorker(puerto: MessagePort): void {
   let frecuenciaHz = 16_000_000;
   let pines: PinMcu[] = [];
   let serial: number[] = [];
-  const entradas = new Map<number, 0 | 1 | null>();
+  // Entradas del micro: las manejan la app (botones, motor eléctrico) y los chips (INT, SQW).
+  const lineas = new LineasCompartidas((gpio, nivel) => sim?.ponerEntrada(gpio, nivel));
   let ultimoAvisoVelocidad = 0;
 
   const enviar = (m: MensajeDelWorker): void => puerto.postMessage(m);
@@ -68,9 +69,19 @@ export function atenderWorker(puerto: MessagePort): void {
   };
   const armarBus = (): void => {
     tiempoAntesUs = 0;
+    const ahora = (): number => tiempoAntesUs + (sim?.micros ?? 0);
     bus = armarBusI2c(chips, arranqueMs, {
-      ahoraUs: () => tiempoAntesUs + (sim?.micros ?? 0),
+      ahoraUs: ahora,
       alLog: (linea) => enviar({ t: 'log', linea }),
+      alPin: (id, pin, nivel) => {
+        const c = chips.find((x) => x.id === id);
+        if (c) lineas.desdeChip(c, pin, nivel);
+      },
+      // El despertador de un chip (el cambio de segundo de un reloj) se agenda en el reloj de la CPU.
+      programar: (tUs, fn) => {
+        if (!sim) return;
+        sim.cpu.addClockEvent(fn, Math.max(1, Math.round(((tUs - ahora()) / 1e6) * frecuenciaHz)));
+      },
       // Una pantalla puede publicar cientos de veces por segundo: se manda como mucho cada 50 ms.
       alSalida: (id, salida) => {
         salidas.set(id, salida);
@@ -86,9 +97,12 @@ export function atenderWorker(puerto: MessagePort): void {
       onSerial: (b) => serial.push(b),
       onPin: (pin, nivel) => enviar({ t: 'pin', pin, nivel }),
     }, frecuenciaHz, pines);
-    if (bus) sim.conectarI2c(bus);
-    // Tras un reset, los módulos siguen manejando sus entradas como antes.
-    for (const [pin, nivel] of entradas) sim.ponerEntrada(pin, nivel);
+    if (bus) {
+      sim.conectarI2c(bus);
+      bus.reengancharHost(); // despertadores y pines de los chips, en la CPU nueva
+    }
+    // Tras un reset, los módulos y los chips siguen manejando sus entradas como antes.
+    lineas.reaplicar();
     control.alCrearSim(sim);
     reloj = new RelojAvr(sim, () => {
       if (serial.length > 0) {
@@ -121,9 +135,7 @@ export function atenderWorker(puerto: MessagePort): void {
           enviar({ t: 'listo' });
           break;
         case 'entrada':
-          if (m.nivel === null) entradas.delete(m.pin);
-          else entradas.set(m.pin, m.nivel);
-          sim?.ponerEntrada(m.pin, m.nivel);
+          lineas.desdeApp(m.pin, m.nivel);
           break;
         case 'entorno':
           bus?.ponerEntorno(m.id, m.valores);

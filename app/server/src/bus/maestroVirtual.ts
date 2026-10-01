@@ -12,13 +12,22 @@ export class MaestroVirtual {
   t = 0;
   readonly logs: string[] = [];
   readonly salidas = new Map<string, unknown>();
+  /** Nivel actual de cada pin que maneja un chip ("id.PIN"), y su historia con el instante. */
+  readonly pines = new Map<string, 0 | 1 | null>();
+  readonly historialPines: { t: number; pin: string; nivel: 0 | 1 | null }[] = [];
   readonly bus: BusI2c;
+  private agenda: { t: number; fn: () => void }[] = [];
 
   constructor() {
     this.bus = new BusI2c({
       ahoraUs: () => this.t,
       alLog: (l) => this.logs.push(l),
       alSalida: (id, s) => this.salidas.set(id, s),
+      alPin: (id, pin, nivel) => {
+        this.pines.set(`${id}.${pin}`, nivel);
+        this.historialPines.push({ t: this.t, pin: `${id}.${pin}`, nivel });
+      },
+      programar: (t, fn) => this.agenda.push({ t, fn }),
     });
   }
 
@@ -30,8 +39,18 @@ export class MaestroVirtual {
     return motor;
   }
 
+  /** Avanza el reloj; los despertadores de los chips corren en su instante, en orden. */
   esperar(ms: number): void {
-    this.t += ms * 1000;
+    const hasta = this.t + ms * 1000;
+    for (;;) {
+      this.agenda.sort((a, b) => a.t - b.t);
+      const prox = this.agenda[0];
+      if (!prox || prox.t > hasta) break;
+      this.agenda.shift();
+      this.t = Math.max(this.t, prox.t);
+      prox.fn();
+    }
+    this.t = hasta;
   }
 
   /** ¿Alguien contesta en esta dirección? (lo que hace un escáner I2C). */

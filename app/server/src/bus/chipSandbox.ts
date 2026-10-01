@@ -39,6 +39,10 @@ export interface ResultadoLote {
   ocupadoHasta: number;
   /** Lo último que publicó (si publicó algo en este lote). */
   salida?: SalidaChip;
+  /** Pines propios que cambió (INT, SQW...): 0, 1, o null = alta impedancia (colector abierto suelto). */
+  pines: Record<string, 0 | 1 | null>;
+  /** El chip pide que lo llamen (`tick`) en este instante (µs), aunque nadie le hable por el bus. */
+  despertarEn: number | null;
   logs: string[];
 }
 
@@ -60,7 +64,7 @@ var __logs = [];
 var console = { log: function () { if (__logs.length < ${MAX_LOGS}) __logs.push(Array.prototype.join.call(arguments, ' ').slice(0, 300)); } };
 console.warn = console.log; console.error = console.log;
 function __fallo(m) { throw new Error(m); }
-var __estado = { t: 0, entorno: {}, props: {}, ocupadoHasta: 0, salida: undefined, publico: false };
+var __estado = { t: 0, entorno: {}, props: {}, ocupadoHasta: 0, salida: undefined, publico: false, pines: {}, despertar: null };
 var ctx = Object.freeze({
   get t() { return __estado.t; },
   /** Milisegundos de emulación (con decimales). */
@@ -72,6 +76,17 @@ var ctx = Object.freeze({
   /** No responder a la dirección hasta este instante (µs): una EEPROM grabando su página. */
   ocupadoHasta: function (t) { if (typeof t !== 'number' || !isFinite(t)) __fallo('ocupadoHasta: t inválido'); __estado.ocupadoHasta = t; },
   log: function (m) { console.log(m); },
+  /** Maneja un pin propio: 0, 1, o null (alta impedancia: un colector abierto que suelta la línea). */
+  pin: function (nombre, nivel) {
+    if (typeof nombre !== 'string') __fallo('pin: nombre inválido');
+    if (nivel !== 0 && nivel !== 1 && nivel !== null) __fallo('pin: el nivel es 0, 1 o null');
+    __estado.pines[nombre] = nivel;
+  },
+  /** Pedir que lo llamen (tick) en el instante t (µs). Vale el más temprano pedido en el lote. */
+  despertarEn: function (t) {
+    if (typeof t !== 'number' || !isFinite(t)) __fallo('despertarEn: t inválido');
+    if (__estado.despertar === null || t < __estado.despertar) __estado.despertar = t;
+  },
 });
 var sdk = Object.freeze({
   /** Entero de 0 a 255. */
@@ -107,7 +122,7 @@ function __direcciones() {
 }
 function __lote(json) {
   var e = JSON.parse(json), m = module.exports, lecturas = [];
-  __logs = []; __estado.publico = false;
+  __logs = []; __estado.publico = false; __estado.pines = {}; __estado.despertar = null;
   __estado.entorno = Object.freeze(e.entorno); __estado.props = Object.freeze(e.props);
   for (var i = 0; i < e.eventos.length; i++) {
     var ev = e.eventos[i];
@@ -118,7 +133,7 @@ function __lote(json) {
     else if (ev.tipo === 'leidos') { if (typeof m.leidos === 'function') m.leidos(ctx, ev.n); }
     else if (ev.tipo === 'tick') { if (typeof m.tick === 'function') m.tick(ctx); }
   }
-  var r = { lecturas: lecturas, direcciones: __direcciones(), ocupadoHasta: __estado.ocupadoHasta, logs: __logs };
+  var r = { lecturas: lecturas, direcciones: __direcciones(), ocupadoHasta: __estado.ocupadoHasta, logs: __logs, pines: __estado.pines, despertarEn: __estado.despertar };
   if (__estado.publico) r.salida = __estado.salida;
   return JSON.stringify(r);
 }
@@ -185,7 +200,14 @@ export class SandboxChip {
       : [];
     const ocupadoHasta = typeof o.ocupadoHasta === 'number' && Number.isFinite(o.ocupadoHasta) ? o.ocupadoHasta : 0;
     const logs = Array.isArray(o.logs) ? o.logs.filter((l): l is string => typeof l === 'string').slice(0, MAX_LOGS) : [];
-    const res: ResultadoLote = { lecturas, direcciones, ocupadoHasta, logs };
+    const pines: Record<string, 0 | 1 | null> = {};
+    if (o.pines && typeof o.pines === 'object') {
+      for (const [k, v] of Object.entries(o.pines as Record<string, unknown>).slice(0, 16)) {
+        if (/^[A-Za-z0-9_+-]{1,20}$/.test(k) && (v === 0 || v === 1 || v === null)) pines[k] = v;
+      }
+    }
+    const despertarEn = typeof o.despertarEn === 'number' && Number.isFinite(o.despertarEn) ? o.despertarEn : null;
+    const res: ResultadoLote = { lecturas, direcciones, ocupadoHasta, logs, pines, despertarEn };
     if ('salida' in o && o.salida !== null && typeof o.salida === 'object') res.salida = o.salida as SalidaChip;
     return res;
   }
