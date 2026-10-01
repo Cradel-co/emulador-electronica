@@ -30,13 +30,34 @@ beforeAll(async () => {
   server = spawn('npx', ['tsx', 'server/src/index.ts'], {
     cwd: PATHS.app,
     env: { ...process.env, PORT: String(PORT), EMU_PROJECTS_DIR: proyectos, EMU_MODULES_DIR: modulos },
-    stdio: 'ignore',
+    stdio: ['ignore', 'ignore', 'pipe'],
   });
+  // Si el puerto ya estaba ocupado (quedó un server de una corrida anterior), /api/health
+  // contesta igual —lo contesta el otro— y los tests terminan hablándole a un server con su
+  // propia carpeta de proyectos: aparecen 409 ("ya existe") imposibles de entender. Así que al
+  // conectar se confirma que el que atiende es el nuestro, creando un proyecto centinela y
+  // viendo que aparezca en NUESTRA carpeta temporal.
+  const stderr: string[] = [];
+  server.stderr?.on('data', (d: Buffer) => { stderr.push(d.toString()); });
   const limite = Date.now() + 20_000;
   while (Date.now() < limite) {
     try {
-      if ((await fetch(`${BASE}/api/health`)).ok) return;
-    } catch {
+      if ((await fetch(`${BASE}/api/health`)).ok) {
+        const centinela = `centinela-${Math.random().toString(36).slice(2, 10)}`;
+        await fetch(`${BASE}/api/projects`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ name: centinela, language: 'esphome' }),
+        });
+        if (existsSync(path.join(proyectos, centinela))) return;
+        throw new Error(
+          `el server que contesta en el ${PORT} no es el de esta corrida: el proyecto centinela no `
+          + `apareció en ${proyectos}. Seguro quedó otro server escuchando ahí `
+          + `(ps aux | grep "tsx server/src/index").${stderr.length ? ` El nuestro dijo: ${stderr.join('').trim().split('\n').slice(-2).join(' · ')}` : ''}`,
+        );
+      }
+    } catch (err) {
+      if ((err as Error).message.includes('no es el de esta corrida')) throw err;
       /* todavía no */
     }
     await new Promise((r) => setTimeout(r, 200));

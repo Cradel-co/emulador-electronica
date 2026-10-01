@@ -9,10 +9,13 @@
     "strictNullChecks": false,
     "noUncheckedIndexedAccess": false,
     "forceConsistentCasingInFileNames": true,
+    "jsx": "react-jsx",
+    "skipLibCheck": true,
     "sourceMap": true,
     "rootDir": ".",
     "outDir": "dist",
     "types": []
   },
-  "include": ["*.ts"]
+  "include": ["*.ts", "*.tsx", "react/**/*.ts", "react/**/*.tsx"],
+  "exclude": ["dist"]
 }
