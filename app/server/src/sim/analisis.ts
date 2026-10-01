@@ -35,6 +35,31 @@ export interface OpcionesAnalisis {
   fuentesApagadas?: boolean;
   /** Estado interno de los modelos (lo que dejó `observar` la vez anterior), por id de instancia. */
   estados?: Map<string, Record<string, unknown>>;
+  /**
+   * Cómo configura el programa cada pin (salida, o entrada con o sin pull), leído del código.
+   * Es lo que manda: en la placa real, que un pin entregue corriente o solo escuche lo decide el
+   * firmware, no lo que tenga enchufado. Sin dato de un pin: si el puente informó su nivel es una
+   * salida; si no, se deduce de los módulos (una salida si llega a un LED o un relé).
+   */
+  direcciones?: Map<number, DireccionPin>;
+}
+
+/** Configuración de un pin según el programa. */
+export interface DireccionPin {
+  salida: boolean;
+  /** Resistencia interna que el programa activó en una entrada. */
+  pull?: 'up' | 'down';
+}
+
+/** Lo que lee el programa en un pin de entrada. */
+export interface EntradaLeida {
+  gpio: number;
+  /** Tensión del pin (V). */
+  v: number;
+  /** 0 por debajo de VIL, 1 por encima de VIH; null en el medio (la placa real no garantiza nada). */
+  nivel: 0 | 1 | null;
+  /** Sin nada que fije su tensión (ni pull, ni algo conectado que conduzca): lee ruido. */
+  flotante: boolean;
 }
 
 export interface ModuloResuelto {
@@ -55,6 +80,8 @@ export interface AnalisisCircuito {
   elementos: ElementoResuelto[];
   /** ¿El chip de la placa quedó andando? (false sin placa) */
   chipEncendido: boolean;
+  /** Lo que lee el programa en cada pin cableado que no maneja como salida (con el chip andando). */
+  entradas: EntradaLeida[];
 }
 
 class UnionFind {
@@ -98,6 +125,7 @@ interface Contexto {
   gpios: Map<number, string>;
   salidas: Set<number>;
   pullups: Set<number>;
+  pulldowns: Set<number>;
   instancias: { id: string; def: ModuleDef & { modeloCodigo?: string }; props: Record<string, string | number | boolean> }[];
 }
 
@@ -186,19 +214,30 @@ function preparar(project: Project, buscar: BuscarDef, opciones: OpcionesAnalisi
   }
   const salidas = new Set<number>();
   const pullups = new Set<number>();
+  const pulldowns = new Set<number>();
+  // 1. Lo que dice el programa manda (pinMode, Pin.OUT, output: de ESPHome...).
+  const direcciones = opciones.direcciones ?? new Map<number, DireccionPin>();
+  for (const [g, d] of direcciones) {
+    if (d.salida) salidas.add(g);
+    else if (d.pull === 'up') pullups.add(g);
+    else if (d.pull === 'down') pulldowns.add(g);
+  }
+  // 2. Sin dato del código: un pin del que el puente informó un nivel lo está manejando el firmware.
+  for (const g of opciones.niveles?.keys() ?? []) if (!direcciones.has(g)) salidas.add(g);
+  // 3. Si tampoco, se deduce de los módulos (como antes): una salida si llega a un LED o un relé.
   for (const ins of instancias) {
     const b = ins.def.bridge;
     if (!b || !hayPlaca) continue;
     const g = gpioDe(project, ins.id, b.pin, buscar);
-    if (g === null) continue;
+    if (g === null || direcciones.has(g)) continue;
     if (b.role === 'output') salidas.add(g);
-    if (b.role === 'input' && b.pull === 'up') pullups.add(g);
+    if (b.role === 'input' && b.pull === 'up' && !salidas.has(g)) pullups.add(g);
   }
 
   return {
     project, buscar, opciones, hayPlaca, placaDef, desc,
     etiquetaPlaca: placaDef?.name ?? (project.board ? project.board : 'la placa'),
-    nodo, refsDeNodo, rieles, gpios, salidas, pullups, instancias,
+    nodo, refsDeNodo, rieles, gpios, salidas, pullups, pulldowns, instancias,
   };
 }
 
@@ -260,7 +299,7 @@ async function pasada(c: Contexto, chipEncendido: boolean, propsExtra: Map<strin
     const usb = (inst?.props?.usb ?? c.placaDef?.props.usb?.default) === true;
     const niveles = new Map<number, 0 | 1>();
     for (const g of c.salidas) niveles.set(g, c.opciones.salidasForzadas ?? c.opciones.niveles?.get(g) ?? 1);
-    placa = armarPlaca(n, { desc: c.desc, rieles: c.rieles, usb, chipEncendido, salidas: niveles, pullups: c.pullups, gpios: c.gpios });
+    placa = armarPlaca(n, { desc: c.desc, rieles: c.rieles, usb, vinCableado: c.refsDeNodo.has(c.rieles.nvin), chipEncendido, salidas: niveles, pullups: c.pullups, pulldowns: c.pulldowns, gpios: c.gpios });
   }
 
   const res = await correrSpice(n.texto());
@@ -329,8 +368,42 @@ export async function analizarCircuito(project: Project, buscar: BuscarDef, opci
     avisos.unshift({ severidad: alimentacion.estado === 'quema' ? 'peligro' : 'advertencia', pin: -1, mensaje: alimentacion.mensaje });
   }
   if (c.hayPlaca && p.placa) avisosPlaca(c, p, avisos, alimentacion);
+  const entradas = c.hayPlaca && p.placa && chipEncendido ? leerEntradas(c, p, avisos) : [];
 
-  return { avisos, leds, fuentes, alimentacion, tensiones, modulos, elementos: p.elementos, chipEncendido };
+  return { avisos, leds, fuentes, alimentacion, tensiones, modulos, elementos: p.elementos, chipEncendido, entradas };
+}
+
+/**
+ * Lo que lee el programa en cada pin que no maneja como salida: la tensión del nodo, comparada con
+ * los umbrales del chip (VIL/VIH de la hoja de datos, proporcionales a su tensión real). Entre los
+ * dos la placa real no garantiza nada: se devuelve null y quien lo use mantiene lo que había
+ * (es lo que hace la histéresis de una entrada Schmitt). Un pin sin nada que fije su tensión
+ * (ni pull, ni algo conectado que conduzca) "flota": lee ruido, y si el programa lo usa se avisa.
+ */
+function leerEntradas(c: Contexto, p: Pasada, avisos: AvisoElectrico[]): EntradaLeida[] {
+  const vdd = tension(p, p.placa!.riel);
+  const umbral = c.desc?.inputThresholds ?? { low: 0.25, high: 0.75 };
+  const out: EntradaLeida[] = [];
+  for (const [g, nodo] of c.gpios) {
+    if (c.salidas.has(g)) continue;
+    const v = tension(p, nodo);
+    const nivel = v <= umbral.low * vdd ? 0 : v >= umbral.high * vdd ? 1 : null;
+    // ¿Algo fija la tensión del nodo? Los diodos de protección del propio pin no (casi no conducen
+    // entre los rieles), ni un interruptor abierto; un pull interno, una resistencia, una fuente, sí.
+    const fija = p.elementos.some((e) => (e.a === nodo || e.b === nodo)
+      && !/^prot_(alto|bajo)_/.test(e.local)
+      && !(e.ohms !== undefined && e.ohms >= 1e8));
+    const flotante = !fija;
+    out.push({ gpio: g, v, nivel: flotante ? null : nivel, flotante });
+    if (flotante && c.opciones.direcciones?.get(g)?.salida === false) {
+      const nombre = nombreDePin(c.desc, g);
+      avisos.push({
+        severidad: 'advertencia', pin: g,
+        mensaje: `${nombre} está flotando: el programa lo lee como entrada pero nada fija su tensión, así que lee ruido (0 o 1 al azar). Activá el pull-up o pull-down interno, o poné una resistencia.`,
+      });
+    }
+  }
+  return out;
 }
 
 function sinPlaca(): AlimentacionPlaca {
@@ -351,6 +424,7 @@ function fallido(c: Contexto, err: unknown): AnalisisCircuito {
     modulos: {},
     elementos: [],
     chipEncendido: false,
+    entradas: [],
   };
 }
 

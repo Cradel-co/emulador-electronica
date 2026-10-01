@@ -527,6 +527,119 @@ describe('módulos activos (consumo y comportamiento de hoja de datos)', () => {
   });
 });
 
+describe('circuito libre (aportes del PR #5 de Marcos): quién maneja un pin lo decide el programa', () => {
+  // Estos cuatro circuitos son los de circuitNetwork.test.ts (PR #5), resueltos acá con el motor
+  // ngspice. Sus valores difieren un poco de los de ese PR: allá el LED es una caída fija de 2 V
+  // más 15 Ω; acá es la curva real del diodo (a ~9 mA un LED rojo cae ~1,93 V, no 2,13 V).
+  const s3 = 'esp32-s3-devkitc-1';
+  const B = (id = 'btn1'): Mod => ({ id, type: 'button', props: {} });
+  const mA = (r: AnalisisCircuito) => r.leds[0]!.mA;
+  const sale = (...g: number[]) => new Map(g.map((x) => [x, { salida: true }] as const));
+
+  it('GPIO7 en alto → pulsador → 110 Ω → LED → GND: el pin entrega aunque lo que tenga enchufado sea un pulsador', async () => {
+    const p = conPlaca(s3, [led('led1'), B(), R('r1', 110)],
+      [w('board.GPIO7', 'btn1.OUT'), w('btn1.GND', 'r1.1'), w('r1.2', 'led1.IN'), w('led1.GND', 'board.GND')]);
+    // I = (3,3 − Vf) / (33 del pin + 110 + 2 del LED) con Vf ≈ 1,93 V → ~9,4 mA.
+    const apretado = await analizar(p, { niveles: new Map([[7, 1]]), cerrados: new Set(['btn1']) });
+    expect(mA(apretado)).toBeGreaterThan(9);
+    expect(mA(apretado)).toBeLessThan(10);
+    expect(mA(await analizar(p, { niveles: new Map([[7, 1]]), cerrados: new Set() }))).toBeLessThan(0.001);
+    expect(mA(await analizar(p, { niveles: new Map([[7, 0]]), cerrados: new Set(['btn1']) }))).toBeLessThan(0.001);
+    // Lo mismo si la dirección sale del código (pinMode(7, OUTPUT)) y no del nivel informado.
+    expect(mA(await analizar(p, { niveles: new Map([[7, 1]]), direcciones: sale(7), cerrados: new Set(['btn1']) }))).toBeGreaterThan(9);
+  });
+
+  it('el cátodo del LED en un GPIO en bajo: el pin hunde la corriente y el LED prende ("active low")', async () => {
+    const p = conPlaca(s3, [led('led1'), R('r1', 110)],
+      [w('board.GPIO7', 'r1.1'), w('r1.2', 'led1.IN'), w('led1.GND', 'board.GPIO6')]);
+    // I = (3,3 − Vf) / (33 + 110 + 2 + 33 del pin que hunde) → ~7,7 mA.
+    const r = await analizar(p, { niveles: new Map([[7, 1], [6, 0]]) });
+    expect(mA(r)).toBeGreaterThan(7.2);
+    expect(mA(r)).toBeLessThan(8.3);
+    expect(mA(await analizar(p, { niveles: new Map([[7, 1], [6, 1]]) }))).toBeLessThan(0.001);
+  });
+
+  it('circuito continuo sin firmware: fuente 5 V → pulsador → LED → 150 Ω → GND', async () => {
+    const p = conPlaca(s3, [fuente('fuente1', 5, 300), B(), led('led1'), R('r1', 150)],
+      [w('fuente1.GND', 'board.GND'), w('fuente1.V', 'btn1.OUT'), w('btn1.GND', 'led1.IN'), w('led1.GND', 'r1.1'), w('r1.2', 'board.GND_2')], { usb: false });
+    // 150 Ω es justo la resistencia para 20 mA con un LED rojo (Vf = 2 V a 20 mA) a 5 V.
+    expect(mA(await analizar(p, { cerrados: new Set(['btn1']) }))).toBeCloseTo(20, 0);
+    expect(mA(await analizar(p, { cerrados: new Set() }))).toBeLessThan(0.001);
+  });
+
+  it('el clásico: GPIO7 → LED → 110 Ω → GND', async () => {
+    const p = conPlaca(s3, [led('led1'), R('r1', 110)],
+      [w('board.GPIO7', 'led1.IN'), w('led1.GND', 'r1.1'), w('r1.2', 'board.GND')]);
+    expect(mA(await analizar(p, { niveles: new Map([[7, 1]]) }))).toBeCloseTo(9.4, 0);
+  });
+
+  it('si el código dice que el pin es una entrada, no maneja nada aunque el puente informe un nivel', async () => {
+    // El puente lee el registro de salida de cada pin vigilado: en una entrada informa 0. Si eso se
+    // tomara como "salida en bajo", el pin hundiría corriente que en la placa real no hunde.
+    const p = conPlaca(s3, [led('led1'), R('r1', 220)], [w('board.3V3', 'r1.1'), w('r1.2', 'led1.IN'), w('led1.GND', 'board.GPIO7')]);
+    const r = await analizar(p, { niveles: new Map([[7, 0]]), direcciones: new Map([[7, { salida: false }]]) });
+    expect(mA(r)).toBeLessThan(0.01);
+  });
+});
+
+describe('lo que lee el programa en sus entradas sale del circuito (umbrales reales del chip)', () => {
+  const s3 = 'esp32-s3-devkitc-1';
+  const entrada = (r: AnalisisCircuito, g: number) => r.entradas.find((e) => e.gpio === g)!;
+  const lee = (g: number, pull?: 'up' | 'down') => new Map([[g, { salida: false, pull }]]);
+
+  it('pulsador entre el pin y GND con el pull-up interno: suelto lee 1, apretado lee 0', async () => {
+    // El caso más común de todos. Sin modelar el pull-up, el pin suelto quedaría en 0 V y el programa
+    // vería el botón apretado todo el tiempo.
+    const p = conPlaca(s3, [{ id: 'btn1', type: 'button', props: {} }], [w('board.GPIO6', 'btn1.OUT'), w('btn1.GND', 'board.GND')]);
+    const suelto = await analizar(p, { direcciones: lee(6, 'up') });
+    expect(entrada(suelto, 6)).toMatchObject({ nivel: 1, flotante: false });
+    expect(entrada(suelto, 6).v).toBeCloseTo(3.3, 1);
+    const apretado = await analizar(p, { direcciones: lee(6, 'up'), cerrados: new Set(['btn1']) });
+    expect(entrada(apretado, 6)).toMatchObject({ nivel: 0, flotante: false });
+    expect(entrada(apretado, 6).v).toBeLessThan(0.01);
+  });
+
+  it('un mismo interruptor corta la carga y otro pin lo sensa (idea del PR #5)', async () => {
+    // GPIO7 (salida) → pulsador → 110 Ω → LED → GND, y GPIO5 leyendo el nodo entre el pulsador y la R.
+    const p = conPlaca(s3, [{ id: 'btn1', type: 'button', props: {} }, led('led1'), R('r1', 110)],
+      [w('board.GPIO7', 'btn1.OUT'), w('btn1.GND', 'r1.1'), w('r1.2', 'led1.IN'), w('led1.GND', 'board.GND'), w('board.GPIO5', 'btn1.GND')]);
+    const dir = new Map([[7, { salida: true }], [5, { salida: false, pull: 'down' as const }]]);
+    const cerrado = await analizar(p, { niveles: new Map([[7, 1]]), direcciones: dir, cerrados: new Set(['btn1']) });
+    expect(entrada(cerrado, 5).nivel).toBe(1);
+    expect(cerrado.leds[0]!.mA).toBeGreaterThan(8);
+    const abierto = await analizar(p, { niveles: new Map([[7, 1]]), direcciones: dir });
+    expect(entrada(abierto, 5).nivel).toBe(0);
+  });
+
+  it('sin pull, ese mismo nodo queda flotando con el pulsador abierto: la lectura es indefinida y se avisa', async () => {
+    // Un LED apagado casi no conduce: el nodo queda a merced de fugas de nanoamperes. En la placa real
+    // ese pin lee ruido; acá se avisa en vez de inventar un 0 o un 1.
+    const p = conPlaca(s3, [{ id: 'btn1', type: 'button', props: {} }], [w('board.GPIO5', 'btn1.OUT'), w('btn1.GND', 'board.GND')]);
+    const r = await analizar(p, { direcciones: lee(5) });
+    expect(entrada(r, 5).flotante).toBe(true);
+    expect(r.avisos.some((a) => a.severidad === 'advertencia' && /flotando/.test(a.mensaje))).toBe(true);
+    // Con el pulsador apretado ya no flota: lo fija GND.
+    const apretado = await analizar(p, { direcciones: lee(5), cerrados: new Set(['btn1']) });
+    expect(entrada(apretado, 5)).toMatchObject({ nivel: 0, flotante: false });
+  });
+
+  it('umbrales del ESP32 (0,25·VDD / 0,75·VDD): 2 V no es ni 0 ni 1; 2,6 V es 1; 0,7 V es 0', async () => {
+    const p = (v: number) => conPlaca(s3, [fuente('f', v, 100), R('r', 1000)],
+      [w('f.V', 'r.1'), w('r.2', 'board.GPIO4'), w('f.GND', 'board.GND')]);
+    expect(entrada(await analizar(p(2), { direcciones: lee(4) }), 4).nivel).toBeNull();
+    expect(entrada(await analizar(p(2.6), { direcciones: lee(4) }), 4).nivel).toBe(1);
+    expect(entrada(await analizar(p(0.7), { direcciones: lee(4) }), 4).nivel).toBe(0);
+  });
+
+  it('umbrales del ATmega328P (0,3·VCC / 0,6·VCC a 5 V): 2 V indefinido, 3,2 V es 1, 1,2 V es 0', async () => {
+    const p = (v: number) => conPlaca('arduino-uno', [fuente('f', v, 100), R('r', 1000)],
+      [w('f.V', 'r.1'), w('r.2', 'board.D2'), w('f.GND', 'board.GND')]);
+    expect(entrada(await analizar(p(2), { direcciones: lee(2) }), 2).nivel).toBeNull();
+    expect(entrada(await analizar(p(3.2), { direcciones: lee(2) }), 2).nivel).toBe(1);
+    expect(entrada(await analizar(p(1.2), { direcciones: lee(2) }), 2).nivel).toBe(0);
+  });
+});
+
 describe('robustez', () => {
   it('circuito vacío, módulos sin cablear o un LED solo: no rompe y no inventa corriente', async () => {
     for (const p of [

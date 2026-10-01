@@ -33,11 +33,14 @@ export interface OpcionesPlaca {
   desc: BoardDescriptor | undefined;
   rieles: RielesPlaca;
   usb: boolean;
+  /** ¿Hay algo cableado al VIN? Si no, su regulador no tiene nada que regular y no se arma. */
+  vinCableado?: boolean;
   chipEncendido: boolean;
   /** Nivel de salida de cada GPIO que el firmware maneja como salida. */
   salidas: Map<number, 0 | 1>;
-  /** GPIO configurados como entrada con pull-up. */
+  /** GPIO configurados como entrada con pull-up / pull-down internos. */
   pullups: Set<number>;
+  pulldowns?: Set<number>;
   /** GPIO cableados → su nodo SPICE. */
   gpios: Map<number, string>;
 }
@@ -65,7 +68,7 @@ export function armarPlaca(n: Netlist, o: OpcionesPlaca): PlacaArmada {
     n.agregar('board', { tipo: 'V', nombre: 'usb', a: n5v, b: '0', voltios: 5, limiteA: 0.5, soloEntrega: true });
   }
   // VIN → 5 V (solo si la placa tiene esa entrada).
-  if (desc?.power?.inputs.some((i) => i.feeds === 'vin')) {
+  if (o.vinCableado !== false && desc?.power?.inputs.some((i) => i.feeds === 'vin')) {
     reguladorLineal(n, 'vin', nvin, n5v, 5, 1, 1);
   }
   reguladorLineal(n, 'ldo', n5v, n3v3, 3.3, 0.3, 0.6);
@@ -89,6 +92,7 @@ export function armarPlaca(n: Netlist, o: OpcionesPlaca): PlacaArmada {
     if (nivel === 1) n.agregar('board', { tipo: 'R', nombre: `gpio${g}`, a: riel, b: nodo, ohms: rOut });
     else if (nivel === 0) n.agregar('board', { tipo: 'R', nombre: `gpio${g}`, a: nodo, b: '0', ohms: rOut });
     else if (o.pullups.has(g)) n.agregar('board', { tipo: 'R', nombre: `pullup${g}`, a: riel, b: nodo, ohms: PULLUP_OHM });
+    else if (o.pulldowns?.has(g)) n.agregar('board', { tipo: 'R', nombre: `pulldown${g}`, a: nodo, b: '0', ohms: PULLUP_OHM });
   }
   return { riel, brownout, conPower };
 }
@@ -107,8 +111,11 @@ function reguladorLineal(n: Netlist, nombre: string, entrada: string, salida: st
     `d${p}_blq ${p}_q ${p}_x ${m}`,
     `vam_${p} ${p}_x ${salida} DC 0`,
   );
-  // Lo que entrega lo saca de la entrada (si la entrada no es la tierra misma: un corto).
-  if (entrada !== '0') n.crudo(`f${p}_in ${entrada} 0 vam_${p} 1`);
+  // Lo que entrega lo saca de la entrada (si la entrada no es la tierra misma: un corto). Solo en el
+  // sentido en que entrega: un regulador real nunca le devuelve corriente a su entrada. (Copiar
+  // también la fuga inversa de su salida hacia una entrada sin nada cableado daba tensiones
+  // absurdas en ese nodo, y ngspice no convergía.)
+  if (entrada !== '0') n.crudo(`b${p}_in ${entrada} 0 I=max(0,i(vam_${p}))`);
   // Para leerlo es una caja negra de dos lados: la salida entrega I (corriente que "entra" por
   // ella: −I) y la entrada consume la misma I. Así Kirchhoff y la energía cierran en sus nodos.
   n.registrar({ id: `board.${nombre}`, dueno: 'board', local: nombre, tipo: 'X', a: salida, b: '0', medidor: `vam_${p}`, signo: -1 });

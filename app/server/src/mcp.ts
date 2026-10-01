@@ -563,15 +563,24 @@ export function crearServidorMcp(ctx: McpContexto): McpServer {
       // Un interruptor (pulsador, llave) también sirve sin GPIO: cierra un circuito sin código.
       const esInterruptor = Boolean(def.switch);
       if (gpio === null && !esInterruptor) return falla(`El pin ${def.bridge!.pin} de "${id}" no está conectado a un pin de la placa.`);
-      const faltan = gpio === null ? [] : pinesSinAlimentar(p, id, def);
+      // Un interruptor no se "alimenta": sus dos patas son terminales del circuito (mismo criterio
+      // que el arreglo de la UI del PR #5).
+      const faltan = gpio === null || esInterruptor ? [] : pinesSinAlimentar(p, id, def);
       if (faltan.length > 0) {
         return falla(`"${def.name}" (${id}) sin alimentación: conectá también ${faltan.join(' y ')}, como en la vida real.`);
       }
       const activo = (def.bridge!.activeLevel ?? 1) as 0 | 1;
       const inactivo = (1 - activo) as 0 | 1;
-      /** Cierra/abre el interruptor para el motor eléctrico y, si va a un GPIO, le avisa al firmware. */
+      /**
+       * Un interruptor se cierra o se abre en el circuito, y lo que lee el pin lo resuelve el motor
+       * (fijarControl → refrescarEntradasDelCircuito): con el pull que activó el programa y los
+       * umbrales del chip, como en la placa real. Otro módulo de entrada le dice su nivel directo.
+       */
       const aplicar = async (cerrado: boolean): Promise<boolean> => {
-        if (esInterruptor) await ctx.fijarControl(cual, id, cerrado);
+        if (esInterruptor) {
+          await ctx.fijarControl(cual, id, cerrado);
+          return true;
+        }
         return gpio === null || ctx.ponerPin(gpio, cerrado ? activo : inactivo);
       };
       if (accion === 'presionar' || accion === 'encender') {

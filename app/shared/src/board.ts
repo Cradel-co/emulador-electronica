@@ -107,6 +107,12 @@ export const BoardDescriptorSchema = z.object({
    * defecto 33 Ω (ESP32 con drive strength por defecto). Ver sim/placa.ts.
    */
   pinOutputOhm: z.number().nonnegative().optional(),
+  /**
+   * Umbrales de lectura de una entrada, como fracción de la tensión del chip (VIL y VIH de la
+   * hoja de datos): por debajo de `low` lee 0, por encima de `high` lee 1, y en el medio la
+   * lectura no está garantizada. Por defecto 0,25 / 0,75 (ESP32). ATmega328P: 0,3 / 0,6.
+   */
+  inputThresholds: z.object({ low: z.number().min(0).max(1), high: z.number().min(0).max(1) }).optional(),
   /** Resistencia de las salidas de alimentación 3V3/5V (regulador, USB) (Ω). Por defecto 0.5 Ω. */
   supplyOutputOhm: z.number().nonnegative().optional(),
   /**

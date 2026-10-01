@@ -1003,8 +1003,11 @@ function controlModulo(inst, control, indice, evento) {
       presionado = !state.sim.controles.get(inst.id);
     }
     state.sim.controles.set(inst.id, presionado);
-    if (gpio !== null) enviar({ type: 'pin.in', pin: gpio, level: presionado ? activo : 1 - activo });
+    // Un interruptor cambia el circuito, y lo que lee el pin lo calcula el server con el motor
+    // eléctrico (pull interno, umbrales del chip): si está mal cableado, el programa no ve nada,
+    // como en la placa real. Otro módulo de entrada le dice su nivel directo.
     if (esInterruptor) avisarInterruptor(inst.id, presionado);
+    else if (gpio !== null) enviar({ type: 'pin.in', pin: gpio, level: presionado ? activo : 1 - activo });
     lienzo.render();
     return;
   }

@@ -51,6 +51,8 @@ export interface ElementoResuelto {
   vb: number;
   i: number;
   p: number;
+  /** Resistencia equivalente (resistencias e interruptores). */
+  ohms?: number;
 }
 
 const limpio = (s: string): string => s.replace(/[^A-Za-z0-9_]/g, '_');
@@ -220,7 +222,7 @@ export class Netlist {
       if (el.ohms !== undefined) i = (va - vb) / el.ohms;
       else if (el.medidor) i = (el.signo ?? 1) * (r.valores.get(`i(${el.medidor})`) ?? 0);
       else i = 0;
-      return { id: el.id, dueno: el.dueno, local: el.local, tipo: el.tipo, a: el.a, b: el.b, va, vb, i, p: (va - vb) * i };
+      return { id: el.id, dueno: el.dueno, local: el.local, tipo: el.tipo, a: el.a, b: el.b, va, vb, i, p: (va - vb) * i, ohms: el.ohms };
     });
   }
 }

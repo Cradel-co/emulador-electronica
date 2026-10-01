@@ -5,7 +5,7 @@ import type { BuildArtifacts, BuildResult } from '../buildService.js';
 import type { EmulatorStatus } from '../emulator.js';
 import type { Emulador } from '../emulatorBackend.js';
 import type { ModuloCatalogo } from '../catalog.js';
-import { analizarCircuito } from '../sim/analisis.js';
+import { analizarCircuito, type DireccionPin } from '../sim/analisis.js';
 import { conPlaca, gpioDe } from '../diagramOps.js';
 import { stripAnsi } from '../logParser.js';
 import { AdaptadorAvr } from './adaptadorAvr.js';
@@ -49,6 +49,8 @@ export interface DependenciasDepurador {
   emulador: () => Emulador;
   catalogo: () => Promise<ModuloCatalogo[]>;
   leerProyecto: (nombre: string) => Promise<Project>;
+  /** Cómo configura el programa cada pin (leído de su código), para el motor eléctrico. */
+  direcciones?: (nombre: string) => Promise<Map<number, DireccionPin>>;
 }
 
 export interface CorridaDepuracion {
@@ -90,7 +92,7 @@ export class Depurador {
   /** Breakpoints por proyecto: se aplican solos cada vez que arranca. */
   private readonly breakpoints = new Map<string, { lineas: Map<string, number[]>; funciones: string[] }>();
   private ultimosBreakpoints: Breakpoint[] = [];
-  private proyectoCache: { p: Project; buscar: (t: string) => ModuleDef | undefined } | null = null;
+  private proyectoCache: { p: Project; buscar: (t: string) => ModuleDef | undefined; direcciones?: Map<number, DireccionPin> } | null = null;
   private avisosElectricos = new Set<string>();
   private estadoLeds = new Map<string, string>();
   private timerElectrico: NodeJS.Timeout | null = null;
@@ -129,9 +131,11 @@ export class Depurador {
 
   private async cargarProyecto(nombre: string): Promise<void> {
     try {
-      const [p, catalogo] = await Promise.all([this.deps.leerProyecto(nombre), this.deps.catalogo()]);
+      const [p, catalogo, direcciones] = await Promise.all([
+        this.deps.leerProyecto(nombre), this.deps.catalogo(), this.deps.direcciones?.(nombre),
+      ]);
       const mapa = new Map(catalogo.map((m) => [m.type, m]));
-      this.proyectoCache = { p: conPlaca(p), buscar: (t) => mapa.get(t) };
+      this.proyectoCache = { p: conPlaca(p), buscar: (t) => mapa.get(t), direcciones };
       void this.revisarElectrico();
     } catch {
       this.proyectoCache = null;
@@ -353,7 +357,7 @@ export class Depurador {
     const pc = this.proyectoCache;
     if (!pc || !this.corrida) return;
     try {
-      const { avisos, leds } = await analizarCircuito(pc.p, pc.buscar, { niveles: this.nivelesActuales() });
+      const { avisos, leds } = await analizarCircuito(pc.p, pc.buscar, { niveles: this.nivelesActuales(), direcciones: pc.direcciones });
       for (const a of avisos) {
         if (this.avisosElectricos.has(a.mensaje)) continue;
         this.avisosElectricos.add(a.mensaje);
@@ -668,7 +672,7 @@ export class Depurador {
     let electrico: Record<string, unknown> | null = null;
     if (pc) {
       try {
-        const r = await analizarCircuito(pc.p, pc.buscar, { niveles: this.nivelesActuales() });
+        const r = await analizarCircuito(pc.p, pc.buscar, { niveles: this.nivelesActuales(), direcciones: pc.direcciones });
         // Lo que mediría un tester: tensión de cada pin, y corriente/potencia de cada elemento físico.
         const redondear = (x: number, d: number) => Math.round(x * 10 ** d) / 10 ** d;
         electrico = {

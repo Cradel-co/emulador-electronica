@@ -1,4 +1,6 @@
+import { parseDocument } from 'yaml';
 import { gpioDePin, nombreDePin, type BoardDescriptor, type Language, type Project } from '@emu/shared';
+import type { DireccionPin } from './sim/analisis.js';
 
 /**
  * Detección aproximada de pines por lenguaje (11.6). Solo sirve para avisos:
@@ -72,6 +74,136 @@ export function scanPins(language: Language, content: string, desc?: BoardDescri
     }
   }
   return [...found].sort((a, b) => a - b);
+}
+
+/**
+ * Cómo configura el programa cada pin: salida, o entrada con o sin resistencia interna (pull).
+ * Es lo que decide, en la placa real, si un pin entrega corriente o solo escucha — no lo que
+ * tenga enchufado. Lee las formas habituales de cada lenguaje (las de las plantillas y las de
+ * la documentación de cada plataforma); un pin que el código no configura no aparece.
+ */
+export function direccionesDeCodigo(language: Language, content: string): Map<number, DireccionPin> {
+  const d = new Map<number, DireccionPin>();
+  const salida = (g: number | null) => { if (g !== null) d.set(g, { salida: true }); };
+  const entrada = (g: number | null, pull?: 'up' | 'down') => { if (g !== null) d.set(g, pull ? { salida: false, pull } : { salida: false }); };
+  const conPull = (g: number | null, pull: 'up' | 'down') => {
+    if (g === null) return;
+    const a = d.get(g);
+    if (!a?.salida) d.set(g, { salida: false, pull });
+  };
+  const pullDe = (txt: string): 'up' | 'down' | undefined => (/PULL_?UP/i.test(txt) ? 'up' : /PULL_?DOWN/i.test(txt) ? 'down' : undefined);
+
+  switch (language) {
+    case 'esphome': {
+      let raiz: unknown;
+      try {
+        raiz = parseDocument(content, { logLevel: 'silent' }).toJS({ maxAliasCount: 50 });
+      } catch {
+        return d;
+      }
+      if (!raiz || typeof raiz !== 'object') return d;
+      const numero = (pin: unknown): number | null => {
+        const v = pin && typeof pin === 'object' ? (pin as Record<string, unknown>).number : pin;
+        const m = /^(?:GPIO)?(\d{1,2})$/i.exec(String(v ?? '').trim());
+        return m ? Number(m[1]) : null;
+      };
+      const modo = (pin: unknown): { salida: boolean; pull?: 'up' | 'down' } | null => {
+        const m = pin && typeof pin === 'object' ? (pin as Record<string, unknown>).mode : undefined;
+        if (typeof m === 'string') return { salida: /OUTPUT/i.test(m), pull: pullDe(m) };
+        if (m && typeof m === 'object') {
+          const o = m as Record<string, unknown>;
+          return { salida: o.output === true, pull: o.pullup === true ? 'up' : o.pulldown === true ? 'down' : undefined };
+        }
+        return null;
+      };
+      const items = (k: string): Record<string, unknown>[] => {
+        const v = (raiz as Record<string, unknown>)[k];
+        return (Array.isArray(v) ? v : []).filter((x): x is Record<string, unknown> => Boolean(x) && typeof x === 'object');
+      };
+      // Plataformas gpio que manejan el pin (salidas).
+      for (const k of ['output', 'switch', 'light', 'fan']) {
+        for (const it of items(k)) if (it.platform === 'gpio' && it.pin !== undefined) salida(numero(it.pin));
+      }
+      for (const it of items('binary_sensor')) {
+        if (it.platform !== 'gpio' || it.pin === undefined) continue;
+        const m = modo(it.pin);
+        entrada(numero(it.pin), m?.pull);
+      }
+      break;
+    }
+    case 'micropython': {
+      for (const m of content.matchAll(/\bsimbridge\.pin\s*\(\s*(\d{1,2})\s*\)/g)) entrada(Number(m[1]), 'up'); // reposa en 1
+      for (const m of content.matchAll(/\bPin\s*\(\s*(\d{1,2})\s*,([^)]*)\)/g)) {
+        const args = m[2] ?? '';
+        if (/\bOUT\b|OPEN_DRAIN/.test(args)) salida(Number(m[1]));
+        else if (/\bIN\b/.test(args)) entrada(Number(m[1]), pullDe(args));
+      }
+      break;
+    }
+    case 'arduino': {
+      const constantes = constantesDePin(content);
+      const valor = (x: string): number | null => resolverPin(x.trim(), constantes);
+      for (const m of content.matchAll(/\bpinMode\s*\(\s*([\w]+)\s*,\s*(\w+)\s*\)/g)) {
+        const g = valor(m[1] ?? '');
+        const modo = m[2] ?? '';
+        if (modo === 'OUTPUT' || modo === 'OUTPUT_OPEN_DRAIN') salida(g);
+        else if (modo.startsWith('INPUT')) entrada(g, pullDe(modo));
+      }
+      break;
+    }
+    case 'idf-c':
+    case 'idf-cpp': {
+      const constantes = constantesDePin(content);
+      const valor = (x: string): number | null => resolverPin(x.trim(), constantes);
+      // gpio_config_t: con inicializador designado ({ .mode = ... }) o asignando campo por campo.
+      const structs = new Map<string, string>();
+      for (const m of content.matchAll(/gpio_config_t\s+(\w+)\s*=\s*\{([\s\S]*?)\};/g)) structs.set(m[1] ?? '', m[2] ?? '');
+      for (const m of content.matchAll(/\b(\w+)\.(pin_bit_mask|mode|pull_up_en|pull_down_en)\s*=\s*([^;]+);/g)) {
+        const k = m[1] ?? '';
+        structs.set(k, `${structs.get(k) ?? ''}\n.${m[2]} = ${m[3]},`);
+      }
+      for (const cuerpo of structs.values()) {
+        const pines = [...cuerpo.matchAll(/(?:1ULL|1ull|1UL|1)\s*<<\s*\(?\s*(\w+)\s*\)?|BIT(?:64)?\s*\(\s*(\w+)\s*\)/g)]
+          .map((x) => valor(x[1] ?? x[2] ?? ''));
+        const modo = /\.mode\s*=\s*(\w+)/.exec(cuerpo)?.[1] ?? '';
+        const up = /\.pull_up_en\s*=\s*GPIO_PULLUP_ENABLE|\.pull_up_en\s*=\s*1/.test(cuerpo);
+        const down = /\.pull_down_en\s*=\s*GPIO_PULLDOWN_ENABLE|\.pull_down_en\s*=\s*1/.test(cuerpo);
+        for (const g of pines) {
+          if (/OUTPUT/.test(modo)) salida(g);
+          else if (/INPUT/.test(modo)) entrada(g, up ? 'up' : down ? 'down' : undefined);
+        }
+      }
+      for (const m of content.matchAll(/gpio_set_direction\s*\(\s*(\w+)\s*,\s*(\w+)\s*\)/g)) {
+        if (/OUTPUT/.test(m[2] ?? '')) salida(valor(m[1] ?? ''));
+        else entrada(valor(m[1] ?? ''), d.get(valor(m[1] ?? '') ?? -1)?.pull);
+      }
+      for (const m of content.matchAll(/gpio_set_pull_mode\s*\(\s*(\w+)\s*,\s*(\w+)\s*\)/g)) {
+        const pull = /PULLUP/.test(m[2] ?? '') ? 'up' : /PULLDOWN/.test(m[2] ?? '') ? 'down' : undefined;
+        if (pull) conPull(valor(m[1] ?? ''), pull);
+      }
+      for (const m of content.matchAll(/gpio_(pullup|pulldown)_en\s*\(\s*(\w+)\s*\)/g)) conPull(valor(m[2] ?? ''), m[1] === 'pullup' ? 'up' : 'down');
+      break;
+    }
+  }
+  return d;
+}
+
+/** `#define X 13`, `const int X = 13;`, `#define X GPIO_NUM_6`: nombre → texto del valor. */
+function constantesDePin(content: string): Map<string, string> {
+  const c = new Map<string, string>();
+  for (const m of content.matchAll(/#define\s+([A-Za-z_]\w*)\s+([A-Za-z_]\w*|\d{1,2})\b/g)) c.set(m[1] ?? '', m[2] ?? '');
+  for (const m of content.matchAll(/\b(?:const(?:expr)?\s+)?(?:int|byte|uint8_t|gpio_num_t)\s+([A-Za-z_]\w*)\s*=\s*([A-Za-z_]\w*|\d{1,2})\b/g)) c.set(m[1] ?? '', m[2] ?? '');
+  return c;
+}
+
+/** Número de pin de un texto: 13, A0, LED_BUILTIN, GPIO_NUM_6 o una constante que lleva a eso. */
+function resolverPin(x: string, constantes: Map<string, string>, prof = 0): number | null {
+  if (/^\d{1,2}$/.test(x)) return Number(x);
+  const num = /^GPIO_NUM_(\d{1,2})$/.exec(x);
+  if (num) return Number(num[1]);
+  if (/^A\d$|^LED_BUILTIN$/.test(x)) return valorPinAvr(x);
+  const v = constantes.get(x);
+  return v !== undefined && prof < 5 ? resolverPin(v, constantes, prof + 1) : null;
 }
 
 export interface DiagramWarning {

@@ -27,12 +27,11 @@ import { invalidarCatalogo, loadCatalog, type ModuloCatalogo } from './catalog.j
 import { ImportError, ModuleInstaller, importar, type OpcionesImportacion, type SolicitudImportacion } from './moduleImporter.js';
 import { crearServidorMcp, type McpContexto } from './mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import { scanPins, diffDiagramVsCode, type DiagramWarning } from './pinScan.js';
+import { scanPins, diffDiagramVsCode, direccionesDeCodigo, type DiagramWarning } from './pinScan.js';
 import { conPlaca, ponerPlaca, sacarPlaca } from './diagramOps.js';
-import { analizarCircuito } from './sim/analisis.js';
+import { analizarCircuito, type DireccionPin } from './sim/analisis.js';
 import { precalentar } from './sim/spice.js';
 import type { AlimentacionPlaca, FuenteElectrica, LedElectrico } from './sim/tipos.js';
-import { circuitoLibre, nivelesDeEntrada } from './circuitEngine.js';
 import { Depurador } from './debug/depurador.js';
 import { registrarRutasDepuracion } from './debug/rutas.js';
 
@@ -140,6 +139,9 @@ const eventosEmulador: EmulatorEvents = {
       case 'READY':
         emulator.markBridgeReady();
         broadcast({ type: 'bridge.ready', version: msg.version });
+        // Con el puente listo, el programa lee por primera vez lo que hay en el circuito.
+        sensados.clear();
+        if (runningProject) void refrescarEntradasDelCircuito(runningProject);
         break;
       case 'OUT':
         niveles.set(msg.pin, msg.level);
@@ -185,6 +187,7 @@ const depurador = new Depurador({
   emulador: () => emulator,
   catalogo: loadCatalog,
   leerProyecto: (n) => store.read(n),
+  direcciones: async (n) => direccionesDe(await store.read(n)),
 });
 
 export { store, builder, emulator };
@@ -789,6 +792,20 @@ async function runProject(
 }
 
 /** Todos los pines que el código del proyecto usa (archivos de código). */
+/**
+ * Cómo configura el programa cada pin (pinMode, Pin.OUT, output: de ESPHome...): es lo que decide,
+ * como en la placa real, si un pin entrega corriente o solo escucha. Ver direccionesDeCodigo.
+ */
+async function direccionesDe(project: { name: string; language: Language | null }): Promise<Map<number, DireccionPin>> {
+  const d = new Map<number, DireccionPin>();
+  if (!project.language) return d;
+  for (const f of await store.listFiles(project.name, project.language)) {
+    const content = await store.readFile(project.name, f.path, project.language).catch(() => '');
+    for (const [g, x] of direccionesDeCodigo(project.language, content)) d.set(g, x);
+  }
+  return d;
+}
+
 async function pinsDeCodigo(project: { name: string; language: Language | null; board: string | null }): Promise<number[]> {
   if (!project.language) return []; // sin placa no hay código
   const files = await store.listFiles(project.name, project.language);
@@ -858,16 +875,18 @@ const sensados = new Map<number, 0 | 1>();
 let timerSensado = 0;
 
 /**
- * Le avisa al firmware lo que sus pines de entrada leen **del circuito**: el voltaje que el
- * solver calcula en el nodo donde está cableado cada uno (EMU_FREE_CIRCUIT).
+ * Le avisa al firmware lo que sus pines de entrada leen **del circuito** (idea del PR #5): la
+ * tensión del nodo donde está cableado cada uno, resuelta por el motor con los pull internos que
+ * activó el programa y los umbrales del chip (VIL/VIH). Así un mismo interruptor puede cortar la
+ * corriente de una carga y a la vez ser leído por otro pin, y un pulsador mal cableado no "anda"
+ * por arte de magia: como en la mesa.
  *
- * Sin esto, una entrada solo puede leer lo que declara el `bridge` del módulo que tiene
- * enchufado, y un mismo interruptor no puede a la vez cortar la corriente de una carga y
- * ser sensado por otro pin. Se agrupa a 50 ms porque un LED parpadeando manda muchos
- * cambios de salida y cada uno obliga a resolver la red de nuevo.
+ * Una lectura indefinida (entre VIL y VIH, o un pin flotando) no se manda: el pin conserva lo que
+ * tenía, como hace la histéresis de una entrada real. Se agrupa a 50 ms porque un LED que
+ * parpadea manda muchos cambios de salida y cada uno obliga a resolver el circuito de nuevo.
  */
 function refrescarEntradasDelCircuito(nombre: string): Promise<void> {
-  if (!circuitoLibre() || timerSensado) return Promise.resolve();
+  if (timerSensado) return Promise.resolve();
   return new Promise((listo) => {
     timerSensado = setTimeout(() => {
       timerSensado = 0;
@@ -877,13 +896,18 @@ function refrescarEntradasDelCircuito(nombre: string): Promise<void> {
           if (!bridge || emulator.getStatus().state !== 'bridge' || runningProject !== nombre) return;
           const catalogo = await loadCatalog();
           const buscar = (t: string): ModuloCatalogo | undefined => catalogo.find((m) => m.type === t);
-          const project = conPlaca(await store.read(nombre));
-          for (const [gpio, nivel] of nivelesDeEntrada(project, buscar, niveles, cerradosDe(nombre))) {
-            if (sensados.get(gpio) === nivel) continue;
-            sensados.set(gpio, nivel);
-            bridge.setInput(gpio, nivel);
-            depurador.alEntrada(gpio, nivel, 'circuito');
+          const original = await store.read(nombre);
+          const r = await analizarCircuito(conPlaca(original), buscar, {
+            niveles, cerrados: cerradosDe(nombre), direcciones: await direccionesDe(original),
+          });
+          for (const e of r.entradas) {
+            if (e.nivel === null || sensados.get(e.gpio) === e.nivel) continue;
+            sensados.set(e.gpio, e.nivel);
+            bridge.setInput(e.gpio, e.nivel);
+            depurador.alEntrada(e.gpio, e.nivel, 'circuito');
           }
+        } catch (err) {
+          console.error(`[entradas] no se pudo leer el circuito: ${(err as Error).message}`);
         } finally {
           listo();
         }
@@ -896,6 +920,7 @@ async function alimentacionDe(project: Project): Promise<EstadoPlaca> {
   const catalogo = await loadCatalog();
   const buscar = (t: string): ModuloCatalogo | undefined => catalogo.find((m) => m.type === t);
   const { alimentacion } = await analizarCircuito(conPlaca(project), buscar, {
+    direcciones: await direccionesDe(project),
     niveles, cerrados: cerradosDe(project.name), fuentesApagadas: fuentesApagadasDe(project),
   });
   return conQuemadura(project, alimentacion);
@@ -958,7 +983,8 @@ async function avisosDelProyecto(
   const fuentesApagadas = fuentesApagadasDe(project);
   // Con los niveles reales de la simulación: avisos, lo que entrega cada fuente, si la placa tiene energía.
   const estados = estadosModulos.get(project.name) ?? new Map<string, Record<string, unknown>>();
-  const vivo = await analizarCircuito(conLaPlaca, buscar, { niveles, cerrados, fuentesApagadas, estados });
+  const direcciones = await direccionesDe(project);
+  const vivo = await analizarCircuito(conLaPlaca, buscar, { niveles, cerrados, fuentesApagadas, estados, direcciones });
   // Lo que cada modelo quiere recordar vuelve en el próximo cálculo (solo del vivo: los otros son hipotéticos).
   for (const [id, m] of Object.entries(vivo.modulos)) if (m.estado) estados.set(id, m.estado);
   estadosModulos.set(project.name, estados);
@@ -967,8 +993,8 @@ async function avisosDelProyecto(
   // para "quemarlo" cuando la simulación lo prende. Y con las salidas en bajo: la corriente que le
   // llega sin depender del código (mAFijo), para prenderlo aunque ningún GPIO lo maneje.
   // Sin placa no hay salidas del código: alcanza con un solo cálculo.
-  const peor = project.board ? await analizarCircuito(conLaPlaca, buscar, { cerrados, fuentesApagadas }) : vivo;
-  const fijo = project.board ? await analizarCircuito(conLaPlaca, buscar, { cerrados, fuentesApagadas, salidasForzadas: 0 }) : vivo;
+  const peor = project.board ? await analizarCircuito(conLaPlaca, buscar, { cerrados, fuentesApagadas, direcciones }) : vivo;
+  const fijo = project.board ? await analizarCircuito(conLaPlaca, buscar, { cerrados, fuentesApagadas, salidasForzadas: 0, direcciones }) : vivo;
   const leds = peor.leds.map((l) => ({ ...l, mAFijo: fijo.leds.find((x) => x.id === l.id)?.mA ?? 0 }));
   const { avisos: electricos, fuentes } = vivo;
   // Quemada de antes (ya sin la sobretensión): el motor no lo sabe, se avisa acá.
