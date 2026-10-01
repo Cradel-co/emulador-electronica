@@ -151,6 +151,24 @@ export const BoardDescriptorSchema = z.object({
   warningPins: z.record(ClaveGpio, z.string()).default({}),
   io: BoardIoSchema,
   console: BoardConsoleSchema.default({}),
+  /**
+   * Tiempo desde que llega la alimentación hasta que el micro ejecuta su primera instrucción
+   * (ms): en el ATmega328P lo fijan los fusibles SUT/CKSEL (el Uno sale de fábrica con
+   * LFUSE = 0xFF: 16K CK + 65 ms). Los chips del dibujo se encienden con la placa, así que
+   * cuando arranca el programa ya llevan este tiempo andando (un BME280 necesita 2 ms).
+   */
+  arranqueMs: z.number().nonnegative().max(10_000).optional(),
+  /**
+   * Buses de hardware que el motor emula hacia los módulos (no solo "el pin sabe hacer I2C":
+   * el motor entrega las transacciones a los chips del dibujo). Por gpio. Hoy: el I2C (TWI)
+   * del ATmega328P en avr8js. Sin esto, un chip I2C cableado no responde.
+   */
+  buses: z
+    .object({
+      i2c: z.array(z.object({ sda: z.number().int().nonnegative(), scl: z.number().int().nonnegative() }).strict()).max(4).default([]),
+    })
+    .strict()
+    .optional(),
   /** Extras que la placa simula ("rf433": RF 433 MHz por RMT + --rmt-loopback). */
   features: z.array(z.string().max(40)).default([]),
   languages: porLenguaje(LanguageTargetSchema),

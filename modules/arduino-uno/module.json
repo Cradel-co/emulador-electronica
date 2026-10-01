@@ -211,6 +211,8 @@
       }
     },
     "logicVoltage": 5,
+    "arranqueMs": 66,
+    "buses": { "i2c": [{ "sda": 18, "scl": 19 }] },
     "inputThresholds": { "low": 0.3, "high": 0.6 },
     "maxPinCurrentMa": 40,
     "recommendedPinCurrentMa": 20,

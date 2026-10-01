@@ -18,6 +18,8 @@ export const PATHS = {
   /** Catálogo de módulos. Los tests e2e usan una copia para que importar no toque el real. */
   modules: process.env.EMU_MODULES_DIR ?? path.join(ROOT, 'modules'),
   boards: path.join(ROOT, 'boards'),
+  /** Chips con lógica digital (sensores, relojes, pantallas): chips/<id>/chip.json. */
+  chips: process.env.EMU_CHIPS_DIR ?? path.join(ROOT, 'chips'),
   templates: path.join(ROOT, 'templates'),
   web: path.join(here, '..', '..', 'web'),
   /** Ruta de los components tal como se ve dentro del contenedor. */

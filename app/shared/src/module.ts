@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { BoardDescriptorSchema } from './board.js';
+import { UsoChipSchema } from './chip.js';
 
 export const BRIDGE_ROLES = ['input', 'output', 'rf-rx', 'rf-tx', 'air'] as const;
 export type BridgeRole = (typeof BRIDGE_ROLES)[number];
@@ -148,6 +149,12 @@ export const ModuleDefSchema = z.object({
    * uno a partir de los flags (`passthrough`, `diode`, `switch`, `source`).
    */
   model: z.string().regex(/^[\w.-]+\.js$/, 'un archivo .js de la carpeta del módulo').optional(),
+  /**
+   * Chip con lógica digital que lleva la placa (`chips/<id>/`): sensor, reloj, pantalla...
+   * `pines` dice qué pin del módulo es qué pin del chip (SDA del módulo → SDI del BME280).
+   * Las props de la instancia le llegan al comportamiento del chip (dirección I2C, etc.).
+   */
+  chip: UsoChipSchema.optional(),
 });
 
 export type ModuleDef = z.infer<typeof ModuleDefSchema>;
