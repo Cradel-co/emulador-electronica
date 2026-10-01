@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { ModuleDefSchema, type ModuleDef, type Project } from '@emu/shared';
-import { ledsDelSolver } from './circuitEngine.js';
+import { ledsDelSolver, nivelesDeEntrada } from './circuitEngine.js';
 
 const CATALOGO = new Map<string, ModuleDef>(
-  ['esp32-s3-devkitc-1', 'led', 'button', 'resistor'].map((t) => [
+  ['esp32-s3-devkitc-1', 'led', 'button', 'switch', 'resistor'].map((t) => [
     t,
     ModuleDefSchema.parse(JSON.parse(readFileSync(new URL(`../../../modules/${t}/module.json`, import.meta.url), 'utf8'))),
   ]),
@@ -57,5 +57,46 @@ describe('ledsDelSolver: lo que la UI necesita para prender un LED', () => {
     const [led] = ledsDelSolver(sinR, buscar, new Map([[7, 1]]), new Set());
     expect(led?.mA).toBeCloseTo(27.1, 1);
     expect(led?.estado).toBe('sobreexigido');
+  });
+});
+
+describe('nivelesDeEntrada: lo que un GPIO de entrada lee del circuito', () => {
+  /** Interruptor en serie con la carga y un GPIO sensando el nodo del medio. */
+  const SENSADO: Project = {
+    schemaVersion: 1, name: 'test', board: 'esp32-s3-devkitc-1', language: 'micropython',
+    sim: { wifiSsid: 'sim', wifiPassword: 'sim' },
+    modules: [
+      { id: 'board', type: 'esp32-s3-devkitc-1', x: 0, y: 0, props: { usb: true } },
+      { id: 'led1', type: 'led', x: 0, y: 0, props: { color: 'red' } },
+      { id: 'sw1', type: 'switch', x: 0, y: 0, props: {} },
+      { id: 'r1', type: 'resistor', x: 0, y: 0, props: { ohms: 220 } },
+    ],
+    wires: [
+      { from: 'board.GPIO7', to: 'sw1.OUT' },   // la placa alimenta
+      { from: 'sw1.GND', to: 'r1.1' },          // interruptor en serie con la carga
+      { from: 'sw1.GND', to: 'board.GPIO5' },   // y el firmware sensa ese mismo nodo
+      { from: 'r1.2', to: 'led1.IN' },
+      { from: 'led1.GND', to: 'board.GND' },
+    ],
+  };
+
+  it('cerrado: el nodo queda arriba y el GPIO de entrada lee 1', () => {
+    const niveles = nivelesDeEntrada(SENSADO, buscar, new Map([[7, 1]]), new Set(['sw1']));
+    expect(niveles.get(5)).toBe(1);
+  });
+
+  it('abierto: la carga tira el nodo a masa y lee 0, sin necesidad de pull-down', () => {
+    const niveles = nivelesDeEntrada(SENSADO, buscar, new Map([[7, 1]]), new Set());
+    expect(niveles.get(5)).toBe(0);
+  });
+
+  it('con el pin de salida en bajo lee 0 aunque el interruptor esté cerrado', () => {
+    const niveles = nivelesDeEntrada(SENSADO, buscar, new Map([[7, 0]]), new Set(['sw1']));
+    expect(niveles.get(5)).toBe(0);
+  });
+
+  it('no inventa un nivel para un GPIO que el firmware maneja como salida', () => {
+    const niveles = nivelesDeEntrada(SENSADO, buscar, new Map([[7, 1]]), new Set(['sw1']));
+    expect(niveles.has(7)).toBe(false);
   });
 });

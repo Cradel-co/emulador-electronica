@@ -29,7 +29,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { scanPins, diffDiagramVsCode, type DiagramWarning } from './pinScan.js';
 import { conPlaca } from './diagramOps.js';
 import { analizarCircuito, type AlimentacionPlaca, type FuenteElectrica, type LedElectrico } from './circuitPhysics.js';
-import { circuitoLibre, ledsDelSolver } from './circuitEngine.js';
+import { circuitoLibre, ledsDelSolver, nivelesDeEntrada } from './circuitEngine.js';
 import { Depurador } from './debug/depurador.js';
 import { registrarRutasDepuracion } from './debug/rutas.js';
 
@@ -125,7 +125,7 @@ const eventosEmulador: EmulatorEvents = {
     depurador.alLog(line);
   },
   onState: (status) => {
-    if (status.state === 'stopped' || status.state === 'starting') niveles.clear();
+    if (status.state === 'stopped' || status.state === 'starting') { niveles.clear(); sensados.clear(); }
     depurador.alEstado(status);
     broadcast({ type: 'emu.state', state: status.state, status: { ...status, paused: depurador.pausado() } });
     for (const o of oyentesEstado) o(status.state);
@@ -141,6 +141,9 @@ const eventosEmulador: EmulatorEvents = {
       case 'OUT':
         niveles.set(msg.pin, msg.level);
         broadcast({ type: 'pin.out', pin: msg.pin, level: msg.level });
+        // Un pin que cambia de estado mueve los voltajes del circuito: lo que leen las
+        // entradas cableadas a esa red cambia con él.
+        if (runningProject) void refrescarEntradasDelCircuito(runningProject);
         break;
       case 'TX':
         broadcast({ type: 'rf.tx', bits: msg.bits, protocol: msg.protocol });
@@ -715,6 +718,46 @@ async function fijarControl(nombre: string, id: string, cerrado: boolean): Promi
   controlesCerrados.set(nombre, set);
   // Un interruptor puede cortar (o cerrar) la alimentación de la placa.
   await revisarAlimentacion(nombre);
+  await refrescarEntradasDelCircuito(nombre);
+}
+
+/** Último nivel que cada GPIO de entrada leyó del circuito (para no repetirle lo mismo al puente). */
+const sensados = new Map<number, 0 | 1>();
+let timerSensado = 0;
+
+/**
+ * Le avisa al firmware lo que sus pines de entrada leen **del circuito**: el voltaje que el
+ * solver calcula en el nodo donde está cableado cada uno (EMU_FREE_CIRCUIT).
+ *
+ * Sin esto, una entrada solo puede leer lo que declara el `bridge` del módulo que tiene
+ * enchufado, y un mismo interruptor no puede a la vez cortar la corriente de una carga y
+ * ser sensado por otro pin. Se agrupa a 50 ms porque un LED parpadeando manda muchos
+ * cambios de salida y cada uno obliga a resolver la red de nuevo.
+ */
+function refrescarEntradasDelCircuito(nombre: string): Promise<void> {
+  if (!circuitoLibre() || timerSensado) return Promise.resolve();
+  return new Promise((listo) => {
+    timerSensado = setTimeout(() => {
+      timerSensado = 0;
+      void (async () => {
+        try {
+          const bridge = emulator.getBridge();
+          if (!bridge || emulator.getStatus().state !== 'bridge' || runningProject !== nombre) return;
+          const catalogo = await loadCatalog();
+          const buscar = (t: string): ModuloCatalogo | undefined => catalogo.find((m) => m.type === t);
+          const project = conPlaca(await store.read(nombre));
+          for (const [gpio, nivel] of nivelesDeEntrada(project, buscar, niveles, cerradosDe(nombre))) {
+            if (sensados.get(gpio) === nivel) continue;
+            sensados.set(gpio, nivel);
+            bridge.setInput(gpio, nivel);
+            depurador.alEntrada(gpio, nivel, 'circuito');
+          }
+        } finally {
+          listo();
+        }
+      })();
+    }, 50) as unknown as number;
+  });
 }
 
 async function alimentacionDe(project: Project): Promise<EstadoPlaca> {
