@@ -58,7 +58,7 @@ Un módulo `programmable` es una **placa** (ESP32, Arduino...): corre el código
 
 Todo el circuito (módulos, placa y fuentes) lo resuelve un motor eléctrico real (ngspice): Ohm, Kirchhoff, la curva de los diodos, fuentes con límite de corriente, reguladores, brownout de la placa. Cada módulo aporta su circuito interno:
 
-- con **código** (`"model": "model.js"`): cualquier combinación de resistencias, diodos, fuentes, interruptores, capacitores; sus propias reglas (avisos) y lo que muestra (`ui.on`). Guía completa y SDK: [`../docs/modulos-y-su-codigo.md`](../docs/modulos-y-su-codigo.md);
+- con **código** (`"model": "model.js"`): cualquier combinación de resistencias, diodos, fuentes, interruptores, capacitores; sus propias reglas (avisos) y lo que muestra (`ui.on`). Guía completa y SDK: [`../docs/modulos-y-su-codigo.md`](../docs/modulos-y-su-codigo.md); Lo que un módulo puede *mostrar* hoy se limita a `ui.on` y `ui.brillo`, que es la razón por la que todavía no hay pantallas: ver [`../docs/pantallas.md`](../docs/pantallas.md);
 - **sin código**: los flags `passthrough` + `ohmsProp`, `diode`, `switch`, `source` le arman un modelo básico;
 - sin ninguno de los dos, se cablea igual pero eléctricamente no está.
 
