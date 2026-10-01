@@ -2,6 +2,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import {
   defaultProject,
+  proyectoSinPlaca,
   isAllowedFileName,
   isValidProjectName,
   MAIN_FILE,
@@ -25,8 +26,9 @@ export interface PlantillaProyecto {
   id: string;
   nombre: string;
   descripcion: string;
-  board: string;
-  language: Language;
+  /** null: plantilla sin placa (solo circuito). */
+  board: string | null;
+  language: Language | null;
 }
 
 export interface ProjectFile {
@@ -123,6 +125,30 @@ export class ProjectStore {
     return project;
   }
 
+  /** Proyecto sin placa: solo un circuito con una fuente regulable, sin código. */
+  async crearSinPlaca(name: string): Promise<Project> {
+    if (!isValidProjectName(name)) {
+      throw new ProjectError(`Nombre inválido: "${name}". Solo [a-z0-9-], hasta 40 caracteres, sin "..".`, 400);
+    }
+    if (await this.exists(name)) throw new ProjectError(`El proyecto "${name}" ya existe`, 409);
+    return this.save(proyectoSinPlaca(name));
+  }
+
+  /**
+   * Escribe los archivos iniciales de una placa recién agregada, sin pisar los que ya
+   * estén (si la placa se quitó y se vuelve a poner, su código sigue ahí).
+   */
+  async escribirSiFalta(name: string, language: Language, archivos: Record<string, string>): Promise<void> {
+    const dir = this.projectDir(name);
+    for (const [rel, content] of Object.entries(archivos)) {
+      const full = rel === 'secrets.yaml' ? path.join(dir, rel) : this.resolveFile(name, rel, language);
+      const existe = await fs.stat(full).then(() => true, () => false);
+      if (existe) continue;
+      await fs.mkdir(path.dirname(full), { recursive: true });
+      await fs.writeFile(full, content.replaceAll('${name}', name), 'utf8');
+    }
+  }
+
   /**
    * Proyectos plantilla: projects/_template/<id>/, cada uno un proyecto completo (project.json +
    * código + README.md). No aparecen en la lista de proyectos ("_" no es un nombre válido).
@@ -184,8 +210,9 @@ export class ProjectStore {
   }
 
   /** Resuelve una ruta relativa dentro del proyecto, sin salir de la carpeta. */
-  resolveFile(name: string, relPath: string, language: Language): string {
+  resolveFile(name: string, relPath: string, language: Language | null): string {
     if (relPath.includes('\0')) throw new ProjectError('Ruta inválida', 400);
+    if (!language) throw new ProjectError('Proyecto sin placa: no tiene código. Agregá una placa para programarla.', 400);
     if (isHiddenFile(relPath)) throw new ProjectError('Archivo oculto o generado', 403);
     if (!isAllowedFileName(language, relPath)) {
       throw new ProjectError(`Archivo no permitido para ${language}: ${relPath}`, 400);
@@ -199,24 +226,26 @@ export class ProjectStore {
     return full;
   }
 
-  async readFile(name: string, relPath: string, language: Language): Promise<string> {
+  async readFile(name: string, relPath: string, language: Language | null): Promise<string> {
     return fs.readFile(this.resolveFile(name, relPath, language), 'utf8');
   }
 
-  async writeFile(name: string, relPath: string, language: Language, content: string): Promise<void> {
+  async writeFile(name: string, relPath: string, language: Language | null, content: string): Promise<void> {
     const full = this.resolveFile(name, relPath, language);
     await fs.mkdir(path.dirname(full), { recursive: true });
     await fs.writeFile(full, content, 'utf8');
   }
 
-  async deleteFile(name: string, relPath: string, language: Language): Promise<void> {
-    if (relPath === MAIN_FILE[language]) {
+  async deleteFile(name: string, relPath: string, language: Language | null): Promise<void> {
+    if (language && relPath === MAIN_FILE[language]) {
       throw new ProjectError('No se puede borrar el archivo principal', 400);
     }
     await fs.rm(this.resolveFile(name, relPath, language), { force: true });
   }
 
-  async listFiles(name: string, language: Language): Promise<ProjectFile[]> {
+  /** Archivos de código. Sin placa, ninguno (si se quitó la placa, su código queda en disco). */
+  async listFiles(name: string, language: Language | null): Promise<ProjectFile[]> {
+    if (!language) return [];
     const dir = this.projectDir(name);
     const out: ProjectFile[] = [];
     const walk = async (rel: string): Promise<void> => {

@@ -10,14 +10,14 @@ import { extractArduinoErrors } from './toolchains/arduinoCli.js';
 import { placaEsphome } from './toolchains/esphome.js';
 import { buildSimYaml } from './yamlSim.js';
 import { conectar, desconectar, gpioDe, normalizarRef } from './diagramOps.js';
-import { analizarCircuito } from './circuitPhysics.js';
+import { analizarCircuito } from './sim/analisis.js';
 import { diffDiagramVsCode, scanPins } from './pinScan.js';
 import { lenguajeParaCertificar } from './certificacion.js';
 
 /** La placa enchufada por USB: desde que las placas del catálogo declaran `power`, sin alimentación no corre nada. */
 const conUsb = (p: Project): Project => ({
   ...p,
-  modules: [{ id: 'board', type: p.board, x: 0, y: 0, props: { usb: true } }, ...p.modules.filter((m) => m.id !== 'board')],
+  modules: [{ id: 'board', type: p.board!, x: 0, y: 0, props: { usb: true } }, ...p.modules.filter((m) => m.id !== 'board')],
 });
 
 const moduloJson = (tipo: string): Record<string, unknown> =>
@@ -133,30 +133,36 @@ describe('dibujo, pines y Ley de Ohm con el Arduino Uno', () => {
     expect(() => conectar(p, 'btn1.OUT', 'GPIO0', buscar)).toThrow(/puente/);
   });
 
-  it('Ley de Ohm a 5 V: con 220 Ω el LED lleva ~11.5 mA (sin aviso); directo al pin se quema', () => {
+  it('Ley de Ohm a 5 V: con 220 Ω el LED lleva ~12 mA (sin aviso); directo al pin se quema', async () => {
     const p = proyectoUno();
-    const { ramas, avisos } = analizarCircuito(p, buscar, new Map([[13, 1]]));
-    const rama = ramas.find((r) => r.origenRef === 'board.D13')!;
-    expect(rama.origenV).toBe(5);
-    // (5 − 2) / (220 + 15 del LED + 25 del pin del ATmega328P)
-    expect(rama.amperios * 1000).toBeCloseTo((5 - 2) / 260 * 1000, 1);
-    expect(avisos).toEqual([]);
+    const r = await analizarCircuito(p, buscar, { niveles: new Map([[13, 1]]) });
+    const led = r.leds.find((l) => l.id === 'led1')!;
+    // Ohm sobre la resistencia real: I = (V(D13) − V(ánodo del LED)) / 220.
+    const iOhm = (r.tensiones['board.D13']! - r.tensiones['led1.IN']!) / 220 * 1000;
+    expect(led.mA).toBeCloseTo(iOhm, 1);
+    // (5 V − ~2 V del LED) / (220 Ω + 25 Ω del pin del ATmega328P) ≈ 12 mA.
+    expect(led.mA).toBeGreaterThan(11);
+    expect(led.mA).toBeLessThan(13.5);
+    expect(r.avisos).toEqual([]);
 
     const directo: Project = {
       ...p,
       modules: p.modules.filter((m) => m.id !== 'r1'),
       wires: [...p.wires.filter((w) => !w.from.startsWith('r1.') && !w.to.startsWith('r1.')), { from: 'led1.IN', to: 'board.D13' }],
     };
-    const a = analizarCircuito(directo, buscar, new Map([[13, 1]])).avisos;
-    expect(a.map((x) => x.severidad)).toContain('peligro');
-    expect(a.map((x) => x.mensaje).join()).toMatch(/5 V/);
+    const d = await analizarCircuito(directo, buscar, { niveles: new Map([[13, 1]]) });
+    expect(d.leds[0]!.estado).toBe('se-quema'); // sin resistencia: solo los 25 Ω del pin limitan
+    expect(d.avisos.map((x) => x.severidad)).toContain('peligro');
+    expect(d.avisos.map((x) => x.mensaje).join()).toMatch(/D13 tendría que entregar ~\d+ mA.*ATmega328P/);
   });
 
-  it('con 5 Ω a 5 V avisa sobrecorriente con el nombre del pin (D13) y el chip (ATmega328P)', () => {
+  it('con 5 Ω a 5 V avisa sobrecorriente con el nombre del pin (D13) y el chip (ATmega328P)', async () => {
     const p = proyectoUno();
     p.modules = p.modules.map((m) => (m.id === 'r1' ? { ...m, props: { ohms: 5 } } : m));
-    const a = analizarCircuito(p, buscar, new Map([[13, 1]])).avisos;
-    expect(a.map((x) => x.mensaje).join()).toMatch(/D13 tendría que entregar ~67 mA.*ATmega328P/);
+    const a = (await analizarCircuito(p, buscar, { niveles: new Map([[13, 1]]) })).avisos;
+    const m = /D13 tendría que entregar ~(\d+) mA.*ATmega328P/.exec(a.map((x) => x.mensaje).join());
+    expect(m).not.toBeNull();
+    expect(Number(m![1])).toBeGreaterThan(40); // por encima del máximo absoluto del pin
   });
 
   it('scanPins en un sketch AVR: números, A0, LED_BUILTIN y constantes', () => {

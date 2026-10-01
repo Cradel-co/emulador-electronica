@@ -15,9 +15,9 @@ test.describe('catálogo de módulos', () => {
   test('muestra los módulos por categoría y marca el ESP32 como programable', async ({ page, request }) => {
     await abrirProyectoNuevo(page, request);
     const categorias = page.locator('#lista-modulos .cat-header');
-    await expect(categorias).toHaveText(['Placas', 'Entradas', 'Salidas', 'Pasivos', 'Radio 433 MHz', 'Inalámbricos']);
-    // 4 placas (ESP32-S3, C3, C6, Arduino Uno) + 10 módulos de fábrica.
-    await expect(page.locator('.modulo-card')).toHaveCount(14);
+    await expect(categorias).toHaveText(['Placas', 'Entradas', 'Salidas', 'Pasivos', 'Radio 433 MHz', 'Inalámbricos', 'Alimentación']);
+    // 4 placas (ESP32-S3, C3, C6, Arduino Uno) + 11 módulos de fábrica (con la fuente regulable).
+    await expect(page.locator('.modulo-card')).toHaveCount(15);
     const esp32 = page.locator('.modulo-card[data-type="esp32-s3-devkitc-1"]');
     await expect(esp32.locator('.tag-programable')).toHaveText('programable');
     await expect(page.locator('.modulo-card[data-type="rxb6"] .tag-programable')).toHaveCount(0);
@@ -52,8 +52,11 @@ test.describe('proyecto nuevo', () => {
     // Sin nada seleccionado se ve el código del ESP32, y el código coincide con el circuito.
     await expect(page.locator('#panel-codigo')).toBeVisible();
     await expect(page.locator('#editor')).toHaveValue(/number: GPIO6/);
-    // El LED de la plantilla va directo al GPIO, sin resistencia: la Ley de Ohm real lo avisa solo.
-    await expect(page.locator('#avisos-dibujo')).toContainText('no tiene resistencia en serie');
+    // La placa arranca desenchufada: sin energía no circula nada (ni hay nada que avisar).
+    await expect(page.locator('#avisos-dibujo')).toContainText('no tiene alimentación');
+    // Con el USB, el LED de la plantilla va directo al GPIO, sin resistencia: la física real lo avisa sola.
+    await page.locator('#usb').click();
+    await expect(page.locator('#avisos-dibujo')).toContainText('resistencia en serie');
     await expect(page.locator('.tabs button')).toHaveText(['main.yaml']);
   });
 });
@@ -258,9 +261,10 @@ test.describe('cableado', () => {
 test.describe('Ley de Ohm', () => {
   test('agregar una resistencia arregla el aviso; bajarla demasiado avisa de nuevo', async ({ page, request }) => {
     await abrirProyectoNuevo(page, request);
-    // El proyecto nuevo trae el LED directo al GPIO7, sin resistencia. Con la resistencia interna del
-    // pin del S3 no se quema al instante (~27 mA), pero queda sobreexigido: el motor lo avisa.
-    await expect(page.locator('#avisos-dibujo')).toContainText('no tiene resistencia en serie');
+    // El proyecto nuevo trae el LED directo al GPIO7, sin resistencia. Enchufada por USB, con la
+    // resistencia interna del pin del S3 no se quema al instante, pero queda sobreexigido: el motor lo avisa.
+    await page.locator('#usb').click();
+    await expect(page.locator('#avisos-dibujo')).toContainText('resistencia en serie');
 
     // Lo saca del medio y mete una resistencia (220 Ω por defecto) en serie.
     const p = await mitadDeCable(page, 'led1.IN', 'board.GPIO7');
@@ -269,7 +273,7 @@ test.describe('Ley de Ohm', () => {
     await page.locator('.modulo-card[data-type="resistor"]').click();
     await cablear(page, 'board.GPIO7', 'r1.1');
     await cablear(page, 'r1.2', 'led1.IN');
-    await expect(page.locator('#avisos-dibujo')).not.toContainText('no tiene resistencia en serie');
+    await expect(page.locator('#avisos-dibujo')).not.toContainText('resistencia en serie');
     await expect(page.locator('#avisos-dibujo div')).toHaveCount(0);
 
     // La baja mucho (10 Ω): sumada a la resistencia interna del pin, pasa lo recomendado (20 mA).

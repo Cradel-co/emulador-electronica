@@ -1,17 +1,18 @@
 # Catálogo de módulos
 
-Cada módulo es una carpeta `modules/<tipo>/` con dos archivos:
+Cada módulo es una carpeta `modules/<tipo>/`:
 
 ```
 modules/
 └── zumbador/
     ├── module.json   # nombre, pines, rol en la simulación, propiedades
-    └── module.svg    # el dibujo
+    ├── module.svg    # el dibujo
+    └── model.js      # (opcional) su modelo eléctrico: con qué está hecho por dentro
 ```
 
 No hace falta tocar el código de la app para agregar uno: se importa desde la UI (**+ Importar** en el catálogo), por la API (`POST /api/modules/import`) o por MCP (`importar_modulo`). También se puede copiar la carpeta acá y reiniciar el server.
 
-Los módulos **no traen código**: solo describen el dibujo, los pines y cómo se conectan con la simulación. Por eso importar uno de terceros no ejecuta nada. Igual, el SVG se revisa al importar y otra vez antes de dibujarlo (ver [Seguridad](#seguridad)).
+El código de un módulo (`model.js`) describe su circuito interno con elementos físicos y lo resuelve el motor eléctrico (ngspice): **cómo funciona y cómo escribir uno está en [`../docs/modulos-y-su-codigo.md`](../docs/modulos-y-su-codigo.md)**. Ese código nunca corre en el server: corre en un sandbox aislado, y el importador lo prueba antes de instalarlo. El SVG se revisa al importar y otra vez antes de dibujarlo (ver [Seguridad](#seguridad)).
 
 ## module.json
 
@@ -44,23 +45,24 @@ Los módulos **no traen código**: solo describen el dibujo, los pines y cómo s
 | `props` | Propiedades editables en el panel: `type` `string`/`number`/`boolean`, `default`, `label`, `enum`, `min`, `max`. |
 | `vars` | Valores para el SVG que dependen de una propiedad (ver abajo). |
 | `passthrough` | Componente de 2 pines "en línea" (como una resistencia): para la lógica digital (qué GPIO prende qué salida) la app lo salta, como si el cable siguiera derecho. Requiere `ohmsProp`. |
-| `ohmsProp` | Nombre de la prop (`type: "number"`) que tiene su resistencia en ohms — la usa el chequeo de Ley de Ohm. |
-| `diode` | Se comporta como un diodo (LED): cae una tensión fija al conducir en vez de ser lineal como una resistencia. El valor sale de `vars.vf` (ver abajo) o de `diodeVfDefault` (por defecto 2 V). |
+| `ohmsProp` | Nombre de la prop (`type: "number"`) que tiene su resistencia en ohms — con ella el motor eléctrico le arma su resistencia si no tiene `model`. |
+| `diode` | Se comporta como un diodo (LED). Su Vf a 20 mA sale de `vars.vf` (ver abajo) o de `diodeVfDefault` (por defecto 2 V). |
+| `switch` | Contacto de 2 pines: une sus pines mientras su control está activo (pulsador, llave). |
+| `source` | Fuente regulable: `{ voltageProp, currentProp? }` (props con el voltaje y el límite en mA). |
+| `electrical` | Datos de hoja de datos: `maxCurrentMa` (recomendado) y `burnCurrentMa` (se quema), para los avisos de LEDs. |
+| `model` | Punto de entrada a su código: un `.js` de la carpeta del módulo (ver [Modelo eléctrico](#modelo-eléctrico)). Sin `model`, los flags `passthrough`/`diode`/`switch`/`source` arman uno básico. |
 
 Un módulo `programmable` es una **placa** (ESP32, Arduino...): corre el código del proyecto y lleva un bloque `board` con su chip, motor de emulación, toolchains por lenguaje, pines del MCU (`pins`: nombre del dibujo → `gpio`, y `port`/`bit` si el motor es nativo), pines reservados/advertencias, `io` (puente por UART o nativo), niveles eléctricos (`logicVoltage`, `maxPinCurrentMa`, `pinOutputOhm`) y el circuito de prueba (`demo`). El importador acepta placas si ese bloque es válido. Esquema completo: `GET /api/boards/schema`; ejemplos: `esp32-s3-devkitc-1/`, `esp32-c3-devkitm-1/`, `esp32-c6-devkitc-1/`, `arduino-uno/`; motores y toolchains disponibles: `app/server/src/engines/README.md` y `app/server/src/toolchains/README.md`. Cada proyecto corre una sola placa.
 
-### Ley de Ohm real (cortocircuitos y sobrecorriente)
+### Modelo eléctrico
 
-La app arma la red eléctrica del dibujo (cables = 0 Ω, cada `passthrough` con su resistencia, cada `diode` con su caída de tensión y su resistencia interna) y calcula la corriente real de cada camino desde una fuente (3V3, 5V o un GPIO de salida) hasta GND — **I = (V − Vf) / (R_fuente + R_serie)**. La fuente no es ideal: un pin de salida tiene resistencia interna (`board.pinOutputOhm` de la placa: ~33 Ω en los ESP32, ~25 Ω en el ATmega328P) y la tensión en alto es la de la placa (`board.logicVoltage`: 3.3 V o 5 V). Avisa (no bloquea, `#avisos-dibujo` y el MCP):
+Todo el circuito (módulos, placa y fuentes) lo resuelve un motor eléctrico real (ngspice): Ohm, Kirchhoff, la curva de los diodos, fuentes con límite de corriente, reguladores, brownout de la placa. Cada módulo aporta su circuito interno:
 
-- **Cortocircuito** — una fuente conectada a GND sin nada de por medio.
-- **LED que se quema** — por encima de `electrical.burnCurrentMa` del LED (60 mA en el de fábrica): p. ej. un LED rojo directo a un pin de un Arduino Uno (~75 mA). Es "peligro".
-- **LED sobreexigido** — entre `electrical.maxCurrentMa` (20 mA) y el umbral de quemado: p. ej. un LED rojo directo a un GPIO de un ESP32 (~27 mA): brilla de más y dura menos. Es "advertencia".
-- **Sobrecorriente en el pin** — más de `board.maxPinCurrentMa` (40 mA en ESP32 y ATmega328P) es "peligro"; más de lo recomendado (20 mA) es "advertencia".
+- con **código** (`"model": "model.js"`): cualquier combinación de resistencias, diodos, fuentes, interruptores, capacitores; sus propias reglas (avisos) y lo que muestra (`ui.on`). Guía completa y SDK: [`../docs/modulos-y-su-codigo.md`](../docs/modulos-y-su-codigo.md);
+- **sin código**: los flags `passthrough` + `ohmsProp`, `diode`, `switch`, `source` le arman un modelo básico;
+- sin ninguno de los dos, se cablea igual pero eléctricamente no está.
 
-`GET /api/projects/:nombre/pins` devuelve además `electrico.leds: [{ id, mA, estado: "ok" | "sobreexigido" | "se-quema" }]` (con cada pin/fuente en alto).
-
-Si tu módulo es un componente pasivo con resistencia (como la resistencia de fábrica, `modules/resistor/`) o se comporta como un diodo, declará `passthrough`/`ohmsProp` o `diode`/`vars.vf` (y `electrical` con `seriesOhm`, `maxCurrentMa`, `burnCurrentMa`) para que el chequeo lo tenga en cuenta. Sin eso, un módulo importado simplemente no participa del cálculo eléctrico (se cablea igual, pero no suma ni resta corriente).
+Los avisos (cortocircuito, LED que se quema o sobreexigido, pin por encima de su corriente, tensión de afuera en un pin, fuente en modo CC, avisos de cada modelo) salen en `#avisos-dibujo`, en Problemas y en el MCP. `GET /api/projects/:nombre/pins` devuelve además `electrico` (LEDs, fuentes, alimentación de la placa, tensión de cada pin y lo que muestra cada módulo). Cómo funciona el motor y qué leyes respeta: [`../docs/motor-electrico.md`](../docs/motor-electrico.md).
 
 ## module.svg
 
@@ -102,14 +104,16 @@ Ejemplos completos: [`led/`](led/), [`button/`](button/), [`remote-433/`](remote
 
 | Desde | Cómo |
 |---|---|
-| Carpeta | Una carpeta con `module.json` + `module.svg`, o una colección con una subcarpeta por módulo. |
+| Carpeta | Una carpeta con `module.json` + `module.svg` (+ su `model.js`), o una colección con una subcarpeta por módulo. |
 | Zip | Lo mismo, comprimido. Límites: 512 KB por archivo y 8 MB en total. |
 | Chip de Wokwi | El `.chip.json` de un [chip custom](https://docs.wokwi.com/chips-api/chip-json). Se importan los pines con un dibujo genérico (pines a los costados, como Wokwi). La lógica del chip (WASM) **no** se ejecuta; se le puede asignar un rol (`input`, `output`, `rf-rx`, `rf-tx`). |
-| URL | `https://` a un zip, un `module.json` (su SVG se busca al lado), un `.chip.json`, o un repo de GitHub: `https://github.com/dueño/repo` o `…/tree/rama/carpeta`. |
+| URL | `https://` a un zip, un `module.json` (su SVG y su modelo se buscan al lado), un `.chip.json`, o un repo de GitHub: `https://github.com/dueño/repo` o `…/tree/rama/carpeta`. |
 
 Una colección puede mezclar módulos y chips de Wokwi. Si uno falla, los demás entran igual y el resultado dice qué pasó con cada uno. **Solo validar** revisa todo sin instalar nada. Los módulos de fábrica no se pueden reemplazar ni quitar; los importados sí, con **Reemplazar** o con la × de su tarjeta. Si se quita un módulo que un circuito usa, el circuito lo muestra como desconocido hasta que se vuelva a importar o se borre.
 
 ## Seguridad
+
+El `model.js` corre aislado en un sandbox (sin acceso al server, con tiempo límite, y lo que devuelve se revisa entero); al importar se lo carga y se lo prueba, y si falla no se instala. Detalle en [`../docs/modulos-y-su-codigo.md`](../docs/modulos-y-su-codigo.md#seguridad-por-qué-se-puede-importar-código-de-otros).
 
 El SVG termina dentro de la página, así que al importar se **rechaza** (no se "arregla") si trae:
 

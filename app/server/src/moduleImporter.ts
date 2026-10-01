@@ -3,16 +3,18 @@ import path from 'node:path';
 import { unzipSync } from 'fflate';
 import { MODULE_TYPE_RE, ModuleDefSchema, type ModuleDef } from '@emu/shared';
 import { validarPlaca } from './boardRegistry.js';
+import { SandboxModelo } from './sim/sandbox.js';
 
 /**
  * Importador de módulos (sección 12: "para agregar un módulo nuevo…").
  *
- * Un módulo es una carpeta `modules/<tipo>/` con `module.json` + `module.svg`.
- * Se puede importar desde: archivos sueltos (una carpeta elegida en la UI), un
- * zip, un chip custom de Wokwi (`.chip.json`), o una URL (zip, module.json,
- * .chip.json o un repo de GitHub). Los módulos no traen código ejecutable:
- * solo el dibujo, los pines y su rol en el puente, así que importar uno de
- * terceros no ejecuta nada. El SVG igual se revisa porque va a parar al DOM.
+ * Un módulo es una carpeta `modules/<tipo>/` con `module.json` + `module.svg`, y opcionalmente
+ * su modelo eléctrico (`model` del module.json, p. ej. `model.js`). Se puede importar desde:
+ * archivos sueltos (una carpeta elegida en la UI), un zip, un chip custom de Wokwi
+ * (`.chip.json`), o una URL (zip, module.json, .chip.json o un repo de GitHub).
+ * El SVG se revisa porque va a parar al DOM. El modelo es código de terceros: nunca corre en
+ * el server, sino en el sandbox del motor (sim/sandbox.ts); al validar se lo carga y se lo
+ * prueba ahí, para rechazar uno roto antes de instalarlo.
  */
 
 export type OrigenKind = 'carpeta' | 'zip' | 'wokwi' | 'url' | 'github';
@@ -21,6 +23,8 @@ export type OrigenKind = 'carpeta' | 'zip' | 'wokwi' | 'url' | 'github';
 export interface Paquete {
   json: string;
   svg?: string;
+  /** Código del modelo eléctrico (el archivo que nombra `model`), si vino. */
+  modelo?: string;
   /** De dónde salió (ruta dentro del zip, URL...), para los mensajes. */
   origen: string;
   kind: OrigenKind;
@@ -47,6 +51,7 @@ export class ImportError extends Error {
 export const LIMITES = {
   json: 256 * 1024,
   svg: 256 * 1024,
+  modelo: 128 * 1024,
   /** Por archivo descomprimido dentro de un zip. */
   archivoZip: 512 * 1024,
   totalZip: 8 * 1024 * 1024,
@@ -147,6 +152,8 @@ export function validarPaquete(p: Paquete): Validacion {
     if (!(v.prop in def.props)) avisos.push(`vars.${nombre} usa la propiedad "${v.prop}", que no está en props`);
   }
 
+  if (def.model) errores.push(...problemasModelo(def, p.modelo));
+
   if (p.svg === undefined) {
     avisos.push('no trae dibujo (module.svg): se va a ver como una caja con su nombre');
   } else if (p.svg.length > LIMITES.svg) {
@@ -158,6 +165,26 @@ export function validarPaquete(p: Paquete): Validacion {
     }
   }
   return { def: errores.length ? undefined : def, errores, avisos };
+}
+
+/**
+ * El modelo eléctrico se carga en el sandbox y se arma su circuito con las props por defecto
+ * (suelto y accionado): si no carga, tira un error o devuelve algo inválido, no se instala.
+ */
+function problemasModelo(def: ModuleDef, codigo: string | undefined): string[] {
+  if (codigo === undefined) return [`declara "model": "${def.model}" pero el archivo no vino`];
+  if (codigo.length > LIMITES.modelo) return [`${def.model} es demasiado grande (máx. 128 KB)`];
+  const props: Record<string, string | number | boolean> = {};
+  for (const [k, d] of Object.entries(def.props)) if (d.default !== undefined) props[k] = d.default;
+  const vars: Record<string, string> = {};
+  for (const [k, v] of Object.entries(def.vars)) vars[k] = v.map[String(props[v.prop])] ?? v.default;
+  try {
+    const sb = new SandboxModelo(def.type, codigo);
+    for (const control of [false, true]) sb.circuito({ pines: def.pins.map((x) => x.name), props, control, estado: {}, vars });
+    return [];
+  } catch (err) {
+    return [`${def.model}: ${(err as Error).message}`];
+  }
 }
 
 // --- Wokwi ------------------------------------------------------------------------
@@ -267,7 +294,7 @@ ${rotulos.join('\n')}
 
 // --- Zip y archivos sueltos -------------------------------------------------------
 
-/** Textos .json/.svg de un zip (con límites contra zip bombs). Ignora el resto. */
+/** Textos .json/.svg/.js de un zip (con límites contra zip bombs). Ignora el resto. */
 export function leerZip(datos: Uint8Array): Map<string, string> {
   let total = 0;
   let entradas = 0;
@@ -277,7 +304,7 @@ export function leerZip(datos: Uint8Array): Map<string, string> {
       filter: (f) => {
         entradas++;
         if (entradas > LIMITES.entradasZip) throw new ImportError('el zip tiene demasiados archivos');
-        if (f.name.includes('__MACOSX/') || !/\.(json|svg)$/i.test(f.name)) return false;
+        if (f.name.includes('__MACOSX/') || !/\.(json|svg|js)$/i.test(f.name)) return false;
         if (f.originalSize > LIMITES.archivoZip) throw new ImportError(`${f.name} es demasiado grande (máx. 512 KB)`);
         total += f.originalSize;
         if (total > LIMITES.totalZip) throw new ImportError('el zip descomprimido es demasiado grande (máx. 8 MB)');
@@ -315,13 +342,16 @@ export function paquetesDeArchivos(archivos: Map<string, string>, kind: OrigenKi
     if (base === 'module.json') {
       const dir = ruta.slice(0, ruta.length - base.length);
       let svgNombre = 'module.svg';
+      let modeloNombre: string | undefined;
       try {
-        const s = (JSON.parse(normal.get(ruta)!) as { svg?: unknown }).svg;
-        if (typeof s === 'string' && /^[\w.-]+\.svg$/.test(s)) svgNombre = s;
+        const j = JSON.parse(normal.get(ruta)!) as { svg?: unknown; model?: unknown };
+        if (typeof j.svg === 'string' && /^[\w.-]+\.svg$/.test(j.svg)) svgNombre = j.svg;
+        if (typeof j.model === 'string' && /^[\w.-]+\.js$/.test(j.model)) modeloNombre = j.model;
       } catch {
         /* el error de JSON lo informa la validación */
       }
-      paquetes.push({ json: normal.get(ruta)!, svg: normal.get(dir + svgNombre), origen: ruta, kind });
+      const modelo = modeloNombre ? normal.get(dir + modeloNombre) : undefined;
+      paquetes.push({ json: normal.get(ruta)!, svg: normal.get(dir + svgNombre), modelo, origen: ruta, kind });
     } else if (esChipWokwi(ruta)) {
       try {
         const conv = convertirChipWokwi(normal.get(ruta)!, rutas.filter(esChipWokwi).length === 1 ? opcionesWokwi : {});
@@ -395,7 +425,7 @@ export async function paquetesDeUrl(url: string, opcionesWokwi: OpcionesWokwi = 
   const datos = await descargar(url, fetcher);
   if (datos[0] === 0x50 && datos[1] === 0x4b) return paquetesDeArchivos(leerZip(datos), 'url', opcionesWokwi); // "PK": zip
   const texto = new TextDecoder().decode(datos);
-  let json: { pins?: unknown; svg?: unknown };
+  let json: { pins?: unknown; svg?: unknown; model?: unknown };
   try {
     json = JSON.parse(texto);
   } catch {
@@ -405,15 +435,18 @@ export async function paquetesDeUrl(url: string, opcionesWokwi: OpcionesWokwi = 
     const conv = convertirChipWokwi(texto, opcionesWokwi);
     return { paquetes: [{ json: conv.json, svg: conv.svg, origen: url, kind: 'wokwi' as const }], errores: [], avisos: [{ origen: url, mensajes: conv.avisos }] };
   }
-  // module.json suelto: el SVG se busca al lado.
+  // module.json suelto: el SVG (y el modelo, si declara uno) se buscan al lado.
   const svgNombre = typeof json.svg === 'string' && /^[\w.-]+\.svg$/.test(json.svg) ? json.svg : 'module.svg';
-  let svg: string | undefined;
-  try {
-    svg = new TextDecoder().decode(await descargar(new URL(svgNombre, url).toString(), fetcher));
-  } catch {
-    svg = undefined; // sin dibujo: la validación avisa
-  }
-  return { paquetes: [{ json: texto, svg, origen: url, kind: 'url' as const }], errores: [], avisos: [] };
+  const vecino = async (nombre: string): Promise<string | undefined> => {
+    try {
+      return new TextDecoder().decode(await descargar(new URL(nombre, url).toString(), fetcher));
+    } catch {
+      return undefined; // no está: la validación avisa (o lo rechaza, si es el modelo)
+    }
+  };
+  const svg = await vecino(svgNombre);
+  const modelo = typeof json.model === 'string' && /^[\w.-]+\.js$/.test(json.model) ? await vecino(json.model) : undefined;
+  return { paquetes: [{ json: texto, svg, modelo, origen: url, kind: 'url' as const }], errores: [], avisos: [] };
 }
 
 // --- Instalación ----------------------------------------------------------------------
@@ -436,7 +469,9 @@ export class ModuleInstaller {
     }
   }
 
-  async instalar(def: ModuleDef, svg: string | undefined, origin: NonNullable<ModuleDef['origin']>, sobrescribir: boolean): Promise<void> {
+  async instalar(
+    def: ModuleDef, svg: string | undefined, origin: NonNullable<ModuleDef['origin']>, sobrescribir: boolean, modelo?: string,
+  ): Promise<void> {
     const estado = await this.estado(def.type);
     if (estado === 'fabrica') throw new ImportError(`"${def.type}" es un módulo de fábrica: no se puede reemplazar`, 409);
     if (estado === 'importado' && !sobrescribir) {
@@ -448,6 +483,7 @@ export class ModuleInstaller {
     try {
       await fs.writeFile(path.join(tmp, 'module.json'), JSON.stringify({ ...def, svg: 'module.svg', origin }, null, 2) + '\n');
       if (svg !== undefined) await fs.writeFile(path.join(tmp, 'module.svg'), svg);
+      if (def.model && modelo !== undefined) await fs.writeFile(path.join(tmp, def.model), modelo);
       await fs.rm(destino, { recursive: true, force: true });
       await fs.rename(tmp, destino);
     } catch (err) {
@@ -534,6 +570,7 @@ export async function importar(
           p.svg,
           { kind: p.kind, from: (desde ?? p.origen).slice(0, 500), importedAt: new Date().toISOString() },
           Boolean(opciones.sobrescribir),
+          p.modelo,
         );
       }
       resultado.importados.push({ type: v.def.type, name: v.def.name, origen: p.origen });

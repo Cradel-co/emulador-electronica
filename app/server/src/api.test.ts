@@ -119,7 +119,7 @@ describe('POST /api/projects con placa', () => {
     expect(r.body.error).toContain('Placa desconocida');
   });
 
-  it('sin placa: ESP32-S3 como siempre; en C3, ESPHome con su board', async () => {
+  it('sin indicar placa: ESP32-S3 como siempre; en C3, ESPHome con su board', async () => {
     const s3 = await pedir('/api/projects', { method: 'POST', body: { name: 's3-api', language: 'esphome' } });
     expect(s3.status).toBe(201);
     expect(s3.body.project.board).toBe('esp32-s3-devkitc-1');
@@ -132,5 +132,45 @@ describe('POST /api/projects con placa', () => {
   it('PUT no deja cambiar la placa de un proyecto', async () => {
     const r = await pedir('/api/projects/s3-api', { method: 'PUT', body: { board: 'arduino-uno' } });
     expect(r.status).toBe(400);
+  });
+});
+
+describe('proyectos sin placa (board: null)', () => {
+  it('se crea sin código; ▶ energiza; la placa se agrega con su lenguaje y se quita sin borrar el código', async () => {
+    const creado = await pedir('/api/projects', { method: 'POST', body: { name: 'proto-api', board: null } });
+    expect(creado.status).toBe(201);
+    expect(creado.body.project).toMatchObject({ board: null, language: null });
+    expect(readdirSync(path.join(proyectos, 'proto-api'))).toEqual(['project.json']);
+    const det = await pedir('/api/projects/proto-api');
+    expect(det.body.placa).toBeNull();
+    expect(det.body.files).toEqual([]);
+    // Sin código: los archivos dan un 400 claro, no un 500.
+    expect((await pedir('/api/projects/proto-api/files/main.py')).status).toBe(400);
+
+    // Apagado: la fuente no entrega. Energizado: sí.
+    let pins = await pedir('/api/projects/proto-api/pins');
+    expect(pins.status).toBe(200);
+    expect(pins.body.electrico).toMatchObject({ placa: null, energizado: false });
+    expect(pins.body.electrico.fuentes[0].modo).toBe('apagada');
+    expect((await pedir('/api/projects/proto-api/energia', { method: 'POST', body: { encendido: true } })).status).toBe(200);
+    pins = await pedir('/api/projects/proto-api/pins');
+    expect(pins.body.electrico.energizado).toBe(true);
+    expect(pins.body.electrico.fuentes[0].modo).toBe('CV');
+
+    // Agregar la placa: pide lenguaje, escribe el código y deja de estar "energizado aparte".
+    expect((await pedir('/api/projects/proto-api/board', { method: 'POST', body: { board: 'esp32-s3-devkitc-1' } })).status).toBe(400);
+    const conPlaca = await pedir('/api/projects/proto-api/board', { method: 'POST', body: { board: 'esp32-s3-devkitc-1', language: 'micropython' } });
+    expect(conPlaca.status).toBe(200);
+    expect(conPlaca.body.project).toMatchObject({ board: 'esp32-s3-devkitc-1', language: 'micropython' });
+    expect(conPlaca.body.project.modules.some((m: any) => m.id === 'board')).toBe(true);
+    expect(readdirSync(path.join(proyectos, 'proto-api'))).toContain('main.py');
+    await pedir('/api/projects/proto-api/files/main.py', { method: 'PUT', body: { content: 'print("mio")\n' } });
+
+    // Quitarla: vuelve a sin placa, pero el código queda; al volver a ponerla no se pisa.
+    const sin = await pedir('/api/projects/proto-api/board', { method: 'DELETE' });
+    expect(sin.body.project).toMatchObject({ board: null, language: null });
+    expect(readdirSync(path.join(proyectos, 'proto-api'))).toContain('main.py');
+    await pedir('/api/projects/proto-api/board', { method: 'POST', body: { board: 'esp32-s3-devkitc-1', language: 'micropython' } });
+    expect((await pedir('/api/projects/proto-api/files/main.py')).body.content).toBe('print("mio")\n');
   });
 });

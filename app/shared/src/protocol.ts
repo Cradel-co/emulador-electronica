@@ -194,13 +194,14 @@ export const ServerEventSchema = z.discriminatedUnion('type', [
   /** Se importó o quitó un módulo: la UI recarga el catálogo. */
   z.object({ type: z.literal('catalog.changed') }),
   /**
-   * Cambió el circuito o un archivo de un proyecto (desde otra pestaña o por MCP).
+   * Cambió el circuito o un archivo de un proyecto (desde otra pestaña o por MCP), o solo su
+   * estado eléctrico (`electrico`: un pulsador apretado; hay que recalcular, no recargar).
    * `origin` es el id del cliente que hizo el cambio, para que no se recargue a sí mismo.
    */
   z.object({
     type: z.literal('project.changed'),
     project: z.string(),
-    what: z.enum(['diagram', 'file']),
+    what: z.enum(['diagram', 'file', 'electrico']),
     file: z.string().optional(),
     origin: z.string().optional(),
   }),

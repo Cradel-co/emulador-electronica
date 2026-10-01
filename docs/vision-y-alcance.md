@@ -14,9 +14,9 @@ Assistant ni algo atado a ESPHome. La idea de uso real:
    importaste) más el código que quieras escribir vos.
 3. La app tiene que **emular todo con exactitud** — no solo mostrar un dibujo lindo:
    el circuito tiene que comportarse eléctricamente como en la vida real (ver
-   [`../app/server/src/circuitPhysics.ts`](../app/server/src/circuitPhysics.ts): Ley
-   de Ohm real, no una aproximación visual) y el código tiene que correr en un
-   emulador real del chip, no en un intérprete inventado.
+   [`motor-electrico.md`](motor-electrico.md): ngspice resuelve todo el circuito con
+   Ohm, Kirchhoff y la conservación de la energía, no una aproximación visual) y el
+   código tiene que correr en un emulador real del chip, no en un intérprete inventado.
 4. Al final, la app tiene que poder darte **el esquemático final de todo conectado y
    andando** — y ese esquemático tiene que llevar todos los valores del circuito
    (props de cada módulo, cableado completo, corrientes y tensiones calculadas), en
@@ -81,14 +81,21 @@ estén, una placa de otra familia se puede cargar igual y queda en "solo dibujo"
   (preparados, sin implementar). Más placas AVR (Nano, Pro Mini) ya son solo datos.
 - Puente para ESP-IDF/Arduino-ESP32 (hoy en C/C++ las entradas no llegan al código) y
   verificar esos toolchains con la imagen `espressif/idf` bajada.
-- Catálogo con más partes reales (motores, buzzers, sensores I2C) y componentes
-  activos (transistor como interruptor) — trabajo incremental sobre lo que ya existe
-  en `modules/`, ver [`../modules/README.md`](../modules/README.md).
+- Catálogo con más partes reales (motores, buzzers, sensores I2C) — cada una con su
+  `model.js`, ver [`modulos-y-su-codigo.md`](modulos-y-su-codigo.md).
+- **Motor eléctrico, siguiente fase:** análisis transitorio (capacitores que se cargan,
+  PWM, el clic del relé), que lo que el firmware lee (entradas, ADC) salga del motor, y
+  modelos térmicos (ver los límites en [`motor-electrico.md`](motor-electrico.md)).
 
 ## Documentos relacionados
 
 - [`../GUIA-IMPLEMENTACION.md`](../GUIA-IMPLEMENTACION.md) — diseño técnico completo
   (arquitectura, protocolo del puente, pipeline por lenguaje).
-- [`../modules/README.md`](../modules/README.md) — formato de módulo, cómo importar
-  uno, y la Ley de Ohm real del catálogo.
+- [`../modules/README.md`](../modules/README.md) — formato de módulo y cómo importar uno.
+- [`motor-electrico.md`](motor-electrico.md) — el motor eléctrico (ngspice), las leyes que
+  respeta y cómo se verificó.
+- [`modulos-y-su-codigo.md`](modulos-y-su-codigo.md) — el código de los módulos y cómo
+  crear uno nuevo.
+- [`fuentes-de-alimentacion.md`](fuentes-de-alimentacion.md) — fuentes regulables,
+  energía de la placa y proyectos sin placa.
 - [`esp-emulator.md`](esp-emulator.md) — qué es y qué no es `esp-emu`.

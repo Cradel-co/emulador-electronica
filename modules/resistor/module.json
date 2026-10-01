@@ -15,5 +15,6 @@
   },
   "passthrough": true,
   "ohmsProp": "ohms",
-  "svg": "module.svg"
+  "svg": "module.svg",
+  "model": "model.js"
 }

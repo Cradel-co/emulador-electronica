@@ -21,7 +21,7 @@ Dos cosas que antes no existían:
 |---|---|
 | **Catálogo** | `modules/fuente-regulable/` (nuevo). Las 4 placas: prop `usb` y bloque `board.power`. |
 | **Schema** (`app/shared`) | `source: { voltageProp, currentProp? }` en `ModuleDefSchema`; `power` en `BoardDescriptorSchema`. |
-| **Motor eléctrico** (`circuitPhysics.ts`) | Fuentes de catálogo, tensiones negativas, modo CC, estado de alimentación de la placa. |
+| **Motor eléctrico** (hoy `sim/`, ver [motor-electrico.md](motor-electrico.md)) | Fuentes de catálogo, tensiones negativas, modo CC, estado de alimentación de la placa. |
 | **Server** (`index.ts`) | No arranca sin energía; corta la simulación si se pierde; guarda la placa quemada. |
 | **UI** (`app.ts`, `canvas.ts`) | Botón USB, píldora de alimentación, columna "Alimentación" en Debug, placa quemada. |
 | **MCP** (`mcp.ts`) | `ver_proyecto` muestra alimentación y fuentes; tool `reemplazar_placa`; `ejecutar` explica por qué no arrancó. |
@@ -90,18 +90,20 @@ Los rangos y consumos son aproximaciones de las hojas de datos (el 3,6 V del ESP
 su máximo absoluto de VDD); una placa sin bloque `power` (importada vieja) se asume
 siempre alimentada.
 
-Estados (`alimentacionDePlaca()` en `circuitPhysics.ts`):
+Estados (`calcularAlimentacion()` en `app/server/src/sim/analisis.ts`):
 
 | Estado | Cuándo | Qué pasa |
 |---|---|---|
-| `ok` | USB conectado, o fuente en rango con GND común y corriente suficiente | Arranca. Los rieles 3V3/5V entregan según por dónde entra la energía. |
+| `ok` | USB conectado, o fuente con GND común que mantiene el riel del chip por encima del brownout | Arranca. Si la entrada está por debajo de su mínimo (p. ej. 3,5 V en el pin 5V: el regulador en dropout), arranca igual pero avisa "fuera de especificación". |
 | `sin-energia` | Nada conectado, o la fuente llega pero su GND no cierra | No arranca. |
 | `baja` | Tensión por debajo del mínimo, o fuente con límite menor al consumo de la placa (entra en CC y cae) | No arranca. |
 | `quema` | Tensión por encima del máximo, o polaridad invertida | Se quema: queda muerta hasta "Reemplazar placa", aunque se arregle el cableado. |
 
-Mientras la placa no esté en `ok`, sus pines 3V3/5V/IOREF y sus GPIO **no son fuentes**
-en el cálculo eléctrico. Si la energía entra por 5V, ese pin lo fija la fuente (no
-choca con un "5 V de la placa"); si entra por 3V3, el riel de 5 V queda sin tensión.
+Con el motor nuevo la placa es un circuito más (USB, reguladores, el consumo del chip,
+diodos de protección de los GPIO; ver [motor-electrico.md](motor-electrico.md#la-placa)):
+sus rieles tienen la tensión que realmente queda, y sus GPIO solo manejan corriente con
+el chip andando. Si la energía entra por 3V3, el riel de 5 V queda sin tensión (el
+regulador no conduce al revés).
 
 ## Server
 
@@ -159,23 +161,37 @@ plantilla copia la carpeta tal cual con el nombre nuevo (sin archivos ocultos).
 - MCP: `plantillas`; `crear_proyecto { nombre, plantilla }`.
 - UI: selector "Plantilla" en Nuevo proyecto (placa y lenguaje los define la plantilla).
 - Primera plantilla: `circuito-continuo` (fuente de 5 V alimentando la placa por 5V y
-  un pulsador → LED → 150 Ω → GND; ~18 mA al apretar).
+  un pulsador → LED → 220 Ω → GND; ~14 mA al apretar).
 - `.gitignore`: `projects/*` salvo `projects/_template/` — los proyectos de cada uno no
   se versionan, las plantillas sí.
 
+## Proyectos sin placa
+
+Pedido después: "no es necesario usar placa; solo la fuente regulable y componentes, como
+en la vida real". Un proyecto puede no tener placa (`board: null`, `language: null`):
+
+- **Crear:** en Nuevo proyecto, la opción "Sin placa (solo circuito)"; por API
+  `POST /api/projects { name, board: null }`; por MCP `crear_proyecto` con `sin_placa: true`.
+  Trae una fuente de 5 V (100 mA), un pulsador, un LED y una resistencia de 220 Ω ya
+  cableados (13,8 mA al apretar).
+- **▶ energiza, ⏹ corta:** sin firmware que correr, Ejecutar prende las fuentes
+  (`POST /api/projects/:name/energia { encendido }`). Apagado, las fuentes no entregan
+  nada (`modo: "apagada"`). Los pulsadores se usan igual que con simulación.
+- **La placa es un módulo más:** se agrega eligiendo su lenguaje (botón "Agregar placa" o
+  arrastrándola del catálogo; `POST /api/projects/:name/board { board, language }`; MCP
+  `agregar_modulo` con `lenguaje`) y se quita con la × (`DELETE /api/projects/:name/board`).
+  Al quitarla se borran sus cables.
+- **La tierra** es el GND de la primera fuente.
+
 ## Estado
 
-- **Hecho:** todo lo de arriba, con tests en `circuitPhysics.test.ts` (fuente en 5V y
-  3V3, sin GND, modo CC, tensión baja, sobretensión, polaridad invertida, LED detrás de
-  una fuente limitada, pulsador que prende el LED de la plantilla, pulsador en corto
-  entre 3V3 y GND). Los tests de Ley de Ohm que usan placas reales enchufan la
-  placa por USB.
+- **Hecho:** todo lo de arriba. Desde el motor nuevo los tests están en
+  `app/server/src/sim/motor.test.ts` (ver [motor-electrico.md](motor-electrico.md#cómo-se-verificó)).
 - **Cambio de comportamiento:** los proyectos existentes y los nuevos arrancan con el
   USB desenchufado; hasta prenderlo (o cablear una fuente) no ejecutan.
-- **Limitaciones heredadas:** sin mallas genéricas (dos fuentes sin GND común en el
-  medio) y sin polaridad de diodo. El voltaje de salida en modo CC es exacto con una
-  sola rama y aproximado (carga resistiva) con varias o con la placa como carga. Un
-  corto directo de una fuente contra GND se sigue marcando como cortocircuito (con
-  explosión) aunque una fuente de laboratorio real, con su límite, lo aguantaría.
+- **Resuelto por el motor nuevo** (antes eran límites): mallas genéricas, polaridad de
+  los diodos, la tensión exacta en modo CC con varias ramas. Un corto de una fuente contra
+  su GND ahora es lo que haría una de laboratorio: entrega su límite con ~0 V (modo
+  "corto"); se sigue avisando como cortocircuito porque no alimenta nada útil.
 - **Siguiente:** `min`/`max` de las props siguen siendo decorativos (no hay slider ni
   validación de rango); mejora aparte, útil para todos los módulos.

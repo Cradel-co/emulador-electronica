@@ -109,12 +109,14 @@ describe('validarPaquete', () => {
 describe('módulos de fábrica', () => {
   const dirs = readdirSync(PATHS.modules, { withFileTypes: true }).filter((d) => d.isDirectory());
 
-  it.each(dirs.map((d) => d.name))('%s cumple el formato y su SVG es seguro', (nombre) => {
+  it.each(dirs.map((d) => d.name))('%s cumple el formato, su SVG es seguro y su modelo carga', (nombre) => {
     const dir = path.join(PATHS.modules, nombre);
     const json = readFileSync(path.join(dir, 'module.json'), 'utf8');
     const svg = readFileSync(path.join(dir, 'module.svg'), 'utf8');
+    const model = (JSON.parse(json) as { model?: string }).model;
+    const modelo = model ? readFileSync(path.join(dir, model), 'utf8') : undefined;
     expect(problemasSvg(svg)).toEqual([]);
-    const v = validarPaquete({ json, svg, origen: nombre, kind: 'carpeta' });
+    const v = validarPaquete({ json, svg, modelo, origen: nombre, kind: 'carpeta' });
     // Las placas (programables) pasan si su bloque "board" es válido.
     expect(v.errores).toEqual([]);
   });
@@ -276,5 +278,55 @@ describe('importar + instalar', () => {
     );
     expect(r.importados.map((m) => m.type)).toEqual(['boton-grande']);
     expect(r.errores[0]!.origen).toBe('b/module.json');
+  });
+});
+
+describe('módulos con código (modelo eléctrico)', () => {
+  // Un pulsador grande con su propio modelo: une SIG con GND mientras está apretado.
+  const MODELO = `module.exports = { circuito(ctx) { ctx.interruptor(ctx.pin('SIG'), ctx.pin('GND'), ctx.control, { ron: 0.05 }, 'contacto'); } };`;
+  const conModelo = (codigo?: string, extra: Record<string, unknown> = {}) => ({
+    'm/module.json': moduloOk({ model: 'model.js', ...extra }),
+    'm/module.svg': SVG_OK,
+    ...(codigo === undefined ? {} : { 'm/model.js': codigo }),
+  });
+
+  it('instala el model.js junto al module.json (carpeta y zip)', async () => {
+    const dir = dirTemporal();
+    const inst = new ModuleInstaller(dir);
+    const r = await importar({ fuente: 'archivos', archivos: conModelo(MODELO) }, inst);
+    expect(r.errores).toEqual([]);
+    expect(readFileSync(path.join(dir, 'boton-grande', 'model.js'), 'utf8')).toBe(MODELO);
+    expect(JSON.parse(readFileSync(path.join(dir, 'boton-grande', 'module.json'), 'utf8')).model).toBe('model.js');
+
+    const zip = zipSync(Object.fromEntries(Object.entries(conModelo(MODELO, { type: 'otro-boton' })).map(([k, v]) => [k, strToU8(v)])));
+    const rz = await importar({ fuente: 'zip', base64: Buffer.from(zip).toString('base64') }, inst);
+    expect(rz.errores).toEqual([]);
+    expect(existsSync(path.join(dir, 'otro-boton', 'model.js'))).toBe(true);
+  });
+
+  it('un module.json por URL baja su modelo de al lado', async () => {
+    const f = fetchFalso({
+      'https://x.com/b/module.json': moduloOk({ model: 'model.js' }),
+      'https://x.com/b/module.svg': SVG_OK,
+      'https://x.com/b/model.js': MODELO,
+    });
+    const { paquetes } = await paquetesDeUrl('https://x.com/b/module.json', {}, f);
+    expect(paquetes[0]!.modelo).toBe(MODELO);
+  });
+
+  it.each([
+    ['falta el archivo', undefined, /el archivo no vino/],
+    ['no es JavaScript', 'module.exports = {', /model\.js/],
+    ['no exporta circuito', 'module.exports = {};', /no exporta circuito/],
+    ['se cuelga', 'module.exports = { circuito() { for (;;) {} } };', /tardó demasiado/],
+    ['usa un pin que no tiene', `module.exports = { circuito(ctx) { ctx.resistencia(ctx.pin('VCC'), ctx.pin('GND'), 100); } };`, /no tiene el pin "VCC"/],
+    ['tira un error accionado', `module.exports = { circuito(ctx) { if (ctx.control) throw new Error('roto al apretar'); } };`, /roto al apretar/],
+    ['es enorme', `// ${'x'.repeat(130 * 1024)}\nmodule.exports = { circuito() {} };`, /demasiado grande/],
+  ])('rechaza un modelo que %s, sin instalar nada', async (_, codigo, error) => {
+    const dir = dirTemporal();
+    const r = await importar({ fuente: 'archivos', archivos: conModelo(codigo) }, new ModuleInstaller(dir));
+    expect(r.importados).toEqual([]);
+    expect(r.errores[0]!.mensajes.join(' ')).toMatch(error);
+    expect(readdirSync(dir)).toEqual([]);
   });
 });

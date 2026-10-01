@@ -31,5 +31,6 @@
     "role": "rf-tx",
     "pin": "DATA"
   },
-  "svg": "module.svg"
+  "svg": "module.svg",
+  "model": "model.js"
 }

@@ -764,3 +764,9 @@ body.depuracion-parada .punto-estado { background: var(--azul); box-shadow: 0 0 
 .modo-fuente.CC { background: rgba(242, 197, 92, .15); color: var(--amarillo); }
 .modo-fuente.corto { background: rgba(219, 92, 92, .18); color: #f3b0b0; }
 .consola-entrada[hidden] { display: none; }
+
+/* Proyecto sin placa: quitar/agregar la placa y la fuente apagada en Debug. */
+.quitar-placa { border: 0; background: transparent; color: var(--tenue); font-size: 15px; line-height: 1; padding: 0 2px; margin-left: 2px; cursor: pointer; border-radius: 4px; }
+.quitar-placa:hover { color: var(--rojo); background: rgba(219, 92, 92, .12); }
+.quitar-placa[hidden] { display: none; }
+.modo-fuente.apagada { background: rgba(134, 138, 145, .18); color: var(--tenue); }

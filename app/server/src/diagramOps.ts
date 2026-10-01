@@ -4,6 +4,7 @@ import {
   motivoReservado,
   nombreDePin,
   type BoardDescriptor,
+  type Language,
   type ModuleDef,
   type ModuleInstance,
   type Project,
@@ -35,7 +36,7 @@ type BuscarDef = (type: string) => ModuleDef | undefined;
 
 /** Descriptor de la placa del proyecto (del catálogo), o undefined si no hay catálogo a mano. */
 export function descriptorDe(project: Project, buscar?: BuscarDef): BoardDescriptor | undefined {
-  return buscar?.(project.board)?.board;
+  return project.board ? buscar?.(project.board)?.board : undefined;
 }
 
 /**
@@ -79,10 +80,39 @@ export function normalizarRef(ref: string, desc?: BoardDescriptor): string {
   return r;
 }
 
-/** Proyectos anteriores al canvas no tienen la placa en el dibujo. */
+/** Proyectos anteriores al canvas no tienen la placa en el dibujo. Sin placa, no hay nada que agregar. */
 export function conPlaca(project: Project): Project {
-  if (project.modules.some((m) => m.id === BOARD_MODULE_ID)) return project;
+  if (!project.board || project.modules.some((m) => m.id === BOARD_MODULE_ID)) return project;
   return { ...project, modules: [{ id: BOARD_MODULE_ID, type: project.board, x: 0, y: 0, props: {} }, ...project.modules] };
+}
+
+/**
+ * Pone una placa en un proyecto sin placa (la placa es un módulo más, que se agrega y se
+ * quita). El código lo maneja quien llama (index.ts): acá solo cambia el dibujo.
+ */
+export function ponerPlaca(project: Project, def: ModuleDef, lenguaje: Language, opciones: { x?: number; y?: number } = {}): Project {
+  if (!def.programmable || !def.board) throw new DiagramError(`"${def.name}" no es una placa`);
+  if (project.board) {
+    throw new DiagramError(`el proyecto ya tiene su placa (${project.board}): la simulación corre un solo microcontrolador. Quitala primero.`);
+  }
+  if (!def.board.languages[lenguaje]) {
+    throw new DiagramError(`${def.name} no se programa en ${lenguaje}. Lenguajes: ${Object.keys(def.board.languages).join(', ')}`);
+  }
+  const placa = { id: BOARD_MODULE_ID, type: def.type, x: opciones.x ?? 0, y: opciones.y ?? 0, props: {} };
+  return { ...project, board: def.type, language: lenguaje, modules: [placa, ...project.modules.filter((m) => m.id !== BOARD_MODULE_ID)] };
+}
+
+/** Saca la placa y sus cables: el proyecto queda sin placa (solo circuito). El código no se toca. */
+export function sacarPlaca(project: Project): Project {
+  if (!project.board) throw new DiagramError('el proyecto no tiene placa');
+  const prefijo = `${BOARD_MODULE_ID}.`;
+  return {
+    ...project,
+    board: null,
+    language: null,
+    modules: project.modules.filter((m) => m.id !== BOARD_MODULE_ID),
+    wires: project.wires.filter((w) => !w.from.startsWith(prefijo) && !w.to.startsWith(prefijo)),
+  };
 }
 
 const PREFIJOS: Record<string, string> = {
@@ -127,7 +157,9 @@ export function agregarModulo(
   opciones: { id?: string; x?: number; y?: number; rotation?: number; props?: Record<string, unknown> } = {},
 ): { project: Project; id: string } {
   if (def.programmable) {
-    throw new DiagramError(`el proyecto ya tiene su placa (${project.board}): la simulación corre un solo microcontrolador`);
+    throw new DiagramError(project.board
+      ? `el proyecto ya tiene su placa (${project.board}): la simulación corre un solo microcontrolador`
+      : `"${def.name}" es una placa: se agrega eligiendo su lenguaje (ponerPlaca)`);
   }
   const base = conPlaca(project);
   const id = opciones.id ?? nuevoId(base, def.type);
@@ -144,7 +176,7 @@ export function agregarModulo(
 }
 
 export function quitarModulo(project: Project, id: string): Project {
-  if (id === BOARD_MODULE_ID) throw new DiagramError(`la placa (${project.board}) no se puede quitar: es la que corre el código`);
+  if (id === BOARD_MODULE_ID) return sacarPlaca(project);
   instancia(project, id);
   const prefijo = `${id}.`;
   return {

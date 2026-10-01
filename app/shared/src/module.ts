@@ -100,7 +100,7 @@ export const ModuleDefSchema = z.object({
     })
     .optional(),
   /**
-   * Datos eléctricos del componente, de su hoja de datos (los usa circuitPhysics.ts).
+   * Datos eléctricos del componente, de su hoja de datos (los usa el motor eléctrico, sim/analisis.ts).
    * Para un LED: resistencia serie interna (dinámica) y corrientes límite; la caída
    * directa (Vf) sigue en `vars.vf` porque depende del color. Para una fuente
    * (`source`): `maxCurrentMa` es el límite de corriente del canal.
@@ -141,10 +141,13 @@ export const ModuleDefSchema = z.object({
       importedAt: z.string(),
     })
     .optional(),
-  /** Extensión futura (12.1): script que corre en la PC. No se usa en la v1. */
-  behavior: z
-    .object({ runtime: z.enum(['python', 'c']), file: z.string().min(1) })
-    .optional(),
+  /**
+   * Punto de entrada al código del módulo: un archivo JS de la carpeta del módulo que exporta
+   * `{ circuito(ctx), observar(lectura) }` (ver modelo.ts y docs/motor-electrico.md). Describe
+   * el módulo con elementos físicos que resuelve el motor (ngspice). Sin `model`, el motor arma
+   * uno a partir de los flags (`passthrough`, `diode`, `switch`, `source`).
+   */
+  model: z.string().regex(/^[\w.-]+\.js$/, 'un archivo .js de la carpeta del módulo').optional(),
 });
 
 export type ModuleDef = z.infer<typeof ModuleDefSchema>;
