@@ -53,7 +53,17 @@ export interface DiodeBranch {
   rs?: number;
 }
 
-export type CircuitBranch = ResistorBranch | DiodeBranch;
+export interface SwitchBranch {
+  id: string;
+  kind: 'switch';
+  nodes: [string, string];
+  /** Cerrado (pulsador apretado, llave encendida) une sus dos pines: para la electricidad es un cable. */
+  closed: boolean;
+  /** Resistencia de contacto en ohms cuando está cerrado. Por defecto, la de un cable. */
+  ohms?: number;
+}
+
+export type CircuitBranch = ResistorBranch | DiodeBranch | SwitchBranch;
 
 export interface Circuit {
   nodes: CircuitNode[];
@@ -79,6 +89,8 @@ export interface Solution {
 const G_MIN = 1e-12;
 /** Piso de resistencia: un 0 Ω ideal (un cable, un diodo sin `rs`) descalabra la matriz. */
 const OHM_MIN = 1e-6;
+/** Resistencia de contacto de un interruptor cerrado: lo que mide un cable corto. */
+const OHM_CONTACTO = 0.01;
 /** Tope de pasadas del lazo de estados de los diodos. */
 const MAX_ITERACIONES = 100;
 
@@ -169,6 +181,12 @@ function resolverPasada(
 
     if (rama.kind === 'resistor') {
       sumarConductancia(A, a, b, 1 / Math.max(rama.ohms, OHM_MIN));
+      continue;
+    }
+
+    if (rama.kind === 'switch') {
+      // Abierto no es infinito: es una fuga despreciable, y así el nodo del medio no queda flotando.
+      sumarConductancia(A, a, b, rama.closed ? 1 / Math.max(rama.ohms ?? OHM_CONTACTO, OHM_MIN) : G_MIN);
       continue;
     }
 
@@ -267,6 +285,9 @@ function corrienteDeRama(
 ): number {
   const v = voltajeDe(voltages, rama.nodes[0]) - voltajeDe(voltages, rama.nodes[1]);
   if (rama.kind === 'resistor') return v / Math.max(rama.ohms, OHM_MIN);
+  if (rama.kind === 'switch') {
+    return rama.closed ? v / Math.max(rama.ohms ?? OHM_CONTACTO, OHM_MIN) : v * G_MIN;
+  }
   if (!conduce.get(rama.id)) return v * G_MIN;
   return (v - vfDe(rama)) / Math.max(rama.rs ?? 0, OHM_MIN);
 }

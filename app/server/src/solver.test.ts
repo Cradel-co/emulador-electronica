@@ -119,3 +119,26 @@ describe('solver MNA – Test 2: dos LEDs en serie', () => {
     expect(Math.abs(corriente(sol, 'led2'))).toBeLessThan(1e-6);
   });
 });
+describe('solver MNA – Test 3: interruptor en serie', () => {
+  it('cerrado conduce y abierto corta: GPIO en alto → pulsador → R → LED → GND', () => {
+    // El circuito que no modela circuitPhysics: la placa alimenta y el pulsador está
+    // en el camino de la corriente. El GPIO en alto es una fuente de 3.3 V con los
+    // 33 Ω internos del pin (pinOutputOhm del ESP32-S3).
+    const armar = (cerrado: boolean): Circuit => ({
+      nodes: [ground(), voltageSource('gpio7', 3.3), node('n1'), node('n2'), node('n3')],
+      branches: [
+        resistor('rpin', 33, 'gpio7', 'n1'),
+        { id: 'btn1', kind: 'switch', closed: cerrado, nodes: ['n1', 'n2'] },
+        resistor('r1', 110, 'n2', 'n3'),
+        diode('led1', 'n3', 'gnd', 2, 15),
+      ],
+    });
+
+    const apretado = solveMNA(armar(true));
+    // I = (3.3 − 2) / (33 + 110 + 15) = 8.23 mA
+    expect(corriente(apretado, 'led1')).toBeCloseTo(0.00823, 5);
+
+    const suelto = solveMNA(armar(false));
+    expect(Math.abs(corriente(suelto, 'led1'))).toBeLessThan(1e-6);
+  });
+});
