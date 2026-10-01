@@ -30,8 +30,14 @@ export type SimConfig = z.infer<typeof SimConfigSchema>;
 export const ProjectSchema = z.object({
   schemaVersion: z.literal(1).default(1),
   name: z.string().min(1),
-  board: BoardSchema.default(DEFAULT_BOARD),
-  language: LanguageSchema,
+  /**
+   * Placa (módulo programable del catálogo), o `null` = proyecto sin placa: solo un circuito
+   * (fuentes regulables y componentes), sin código. Ausente = ESP32-S3, como los proyectos
+   * anteriores al registro de placas.
+   */
+  board: BoardSchema.nullable().default(DEFAULT_BOARD),
+  /** Lenguaje del código de la placa; `null` sin placa. */
+  language: LanguageSchema.nullable(),
   modules: z.array(ModuleInstanceSchema).default([]),
   wires: z.array(WireSchema).default([]),
   sim: SimConfigSchema,
@@ -42,6 +48,40 @@ export type Project = z.infer<typeof ProjectSchema>;
 /** Id fijo de la placa dentro del dibujo: los cables la referencian como "board.GPIO6". */
 export const BOARD_MODULE_ID = 'board';
 
+/** Un proyecto con placa, y por lo tanto con código y lenguaje. */
+export type ProyectoConPlaca = Project & { board: string; language: Language };
+
+export function tienePlaca<P extends Pick<Project, 'board' | 'language'>>(p: P): p is P & { board: string; language: Language } {
+  return p.board !== null && p.language !== null;
+}
+
+/**
+ * Proyecto nuevo sin placa, como armar en una protoboard: una Fuente regulable de 5 V,
+ * un pulsador, un LED y su resistencia, todo cerrado contra el GND de la fuente. Con ▶ se
+ * energiza y al apretar el pulsador el LED prende (~14 mA).
+ */
+export function proyectoSinPlaca(name: string): Project {
+  return {
+    schemaVersion: 1,
+    name,
+    board: null,
+    language: null,
+    modules: [
+      { id: 'fuente1', type: 'fuente-regulable', x: -40, y: 300, props: { voltage: 5, currentLimitMa: 100 } },
+      { id: 'btn1', type: 'button', x: -220, y: 60, props: { label: 'Botón' } },
+      { id: 'led1', type: 'led', x: -40, y: 50, props: { color: 'red' } },
+      { id: 'r1', type: 'resistor', x: 120, y: 200, props: { ohms: 220 } },
+    ],
+    wires: [
+      { from: 'fuente1.V', to: 'btn1.OUT' },
+      { from: 'btn1.GND', to: 'led1.IN' },
+      { from: 'led1.GND', to: 'r1.1' },
+      { from: 'r1.2', to: 'fuente1.GND' },
+    ],
+    sim: { wifiSsid: 'sim-wifi', wifiPassword: 'sim-password' },
+  };
+}
+
 /**
  * Proyecto nuevo con el circuito de prueba de la placa ya cableado: un botón en
  * `demo.input` y un LED en `demo.output` (GPIO6 → GPIO7 en los ESP32, D2 → D13 en el
@@ -49,7 +89,7 @@ export const BOARD_MODULE_ID = 'board';
  * lenguaje (`templates.<lenguaje>.diagram`), se usa ese. Sin descriptor (proyectos y
  * pruebas viejas), el de siempre del ESP32-S3.
  */
-export function defaultProject(name: string, language: Language, board: string = DEFAULT_BOARD, desc?: BoardDescriptor): Project {
+export function defaultProject(name: string, language: Language, board: string = DEFAULT_BOARD, desc?: BoardDescriptor): ProyectoConPlaca {
   const placa: ModuleInstance = { id: BOARD_MODULE_ID, type: board, x: 0, y: 0, props: {} };
   const propio = desc?.templates[language]?.diagram;
   let modules: ModuleInstance[];

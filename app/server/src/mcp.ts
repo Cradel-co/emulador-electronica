@@ -32,8 +32,8 @@ import {
 export interface McpContexto {
   store: ProjectStore;
   /** Crea un proyecto para una placa (valida placa ↔ lenguaje y escribe la plantilla). */
-  crearProyecto: (nombre: string, lenguaje: Language, placa?: string, plantilla?: string) => Promise<Project>;
-  plantillas: () => Promise<{ id: string; nombre: string; descripcion: string; board: string; language: string }[]>;
+  crearProyecto: (nombre: string, lenguaje: Language | null, placa?: string | null, plantilla?: string) => Promise<Project>;
+  plantillas: () => Promise<{ id: string; nombre: string; descripcion: string; board: string | null; language: string | null }[]>;
   /** Registro de placas (del catálogo), con su nivel de soporte. */
   placas: () => Promise<unknown[]>;
   esquemaPlaca: () => unknown;
@@ -46,15 +46,20 @@ export interface McpContexto {
   pinesYAvisos: (nombre: string) => Promise<{
     pins: number[];
     warnings: { message: string }[];
-    electrico?: { fuentes: unknown[]; placa: { estado: string; quemada: boolean; mensaje: string } };
+    electrico?: { fuentes: unknown[]; placa: { estado: string; quemada: boolean; mensaje: string } | null; energizado: boolean };
   }>;
+  /** La placa es un módulo: se agrega a un proyecto sin placa eligiendo su lenguaje, y se quita. */
+  agregarPlaca: (nombre: string, tipo: string, lenguaje: Language, pos?: { x?: number; y?: number }) => Promise<Project>;
+  quitarPlaca: (nombre: string) => Promise<Project>;
+  /** Proyecto sin placa con el circuito energizado (▶), o null. */
+  proyectoEnergizado: () => string | null;
   /** true si la placa estaba quemada (y ya no). */
   reemplazarPlaca: (nombre: string) => Promise<boolean>;
   /** Interruptor (pulsador, llave) cerrado/abierto, para el motor eléctrico. */
   fijarControl: (nombre: string, id: string, cerrado: boolean) => Promise<void>;
   compilar: (nombre: string) => Promise<{ ok: boolean; durationMs: number; errors: { line?: number | null; file?: string | null; message: string }[] }>;
   /** `sinAlimentacion`: no arrancó porque la placa no tiene energía adecuada (o está quemada), no por el código. */
-  ejecutar: (nombre: string, recompilar: boolean) => Promise<{ ok: boolean; errors: { message: string }[]; sinAlimentacion?: boolean }>;
+  ejecutar: (nombre: string, recompilar: boolean) => Promise<{ ok: boolean; errors: { message: string }[]; sinAlimentacion?: boolean; energizado?: boolean }>;
   parar: () => Promise<void>;
   resetear: () => Promise<string>;
   estadoEmulador: () => EmulatorStatus;
@@ -143,16 +148,20 @@ export function crearServidorMcp(ctx: McpContexto): McpServer {
     description:
       'Crea un proyecto para una placa. Arranca con el circuito de prueba de la placa ya cableado (botón → LED: ' +
       'GPIO6 → GPIO7 en los ESP32, D2 → D13 en el Arduino Uno) y un código que lo usa. Ver `placas` para los lenguajes de cada una. ' +
-      'Con `plantilla` (ver `plantillas`) copia un proyecto de ejemplo de projects/_template/ (su placa y lenguaje mandan).',
+      'Con `plantilla` (ver `plantillas`) copia un proyecto de ejemplo de projects/_template/ (su placa y lenguaje mandan). ' +
+      'Con `sin_placa: true` crea un proyecto SIN placa: solo un circuito (Fuente regulable + pulsador + LED + resistencia, ' +
+      'cerrado contra el GND de la fuente), sin código; `ejecutar` lo energiza y `parar` lo apaga. Una placa se le agrega después con agregar_modulo.',
     inputSchema: {
       nombre: z.string().regex(/^[a-z0-9][a-z0-9-]{0,39}$/).describe('Solo [a-z0-9-], hasta 40 caracteres'),
       lenguaje: z.enum(LANGUAGES).default('esphome'),
       placa: z.string().default(DEFAULT_BOARD).describe('Id de la placa (ver la herramienta placas), p. ej. "arduino-uno"'),
       plantilla: z.string().optional().describe('Id de una plantilla (ver la herramienta plantillas)'),
+      sin_placa: z.boolean().default(false).describe('Proyecto sin placa: solo circuito (fuente regulable y componentes)'),
     },
-  }, seguro(async ({ nombre, lenguaje, placa, plantilla }) => {
-    const p = await ctx.crearProyecto(nombre, lenguaje, placa, plantilla);
-    return texto(`Proyecto "${p.name}" creado (${p.board}, ${p.language}). Abrilo en la UI: http://127.0.0.1:5180/#${p.name}`);
+  }, seguro(async ({ nombre, lenguaje, placa, plantilla, sin_placa }) => {
+    const p = sin_placa ? await ctx.crearProyecto(nombre, null, null) : await ctx.crearProyecto(nombre, lenguaje, placa, plantilla);
+    const que = p.board ? `${p.board}, ${p.language}` : 'sin placa: solo circuito';
+    return texto(`Proyecto "${p.name}" creado (${que}). Abrilo en la UI: http://127.0.0.1:5180/#${p.name}`);
   }));
 
   server.registerTool('plantillas', {
@@ -244,9 +253,10 @@ export function crearServidorMcp(ctx: McpContexto): McpServer {
       archivos: archivos.map((f) => f.path).filter((f) => !/secrets\.yaml$/.test(f)),
       pinesQueUsaElCodigo: chequeo.pins,
       avisos: chequeo.warnings.map((w) => w.message),
-      alimentacionPlaca: chequeo.electrico
+      alimentacionPlaca: chequeo.electrico?.placa
         ? { estado: chequeo.electrico.placa.estado, quemada: chequeo.electrico.placa.quemada, detalle: chequeo.electrico.placa.mensaje }
-        : undefined,
+        : 'sin placa',
+      ...(p.board ? {} : { energizado: Boolean(chequeo.electrico?.energizado) }),
       // Lo que entrega cada fuente regulable (CV/CC, mA, W): lo mismo que la ventana Debug.
       fuentes: chequeo.electrico?.fuentes,
     });
@@ -351,19 +361,27 @@ export function crearServidorMcp(ctx: McpContexto): McpServer {
 
   server.registerTool('agregar_modulo', {
     title: 'Agregar módulo al circuito',
-    description: 'Agrega un módulo del catálogo al circuito. Devuelve su id (p. ej. "rx1") y sus pines para conectarlos.',
+    description:
+      'Agrega un módulo del catálogo al circuito. Devuelve su id (p. ej. "rx1") y sus pines para conectarlos. ' +
+      'Una placa (módulo programable) solo se agrega a un proyecto sin placa, indicando `lenguaje`: queda con id "board" y con su código inicial.',
     inputSchema: {
       proyecto,
-      tipo: z.string().describe('Tipo del catálogo, p. ej. "rxb6", "led", "button"'),
+      tipo: z.string().describe('Tipo del catálogo, p. ej. "rxb6", "led", "button", o una placa ("esp32-s3-devkitc-1")'),
+      lenguaje: z.enum(LANGUAGES).optional().describe('Solo para placas: en qué se programa'),
       id: z.string().optional(),
       x: z.number().optional(),
       y: z.number().optional(),
       rotacion: z.number().min(0).lt(360).optional().describe('Grados'),
       props: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional(),
     },
-  }, seguro(async ({ proyecto: nombre, tipo, id, x, y, rotacion, props }) => {
+  }, seguro(async ({ proyecto: nombre, tipo, lenguaje, id, x, y, rotacion, props }) => {
     const def = (await defs()).get(tipo);
     if (!def) return falla(`No hay ningún módulo "${tipo}" en el catálogo (ver la herramienta catalogo).`);
+    if (def.programmable) {
+      if (!lenguaje) return falla(`"${def.name}" es una placa: indicá \`lenguaje\` (ver la herramienta placas).`);
+      await ctx.agregarPlaca(nombre, tipo, lenguaje, { x, y });
+      return texto(`Agregada la placa ${def.name} (id "board", ${lenguaje}), con su código inicial. Sus pines se referencian como "board.<pin>".`);
+    }
     let nuevo = '';
     await ctx.cambiarDiagrama(nombre, (p) => {
       const r = agregarModulo(p, def, { id, x, y, rotation: rotacion, props });
@@ -379,6 +397,10 @@ export function crearServidorMcp(ctx: McpContexto): McpServer {
     description: 'Quita un módulo del circuito junto con sus cables.',
     inputSchema: { proyecto, id: z.string() },
   }, seguro(async ({ proyecto: nombre, id }) => {
+    if (id === 'board') {
+      await ctx.quitarPlaca(nombre);
+      return texto('Quitada la placa y sus cables: el proyecto queda sin placa (solo circuito). Su código queda guardado por si la volvés a agregar.');
+    }
     await ctx.cambiarDiagrama(nombre, (p) => quitarModulo(p, id));
     return texto(`Quitado "${id}" y sus cables.`);
   }));
@@ -462,7 +484,9 @@ export function crearServidorMcp(ctx: McpContexto): McpServer {
 
   server.registerTool('ejecutar', {
     title: 'Ejecutar simulación',
-    description: 'Compila (si hace falta) y arranca el emulador. Espera a que el puente esté listo, así los módulos responden.',
+    description:
+      'Compila (si hace falta) y arranca el emulador. Espera a que el puente esté listo, así los módulos responden. ' +
+      'En un proyecto sin placa no hay firmware: energiza el circuito (las fuentes regulables entregan tensión) hasta `parar`.',
     inputSchema: {
       proyecto,
       recompilar: z.boolean().default(true),
@@ -470,6 +494,9 @@ export function crearServidorMcp(ctx: McpContexto): McpServer {
     },
   }, seguro(async ({ proyecto: nombre, recompilar, esperar_segundos }) => {
     const r = await ctx.ejecutar(nombre, recompilar);
+    if (r.ok && r.energizado) {
+      return texto('Circuito energizado (proyecto sin placa): las fuentes regulables entregan tensión. Los LEDs y consumos están en ver_proyecto; `parar` lo apaga.');
+    }
     if (!r.ok && r.sinAlimentacion) {
       return falla(`No arrancó: ${r.errors.map((e) => e.message).join(' ')}\n(ver alimentacionPlaca en ver_proyecto; con reemplazar_placa si se quemó)`);
     }
@@ -503,7 +530,7 @@ export function crearServidorMcp(ctx: McpContexto): McpServer {
   server.registerTool('accionar_modulo', {
     title: 'Accionar un módulo',
     description:
-      'Usa un módulo del circuito como lo haría una persona, con la simulación corriendo. ' +
+      'Usa un módulo del circuito como lo haría una persona, con la simulación corriendo (o, sin placa, con el circuito energizado). ' +
       'Botones/interruptores: presionar, soltar, pulsar (presiona y suelta), encender, apagar. ' +
       'Control remoto 433: boton_A..boton_D. Sensor de puerta 433: abrir, cerrar. Otros inalámbricos: transmitir.',
     inputSchema: {
@@ -514,9 +541,15 @@ export function crearServidorMcp(ctx: McpContexto): McpServer {
     },
   }, seguro(async ({ id, accion, duracion_ms, proyecto: nombre }) => {
     const corriendo = ctx.proyectoCorriendo();
-    const cual = nombre ?? corriendo;
-    if (!cual || ctx.estadoEmulador().state !== 'bridge') return falla(noCorre);
-    if (corriendo && cual !== corriendo) return falla(`El que está corriendo es "${corriendo}", no "${cual}".`);
+    const energizado = ctx.proyectoEnergizado();
+    const cual = nombre ?? corriendo ?? energizado;
+    if (!cual) return falla(noCorre);
+    // Sin placa no hay emulador: alcanza con que el circuito esté energizado (solo interruptores).
+    const sinPlacaVivo = cual === energizado;
+    if (!sinPlacaVivo) {
+      if (ctx.estadoEmulador().state !== 'bridge') return falla(noCorre);
+      if (corriendo && cual !== corriendo) return falla(`El que está corriendo es "${corriendo}", no "${cual}".`);
+    }
     const p = conPlaca(await ctx.store.read(cual));
     const catalogo = await defs();
     const buscar = (t: string): ModuloCatalogo | undefined => catalogo.get(t);
@@ -530,15 +563,24 @@ export function crearServidorMcp(ctx: McpContexto): McpServer {
       // Un interruptor (pulsador, llave) también sirve sin GPIO: cierra un circuito sin código.
       const esInterruptor = Boolean(def.switch);
       if (gpio === null && !esInterruptor) return falla(`El pin ${def.bridge!.pin} de "${id}" no está conectado a un pin de la placa.`);
-      const faltan = gpio === null ? [] : pinesSinAlimentar(p, id, def);
+      // Un interruptor no se "alimenta": sus dos patas son terminales del circuito (mismo criterio
+      // que el arreglo de la UI del PR #5).
+      const faltan = gpio === null || esInterruptor ? [] : pinesSinAlimentar(p, id, def);
       if (faltan.length > 0) {
         return falla(`"${def.name}" (${id}) sin alimentación: conectá también ${faltan.join(' y ')}, como en la vida real.`);
       }
       const activo = (def.bridge!.activeLevel ?? 1) as 0 | 1;
       const inactivo = (1 - activo) as 0 | 1;
-      /** Cierra/abre el interruptor para el motor eléctrico y, si va a un GPIO, le avisa al firmware. */
+      /**
+       * Un interruptor se cierra o se abre en el circuito, y lo que lee el pin lo resuelve el motor
+       * (fijarControl → refrescarEntradasDelCircuito): con el pull que activó el programa y los
+       * umbrales del chip, como en la placa real. Otro módulo de entrada le dice su nivel directo.
+       */
       const aplicar = async (cerrado: boolean): Promise<boolean> => {
-        if (esInterruptor) await ctx.fijarControl(cual, id, cerrado);
+        if (esInterruptor) {
+          await ctx.fijarControl(cual, id, cerrado);
+          return true;
+        }
         return gpio === null || ctx.ponerPin(gpio, cerrado ? activo : inactivo);
       };
       if (accion === 'presionar' || accion === 'encender') {
@@ -552,7 +594,7 @@ export function crearServidorMcp(ctx: McpContexto): McpServer {
       } else {
         return falla(`"${def.name}" es una entrada: usá presionar, soltar, pulsar, encender o apagar.`);
       }
-      const destino = gpio === null ? 'circuito (sin GPIO: cierra o abre el paso de corriente)' : nombreDePin(catalogo.get(p.board)?.board, gpio);
+      const destino = gpio === null || !p.board ? 'circuito (sin GPIO: cierra o abre el paso de corriente)' : nombreDePin(catalogo.get(p.board)?.board, gpio);
       return texto(`${id} (${def.name}): ${accion} → ${destino}`);
     }
 

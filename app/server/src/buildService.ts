@@ -1,6 +1,6 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { lenguajesDe, type Project } from '@emu/shared';
+import { lenguajesDe, tienePlaca, type Project, type ProyectoConPlaca } from '@emu/shared';
 import { PATHS } from './paths.js';
 import type { BuildError as BuildErrorLike, LineMap } from './yamlSim.js';
 import { buscarPlaca } from './boardRegistry.js';
@@ -91,6 +91,7 @@ export class BuildService {
 
   private async doBuild(project: Project, cb: BuildCallbacks): Promise<BuildResult> {
     const started = Date.now();
+    if (!tienePlaca(project)) return fallo(started, 'Proyecto sin placa: no hay código que compilar.');
     const placa = await buscarPlaca(project.board);
     if (!placa) return fallo(started, `La placa "${project.board}" no está en el catálogo (¿se quitó el módulo?).`);
     const r = await this.compilarEn(project, placa, path.join(PATHS.projects, project.name), this.buildDir(project.name), cb, {
@@ -106,7 +107,7 @@ export class BuildService {
    * La usa también la certificación de placas, con carpetas temporales (nunca projects/).
    */
   async compilarEn(
-    project: Project,
+    project: ProyectoConPlaca,
     placa: PlacaBuild,
     projectDir: string,
     buildDir: string,

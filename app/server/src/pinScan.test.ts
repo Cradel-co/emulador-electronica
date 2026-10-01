@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { diffDiagramVsCode, scanPins } from './pinScan.js';
+import { diffDiagramVsCode, direccionesDeCodigo, scanPins } from './pinScan.js';
+import { esphomeMainYamlPara } from './templates/esphome.js';
+import { arduinoSketchPara, idfCMainCPara, idfCMainCppPara, micropythonMainPara } from './templates/languages.js';
 import type { Project } from '@emu/shared';
 
 const project = {
@@ -66,5 +68,75 @@ describe('diffDiagramVsCode', () => {
       ],
     } satisfies Project;
     expect(diffDiagramVsCode(conGuia, [6, 7])).toEqual([]);
+  });
+});
+
+describe('direccionesDeCodigo: cómo configura el programa cada pin', () => {
+  const sale = { salida: true };
+  const pullUp = { salida: false, pull: 'up' };
+
+  it('ESPHome: la plantilla (output: → salida; binary_sensor con pullup → entrada con pull-up)', () => {
+    const d = direccionesDeCodigo('esphome', esphomeMainYamlPara('esp32-s3-devkitc-1', 6, 7));
+    expect(d.get(7)).toEqual(sale);
+    expect(d.get(6)).toEqual(pullUp);
+  });
+
+  it('ESPHome: switch/light gpio son salidas; pin escalar, mode en texto, pulldown', () => {
+    const yaml = `
+switch:
+  - platform: gpio
+    pin: GPIO10
+light:
+  - platform: binary
+    output: x
+binary_sensor:
+  - platform: gpio
+    pin:
+      number: 4
+      mode: INPUT_PULLDOWN
+  - platform: gpio
+    pin: GPIO5
+`;
+    const d = direccionesDeCodigo('esphome', yaml);
+    expect(d.get(10)).toEqual(sale);
+    expect(d.get(4)).toEqual({ salida: false, pull: 'down' });
+    expect(d.get(5)).toEqual({ salida: false });
+  });
+
+  it('MicroPython: la plantilla (simbridge.pin = entrada que reposa en 1) y Pin(n, Pin.OUT/IN, PULL_*)', () => {
+    const d = direccionesDeCodigo('micropython', micropythonMainPara(6, 7));
+    expect(d.get(7)).toEqual(sale);
+    expect(d.get(6)).toEqual(pullUp);
+    const d2 = direccionesDeCodigo('micropython', 'a = machine.Pin(4, machine.Pin.IN)\nb = Pin(5, Pin.IN, Pin.PULL_DOWN)\nc = Pin(8, mode=Pin.OUT)');
+    expect(d2.get(4)).toEqual({ salida: false });
+    expect(d2.get(5)).toEqual({ salida: false, pull: 'down' });
+    expect(d2.get(8)).toEqual(sale);
+  });
+
+  it('Arduino: la plantilla y pinMode con constantes (#define / const int)', () => {
+    const d = direccionesDeCodigo('arduino', arduinoSketchPara(6, 7));
+    expect(d.get(7)).toEqual(sale);
+    expect(d.get(6)).toEqual(pullUp);
+    const sketch = '#define BOTON 2\nconst int LED = 13;\nvoid setup() { pinMode(BOTON, INPUT); pinMode(LED, OUTPUT); pinMode(A0, INPUT_PULLUP); }';
+    const d2 = direccionesDeCodigo('arduino', sketch);
+    expect(d2.get(2)).toEqual({ salida: false });
+    expect(d2.get(13)).toEqual(sale);
+    expect(d2.get(14)).toEqual(pullUp); // A0 = 14 en el Uno
+  });
+
+  it('ESP-IDF (C y C++): gpio_config_t de la plantilla, gpio_set_direction y gpio_set_pull_mode', () => {
+    for (const codigo of [idfCMainCPara(6, 7), idfCMainCppPara(6, 7)]) {
+      const d = direccionesDeCodigo('idf-c', codigo);
+      expect(d.get(7)).toEqual(sale);
+      expect(d.get(6)).toEqual(pullUp);
+    }
+    const c = 'gpio_set_direction(GPIO_NUM_4, GPIO_MODE_OUTPUT);\ngpio_set_direction(5, GPIO_MODE_INPUT);\ngpio_set_pull_mode(GPIO_NUM_5, GPIO_PULLDOWN_ONLY);';
+    const d2 = direccionesDeCodigo('idf-c', c);
+    expect(d2.get(4)).toEqual(sale);
+    expect(d2.get(5)).toEqual({ salida: false, pull: 'down' });
+  });
+
+  it('un pin que el código no configura no aparece (se deduce de otra forma)', () => {
+    expect(direccionesDeCodigo('arduino', 'void setup() { digitalWrite(7, HIGH); }').has(7)).toBe(false);
   });
 });

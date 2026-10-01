@@ -39,5 +39,6 @@
     "activeLevel": 0,
     "pull": "up"
   },
-  "svg": "module.svg"
+  "svg": "module.svg",
+  "model": "model.js"
 }

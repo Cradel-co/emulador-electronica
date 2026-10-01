@@ -6,21 +6,21 @@ Una Fuente regulable de 5 V alimenta el ESP32 y, por otro camino, un pulsador en
 
 ```
 Fuente (5 V) ──┬── 5V de la placa          (alimenta el ESP32)
-               └── Pulsador ── LED ── Resistencia 150 Ω ── GND
+               └── Pulsador ── LED ── Resistencia 220 Ω ── GND
 Fuente GND ────── GND de la placa           (referencia común)
 ```
 
 - El pulsador une sus dos patas (OUT y GND, así se llaman en el módulo) mientras lo
   apretás: para la electricidad es un cable que se cierra.
-- Corriente con el pulsador apretado: (5 V − 2 V del LED) / (150 Ω + 15 Ω del LED)
-  ≈ 18 mA, dentro de los 20 mA recomendados.
+- Corriente con el pulsador apretado: (5 V − ~2 V del LED) / 220 Ω ≈ 14 mA, dentro de los
+  20 mA recomendados (el motor usa la curva real del diodo, no una caída fija).
 
 ## Para probar
 
 1. Ejecutar (▶). La placa arranca porque la fuente la alimenta por el pin 5V
    ("USB conectado" está apagado a propósito).
 2. Apretar el pulsador (en el dibujo o en el panel del módulo): el LED prende.
-3. Ventana Debug → Alimentación: la fuente entrega ~120 mA (la placa) y ~138 mA con el
+3. Ventana Debug → Alimentación: la fuente entrega ~120 mA (la placa) y ~134 mA con el
    pulsador apretado (placa + LED).
 
 ## Variantes para experimentar

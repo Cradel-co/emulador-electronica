@@ -4,3 +4,4 @@ export * from './board.js';
 export * from './languages.js';
 export * from './diagram.js';
 export * from './protocol.js';
+export * from './modelo.js';

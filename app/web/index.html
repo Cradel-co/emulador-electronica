@@ -35,6 +35,7 @@
         <span id="dispositivo" class="widget solo-proyecto" title="Placa que se emula">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="3" width="12" height="18" rx="2"/><path d="M10 7h4M9 17h6"/></svg>
           <span id="dispositivo-texto">ESP32-S3 DevKitC-1</span>
+          <button id="quitar-placa" type="button" class="quitar-placa" title="Quitar la placa (el proyecto queda como circuito sin placa; el código se guarda)" aria-label="Quitar la placa" hidden>×</button>
         </span>
         <button id="usb" type="button" class="widget widget-usb solo-proyecto" aria-pressed="false" hidden
           title="USB conectado: alimenta la placa como si la enchufaras a la PC. Desconectado, hace falta una Fuente regulable cableada a la placa.">
@@ -341,6 +342,19 @@
         <menu>
           <button value="cancelar">Cancelar</button>
           <button value="crear" class="primario">Crear</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <dialog id="dlg-placa">
+      <form method="dialog">
+        <h2>Agregar placa</h2>
+        <p class="hint">El proyecto no tiene placa. Al agregarla vas a poder programarla; el circuito queda como está.</p>
+        <label>Placa <select id="placa-nueva"></select></label>
+        <label>Lenguaje <select id="placa-lenguaje"></select></label>
+        <menu>
+          <button value="cancelar">Cancelar</button>
+          <button value="agregar" class="primario">Agregar</button>
         </menu>
       </form>
     </dialog>
