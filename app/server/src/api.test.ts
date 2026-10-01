@@ -220,3 +220,19 @@ describe('POST /api/projects/:name/reload', () => {
     expect(conPlaca.body.project.sim.autoReload).toBe(true);
   });
 });
+
+/**
+ * El estado que un cliente nuevo no puede deducir de los eventos: `pin.out` y los controles
+ * solo viajan cuando algo cambia. Sin esto, una UI que reconecta queda con los niveles de la
+ * corrida anterior y pinta un LED encendido con el pin en 0 (issue #8).
+ */
+describe('GET /api/emulator expone el estado en vivo', () => {
+  it('trae niveles y cerrados, aunque no haya nada corriendo', async () => {
+    const { status, body } = await pedir('/api/emulator');
+    expect(status).toBe(200);
+    // La forma, no el contenido: el emulador es global y otro test pudo dejar algo andando.
+    expect(body.niveles).toBeTypeOf('object');
+    expect(body.niveles).not.toBeNull();
+    expect(Array.isArray(body.cerrados)).toBe(true);
+  });
+});
