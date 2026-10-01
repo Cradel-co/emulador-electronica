@@ -100,6 +100,14 @@ export function scanPins(language: Language, content: string, desc?: BoardDescri
       const nombre = m[1] ?? m[2]!;
       if (usadas.has(nombre)) agregar(valorPinAvr(m[3]!));
     }
+    // Pines que se le pasan a una librería al crear el objeto: `Adafruit_ST7735 tft(10, 9, 8);`,
+    // `LiquidCrystal lcd(12, 11, 5, 4, 3, 2);`. Solo si todos los argumentos son números de pin
+    // (así `Adafruit_SSD1306 oled(128, 64, &Wire, -1)` no cuenta).
+    for (const m of texto.matchAll(/^\s*[A-Z]\w*\s+[A-Za-z_]\w*\s*\(([^()]*)\)\s*;/gm)) {
+      const args = m[1]!.split(',').map((a) => a.trim());
+      const pines = args.map((a) => (/^(?:A\d|\d{1,2})$/.test(a) ? valorPinAvr(a) : null));
+      if (args.length > 0 && pines.every((g) => g !== null)) pines.forEach(agregar);
+    }
   }
   // El I2C usa sus pines sin que el código los nombre: Wire (y las librerías de sensores, que
   // incluyen Wire.h) toma SDA/SCL del bus de la placa. Sin esto, cablear un sensor I2C avisaba
@@ -108,6 +116,14 @@ export function scanPins(language: Language, content: string, desc?: BoardDescri
     for (const bus of desc?.buses?.i2c ?? []) {
       agregar(bus.sda);
       agregar(bus.scl);
+    }
+  }
+  // Lo mismo con el SPI: SCK, MOSI y MISO son los del bus (D13, D11 y D12 en el Uno).
+  if (language === 'arduino' && /#\s*include\s*<SPI\.h>|\bSPI\s*\./.test(texto)) {
+    for (const bus of desc?.buses?.spi ?? []) {
+      agregar(bus.sck);
+      agregar(bus.mosi);
+      agregar(bus.miso);
     }
   }
   return [...found].sort((a, b) => a - b);
@@ -271,8 +287,10 @@ export function diffDiagramVsCode(project: Project, codePins: number[], desc?: B
       if (pin !== null) diagramPins.add(pin);
     }
   }
+  // MISO del bus SPI: el programa lo usa si incluye SPI.h, pero una pantalla (solo escritura) no lo cablea.
+  const miso = new Set((desc?.buses?.spi ?? []).map((b) => b.miso));
   for (const pin of codePins) {
-    if (!diagramPins.has(pin)) {
+    if (!diagramPins.has(pin) && !miso.has(pin)) {
       warnings.push({
         kind: 'code-pin-unwired',
         pin,

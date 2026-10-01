@@ -192,6 +192,19 @@ describe('código comentado y simbridge.pin', () => {
 
 describe('scanPins: el I2C usa SDA/SCL sin nombrarlos', () => {
   const uno = BoardDescriptorSchema.parse(JSON.parse(readFileSync(new URL('../../../modules/arduino-uno/module.json', import.meta.url), 'utf8')).board);
+  it('con SPI.h cuenta SCK/MOSI/MISO del bus, y los pines que se le pasan al objeto de la librería', () => {
+    const tft = '#include <SPI.h>\n#include <Adafruit_ST7735.h>\nAdafruit_ST7735 tft(10, 9, 8);\nvoid setup(){}';
+    expect(scanPins('arduino', tft, uno)).toEqual([8, 9, 10, 11, 12, 13]);
+    expect(scanPins('arduino', 'LiquidCrystal lcd(12, 11, 5, 4, 3, 2);', uno)).toEqual([2, 3, 4, 5, 11, 12]);
+    // Tamaños y punteros no son pines.
+    expect(scanPins('arduino', 'Adafruit_SSD1306 oled(128, 64, &Wire, -1);', uno)).toEqual([]);
+  });
+
+  it('una pantalla SPI sin MISO cableado no avisa de D12', () => {
+    const p = { wires: [13, 11, 10, 9, 8].map((d) => ({ from: 'tft.X', to: `board.D${d}` })) } as unknown as Parameters<typeof diffDiagramVsCode>[0];
+    expect(diffDiagramVsCode(p, [8, 9, 10, 11, 12, 13], uno)).toEqual([]);
+  });
+
   it('con Wire (o una librería que lo incluye) cuenta A4/A5 del bus del Uno', () => {
     expect(scanPins('arduino', '#include <Wire.h>\n#include <Adafruit_BME280.h>\nvoid setup(){}', uno)).toEqual([18, 19]);
     expect(scanPins('arduino', 'void setup(){ Wire.begin(); }', uno)).toEqual([18, 19]);
