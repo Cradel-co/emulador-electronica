@@ -145,6 +145,10 @@ En el catálogo de la izquierda agregás módulos y los conectás con cables. Ca
 
 Módulos disponibles de fábrica: `arduino-uno`, `esp32-s3-devkitc-1`, `esp32-c3-devkitm-1`, `esp32-c6-devkitc-1`, `button`, `switch`, `led`, `relay`, `resistor`, `rxb6`, `stx882`, `remote-433`, `door-sensor-433`, `siren-433`.
 
+**Pantallas todavía no hay** (ni OLED, ni LCD, ni 7 segmentos): falta una pieza de la
+plataforma, no el módulo. Por qué, y qué haría falta para cada tipo, en
+[`docs/pantallas.md`](docs/pantallas.md).
+
 ### 3. Escribir el código
 
 Editor con pestañas en el panel central. Para ESPHome, la app **inyecta el componente `sim_bridge`** automáticamente: es el puente que le lleva al firmware los eventos de los pines (qué botón se apretó, qué pin se puso en 1).
@@ -264,6 +268,7 @@ emulador-electronica/
 | [`docs/placas-como-datos.md`](docs/placas-como-datos.md) | El bloque `board` en detalle |
 | [`docs/custom-chips.md`](docs/custom-chips.md) | Crear un chip de Wokwi reutilizable |
 | [`docs/troubleshooting.md`](docs/troubleshooting.md) | Errores de arranque y sus causas (UI en blanco, REPL, 403 en LAN) |
+| [`docs/pantallas.md`](docs/pantallas.md) | Por qué todavía no hay pantallas y qué haría falta (7 segmentos, LCD, OLED, e-paper) |
 | [`modules/README.md`](modules/README.md) | Formato de módulo, importación, Ley de Ohm, seguridad del SVG |
 
 ## Wokwi (opcional)
