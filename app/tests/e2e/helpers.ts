@@ -43,12 +43,29 @@ export async function cablear(page: Page, a: string, b: string): Promise<void> {
 
 /** Punto de pantalla en la mitad de un cable (los cables son curvas: el centro del bbox no cae sobre la línea). */
 export async function mitadDeCable(page: Page, from: string, to: string): Promise<{ x: number; y: number }> {
-  return cable(page, from, to).locator('.cable-hit').evaluate((el) => {
+  const medir = () => cable(page, from, to).locator('.cable-hit').evaluate((el) => {
     const path = el as SVGPathElement;
     const p = path.getPointAtLength(path.getTotalLength() / 2);
     const m = path.getScreenCTM()!;
     return { x: p.x * m.a + p.y * m.c + m.e, y: p.x * m.b + p.y * m.d + m.f };
   });
+  // El lienzo se re-encuadra solo cuando cambia de tamaño (`vistaAutomatica` en canvas.ts), y eso
+  // pasa mientras la página termina de armarse: aparecen los avisos, se acomodan los paneles. Si se
+  // mide antes de que se estabilice, el CTM es el de antes y el punto cae fuera del SVG — el click
+  // no le llega a nadie y el test falla de forma intermitente. Así que se mide hasta que el punto
+  // caiga dentro del lienzo y repita dos veces seguidas.
+  let previo: { x: number; y: number } | null = null;
+  for (let intento = 0; intento < 40; intento++) {
+    const p = await medir();
+    const caja = await page.locator('#lienzo').boundingBox();
+    const dentro = caja !== null
+      && p.x >= caja.x && p.x <= caja.x + caja.width
+      && p.y >= caja.y && p.y <= caja.y + caja.height;
+    if (dentro && previo && Math.abs(previo.x - p.x) < 0.5 && Math.abs(previo.y - p.y) < 0.5) return p;
+    previo = dentro ? p : null;
+    await page.waitForTimeout(50);
+  }
+  throw new Error(`el cable ${from} → ${to} no se quedó quieto dentro del lienzo en 2 s`);
 }
 
 /** Mueve un módulo arrastrándolo por su etiqueta. */

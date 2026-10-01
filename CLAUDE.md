@@ -35,6 +35,10 @@ cd /home/marcos/marcos/emulador-electronica/app && HOST=0.0.0.0 EMU_ALLOWED_HOST
 cd /home/marcos/marcos/emulador-electronica/app && npx vitest run
 cd /home/marcos/marcos/emulador-electronica/app && npx playwright test
 
+# Los e2e usan el Chrome instalado en la PC. En una máquina sin Chrome (instalarlo pide root):
+#   npx playwright install chromium        # baja el Chromium de Playwright, sin sudo
+#   EMU_E2E_CHANNEL=chromium npx playwright test
+
 # Typecheck por workspace (el CI no perdona un any implícito)
 cd /home/marcos/marcos/emulador-electronica/app/server && npx tsc -p tsconfig.json --noEmit
 

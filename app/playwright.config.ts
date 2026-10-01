@@ -20,8 +20,10 @@ export default defineConfig({
   workers: 1,
   reporter: 'list',
   use: {
-    // El Google Chrome instalado en la PC: no hace falta `npx playwright install`.
-    channel: 'chrome',
+    // Por defecto, el Google Chrome instalado en la PC: no hace falta `npx playwright install`.
+    // En una máquina sin Chrome (o en CI), `EMU_E2E_CHANNEL=chromium` usa el Chromium que baja
+    // Playwright con `npx playwright install chromium`, que no necesita root.
+    channel: process.env.EMU_E2E_CHANNEL ?? 'chrome',
     baseURL: `http://127.0.0.1:${PORT}`,
     viewport: { width: 1600, height: 950 },
     screenshot: 'only-on-failure',
