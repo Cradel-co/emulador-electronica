@@ -26,6 +26,10 @@ Si hay un PR abierto que toca los mismos archivos, **revisarlo antes de escribir
 export PATH="$HOME/.nvm/versions/node/v24.14.0/bin:$PATH"
 cd /home/marcos/marcos/emulador-electronica/app && npm run dev
 
+# Para entrar desde la tailnet (http://100.64.0.1:5180): el server escucha en 127.0.0.1
+# y además valida el Host contra DNS rebinding, así que hacen falta las dos variables.
+HOST=0.0.0.0 EMU_ALLOWED_HOSTS=100.64.0.1:5180 npm run dev
+
 # Tests unitarios (vitest) y e2e (playwright)
 cd /home/marcos/marcos/emulador-electronica/app && npx vitest run
 cd /home/marcos/marcos/emulador-electronica/app && npx playwright test
@@ -35,6 +39,15 @@ cd /home/marcos/marcos/emulador-electronica/app/server && npx tsc -p tsconfig.js
 
 # Build de producción
 cd /home/marcos/marcos/emulador-electronica/app && npm run build
+```
+
+El script `dev` levanta con `EMU_FREE_CIRCUIT=1` (motor eléctrico nuevo, ver
+[SDD-CIRCUITO-LIBRE.md](./SDD-CIRCUITO-LIBRE.md)). Sin esa variable responde el motor viejo
+y un circuito con un interruptor en serie reporta 0 mA. Si algo "no prende" en la UI, lo
+primero es ver contra qué servidor estás mirando y si tiene el flag:
+
+```bash
+curl -s localhost:5180/api/projects/<proyecto>/pins | python3 -m json.tool | grep -A4 leds
 ```
 
 ## Convenciones
