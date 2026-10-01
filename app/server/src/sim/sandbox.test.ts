@@ -219,7 +219,7 @@ describe('un modelo roto dentro del motor', () => {
   }, 60_000);
 
   const proyecto = (): Project => ({
-    schemaVersion: 1, name: 't', board: null, language: null, sim: { wifiSsid: 'x', wifiPassword: 'y' },
+    schemaVersion: 1, name: 't', board: null, language: null, sim: { wifiSsid: 'x', wifiPassword: 'y', autoReload: false },
     modules: [
       { id: 'f', type: 'fuente-regulable', props: { voltage: 5, currentLimitMa: 1000 }, x: 0, y: 0 },
       { id: 'r', type: 'resistor', props: { ohms: 1000 }, x: 0, y: 0 },

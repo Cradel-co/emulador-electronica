@@ -381,6 +381,7 @@ function aplicarEnergia() {
   btn('ejecutar').disabled = on;
   btn('parar').disabled = !on;
   btn('abrir-web').disabled = true;
+  btn('recargar').disabled = true;
   marcarSimulacion(on);
 }
 
@@ -394,6 +395,7 @@ function aplicarEstadoEmulador(status) {
   btn('ejecutar').disabled = corriendo;
   btn('parar').disabled = !corriendo;
   const web = status.ports?.web;
+  btn('recargar').disabled = !corriendo;
   btn('abrir-web').disabled = !(corriendo && web && status.usesWeb !== false);
   btn('abrir-web').dataset.url = web ? `http://127.0.0.1:${web}` : '';
   marcarSimulacion(status.state === 'bridge');
@@ -2014,6 +2016,7 @@ function pintarWidgetsProyecto() {
     $('config-run').hidden = !p.board;
     $('quitar-placa').hidden = !p.board;
     $('reset').hidden = !p.board;
+    $('recargar').hidden = !p.board;
     $('abrir-web').hidden = !p.board;
     $('config-run-texto').textContent = p.language ? (NOMBRE_LENGUAJE_PROYECTO[p.language] ?? p.language) : '';
     btn('ejecutar').title = p.board ? 'Compilar y ejecutar (Shift+F10 · Ctrl+Enter)' : 'Energizar el circuito: prende las fuentes regulables (Shift+F10 · Ctrl+Enter)';
@@ -2373,6 +2376,44 @@ $('quitar-placa').onclick = () => void quitarPlaca();
 $('badge-alimentacion').onclick = () => {
   if (state.alimentacion?.quemada) void reemplazarPlaca();
 };
+/**
+ * Lleva al chip el código guardado sin reiniciar el emulador. En MicroPython es un
+ * soft reboot (instantáneo); en los lenguajes que compilan, el server compila y relanza.
+ */
+async function recargarCodigo() {
+  if (!state.proyecto) return;
+  const b = btn('recargar');
+  b.disabled = true;
+  try {
+    const r = await api(`/api/projects/${state.proyecto.name}/reload`, { method: 'POST' });
+    if (!r.ok) log('emu', `[recarga] no se recargó: ${r.motivo ?? 'sin detalle'}`);
+    else log('emu', r.modo === 'relanzado' ? '[recarga] firmware nuevo: corrida relanzada' : '[recarga] código recargado en el chip');
+  } catch (e: any) {
+    log('emu', `[recarga] ${String((e as Error)?.message ?? e)}`);
+  } finally {
+    // No se adivina si quedó corriendo (un relanzado puede haber fallado): se relee el estado,
+    // que es el que decide si el botón vuelve a quedar habilitado.
+    await api('/api/emulator').then((r) => aplicarEstadoEmulador(r.status)).catch(() => {
+      b.disabled = false;
+    });
+  }
+}
+$('recargar').onclick = () => void recargarCodigo();
+
+/** Activa/desactiva `sim.autoReload`: recargar el chip solo, cada vez que se guarda. */
+async function alternarAutoReload() {
+  const p = state.proyecto;
+  if (!p) return;
+  const sim = { ...p.sim, autoReload: !p.sim?.autoReload };
+  try {
+    const r = await api(`/api/projects/${p.name}`, { method: 'PUT', body: JSON.stringify({ sim }) });
+    state.proyecto = r.project;
+    log('build', `[recarga] recargar al guardar: ${r.project.sim.autoReload ? 'activado' : 'desactivado'}`);
+  } catch (e: any) {
+    log('build', `[recarga] ${String((e as Error)?.message ?? e)}`);
+  }
+}
+
 $('reset').onclick = async () => {
   try {
     const r = await api('/api/emulator/reset', { method: 'POST' });
@@ -2575,6 +2616,14 @@ const ACCIONES = [
     hacer: () => btn('parar').click(), habilitada: () => !btn('parar').disabled,
   },
   { id: 'reset', titulo: 'Reset', menu: 'Simulación', hacer: () => btn('reset').click(), habilitada: hayProyecto },
+  {
+    id: 'recargar', titulo: 'Recargar el código en el chip', menu: 'Simulación', atajo: 'Ctrl+Shift+F5',
+    hacer: () => btn('recargar').click(), habilitada: () => !btn('recargar').disabled,
+  },
+  {
+    id: 'auto-recarga', titulo: 'Recargar al guardar (activar / desactivar)', menu: 'Simulación',
+    hacer: () => void alternarAutoReload(), habilitada: () => Boolean(state.proyecto?.board),
+  },
   { id: 'abrir-web', titulo: 'Abrir la web del dispositivo', menu: 'Simulación', hacer: () => btn('abrir-web').click(), habilitada: () => !btn('abrir-web').disabled },
   { id: 'ver-debug', titulo: 'Ventana Debug', menu: 'Depurar', atajo: 'Alt+5', hacer: () => alternarConsola('debug') },
   {

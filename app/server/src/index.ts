@@ -15,7 +15,7 @@ import {
 } from '@emu/shared';
 import { PATHS } from './paths.js';
 import { ProjectStore, ProjectError } from './projectStore.js';
-import { BuildService, type BuildError as BuildErrorLike, type BuildResult } from './buildService.js';
+import { BuildService, type BuildArtifacts, type BuildError as BuildErrorLike, type BuildResult } from './buildService.js';
 import { EmulatorManager, type EmulatorEvents } from './emulator.js';
 import type { Emulador } from './emulatorBackend.js';
 import { ENGINES } from './engines/index.js';
@@ -281,7 +281,10 @@ async function agregarPlaca(nombre: string, board: string, lenguaje: Language, p
   const def = (await loadCatalog()).find((m) => m.type === placa.id);
   if (!def) throw new ProjectError(`La placa "${board}" no está en el catálogo`, 400);
   const actual = await store.read(nombre);
-  const nuevo = ponerPlaca(actual, def, lenguaje, pos);
+  const puesta = ponerPlaca(actual, def, lenguaje, pos);
+  // Al incorporar el procesador queda activa la recarga al guardar: es la razón de ser
+  // del campo, y un proyecto recién armado es justo donde se edita el código a cada rato.
+  const nuevo = { ...puesta, sim: { ...puesta.sim, autoReload: true } };
   // Con placa, ▶ vuelve a significar "correr el firmware": el circuito deja de estar energizado aparte.
   if (proyectoEnergizado === nombre) energizar(nombre, false);
   await store.escribirSiFalta(nombre, lenguaje, archivos);
@@ -506,6 +509,8 @@ async function registerRoutes(): Promise<void> {
       const project = await requireProject(name);
       await store.writeFile(name, file, project.language, String(body.content ?? ''));
       broadcast({ type: 'project.changed', project: name, what: 'file', file, origin: clienteDe(req) });
+      // No se espera: guardar tiene que contestar al toque, la recarga va por la consola.
+      agendarAutoReload(project);
       reply.send({ ok: true, path: file });
     } catch (err) {
       fail(reply, err);
@@ -658,6 +663,17 @@ async function registerRoutes(): Promise<void> {
     reply.send({ ok: true });
   });
 
+  app.post('/api/projects/:name/reload', async (req, reply) => {
+    const { name } = req.params as { name: string };
+    try {
+      await requireProject(name);
+      const r = await recargarCodigo(name);
+      reply.send(r);
+    } catch (err) {
+      fail(reply, err);
+    }
+  });
+
   app.post('/api/emulator/reset', async (req, reply) => {
     try {
       const out = await emulator.reset();
@@ -718,6 +734,99 @@ async function runBuild(project: { name: string }): Promise<BuildResult> {
   return result;
 }
 
+/**
+ * Escribe en el filesystem del chip los archivos que el build marcó para el REPL
+ * (MicroPython: el puente generado + el `main.py` del usuario) y los deja corriendo
+ * con un soft reboot. `uploadMicroPython` funciona con el emulador andando, así que
+ * esto sirve igual para arrancar que para recargar sin reiniciar nada.
+ * Sin `artifacts.repl` (los lenguajes que compilan) no hay nada que subir.
+ */
+async function subirPorRepl(
+  full: { name: string; language: Language | null },
+  artifacts: BuildArtifacts,
+): Promise<boolean> {
+  if (!artifacts.repl || !(emulator instanceof EmulatorManager)) return false;
+  logBuild('Subiendo el código por el REPL…');
+  const delProyecto = await Promise.all(
+    artifacts.repl.delProyecto.map(async (ruta: string) => ({
+      path: ruta,
+      content: await store.readFile(full.name, ruta, full.language).catch(() => ''),
+    })),
+  );
+  const subida = await emulator.uploadMicroPython([...artifacts.repl.generados, ...delProyecto]);
+  logBuild(subida.ok ? `Código subido (${subida.output}).` : `[error] no se pudo subir el código: ${subida.output}`);
+  return subida.ok;
+}
+
+/** Resultado de una recarga: qué camino tomó, o por qué no se hizo nada. */
+type Recarga = { ok: boolean; modo?: 'repl' | 'relanzado'; motivo?: string };
+
+/**
+ * Lleva al chip el código que está en disco, sin que el usuario tenga que parar y
+ * volver a arrancar el emulador.
+ *
+ * MicroPython no compila: alcanza con re-subir los archivos por el REPL y un soft
+ * reboot (instantáneo). Los lenguajes compilados no tienen recarga en caliente —
+ * el código vive dentro del firmware grabado—, así que ahí se compila y se relanza
+ * la corrida, que es lo mismo que haría el usuario a mano pero en un paso.
+ *
+ * Solo actúa si el emulador está corriendo *este* proyecto: no arranca nada por su
+ * cuenta (si no corre nada, el próximo ▶ ya va a tomar el código nuevo).
+ */
+async function recargarCodigo(nombre: string): Promise<Recarga> {
+  const full = await store.read(nombre);
+  if (!tienePlaca(full)) return { ok: false, motivo: 'el proyecto no tiene placa: no hay código que recargar' };
+  if (runningProject !== nombre || !emulator.getStatus().running) {
+    return { ok: false, motivo: 'el emulador no está corriendo este proyecto' };
+  }
+  const result = await runBuild(full);
+  if (!result.ok || !result.artifacts) return { ok: false, motivo: 'el código no compila' };
+  if (await subirPorRepl(full, result.artifacts)) {
+    // El soft reboot volvió a ejecutar el código: los pines vigilados se rearman solos
+    // porque el puente los vuelve a anunciar, pero los que salen del código pueden haber cambiado.
+    const pins = await pinsDeCodigo(full).catch(() => []);
+    for (const pin of pins) emulator.getBridge()?.watch(pin);
+    logBuild('Código recargado en el chip (sin reiniciar el emulador).');
+    broadcast({ type: 'project.changed', project: nombre, what: 'file', origin: 'server' });
+    return { ok: true, modo: 'repl' };
+  }
+  if (result.artifacts.repl) return { ok: false, motivo: 'no se pudo subir el código por el REPL' };
+  // Compilado: el firmware nuevo ya está, se relanza con él (`forceBuild: false` reusa este build).
+  logBuild('Firmware nuevo: se relanza la corrida (los lenguajes compilados no recargan en caliente).');
+  const r = await runProject(full, false);
+  return r.ok ? { ok: true, modo: 'relanzado' } : { ok: false, motivo: 'no se pudo relanzar la corrida' };
+}
+
+/**
+ * Recargas pedidas por el guardado de archivos. Se agrupan por proyecto con una espera
+ * corta porque el editor guarda seguido (y en los compilados cada recarga paga Docker):
+ * entre tecla y tecla no tiene sentido compilar dos veces.
+ */
+const RETARDO_AUTORELOAD_MS = 600;
+const autoReloadPendiente = new Map<string, NodeJS.Timeout>();
+let autoReloadEnCurso: Promise<unknown> = Promise.resolve();
+
+/** Agenda la recarga del proyecto si tiene `sim.autoReload` y el emulador lo está corriendo. */
+function agendarAutoReload(project: Project): void {
+  if (!project.sim.autoReload) return;
+  if (runningProject !== project.name || !emulator.getStatus().running) return;
+  clearTimeout(autoReloadPendiente.get(project.name));
+  autoReloadPendiente.set(
+    project.name,
+    setTimeout(() => {
+      autoReloadPendiente.delete(project.name);
+      // En fila: dos recargas a la vez se pelearían por el REPL y por el emulador.
+      autoReloadEnCurso = autoReloadEnCurso.then(async () => {
+        const r = await recargarCodigo(project.name).catch((err: unknown) => ({
+          ok: false,
+          motivo: (err as Error).message,
+        }));
+        if (!r.ok && r.motivo) logBuild(`[recarga] no se recargó: ${r.motivo}`);
+      });
+    }, RETARDO_AUTORELOAD_MS),
+  );
+}
+
 async function runProject(
   project: { name: string },
   forceBuild: boolean,
@@ -771,18 +880,8 @@ async function runProject(
   await emulator.start(full.name, artifacts, motor!.opcionesArranque(placa.desc, artifacts));
   void depurador.alArrancado();
 
-  if (artifacts.repl && emulator instanceof EmulatorManager) {
-    // Sin esto, el chip arranca a un REPL vacío: nada ejecuta el código del usuario (8.8).
-    logBuild('Subiendo el código por el REPL…');
-    const delProyecto = await Promise.all(
-      artifacts.repl.delProyecto.map(async (ruta) => ({
-        path: ruta,
-        content: await store.readFile(full.name, ruta, full.language).catch(() => ''),
-      })),
-    );
-    const subida = await emulator.uploadMicroPython([...artifacts.repl.generados, ...delProyecto]);
-    logBuild(subida.ok ? `Código subido (${subida.output}).` : `[error] no se pudo subir el código: ${subida.output}`);
-  }
+  // Sin esto, el chip arranca a un REPL vacío: nada ejecuta el código del usuario (8.8).
+  await subirPorRepl(full, artifacts);
 
   // Al arrancar se vigilan los pines que usa el código, así la UI muestra los
   // LED/salidas sin que el usuario tenga que seleccionarlos uno por uno.

@@ -174,3 +174,49 @@ describe('proyectos sin placa (board: null)', () => {
     expect((await pedir('/api/projects/proto-api/files/main.py')).body.content).toBe('print("mio")\n');
   });
 });
+
+/**
+ * Recarga del código sin reiniciar el emulador. Acá se prueba la parte que no necesita
+ * un chip: cuándo se hace y cuándo no, y que `sim.autoReload` quede activo al incorporar
+ * la placa. La subida por el REPL en sí la cubre el emulador (emulator.test.ts).
+ */
+describe('POST /api/projects/:name/reload', () => {
+  it('falla si el proyecto no existe', async () => {
+    // Como el resto de las rutas de proyecto: store.read tira ENOENT y fail() lo manda como 500.
+    const { status, body } = await pedir('/api/projects/no-existe/reload', { method: 'POST' });
+    expect(status).toBeGreaterThanOrEqual(400);
+    expect(body.ok).not.toBe(true);
+  });
+
+  it('sin placa no hay código que recargar', async () => {
+    await pedir('/api/projects', { method: 'POST', body: { name: 'recarga-proto', board: null, language: null } });
+    const { status, body } = await pedir('/api/projects/recarga-proto/reload', { method: 'POST' });
+    expect(status).toBe(200);
+    expect(body).toMatchObject({ ok: false });
+    expect(body.motivo).toContain('no tiene placa');
+  });
+
+  it('con el emulador parado no arranca nada por su cuenta', async () => {
+    await pedir('/api/projects', { method: 'POST', body: { name: 'recarga-mp', language: 'micropython' } });
+    const { status, body } = await pedir('/api/projects/recarga-mp/reload', { method: 'POST' });
+    expect(status).toBe(200);
+    expect(body).toMatchObject({ ok: false });
+    expect(body.motivo).toContain('no está corriendo');
+  });
+
+  it('el proyecto nuevo con placa viene con sim.autoReload, y se puede desactivar', async () => {
+    const creado = await pedir('/api/projects', { method: 'POST', body: { name: 'recarga-flag', language: 'micropython' } });
+    expect(creado.body.project.sim.autoReload).toBe(true);
+    const apagado = await pedir('/api/projects/recarga-flag', { method: 'PUT', body: { sim: { wifiSsid: 'sim-wifi', wifiPassword: 'sim-password', autoReload: false } } });
+    expect(apagado.body.project.sim.autoReload).toBe(false);
+    // Persistido: se relee del disco, no de memoria.
+    expect((await pedir('/api/projects/recarga-flag')).body.project.sim.autoReload).toBe(false);
+  });
+
+  it('incorporar la placa a un circuito sin placa deja la recarga activa', async () => {
+    await pedir('/api/projects', { method: 'POST', body: { name: 'recarga-alta', board: null, language: null } });
+    expect((await pedir('/api/projects/recarga-alta')).body.project.sim.autoReload).toBe(false);
+    const conPlaca = await pedir('/api/projects/recarga-alta/board', { method: 'POST', body: { board: 'esp32-s3-devkitc-1', language: 'micropython' } });
+    expect(conPlaca.body.project.sim.autoReload).toBe(true);
+  });
+});
