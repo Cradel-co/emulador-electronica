@@ -91,7 +91,7 @@ function plantilla(def, props) {
 
 /**
  * Estado en vivo que cambia el dibujo durante la simulación.
- * @typedef {{ on?: boolean, presionado?: boolean, activo?: boolean, flash?: boolean, sonando?: boolean, boton?: number }} Vivo
+ * @typedef {{ on?: boolean, presionado?: boolean, activo?: boolean, flash?: boolean, sonando?: boolean, boton?: number, pantalla?: any }} Vivo
  */
 
 /** @param {Vivo} vivo */
@@ -131,7 +131,7 @@ export function aplicarEstadoVivo(raiz, vivo) {
  * Dibuja el cuerpo del módulo (sin pines) dentro de `g`.
  * @param {SVGElement} g @param {any} def @param {{ props?: Record<string, any> }} inst @param {Vivo} [vivo]
  */
-export function dibujarModulo(g, def, inst, vivo = {}) {
+export function dibujarModulo(g, def, inst, vivo: { pantalla?: any; [k: string]: any } = {}) {
   const nodos = def.svgMarkup ? plantilla(def, inst.props ?? {}) : null;
   if (!nodos) return dibujarGenerico(g, def);
   const cuerpo = el('g', { class: 'cuerpo' }, g);
@@ -141,6 +141,59 @@ export function dibujarModulo(g, def, inst, vivo = {}) {
     nodo.classList.add('ctrl');
     nodo.setAttribute('data-control', nodo.getAttribute('data-ctrl'));
   }
+  // Pantallas: la imagen que publica el chip va sobre la parte marcada con data-pantalla. La pone
+  // la app (no el SVG del módulo, que no puede traer imágenes): es un PNG que arma ella misma.
+  for (const vidrio of cuerpo.querySelectorAll('[data-pantalla]')) {
+    const img = el('image', {
+      class: 'pantalla-chip', 'data-pantalla-de': inst.id ?? '',
+      x: vidrio.getAttribute('x') ?? 0, y: vidrio.getAttribute('y') ?? 0,
+      width: vidrio.getAttribute('width') ?? 0, height: vidrio.getAttribute('height') ?? 0,
+      preserveAspectRatio: 'none',
+    });
+    vidrio.after(img);
+    ponerImagenPantalla(img, vivo.pantalla, String(inst.props?.color ?? def.props?.color?.default ?? 'blanco'));
+  }
+}
+
+/** Colores de los OLED comunes: blanco, azul, y el bicolor (las 16 líneas de arriba en amarillo). */
+const COLORES_OLED = { blanco: [235, 242, 255], azul: [70, 170, 255], amarillo: [255, 214, 60] };
+const urlsPantalla = new Map<string, string>();
+
+/** PNG de lo que muestra una pantalla de chip (cacheado: el mismo cuadro no se vuelve a armar). */
+export function urlPantalla(p: { ancho: number; alto: number; encendida: boolean; brillo: number; filas: string[] }, color: string): string {
+  const clave = `${color}|${p.encendida}|${p.brillo}|${p.filas.join('')}`;
+  const hecha = urlsPantalla.get(clave);
+  if (hecha) return hecha;
+  const c = document.createElement('canvas');
+  c.width = p.ancho;
+  c.height = p.alto;
+  const ctx = c.getContext('2d');
+  const datos = ctx.createImageData(p.ancho, p.alto);
+  // Con contraste 0 un OLED igual se ve (tenue): el brillo va de 35 % a 100 %.
+  const k = p.encendida ? 0.35 + 0.65 * Math.max(0, Math.min(1, p.brillo)) : 0;
+  for (let y = 0; y < p.alto; y++) {
+    const fila = p.filas[y] ?? '';
+    const base = color === 'amarillo-azul' ? (y < 16 ? COLORES_OLED.amarillo : COLORES_OLED.azul) : (COLORES_OLED[color] ?? COLORES_OLED.blanco);
+    for (let x = 0; x < p.ancho; x++) {
+      const on = (parseInt(fila.slice((x >> 3) * 2, (x >> 3) * 2 + 2), 16) >> (7 - (x & 7))) & 1;
+      const i = (y * p.ancho + x) * 4;
+      datos.data[i] = on ? base[0] * k : 6;
+      datos.data[i + 1] = on ? base[1] * k : 8;
+      datos.data[i + 2] = on ? base[2] * k : 12;
+      datos.data[i + 3] = 255;
+    }
+  }
+  ctx.putImageData(datos, 0, 0);
+  const url = c.toDataURL('image/png');
+  if (urlsPantalla.size > 200) urlsPantalla.clear();
+  urlsPantalla.set(clave, url);
+  return url;
+}
+
+/** Pone (o saca) la imagen de una pantalla. Sin cuadro todavía, se ve el vidrio apagado. */
+export function ponerImagenPantalla(img: Element, p, color: string): void {
+  if (p && Array.isArray(p.filas)) img.setAttribute('href', urlPantalla(p, color));
+  else img.removeAttribute('href');
 }
 
 /** Módulo sin dibujo (o no encontrado en el catálogo): una caja con su nombre. */

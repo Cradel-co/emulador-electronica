@@ -89,3 +89,55 @@ test('con la simulación: compila con la librería de Adafruit, lee el entorno y
   await page.screenshot({ path: 'test-results/chips-corriendo.png' });
   await page.locator('#parar').click();
 });
+
+const SKETCH_OLED = `#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+Adafruit_SSD1306 oled(128, 64, &Wire, -1);
+void setup() {
+  Serial.begin(115200);
+  if (!oled.begin(SSD1306_SWITCHCAPVCC, 0x3C)) { Serial.println("sin pantalla"); while (1) delay(10); }
+  oled.clearDisplay();
+  oled.setTextColor(SSD1306_WHITE);
+  oled.setTextSize(2);
+  oled.setCursor(4, 4);
+  oled.print("Hola!");
+  oled.drawRect(0, 0, 128, 64, SSD1306_WHITE);
+  oled.fillCircle(100, 40, 12, SSD1306_WHITE);
+  oled.display();
+  Serial.println("listo");
+}
+void loop() {}
+`;
+
+test('pantalla OLED SSD1306: el dibujo muestra lo que dibuja el programa', async ({ page, request }) => {
+  test.skip(!process.env.E2E_EMU, 'necesita Docker: correr con E2E_EMU=1');
+  test.setTimeout(10 * 60_000);
+  const name = `e2e-oled-${Date.now().toString(36)}`;
+  expect((await request.post('/api/projects', { data: { name, language: 'arduino', board: 'arduino-uno' } })).ok()).toBeTruthy();
+  const { project } = await (await request.get(`/api/projects/${name}`)).json();
+  const placa = project.modules.find((m: { id: string }) => m.id === 'board');
+  const modules = [{ ...placa, props: { ...placa.props, usb: true } }, { id: 'oled1', type: 'oled-ssd1306-128x64', x: 760, y: 80, props: { color: 'amarillo-azul' } }];
+  const wires = [
+    { from: 'oled1.VCC', to: 'board.5V' }, { from: 'oled1.GND', to: 'board.GND' },
+    { from: 'oled1.SCL', to: 'board.A5' }, { from: 'oled1.SDA', to: 'board.A4' },
+  ];
+  expect((await request.put(`/api/projects/${name}/diagram`, { data: { modules, wires } })).ok()).toBeTruthy();
+  expect((await request.put(`/api/projects/${name}/files/sketch.cpp`, { data: { content: SKETCH_OLED } })).ok()).toBeTruthy();
+  await page.goto(`/#${name}`);
+  await expect(modulo(page, 'oled1')).toBeVisible();
+  // Sin simulación: el vidrio apagado, sin imagen.
+  await expect(modulo(page, 'oled1').locator('image.pantalla-chip')).not.toHaveAttribute('href', /.+/);
+  await page.locator('#ejecutar').click();
+  await expect(page.locator('#estado')).toHaveAttribute('data-s', 'bridge', { timeout: 9 * 60_000 });
+  await page.locator('.consola-tabs [data-tab="emu"]').click();
+  await expect(page.locator('#consola')).toContainText('listo', { timeout: 30_000 });
+  await expect(modulo(page, 'oled1').locator('image.pantalla-chip')).toHaveAttribute('href', /^data:image\/png/, { timeout: 10_000 });
+  await modulo(page, 'oled1').scrollIntoViewIfNeeded();
+  await page.screenshot({ path: 'test-results/oled-corriendo.png' });
+  await modulo(page, 'oled1').screenshot({ path: 'test-results/oled-modulo.png' });
+  await page.locator('#parar').click();
+  await expect(page.locator('#estado')).toHaveAttribute('data-s', 'stopped', { timeout: 15_000 });
+  // Sin alimentación la pantalla se apaga.
+  await expect(modulo(page, 'oled1').locator('image.pantalla-chip')).not.toHaveAttribute('href', /.+/);
+});

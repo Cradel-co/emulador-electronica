@@ -406,6 +406,8 @@ body.simulando #lienzo .ctrl:hover { filter: drop-shadow(0 0 3px #fff) drop-shad
 .claro { fill: #eef3f8; }
 .oscuro { fill: #2b3440; }
 .cuerpo-oscuro { fill: #2b3440; stroke: #3d4a58; }
+/* Pantalla de un chip (SSD1306...): píxeles nítidos al hacer zoom, y sin capturar el click. */
+image.pantalla-chip { image-rendering: pixelated; pointer-events: none; }
 .tornillo { fill: #56626f; }
 .pata { stroke: #aab4be; stroke-width: 2; }
 .brilla { filter: drop-shadow(0 0 5px rgba(255, 255, 255, .55)); }

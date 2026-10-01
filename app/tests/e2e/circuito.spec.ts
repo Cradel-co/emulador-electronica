@@ -15,9 +15,10 @@ test.describe('catálogo de módulos', () => {
   test('muestra los módulos por categoría y marca el ESP32 como programable', async ({ page, request }) => {
     await abrirProyectoNuevo(page, request);
     const categorias = page.locator('#lista-modulos .cat-header');
-    await expect(categorias).toHaveText(['Placas', 'Entradas', 'Salidas', 'Pasivos', 'Radio 433 MHz', 'Inalámbricos', 'Sensores', 'Alimentación']);
-    // 4 placas (ESP32-S3, C3, C6, Arduino Uno) + 12 módulos de fábrica (con la fuente regulable y el BME280).
-    await expect(page.locator('.modulo-card')).toHaveCount(16);
+    await expect(categorias).toHaveText(['Placas', 'Entradas', 'Salidas', 'Pasivos', 'Radio 433 MHz', 'Inalámbricos', 'Sensores', 'Alimentación', 'Pantallas']);
+    // 4 placas (ESP32-S3, C3, C6, Arduino Uno) + 14 módulos de fábrica (con la fuente regulable, el
+    // BME280, el reloj ZS-042 y la pantalla OLED).
+    await expect(page.locator('.modulo-card')).toHaveCount(18);
     const esp32 = page.locator('.modulo-card[data-type="esp32-s3-devkitc-1"]');
     await expect(esp32.locator('.tag-programable')).toHaveText('programable');
     await expect(page.locator('.modulo-card[data-type="rxb6"] .tag-programable')).toHaveCount(0);

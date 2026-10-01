@@ -1,5 +1,5 @@
 // Frontend sin bundler: ES modules nativos contra la API local (sección 11).
-import { miniatura } from './modulos.js';
+import { miniatura, ponerImagenPantalla } from './modulos.js';
 import { lenguajeDeArchivo, NOMBRE_LENGUAJE, resaltar } from './editor.js';
 import { crearDepuracion } from './depuracion.js';
 import { montarReact } from './react/montar.js';
@@ -350,7 +350,15 @@ function conectarWS() {
         }
         break;
       case 'chip.salida':
-        if (msg.project === state.proyecto?.name) state.salidasChips.set(msg.id, msg.salida);
+        if (msg.project === state.proyecto?.name) {
+          state.salidasChips.set(msg.id, msg.salida);
+          // Una pantalla refresca seguido: se cambia solo su imagen, sin redibujar todo el circuito.
+          const imgs = document.querySelectorAll(`#lienzo image[data-pantalla-de="${CSS.escape(msg.id)}"]`);
+          const inst = state.diagrama.modules.find((m) => m.id === msg.id);
+          const color = String(inst?.props?.color ?? state.catalogo.get(inst?.type)?.props?.color?.default ?? 'blanco');
+          if (imgs.length) for (const img of imgs) ponerImagenPantalla(img, state.sim.listo ? msg.salida : undefined, color);
+          else if (msg.salida?.tipo === 'pantalla') lienzo.render();
+        }
         break;
       case 'debug.stopped':
       case 'debug.continued':
@@ -474,6 +482,8 @@ function marcarSimulacion(listo) {
   } else {
     state.sim.niveles.clear();
     state.sim.controles.clear();
+    // Sin alimentación las pantallas se apagan (la RAM del controlador se pierde).
+    state.salidasChips.clear();
     // Al parar se sueltan los interruptores (el server también): hay que recalcular la corriente.
     void refrescarAvisos();
   }
@@ -1170,6 +1180,8 @@ function vivoDe(inst) {
     on: false,
     quemado: false,
     explotando: false,
+    /** Lo último que mostró la pantalla del chip del módulo (si tiene una). */
+    pantalla: state.sim.listo ? state.salidasChips.get(inst.id) : undefined,
   };
   if (def?.bridge?.role === 'output') {
     const gpio = gpioDe(inst.id, def.bridge.pin);

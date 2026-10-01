@@ -1,0 +1,17 @@
+{
+  "id": "solomon-ssd1306",
+  "nombre": "SSD1306",
+  "fabricante": "Solomon Systech",
+  "descripcion": "Controlador de pantallas OLED monocromo de hasta 128 × 64, por I2C en 0x3C (SA0 a GND) o 0x3D. Props: 'sa0' = 'bajo' | 'alto'; 'panel' = '128x64' | '128x32' (cómo está cableado el panel del módulo).",
+  "hojaDeDatos": "SSD1306 Rev 1.1 (Solomon Systech, abril 2008) y nota de aplicación de la bomba de carga Rev 0.4",
+  "pines": ["VDD", "VBAT", "VSS", "SCL", "SDA", "SA0", "RES"],
+  "i2c": { "sda": "SDA", "scl": "SCL", "maxHz": 400000 },
+  "comportamiento": "comportamiento.js",
+  "limitaciones": [
+    "El scroll por hardware (26h/27h/29h/2Ah + 2Fh) no se emula: la imagen queda quieta (se avisa por la consola).",
+    "No se puede leer por I2C (la hoja no da lectura de estado en modo serie): leer devuelve 0xFF.",
+    "Al encender, la RAM trae basura (como el chip real); se ve si se prende la pantalla sin borrarla.",
+    "El brillo sigue al contraste (81h) en forma lineal; la precarga (D9h), VCOMH (DBh) y el reloj (D5h) no cambian lo que se ve.",
+    "La configuración de pines COM (DAh), el barrido (C0h/C8h), el desplazamiento (D3h) y la línea de inicio se combinan según las tablas 10-1, 10-2 y 10-3; combinaciones raras con multiplex menor a 64 siguen la lectura de esas tablas."
+  ]
+}
