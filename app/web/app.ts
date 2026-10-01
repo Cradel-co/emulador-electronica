@@ -893,7 +893,10 @@ function controlModulo(inst, control, indice, evento) {
       if (evento === 'down') nota(`Conectá el pin ${def.bridge.pin} del ${def.name} a un pin de la ${nombrePlaca()}.`);
       return;
     }
-    const faltan = gpio === null ? [] : pinesSinAlimentar(inst, def);
+    // Un interruptor no se "alimenta": sus dos patas son terminales del circuito. El pin que
+    // el fabricante llama GND puede ir a una resistencia (pulsador en serie con la carga) sin
+    // que eso sea un error; exigirle tierra es tratar la etiqueta como si fuera electricidad.
+    const faltan = gpio === null || esInterruptor ? [] : pinesSinAlimentar(inst, def);
     if (faltan.length > 0) {
       if (evento === 'down') nota(`${def.name} sin alimentación: conectá también ${faltan.join(' y ')}, como en la vida real.`);
       return;
