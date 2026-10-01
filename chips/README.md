@@ -111,6 +111,22 @@ fórmula de la hoja"), `azar(semilla)` (ruido repetible).
    pila) va en el `model.js` del módulo, sacada de su esquemático: la ZS-042 le mete ~6 mA a la
    CR2032 a 5 V, y eso solo se ve modelando la placa.
 
+## Rendimiento (medido el 2026-10-01, PC sin otra carga)
+
+Segundos emulados por segundo de PC, con firmware real en el Uno (1 = tiempo real):
+
+| Caso | Velocidad |
+|---|---|
+| Sin chips | 1,69× |
+| BME280 leído cada 200 ms | 1,69× |
+| MPU-6050 cada 100 ms | 1,70× |
+| DS3231 consultado cada 20 ms | 1,67× |
+| Pantalla OLED redibujando sin parar a 400 kHz (27 cuadros/s emulados) | 1,23× |
+
+Lo caro de cada llamada al sandbox es su vigilante de tiempo límite (~0,1 ms): por eso el bus llama
+una vez por transacción, y la pantalla declara `diferirEscrituras` (sin eso eran 33 llamadas por
+cuadro). Con la PC cargada (la suite de tests en paralelo) los números bajan a la mitad.
+
 ## Probar un chip
 
 - **Con el maestro virtual** (`app/server/src/bus/maestroVirtual.ts`): `sondear`, `escribir`,
