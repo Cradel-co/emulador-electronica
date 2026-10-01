@@ -653,6 +653,12 @@ async function registerRoutes(): Promise<void> {
     running: runningProject,
     lastBuild,
     recentLog: emulator.getRecentLog(120),
+    // Niveles de salida y controles cerrados que el server ya conoce. `pin.out` y los eventos de
+    // control solo viajan cuando algo *cambia*, así que un cliente que se (re)conecta no tiene otra
+    // forma de saber cómo está el circuito ahora: sin esto, un LED encendido antes de la caída del
+    // WebSocket queda pintado encendido para siempre (issue #8).
+    niveles: Object.fromEntries(niveles),
+    cerrados: runningProject ? [...cerradosDe(runningProject)] : [],
   }));
 
   app.post('/api/emulator/stop', async (req, reply) => {

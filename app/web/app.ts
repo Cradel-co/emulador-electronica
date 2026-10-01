@@ -349,7 +349,39 @@ function conectarWS() {
         break;
     }
   };
+  // Una conexión nueva no trae historia: `pin.out` y los controles solo viajan cuando algo cambia,
+  // y los `pin.watch` se registran por conexión. Sin resincronizar, lo que cambió mientras el
+  // WebSocket estaba caído no se entera nunca (issue #8).
+  ws.onopen = () => { if (state.proyecto) void resincronizar(); };
   ws.onclose = () => setTimeout(conectarWS, 1500);
+}
+
+/**
+ * Trae del server el estado que no se puede deducir de los eventos: niveles de salida, controles
+ * cerrados y estado del emulador. Se usa al reconectar; en la carga inicial lo hace `main()`.
+ */
+async function resincronizar() {
+  const emu = await api('/api/emulator').catch(() => null);
+  if (!emu?.status) return;
+  aplicarEstadoEmulador(emu.status);
+  aplicarEstadoEnVivo(emu);
+  if (emu.status.running) vigilarSalidasDelDibujo();
+  await refrescarAvisos();
+}
+
+/**
+ * Pisa los niveles de pin y los controles con los del server: es él quien tiene la verdad, y lo
+ * que tuviéramos de antes puede ser de una corrida anterior. Al terminar se repinta: un LED que
+ * quedó encendido en pantalla con el pin ya en 0 se apaga acá.
+ */
+function aplicarEstadoEnVivo(emu) {
+  state.sim.niveles.clear();
+  for (const [pin, nivel] of Object.entries(emu.niveles ?? {})) state.sim.niveles.set(Number(pin), nivel);
+  state.sim.controles.clear();
+  for (const id of emu.cerrados ?? []) state.sim.controles.set(id, true);
+  revisarQuemaduras();
+  lienzo.pedirRender();
+  recalcularConsumo();
 }
 
 function enviar(msg) {
@@ -404,17 +436,25 @@ function aplicarEstadoEmulador(status) {
   pintarPanelDerecho();
 }
 
+/**
+ * Pide al server que vigile las salidas que hay en el dibujo (las del código ya las vigila él).
+ * Los watch viven en la conexión: cada WebSocket nuevo arranca sin ninguno, así que esto hay que
+ * repetirlo al reconectar o los cambios de pin dejan de llegar (issue #8).
+ */
+function vigilarSalidasDelDibujo() {
+  for (const inst of state.diagrama.modules) {
+    const def = state.catalogo.get(inst.type);
+    if (def?.bridge?.role !== 'output') continue;
+    const gpio = gpioDe(inst.id, def.bridge.pin);
+    if (gpio !== null) enviar({ type: 'pin.watch', pin: gpio });
+  }
+}
+
 function marcarSimulacion(listo) {
   if (state.sim.listo === listo) return;
   state.sim.listo = listo;
   if (listo) {
-    // Vigilar las salidas del dibujo (el servidor ya vigila las del código).
-    for (const inst of state.diagrama.modules) {
-      const def = state.catalogo.get(inst.type);
-      if (def?.bridge?.role !== 'output') continue;
-      const gpio = gpioDe(inst.id, def.bridge.pin);
-      if (gpio !== null) enviar({ type: 'pin.watch', pin: gpio });
-    }
+    vigilarSalidasDelDibujo();
   } else {
     state.sim.niveles.clear();
     state.sim.controles.clear();
@@ -2995,6 +3035,8 @@ const depuracion = crearDepuracion({
   const emu = await api('/api/emulator').catch(() => null);
   if (emu?.status) {
     aplicarEstadoEmulador(emu.status);
+    aplicarEstadoEnVivo(emu);
+    if (emu.status.running) vigilarSalidasDelDibujo();
     for (const line of emu.recentLog ?? []) log('emu', line);
   }
 })();
