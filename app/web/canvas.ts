@@ -2,6 +2,7 @@
 // zoom con la rueda y paneo arrastrando el fondo. No guarda nada: avisa los
 // cambios por callbacks y el que lo usa (app.ts) decide qué persistir.
 import { el, dibujarModulo, defDesconocido } from './modulos.js';
+import { curva, girar, medioDeCurva, resolverPin, rotacionDe, salida, semiCaja, tipoCable } from './geometria.js';
 
 const COLOR_CABLE = { power: '#e2554b', ground: '#8a96a3', signal: '#56c271' };
 
@@ -48,71 +49,11 @@ export function crearLienzo(svg, ctx) {
   let hover = (null as string | null);
 
   // --- Geometría -------------------------------------------------------------
+  // El cálculo vive en geometria.ts (puro, sin DOM): acá solo queda lo que necesita el
+  // contexto o la vista. Ver ese archivo para rotación, curvas y posición de los pines.
 
-  // --- Rotación ----------------------------------------------------------------
-  // Cada módulo gira alrededor del centro de su dibujo. Los pines se calculan ya rotados,
-  // así los cables salen del lugar y en la dirección correctos a cualquier ángulo.
-
-  /** @param {Instancia} inst */
-  const rotacionDe = (inst) => (((inst.rotation ?? 0) % 360) + 360) % 360;
-
-  /** Gira el vector (x, y) `grados` en sentido horario (el eje y del SVG apunta abajo). */
-  function girar(x, y, grados) {
-    const r = (grados * Math.PI) / 180;
-    const c = Math.cos(r);
-    const s = Math.sin(r);
-    return [x * c - y * s, x * s + y * c];
-  }
-
-  /** Punto en coordenadas del dibujo del módulo (sin rotar) → coordenadas del mundo. */
-  function aMundoModulo(inst, def, lx, ly) {
-    const cx = def.width / 2;
-    const cy = def.height / 2;
-    const [dx, dy] = girar(lx - cx, ly - cy, rotacionDe(inst));
-    return { x: inst.x + cx + dx, y: inst.y + cy + dy };
-  }
-
-  /** Medio ancho y medio alto de la caja que ocupa el módulo ya rotado. */
-  function semiCaja(def, grados) {
-    const r = (grados * Math.PI) / 180;
-    const c = Math.abs(Math.cos(r));
-    const s = Math.abs(Math.sin(r));
-    return [(def.width / 2) * c + (def.height / 2) * s, (def.width / 2) * s + (def.height / 2) * c];
-  }
-
-  /** @param {string} ref "btn1.OUT" → instancia, def y pin */
-  function resolver(ref) {
-    const punto = ref.indexOf('.');
-    if (punto <= 0) return null;
-    const id = ref.slice(0, punto);
-    const nombre = ref.slice(punto + 1);
-    const inst = ctx.diagrama().modules.find((m) => m.id === id);
-    if (!inst) return null;
-    const def = ctx.def(inst.type);
-    const pin = def?.pins.find((p) => p.name === nombre);
-    if (!pin) return null;
-    const m = aMundoModulo(inst, def, pin.x, pin.y);
-    return { inst, def, pin, x: m.x, y: m.y };
-  }
-
-  /** Dirección hacia la que "sale" el cable de un pin, para curvarlo. */
-  function salida(r) {
-    const { pin, def, inst } = r;
-    const d = pin.x <= 0 ? [-1, 0] : pin.x >= def.width ? [1, 0] : pin.y <= 0 ? [0, -1] : [0, 1];
-    return girar(d[0], d[1], rotacionDe(inst));
-  }
-
-  function curva(x1, y1, d1, x2, y2, d2) {
-    const k = Math.max(40, Math.hypot(x2 - x1, y2 - y1) * 0.4);
-    return `M${x1} ${y1} C${x1 + d1[0] * k} ${y1 + d1[1] * k} ${x2 + d2[0] * k} ${y2 + d2[1] * k} ${x2} ${y2}`;
-  }
-
-  function tipoCable(a, b) {
-    const kinds = [a.pin.kind, b.pin.kind];
-    if (kinds.includes('ground')) return 'ground';
-    if (kinds.includes('power')) return 'power';
-    return 'signal';
-  }
+  /** `"btn1.OUT"` → instancia, def, pin y su posición en el mundo, según el diagrama actual. */
+  const resolver = (ref) => resolverPin(ref, ctx.diagrama().modules, ctx.def);
 
   /** Coordenadas de pantalla → mundo. */
   function aMundo(clientX, clientY) {
@@ -163,7 +104,9 @@ export function crearLienzo(svg, ctx) {
       const a = resolver(w.from);
       const b = resolver(w.to);
       if (!a || !b) return;
-      const d = curva(a.x, a.y, salida(a), b.x, b.y, salida(b));
+      const sa = salida(a);
+      const sb = salida(b);
+      const d = curva(a.x, a.y, sa, b.x, b.y, sb);
       // Las dos puntas cableadas directo entre sí son exactamente el cortocircuito.
       const enCorto = ctx.enCorto(w.from) && ctx.enCorto(w.to);
       const g = el('g', {
@@ -171,10 +114,12 @@ export function crearLienzo(svg, ctx) {
         'data-indice': i, 'data-from': w.from, 'data-to': w.to,
       }, gc);
       el('path', { d, class: 'cable-hit' }, g);
-      const linea = el('path', { d, class: 'cable-linea', stroke: COLOR_CABLE[tipoCable(a, b)] }, g) as SVGPathElement;
+      el('path', { d, class: 'cable-linea', stroke: COLOR_CABLE[tipoCable(a, b)] }, g);
       if (enCorto) {
         // El medio de la curva, no de la recta entre las puntas (el cable puede ir muy arqueado).
-        const m = linea.getPointAtLength(linea.getTotalLength() / 2);
+        // Se calcula con la fórmula (geometria.ts) y no con getPointAtLength: pedírselo al DOM
+        // fuerza un layout sincrónico en medio del render, que es justo lo que no hay que hacer.
+        const m = medioDeCurva(a.x, a.y, sa, b.x, b.y, sb);
         humear(g, m.x, m.y);
         chisporrotear(g, m.x, m.y);
         if (ctx.cortoExplotando(w.from) || ctx.cortoExplotando(w.to)) explotar(g, m.x, m.y);
