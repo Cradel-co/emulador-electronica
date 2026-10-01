@@ -285,9 +285,15 @@ async function pasada(c: Contexto, chipEncendido: boolean, propsExtra: Map<strin
     } catch (err) {
       avisosModelos.push({ severidad: 'advertencia', pin: -1, mensaje: `${def.name} (${id}): su modelo falló (${(err as Error).message}); quedó afuera del cálculo eléctrico.` });
     }
+    if (!def.source && prims.some((p) => p.tipo === 'V')) {
+      // Una fuente de tensión adentro de un módulo que no es una fuente crea energía de la nada
+      // (la salida sigue alimentada con la entrada en 0 V). El regulador real es ctx.regulador().
+      avisosModelos.push({ severidad: 'advertencia', pin: -1, mensaje: `${def.name} (${id}): su modelo usa fuenteTension sin ser una fuente; eso crea energía de la nada. Para un regulador usá ctx.regulador().` });
+    }
     const mapear = (x: string): string => (x.startsWith('pin:') ? c.nodo(`${id}.${x.slice(4)}`) : `i_${limpio(id)}_${limpio(x.slice(4))}`);
     for (const p of prims) {
       if (p.tipo === 'SV') n.agregar(id, { ...p, a: mapear(p.a), b: mapear(p.b), cp: mapear(p.cp), cn: mapear(p.cn) });
+      else if (p.tipo === 'REG') n.agregar(id, { ...p, a: mapear(p.a), b: mapear(p.b), tierra: mapear(p.tierra) });
       else n.agregar(id, { ...p, a: mapear(p.a), b: mapear(p.b) });
     }
     modulos.push({ id, def, props, control, vars, prims, elementos: new Map() });

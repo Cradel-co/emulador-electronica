@@ -62,6 +62,19 @@ export interface CtxCircuito {
    * (sale por `hacia` hacia el circuito y vuelve por `desde`).
    */
   fuenteCorriente(desde: Nodo, hacia: Nodo, amperios: number, nombre?: string): void;
+  /**
+   * Regulador lineal (LDO, 7805, AMS1117...): mantiene `voltios` entre `salida` y `tierra`
+   * mientras la entrada alcance (si no, entrega la entrada menos `caida`), hasta `limiteA`.
+   * Lo que entrega lo SACA de la entrada y disipa (Vin − Vout)·I: conserva la energía. Solo
+   * entrega (no devuelve corriente a su entrada). `iq`: su consumo propio (A).
+   * Usá esto y no `fuenteTension` para el regulador de una placa: una fuente de tensión
+   * dentro de un módulo crea energía de la nada.
+   */
+  regulador(
+    entrada: Nodo, salida: Nodo, tierra: Nodo,
+    opciones: { voltios: number; caida: number; limiteA: number; iq?: number },
+    nombre?: string,
+  ): void;
   /** Interruptor mecánico (pulsador, llave, contacto de relé). */
   interruptor(a: Nodo, b: Nodo, cerrado: boolean, opciones?: { ron?: number; roff?: number }, nombre?: string): void;
   /**
@@ -121,4 +134,6 @@ export type Primitiva =
   | {
       tipo: 'SV'; nombre: string; a: Nodo; b: Nodo; cp: Nodo; cn: Nodo;
       umbral: number; histeresis?: number; ron?: number; roff?: number;
-    };
+    }
+  /** Regulador lineal: `a` = entrada, `b` = salida, `tierra` = su referencia. */
+  | { tipo: 'REG'; nombre: string; a: Nodo; b: Nodo; tierra: Nodo; voltios: number; caida: number; limiteA: number; iq?: number };
