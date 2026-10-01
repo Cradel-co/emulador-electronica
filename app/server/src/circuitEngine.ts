@@ -73,8 +73,11 @@ export function nivelesDeEntrada(
   buscar: (type: string) => ModuleDef | undefined,
   nivelesGpio: ReadonlyMap<number, 0 | 1>,
   cerrados: ReadonlySet<string>,
+  pulls: ReadonlyMap<number, 'up' | 'down'> = new Map(),
 ): Map<number, 0 | 1> {
-  const { circuit, nodoDe } = construirRed(project, buscar, { nivelesGpio, cerrados });
+  // Los pull internos que activó el programa: sin ellos, un pulsador a GND suelto deja el pin en
+  // 0 V y se leería "apretado" todo el tiempo.
+  const { circuit, nodoDe } = construirRed(project, buscar, { nivelesGpio, cerrados, pulls });
   const solucion = solveMNA(circuit);
   const desc = descriptorDe(project, buscar);
   // Umbral lógico: la mitad de la tensión de la placa. Las hojas de datos dan VIH/VIL

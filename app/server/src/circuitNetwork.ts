@@ -29,6 +29,8 @@ export interface EstadoElectrico {
   nivelesGpio?: ReadonlyMap<number, 0 | 1>;
   /** Interruptores cerrados ahora: pulsador apretado, llave encendida. */
   cerrados?: ReadonlySet<string>;
+  /** Resistencia interna que el programa activó en cada GPIO de entrada (pull-up / pull-down). */
+  pulls?: ReadonlyMap<number, 'up' | 'down'>;
 }
 
 export interface RedElectrica {
@@ -42,6 +44,10 @@ export interface RedElectrica {
 const PIN_SALIDA_OHM = 33;
 /** Resistencia de los rieles 3V3/5V de la placa (regulador, USB). */
 const RIEL_OHM = 0.5;
+/** Pull-up / pull-down interno de un GPIO (ESP32: ~45 kΩ). */
+const PULL_OHM = 45_000;
+/** Corriente a la que la hoja de datos da el Vf de un LED. */
+const I_VF = 0.02;
 
 class UnionFind {
   private readonly padre = new Map<string, string>();
@@ -102,7 +108,15 @@ export function construirRed(project: Project, buscar: (type: string) => ModuleD
 
   // El nodo de referencia (0 V) es el de esas tierras. El pin "GND" de un módulo suelto es
   // solo una etiqueta del fabricante: si nadie lo cableó a la tierra de la placa, no es tierra.
-  const nodoTierra = (tierras[0] !== undefined ? nodoDe.get(tierras[0]) : undefined) ?? [...nodoDe.values()][0];
+  // Sin placa, la referencia es el GND de la primera fuente (como la punta negra del tester ahí).
+  const gndFuente = project.modules
+    .map((m) => ({ m, def: buscar(m.type) }))
+    .find((x) => x.def?.source)
+  const pinGndFuente = gndFuente?.def?.pins.find((p) => p.kind === 'ground');
+  const refGndFuente = gndFuente && pinGndFuente ? `${gndFuente.m.id}.${pinGndFuente.name}` : undefined;
+  const nodoTierra = (tierras[0] !== undefined ? nodoDe.get(tierras[0]) : undefined)
+    ?? (refGndFuente !== undefined ? nodoDe.get(refGndFuente) : undefined)
+    ?? [...nodoDe.values()][0];
   if (nodoTierra === undefined) return { circuit: { nodes: [{ id: 'gnd', kind: 'ground' }], branches: [] }, nodoDe };
 
   const nodos = new Map<string, CircuitNode>([[nodoTierra, { id: nodoTierra, kind: 'ground' }]]);
@@ -131,7 +145,9 @@ export function construirRed(project: Project, buscar: (type: string) => ModuleD
         id: inst.id,
         kind: 'diode',
         nodes: [nodoRef(iAnodo), nodoRef(iCatodo === -1 ? 1 : iCatodo)],
-        vf: vfDe(inst.props, def),
+        // El Vf de la hoja de datos es la caída total a 20 mA: el codo del modelo va Rs·20 mA más
+        // abajo, así a 20 mA cae exactamente el Vf (antes se sumaba Rs encima: 2,3 V a 20 mA).
+        vf: Math.max(0, vfDe(inst.props, def) - (def.electrical?.seriesOhm ?? 0) * I_VF),
         rs: def.electrical?.seriesOhm ?? 0,
       });
       continue;
@@ -144,14 +160,18 @@ export function construirRed(project: Project, buscar: (type: string) => ModuleD
     }
 
     if (def.source) {
-      // Fuente de voltaje: su pin `power` queda a la tensión configurada. El `ground` de la
-      // fuente tiene que estar cableado a la tierra del circuito (fuente flotante: pendiente).
+      // Fuente de laboratorio: tensión entre su pin `power` y su pin `ground` (no contra la tierra
+      // del circuito: si su GND no está cableado, no cierra circuito), con su límite de corriente.
       const iPower = def.pins.findIndex((p) => p.kind === 'power');
-      if (iPower === -1) continue;
+      const iGnd = def.pins.findIndex((p) => p.kind === 'ground');
+      if (iPower === -1 || iGnd === -1) continue;
       const v = Number(inst.props[def.source.voltageProp] ?? def.props[def.source.voltageProp]?.default);
       if (!Number.isFinite(v)) continue;
-      const idNodo = nodoRef(iPower);
-      nodos.set(idNodo, { id: idNodo, kind: 'voltage_source', params: { voltage: v } });
+      const limiteMa = Number(def.source.currentProp ? inst.props[def.source.currentProp] ?? def.props[def.source.currentProp]?.default : def.electrical?.maxCurrentMa);
+      branches.push({
+        id: inst.id, kind: 'vsource', voltage: v, nodes: [nodoRef(iPower), nodoRef(iGnd)],
+        ...(Number.isFinite(limiteMa) && limiteMa > 0 ? { limitA: limiteMa / 1000 } : {}),
+      });
     }
   }
 
@@ -159,23 +179,48 @@ export function construirRed(project: Project, buscar: (type: string) => ModuleD
   //    interna del pin (en alto entrega corriente, en bajo la hunde). Los rieles de
   //    alimentación entran como fuentes si alguien los cableó.
   if (placa && defPlaca) {
+    // ¿Tiene energía? Por USB, o una fuente cableada a su 5V o a su 3V3 (con el GND en común).
+    const nodoPin = (nombre: string) => nodoDe.get(`${placa.id}.${nombre}`);
+    const usb = placa.props['usb'] === true;
+    const fuenteEn = (nombre: string) => {
+      const n = nodoPin(nombre);
+      return n !== undefined && branches.some((b) => b.kind === 'vsource' && b.nodes[0] === n && b.nodes[1] === nodoTierra);
+    };
+    const por5v = usb || fuenteEn('5V');
+    const alimentada = por5v || fuenteEn('3V3');
+    const pulls = estado.pulls ?? new Map<number, 'up' | 'down'>();
     for (const p of defPlaca.pins) {
       const ref = `${placa.id}.${p.name}`;
       const idNodo = nodoDe.get(ref);
-      if (idNodo === undefined || idNodo === nodoTierra) continue;
+      if (idNodo === undefined) continue;
 
       const gpio = gpioDeRef(ref, desc);
       if (gpio !== null) {
+        // Sin energía el chip no anda: no maneja nada, aunque el firmware "lo haya puesto" en alto.
+        if (!alimentada) continue;
         const nivel = niveles.get(gpio);
-        if (nivel === undefined) continue; // Entrada o sin configurar: alta impedancia.
-        branches.push(...fuenteConResistencia(`${ref}#drv`, nivel === 1 ? vAlto : 0, ohmsPin, idNodo, nodos));
-        continue;
+        if (nivel !== undefined) {
+          // Salida: aunque esté cableada directo a GND (un corto), el pin entrega lo que su
+          // resistencia interna deja.
+          branches.push(...fuenteConResistencia(`${ref}#drv`, nivel === 1 ? vAlto : 0, ohmsPin, idNodo, nodos));
+        } else if (pulls.get(gpio) === 'up') {
+          branches.push(...fuenteConResistencia(`${ref}#pullup`, vAlto, PULL_OHM, idNodo, nodos));
+        } else if (pulls.get(gpio) === 'down') {
+          branches.push(...fuenteConResistencia(`${ref}#pulldown`, 0, PULL_OHM, idNodo, nodos));
+        }
+        continue; // entrada sin pull: alta impedancia
       }
+      if (idNodo === nodoTierra) continue;
 
-      // Riel de alimentación de la placa (5V/3V3): solo si está alimentada por USB.
-      if (p.kind === 'power' && placa.props['usb'] === true) {
-        const v = p.name.startsWith('3V3') ? 3.3 : 5;
-        branches.push(...fuenteConResistencia(`${ref}#riel`, v, ohmsRiel, idNodo, nodos));
+      // Rieles: el 5V lo da el USB; el 3V3 sale del regulador, que anda si hay 5 V (USB o fuente).
+      // Si una fuente ya fija ese pin, el pin es la fuente (no se le suma otra).
+      // Por nombre, como los rieles del motor ngspice: en el S3 los pines 3V3 no están marcados
+      // `power` en su module.json, y por eso este riel nunca entregaba nada (ni con USB).
+      const es3v3 = /^3V3(_\d+)?$/.test(p.name);
+      if (es3v3 || /^5V(_\d+)?$/.test(p.name)) {
+        if (es3v3 ? por5v && !fuenteEn(p.name) : usb && !fuenteEn(p.name)) {
+          branches.push(...fuenteConResistencia(`${ref}#riel`, es3v3 ? 3.3 : 5, ohmsRiel, idNodo, nodos));
+        }
       }
     }
   }

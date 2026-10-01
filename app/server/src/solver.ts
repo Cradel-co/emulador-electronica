@@ -63,7 +63,23 @@ export interface SwitchBranch {
   ohms?: number;
 }
 
-export type CircuitBranch = ResistorBranch | DiodeBranch | SwitchBranch;
+/**
+ * Fuente de tensión entre dos nodos (no necesariamente referida a tierra), como un canal de
+ * una fuente de laboratorio: `voltage` de `nodes[0]` (+) a `nodes[1]` (−), detrás de `ohms`, y
+ * con `limitA` se comporta CV/CC: si la carga pide más, entrega el límite y la tensión baja.
+ */
+export interface VoltageSourceBranch {
+  id: string;
+  kind: 'vsource';
+  nodes: [string, string];
+  voltage: number;
+  /** Resistencia interna (Ω). Ninguna fuente es ideal: por defecto 1 mΩ. */
+  ohms?: number;
+  /** Límite de corriente (A): por encima pasa a modo CC. */
+  limitA?: number;
+}
+
+export type CircuitBranch = ResistorBranch | DiodeBranch | SwitchBranch | VoltageSourceBranch;
 
 export interface Circuit {
   nodes: CircuitNode[];
@@ -91,6 +107,8 @@ const G_MIN = 1e-12;
 const OHM_MIN = 1e-6;
 /** Resistencia de contacto de un interruptor cerrado: lo que mide un cable corto. */
 const OHM_CONTACTO = 0.01;
+/** Resistencia interna de una fuente si no se declara. */
+const OHM_FUENTE = 1e-3;
 /** Tope de pasadas del lazo de estados de los diodos. */
 const MAX_ITERACIONES = 100;
 
@@ -127,14 +145,18 @@ export function solveMNA(circuit: Circuit): Solution {
   const filaDeFuente = new Map<string, number>();
   fuentes.forEach((f, i) => filaDeFuente.set(f.id, incognitas.length + i));
 
-  const tamaño = incognitas.length + fuentes.length;
+  const ramasFuente = circuit.branches.filter((b): b is VoltageSourceBranch => b.kind === 'vsource');
+  ramasFuente.forEach((f, i) => filaDeFuente.set(f.id, incognitas.length + fuentes.length + i));
+  const tamaño = incognitas.length + fuentes.length + ramasFuente.length;
   const diodos = circuit.branches.filter((b): b is DiodeBranch => b.kind === 'diode');
   // Se arranca con todos los diodos en corte: es el estado seguro (nunca inventa corriente).
   const conduce = new Map<string, boolean>(diodos.map((d) => [d.id, false]));
+  // Fuentes en modo CC: el signo de la corriente que entregan (+1 sale por su borne +).
+  const enCC = new Map<string, 1 | -1>();
 
   let voltajes: Record<string, number> = {};
   for (let iteracion = 1; iteracion <= MAX_ITERACIONES; iteracion++) {
-    voltajes = resolverPasada(circuit, referencia.id, filaDeNodo, filaDeFuente, tamaño, conduce);
+    voltajes = resolverPasada(circuit, referencia.id, filaDeNodo, filaDeFuente, tamaño, conduce, enCC);
 
     let estable = true;
     for (const diodo of diodos) {
@@ -142,6 +164,23 @@ export function solveMNA(circuit: Circuit): Solution {
       const nuevo = vd > vfDe(diodo);
       if (nuevo !== conduce.get(diodo.id)) {
         conduce.set(diodo.id, nuevo);
+        estable = false;
+      }
+    }
+    // CV ↔ CC: si en CV entregaría más que su límite, pasa a CC; si en CC su tensión ya llegó a la
+    // ajustada (la carga pide menos que el límite), vuelve a CV.
+    for (const f of ramasFuente) {
+      if (f.limitA === undefined) continue;
+      const signo = enCC.get(f.id);
+      const v = voltajeDe(voltajes, f.nodes[0]) - voltajeDe(voltajes, f.nodes[1]);
+      if (signo === undefined) {
+        const entrega = -(voltajes[`${CORRIENTE_PREFIJO}${f.id}`] ?? 0);
+        if (Math.abs(entrega) > f.limitA) {
+          enCC.set(f.id, entrega > 0 ? 1 : -1);
+          estable = false;
+        }
+      } else if (signo * v >= signo * f.voltage) {
+        enCC.delete(f.id);
         estable = false;
       }
     }
@@ -160,6 +199,7 @@ function resolverPasada(
   filaDeFuente: Map<string, number>,
   tamaño: number,
   conduce: Map<string, boolean>,
+  enCC: Map<string, 1 | -1> = new Map(),
 ): Record<string, number> {
   const A = new Matriz(tamaño);
   const z = new Float64Array(tamaño);
@@ -181,6 +221,28 @@ function resolverPasada(
 
     if (rama.kind === 'resistor') {
       sumarConductancia(A, a, b, 1 / Math.max(rama.ohms, OHM_MIN));
+      continue;
+    }
+
+    if (rama.kind === 'vsource') {
+      const extra = filaDeFuente.get(rama.id);
+      if (extra === undefined) continue;
+      const signo = enCC.get(rama.id);
+      if (signo !== undefined && rama.limitA !== undefined) {
+        // Modo CC: una fuente de corriente con el límite (sale por + y vuelve por −). Su incógnita
+        // queda fijada a esa corriente para poder informarla.
+        const i = signo * rama.limitA;
+        if (a >= 0) z[a] = (z[a] ?? 0) + i;
+        if (b >= 0) z[b] = (z[b] ?? 0) - i;
+        A.sumar(extra, extra, 1);
+        z[extra] = -i;
+        continue;
+      }
+      // Modo CV (MNA): j = corriente que entra por el borne +; V+ − V− − R·j = V.
+      if (a >= 0) { A.sumar(a, extra, 1); A.sumar(extra, a, 1); }
+      if (b >= 0) { A.sumar(b, extra, -1); A.sumar(extra, b, -1); }
+      A.sumar(extra, extra, -(rama.ohms ?? OHM_FUENTE));
+      z[extra] = rama.voltage;
       continue;
     }
 
@@ -260,6 +322,13 @@ function armarSolucion(
 
   const branchCurrents: Record<string, number> = {};
   for (const rama of circuit.branches) {
+    if (rama.kind === 'vsource') {
+      // Por la rama, de nodes[0] a nodes[1]: la que entra por su borne +. Lo que entrega es lo opuesto.
+      const j = sourceCurrents[rama.id] ?? 0;
+      branchCurrents[rama.id] = j;
+      sourceCurrents[rama.id] = -j;
+      continue;
+    }
     branchCurrents[rama.id] = corrienteDeRama(rama, voltages, conduce);
   }
 
@@ -285,6 +354,7 @@ function corrienteDeRama(
 ): number {
   const v = voltajeDe(voltages, rama.nodes[0]) - voltajeDe(voltages, rama.nodes[1]);
   if (rama.kind === 'resistor') return v / Math.max(rama.ohms, OHM_MIN);
+  if (rama.kind === 'vsource') return 0; // se informa desde su incógnita (armarSolucion)
   if (rama.kind === 'switch') {
     return rama.closed ? v / Math.max(rama.ohms ?? OHM_CONTACTO, OHM_MIN) : v * G_MIN;
   }

@@ -33,8 +33,10 @@ describe('ledsDelSolver: lo que la UI necesita para prender un LED', () => {
   it('da la corriente real y la deja en mAFijo, que es lo que mira el canvas', () => {
     const [led] = ledsDelSolver(PROYECTO, buscar, new Map([[7, 1]]), new Set(['btn1']));
     expect(led?.id).toBe('led1');
-    expect(led?.mA).toBeCloseTo(8.23, 2);
-    expect(led?.mAFijo).toBeCloseTo(8.23, 2);
+    // Arreglo de la revisión: el Vf del LED (2 V) es su caída a 20 mA, así que el codo del modelo
+    // queda en 2 − 15·0,02 = 1,7 V (antes se sumaban 15 Ω encima y a 20 mA caían 2,3 V).
+    expect(led?.mA).toBeCloseTo(10.13, 2);
+    expect(led?.mAFijo).toBeCloseTo(10.13, 2);
     expect(led?.estado).toBe('ok');
   });
 
@@ -53,9 +55,12 @@ describe('ledsDelSolver: lo que la UI necesita para prender un LED', () => {
         { from: 'led1.GND', to: 'board.GND' },
       ],
     };
-    // (3.3 − 2) / (33 + 15) = 27 mA: por encima de los 20 mA recomendados del LED.
+    // Por encima de los 20 mA recomendados del LED.
     const [led] = ledsDelSolver(sinR, buscar, new Map([[7, 1]]), new Set());
-    expect(led?.mA).toBeCloseTo(27.1, 1);
+    // Arreglo de la revisión: el Vf del LED (2 V) es su caída a 20 mA, así que el codo del modelo
+    // queda en 2 − 15·0,02 = 1,7 V (antes se sumaban 15 Ω encima y a 20 mA caían 2,3 V).
+    // Sin resistencia: (3.3 − 1.7) / (33 + 15) = 33.3 mA.
+    expect(led?.mA).toBeCloseTo(33.3, 1);
     expect(led?.estado).toBe('sobreexigido');
   });
 });
