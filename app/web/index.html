@@ -36,6 +36,11 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="3" width="12" height="18" rx="2"/><path d="M10 7h4M9 17h6"/></svg>
           <span id="dispositivo-texto">ESP32-S3 DevKitC-1</span>
         </span>
+        <button id="usb" type="button" class="widget widget-usb solo-proyecto" aria-pressed="false" hidden
+          title="USB conectado: alimenta la placa como si la enchufaras a la PC. Desconectado, hace falta una Fuente regulable cableada a la placa.">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="19" r="2"/><path d="M12 17V3"/><path d="m9 6 3-3 3 3"/><path d="M12 14 7 11V8"/><path d="m12 12 5-3V7"/><rect x="15.5" y="4.5" width="3" height="2.5"/><circle cx="7" cy="7" r="1.3"/></svg>
+          <span>USB</span>
+        </button>
         <span id="config-run" class="widget solo-proyecto" title="Lenguaje del proyecto">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
           <span id="config-run-texto">–</span>
@@ -150,6 +155,8 @@
               Circuito
             </span>
             <span id="badge-modo" class="badge-modo" hidden><span class="punto"></span>En vivo</span>
+            <!-- Envuelto: como hijo directo heredaría el estilo (e ícono) de las pestañas de archivo. -->
+            <span class="alim-wrap"><button id="badge-alimentacion" type="button" class="badge-alim" hidden disabled></button></span>
             <span id="ayuda-lienzo" class="ayuda-lienzo">Para cablear: click en un pin y después en otro.</span>
           </div>
           <div class="lienzo-wrap">
@@ -233,6 +240,7 @@
               <label class="dbg-eval"><span aria-hidden="true">›</span><input id="dbg-eval" placeholder="Evaluar una expresión (Enter)" autocomplete="off" /></label>
               <div id="dbg-eval-res" class="dbg-eval-res"></div>
             </section>
+            <section class="dbg-col dbg-alim"><h4>Alimentación <small>en vivo</small></h4><div id="dbg-alimentacion" class="dbg-alimentacion"></div></section>
             <section class="dbg-col dbg-analizador"><h4>Pines <small>últimos 10 s</small></h4><canvas id="dbg-pines"></canvas></section>
           </div>
         </div>
@@ -310,11 +318,16 @@
       <form method="dialog">
         <h2>Nuevo proyecto</h2>
         <label>Nombre <input name="name" required pattern="[a-z0-9][a-z0-9\-]{0,39}" placeholder="mi-proyecto" /></label>
-        <label>
+        <label id="nuevo-plantilla-label">
+          Plantilla
+          <select id="nuevo-plantilla"><option value="">Vacío: botón y LED de la placa</option></select>
+        </label>
+        <p id="nuevo-plantilla-desc" class="hint" hidden></p>
+        <label class="sin-plantilla">
           Placa
           <select name="board" id="nuevo-placa"></select>
         </label>
-        <label>
+        <label class="sin-plantilla">
           Lenguaje
           <select name="language">
             <option value="esphome">ESPHome (YAML)</option>
@@ -324,7 +337,7 @@
             <option value="micropython">MicroPython</option>
           </select>
         </label>
-        <p class="hint">Solo [a-z0-9-], hasta 40 caracteres. Arranca con un botón y un LED ya cableados.</p>
+        <p class="hint">Solo [a-z0-9-], hasta 40 caracteres. Las plantillas viven en <code>projects/_template/</code>.</p>
         <menu>
           <button value="cancelar">Cancelar</button>
           <button value="crear" class="primario">Crear</button>

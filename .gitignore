@@ -16,3 +16,7 @@ coverage/
 .npm
 test-results/
 .claude/settings.local.json
+
+# Proyectos del usuario: cada uno trabaja los suyos. Solo se versionan las plantillas.
+projects/*
+!projects/_template/

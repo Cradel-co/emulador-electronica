@@ -109,6 +109,35 @@ export const BoardDescriptorSchema = z.object({
   pinOutputOhm: z.number().nonnegative().optional(),
   /** Resistencia de las salidas de alimentación 3V3/5V (regulador, USB) (Ω). Por defecto 0.5 Ω. */
   supplyOutputOhm: z.number().nonnegative().optional(),
+  /**
+   * Cómo se alimenta la placa. Sin este bloque se asume siempre alimentada (placas importadas
+   * viejas). Con él, la placa solo arranca con "USB conectado" o con una fuente cableada a uno
+   * de estos pines dentro de su rango; por encima del máximo (o con polaridad invertida) se quema.
+   */
+  power: z
+    .object({
+      inputs: z
+        .array(
+          z.object({
+            /** Pin del dibujo ("5V" también matchea "5V_2"). */
+            pin: z.string().min(1),
+            /** Por debajo no arranca (V). */
+            min: z.number(),
+            /** Por encima se quema (V). */
+            max: z.number(),
+            /**
+             * Qué es ese pin: "vin" = entrada a un regulador que genera los rieles de 5V y 3V3
+             * (VIN del Uno); "5v" = el riel de 5 V en sí (el regulador genera 3V3); "3v3" =
+             * directo al riel de 3,3 V del chip (el de 5 V queda sin tensión).
+             */
+            feeds: z.enum(['vin', '5v', '3v3']),
+          }),
+        )
+        .min(1),
+      /** Consumo típico de la placa andando (mA): lo que le pide a la fuente que la alimenta. */
+      currentMa: z.number().positive(),
+    })
+    .optional(),
   pins: z.record(z.string().min(1), BoardPinSchema),
   /** Pines (gpio) que usa la propia simulación: no se pueden cablear. */
   reservedPins: z.record(ClaveGpio, z.string()).default({}),

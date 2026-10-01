@@ -28,7 +28,7 @@ import { crearServidorMcp, type McpContexto } from './mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { scanPins, diffDiagramVsCode, type DiagramWarning } from './pinScan.js';
 import { conPlaca } from './diagramOps.js';
-import { analizarCircuito, type LedElectrico } from './circuitPhysics.js';
+import { analizarCircuito, type AlimentacionPlaca, type FuenteElectrica, type LedElectrico } from './circuitPhysics.js';
 import { Depurador } from './debug/depurador.js';
 import { registrarRutasDepuracion } from './debug/rutas.js';
 
@@ -218,7 +218,14 @@ function certificarEnFondo(placa: Placa, lenguaje?: Language): 'iniciada' | 'ya-
 }
 
 /** Crea un proyecto: valida placa ↔ lenguaje y escribe la plantilla (la de la placa o la de su toolchain). */
-async function crearProyecto(nombre: string, lenguaje: Language, board = DEFAULT_BOARD): Promise<Project> {
+async function crearProyecto(nombre: string, lenguaje: Language, board = DEFAULT_BOARD, plantilla?: string): Promise<Project> {
+  // Desde una plantilla (projects/_template/<id>/): placa, lenguaje, circuito y código salen de ella.
+  if (plantilla) {
+    const datos = (await store.listTemplates()).find((t) => t.id === plantilla);
+    if (!datos) throw new ProjectError(`No hay una plantilla "${plantilla}" en projects/_template/`, 404);
+    if (!(await buscarPlaca(datos.board))) throw new ProjectError(`La plantilla "${plantilla}" usa la placa "${datos.board}", que no está en el catálogo.`, 400);
+    return store.createFromTemplate(nombre, plantilla);
+  }
   const placa = await buscarPlaca(board);
   if (!placa) {
     const ids = (await listarPlacas()).map((p) => p.id).join(', ');
@@ -361,11 +368,15 @@ async function registerRoutes(): Promise<void> {
 
   app.get('/api/projects', async () => ({ projects: await store.list() }));
 
+  // Proyectos plantilla (projects/_template/<id>/), para "Nuevo proyecto".
+  app.get('/api/templates', async () => store.listTemplates());
+
   app.post('/api/projects', async (req, reply) => {
-    const body = (req.body ?? {}) as { name?: string; language?: string; board?: string };
+    const body = (req.body ?? {}) as { name?: string; language?: string; board?: string; template?: string };
     try {
-      const language = LanguageSchema.parse(body.language) as Language;
-      const project = await crearProyecto(String(body.name ?? ''), language, body.board ?? DEFAULT_BOARD);
+      const project = body.template
+        ? await crearProyecto(String(body.name ?? ''), 'esphome', DEFAULT_BOARD, String(body.template))
+        : await crearProyecto(String(body.name ?? ''), LanguageSchema.parse(body.language) as Language, body.board ?? DEFAULT_BOARD);
       reply.code(201).send({ project });
     } catch (err) {
       fail(reply, err);
@@ -464,6 +475,7 @@ async function registerRoutes(): Promise<void> {
         modules: (body.modules ?? project.modules) as never,
         wires: (body.wires ?? project.wires) as never,
       });
+      await revisarAlimentacion(name);
       broadcast({ type: 'project.changed', project: name, what: 'diagram', origin: clienteDe(req) });
       reply.send({ project: updated });
     } catch (err) {
@@ -481,6 +493,32 @@ async function registerRoutes(): Promise<void> {
       }
       reply.send({ started: true });
       void runBuild(project);
+    } catch (err) {
+      fail(reply, err);
+    }
+  });
+
+  // Pulsador apretado / llave encendida: el motor eléctrico los trata como un cable.
+  app.post('/api/projects/:name/controls', async (req, reply) => {
+    const { name } = req.params as { name: string };
+    try {
+      await requireProject(name);
+      const body = (req.body ?? {}) as { id?: unknown; cerrado?: unknown };
+      if (typeof body.id !== 'string' || typeof body.cerrado !== 'boolean') throw new Error('hace falta { id, cerrado }');
+      await fijarControl(name, body.id, body.cerrado);
+      reply.send({ ok: true });
+    } catch (err) {
+      fail(reply, err);
+    }
+  });
+
+  app.post('/api/projects/:name/board/replace', async (req, reply) => {
+    const { name } = req.params as { name: string };
+    try {
+      await requireProject(name);
+      const habia = reemplazarPlaca(name);
+      broadcast({ type: 'project.changed', project: name, what: 'diagram', origin: clienteDe(req) });
+      reply.send({ ok: true, estabaQuemada: habia });
     } catch (err) {
       fail(reply, err);
     }
@@ -510,6 +548,7 @@ async function registerRoutes(): Promise<void> {
   app.post('/api/emulator/stop', async (req, reply) => {
     await emulator.stop();
     runningProject = null;
+    controlesCerrados.clear();
     reply.send({ ok: true });
   });
 
@@ -573,8 +612,15 @@ async function runBuild(project: { name: string }): Promise<BuildResult> {
   return result;
 }
 
-async function runProject(project: { name: string }, forceBuild: boolean): Promise<{ ok: boolean; errors: BuildErrorLike[] }> {
+async function runProject(project: { name: string }, forceBuild: boolean): Promise<{ ok: boolean; errors: BuildErrorLike[]; sinAlimentacion?: boolean }> {
   const full = await store.read(project.name);
+  // Como en la vida real: sin la alimentación adecuada la placa no arranca.
+  const sinArranque = motivoSinArranque(await alimentacionDe(full));
+  if (sinArranque) {
+    logBuild(`[error] ${sinArranque}`);
+    broadcast({ type: 'project.changed', project: full.name, what: 'diagram', origin: 'server' });
+    return { ok: false, errors: [{ line: null, file: null, message: sinArranque }], sinAlimentacion: true };
+  }
   if (builder.isBuilding(full.name)) {
     logBuild('Ya se está compilando; se espera a que termine.');
   }
@@ -605,6 +651,7 @@ async function runProject(project: { name: string }, forceBuild: boolean): Promi
   if (siguiente !== emulator && emulator.getStatus().running) await emulator.stop();
   emulator = siguiente;
   runningProject = full.name;
+  controlesCerrados.clear();
   depurador.alIniciarCorrida({ proyecto: full.name, placa: full.board, lenguaje: full.language, motor: placa.desc.backend.engine, artefactos: artifacts });
   await emulator.start(full.name, artifacts, motor!.opcionesArranque(placa.desc, artifacts));
   void depurador.alArrancado();
@@ -641,27 +688,96 @@ async function pinsDeCodigo(project: { name: string; language: Language; board: 
   return [...pines].sort((a, b) => a - b);
 }
 
+// --- Alimentación de la placa ------------------------------------------------------
+
+/**
+ * Proyectos cuya placa se quemó (sobretensión o polaridad invertida en una entrada de
+ * alimentación). Queda muerta hasta reemplazarla, como un LED quemado, aunque se arregle el
+ * cableado. En memoria: reiniciar el server también la "repara".
+ */
+const placasQuemadas = new Set<string>();
+
+type EstadoPlaca = AlimentacionPlaca & { quemada: boolean };
+
+/**
+ * Interruptores cerrados ahora (pulsador apretado, llave encendida), por proyecto. El motor
+ * eléctrico los trata como un cable. Se vacía al arrancar o parar la simulación: al volver a
+ * empezar, nadie está apretando nada.
+ */
+const controlesCerrados = new Map<string, Set<string>>();
+const cerradosDe = (nombre: string): Set<string> => controlesCerrados.get(nombre) ?? new Set();
+
+async function fijarControl(nombre: string, id: string, cerrado: boolean): Promise<void> {
+  const set = controlesCerrados.get(nombre) ?? new Set<string>();
+  if (cerrado) set.add(id);
+  else set.delete(id);
+  controlesCerrados.set(nombre, set);
+  // Un interruptor puede cortar (o cerrar) la alimentación de la placa.
+  await revisarAlimentacion(nombre);
+}
+
+async function alimentacionDe(project: Project): Promise<EstadoPlaca> {
+  const catalogo = await loadCatalog();
+  const buscar = (t: string): ModuloCatalogo | undefined => catalogo.find((m) => m.type === t);
+  const { alimentacion } = analizarCircuito(conPlaca(project), buscar, niveles, cerradosDe(project.name));
+  if (alimentacion.estado === 'quema') placasQuemadas.add(project.name);
+  return { ...alimentacion, quemada: placasQuemadas.has(project.name) };
+}
+
+/** Por qué no puede correr la placa (o null si puede). */
+function motivoSinArranque(a: EstadoPlaca): string | null {
+  if (a.quemada) return `La placa está quemada${a.estado === 'quema' ? ` (${a.mensaje})` : ''}: reemplazala para volver a usarla.`;
+  return a.estado === 'ok' ? null : a.mensaje;
+}
+
+/** Después de cada cambio del dibujo: si la placa se quemó o se quedó sin energía, la simulación se corta. */
+async function revisarAlimentacion(nombre: string): Promise<void> {
+  const estado = await alimentacionDe(await store.read(nombre));
+  const motivo = motivoSinArranque(estado);
+  if (!motivo || runningProject !== nombre || !emulator.getStatus().running) return;
+  eventosEmulador.onLog(`[alimentación] ${motivo} Se detuvo la simulación.`);
+  await emulator.stop();
+  runningProject = null;
+  controlesCerrados.clear();
+}
+
+function reemplazarPlaca(nombre: string): boolean {
+  return placasQuemadas.delete(nombre);
+}
+
 /** Avisos de circuito ↔ código (11.6) + Ley de Ohm (cortocircuitos, sobrecorriente): lo que ve la UI y el MCP. */
 async function avisosDelProyecto(
   project: Project,
-): Promise<{ pins: number[]; warnings: DiagramWarning[]; electrico: { leds: LedElectrico[] } }> {
+): Promise<{
+  pins: number[];
+  warnings: DiagramWarning[];
+  electrico: { leds: LedElectrico[]; fuentes: FuenteElectrica[]; placa: EstadoPlaca };
+}> {
   const pins = await pinsDeCodigo(project);
   const catalogo = await loadCatalog();
   const buscar = (t: string): ModuloCatalogo | undefined => catalogo.find((m) => m.type === t);
   const conLaPlaca = conPlaca(project);
-  const electricos = analizarCircuito(conLaPlaca, buscar, niveles).avisos;
+  // Con los niveles reales de la simulación: avisos, lo que entrega cada fuente y si la placa tiene energía.
+  const { avisos: electricos, fuentes } = analizarCircuito(conLaPlaca, buscar, niveles, cerradosDe(project.name));
+  const placa = await alimentacionDe(project);
   // Estado de cada LED con su pin/fuente EN ALTO (peor caso, sin mirar la simulación):
   // la UI lo usa para "quemar" el LED cuando la simulación lo prende.
-  const { leds } = analizarCircuito(conLaPlaca, buscar);
+  const { leds } = analizarCircuito(conLaPlaca, buscar, new Map(), cerradosDe(project.name));
+  // Quemada de antes (ya sin la sobretensión): el motor no lo sabe, se avisa acá.
+  const quemadaDeAntes = placa.quemada && placa.estado !== 'quema'
+    ? [{ kind: 'peligro-electrico' as const, pin: -1, message: motivoSinArranque(placa)!, refs: undefined }]
+    : [];
   return {
     pins,
-    electrico: { leds },
+    electrico: { leds, fuentes, placa },
     warnings: [
+      ...quemadaDeAntes,
       ...diffDiagramVsCode(project, pins, buscar(project.board)?.board),
       ...electricos.map((a) => ({
         kind: a.severidad === 'peligro' ? ('peligro-electrico' as const) : ('advertencia-electrica' as const),
         pin: a.pin,
         message: a.mensaje,
+        refs: a.refs,
       })),
     ],
   };
@@ -679,6 +795,7 @@ function clienteDe(req: { headers: Record<string, string | string[] | undefined>
 async function cambiarDiagrama(nombre: string, cambio: (p: Project) => Project): Promise<Project> {
   const actual = await store.read(nombre);
   const guardado = await store.save(cambio(actual));
+  await revisarAlimentacion(nombre);
   broadcast({ type: 'project.changed', project: nombre, what: 'diagram', origin: 'mcp' });
   return guardado;
 }
@@ -724,6 +841,7 @@ async function quitarDelCatalogo(type: string): Promise<void> {
 const contextoMcp: McpContexto = {
   store,
   crearProyecto,
+  plantillas: () => store.listTemplates(),
   async placas() {
     return Promise.all((await listarPlacas()).map(placaParaUi));
   },
@@ -742,11 +860,18 @@ const contextoMcp: McpContexto = {
     broadcast({ type: 'project.changed', project: nombre, what: 'file', file: ruta, origin: 'mcp' });
   },
   pinesYAvisos: (nombre) => store.read(nombre).then(avisosDelProyecto),
+  fijarControl,
+  async reemplazarPlaca(nombre) {
+    const habia = reemplazarPlaca(nombre);
+    broadcast({ type: 'project.changed', project: nombre, what: 'diagram', origin: 'mcp' });
+    return habia;
+  },
   compilar: (nombre) => runBuild({ name: nombre }),
   ejecutar: (nombre, recompilar) => runProject({ name: nombre }, recompilar),
   async parar() {
     await emulator.stop();
     runningProject = null;
+    controlesCerrados.clear();
   },
   resetear: () => emulator.reset(),
   estadoEmulador: () => emulator.getStatus(),

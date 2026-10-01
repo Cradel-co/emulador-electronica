@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "name": "prueba",
+  "name": "fuente-alimentando-placa",
   "board": "esp32-s3-devkitc-1",
   "language": "micropython",
   "modules": [
@@ -9,7 +9,9 @@
       "type": "esp32-s3-devkitc-1",
       "x": 133,
       "y": 22,
-      "props": {}
+      "props": {
+        "usb": false
+      }
     },
     {
       "id": "led1",
@@ -21,36 +23,53 @@
       }
     },
     {
-      "id": "btn1",
-      "type": "button",
-      "x": -125,
-      "y": 40,
+      "id": "sw1",
+      "type": "switch",
+      "x": -255,
+      "y": 108,
       "props": {
-        "label": "Botón"
+        "label": "Interruptor"
+      }
+    },
+    {
+      "id": "fuenteregu1",
+      "type": "fuente-regulable",
+      "x": 174,
+      "y": 609,
+      "props": {
+        "voltage": 5
       }
     },
     {
       "id": "r1",
       "type": "resistor",
-      "x": -281,
-      "y": 398,
+      "x": -284,
+      "y": 443,
       "props": {
-        "ohms": 110
+        "ohms": 220
       }
     }
   ],
   "wires": [
     {
-      "from": "btn1.GND",
-      "to": "board.GND"
+      "from": "led1.IN",
+      "to": "board.GPIO7"
     },
     {
-      "from": "btn1.OUT",
+      "from": "sw1.OUT",
       "to": "board.GPIO6"
     },
     {
-      "from": "led1.IN",
-      "to": "board.GPIO7"
+      "from": "sw1.GND",
+      "to": "board.GND"
+    },
+    {
+      "from": "fuenteregu1.GND",
+      "to": "board.GND_4"
+    },
+    {
+      "from": "fuenteregu1.V",
+      "to": "board.5V"
     },
     {
       "from": "led1.GND",

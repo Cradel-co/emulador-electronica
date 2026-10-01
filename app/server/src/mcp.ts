@@ -32,7 +32,8 @@ import {
 export interface McpContexto {
   store: ProjectStore;
   /** Crea un proyecto para una placa (valida placa ↔ lenguaje y escribe la plantilla). */
-  crearProyecto: (nombre: string, lenguaje: Language, placa?: string) => Promise<Project>;
+  crearProyecto: (nombre: string, lenguaje: Language, placa?: string, plantilla?: string) => Promise<Project>;
+  plantillas: () => Promise<{ id: string; nombre: string; descripcion: string; board: string; language: string }[]>;
   /** Registro de placas (del catálogo), con su nivel de soporte. */
   placas: () => Promise<unknown[]>;
   esquemaPlaca: () => unknown;
@@ -42,9 +43,18 @@ export interface McpContexto {
   /** Lee el proyecto, aplica el cambio, lo guarda y avisa a la UI. */
   cambiarDiagrama: (nombre: string, cambio: (p: Project) => Project) => Promise<Project>;
   escribirArchivo: (nombre: string, ruta: string, contenido: string) => Promise<void>;
-  pinesYAvisos: (nombre: string) => Promise<{ pins: number[]; warnings: { message: string }[] }>;
+  pinesYAvisos: (nombre: string) => Promise<{
+    pins: number[];
+    warnings: { message: string }[];
+    electrico?: { fuentes: unknown[]; placa: { estado: string; quemada: boolean; mensaje: string } };
+  }>;
+  /** true si la placa estaba quemada (y ya no). */
+  reemplazarPlaca: (nombre: string) => Promise<boolean>;
+  /** Interruptor (pulsador, llave) cerrado/abierto, para el motor eléctrico. */
+  fijarControl: (nombre: string, id: string, cerrado: boolean) => Promise<void>;
   compilar: (nombre: string) => Promise<{ ok: boolean; durationMs: number; errors: { line?: number | null; file?: string | null; message: string }[] }>;
-  ejecutar: (nombre: string, recompilar: boolean) => Promise<{ ok: boolean; errors: { message: string }[] }>;
+  /** `sinAlimentacion`: no arrancó porque la placa no tiene energía adecuada (o está quemada), no por el código. */
+  ejecutar: (nombre: string, recompilar: boolean) => Promise<{ ok: boolean; errors: { message: string }[]; sinAlimentacion?: boolean }>;
   parar: () => Promise<void>;
   resetear: () => Promise<string>;
   estadoEmulador: () => EmulatorStatus;
@@ -132,16 +142,24 @@ export function crearServidorMcp(ctx: McpContexto): McpServer {
     title: 'Crear proyecto',
     description:
       'Crea un proyecto para una placa. Arranca con el circuito de prueba de la placa ya cableado (botón → LED: ' +
-      'GPIO6 → GPIO7 en los ESP32, D2 → D13 en el Arduino Uno) y un código que lo usa. Ver `placas` para los lenguajes de cada una.',
+      'GPIO6 → GPIO7 en los ESP32, D2 → D13 en el Arduino Uno) y un código que lo usa. Ver `placas` para los lenguajes de cada una. ' +
+      'Con `plantilla` (ver `plantillas`) copia un proyecto de ejemplo de projects/_template/ (su placa y lenguaje mandan).',
     inputSchema: {
       nombre: z.string().regex(/^[a-z0-9][a-z0-9-]{0,39}$/).describe('Solo [a-z0-9-], hasta 40 caracteres'),
       lenguaje: z.enum(LANGUAGES).default('esphome'),
       placa: z.string().default(DEFAULT_BOARD).describe('Id de la placa (ver la herramienta placas), p. ej. "arduino-uno"'),
+      plantilla: z.string().optional().describe('Id de una plantilla (ver la herramienta plantillas)'),
     },
-  }, seguro(async ({ nombre, lenguaje, placa }) => {
-    const p = await ctx.crearProyecto(nombre, lenguaje, placa);
+  }, seguro(async ({ nombre, lenguaje, placa, plantilla }) => {
+    const p = await ctx.crearProyecto(nombre, lenguaje, placa, plantilla);
     return texto(`Proyecto "${p.name}" creado (${p.board}, ${p.language}). Abrilo en la UI: http://127.0.0.1:5180/#${p.name}`);
   }));
+
+  server.registerTool('plantillas', {
+    title: 'Plantillas de proyecto',
+    description: 'Proyectos de ejemplo de projects/_template/ para usar con crear_proyecto: id, nombre, descripción, placa y lenguaje.',
+    inputSchema: {},
+  }, seguro(async () => json('Plantillas:', await ctx.plantillas())));
 
   // --- Placas ---------------------------------------------------------------------
 
@@ -226,7 +244,21 @@ export function crearServidorMcp(ctx: McpContexto): McpServer {
       archivos: archivos.map((f) => f.path).filter((f) => !/secrets\.yaml$/.test(f)),
       pinesQueUsaElCodigo: chequeo.pins,
       avisos: chequeo.warnings.map((w) => w.message),
+      alimentacionPlaca: chequeo.electrico
+        ? { estado: chequeo.electrico.placa.estado, quemada: chequeo.electrico.placa.quemada, detalle: chequeo.electrico.placa.mensaje }
+        : undefined,
+      // Lo que entrega cada fuente regulable (CV/CC, mA, W): lo mismo que la ventana Debug.
+      fuentes: chequeo.electrico?.fuentes,
     });
+  }));
+
+  server.registerTool('reemplazar_placa', {
+    title: 'Reemplazar placa quemada',
+    description: 'Pone una placa nueva en un proyecto cuya placa se quemó (por sobretensión o polaridad invertida en la alimentación). Arreglá el cableado antes: si la sobretensión sigue, la nueva también se quema.',
+    inputSchema: { proyecto },
+  }, seguro(async ({ proyecto: nombre }) => {
+    const habia = await ctx.reemplazarPlaca(nombre);
+    return texto(habia ? `Placa de "${nombre}" reemplazada por una nueva.` : `La placa de "${nombre}" no estaba quemada.`);
   }));
 
   // --- Código ----------------------------------------------------------------------------
@@ -438,6 +470,9 @@ export function crearServidorMcp(ctx: McpContexto): McpServer {
     },
   }, seguro(async ({ proyecto: nombre, recompilar, esperar_segundos }) => {
     const r = await ctx.ejecutar(nombre, recompilar);
+    if (!r.ok && r.sinAlimentacion) {
+      return falla(`No arrancó: ${r.errors.map((e) => e.message).join(' ')}\n(ver alimentacionPlaca en ver_proyecto; con reemplazar_placa si se quemó)`);
+    }
     if (!r.ok) {
       return falla(`No arrancó: la compilación falló.\n${fallaCompilacion(r.errors)}\n\nÚltimas líneas:\n${ctx.logs('build', 25).join('\n')}`);
     }
@@ -492,25 +527,33 @@ export function crearServidorMcp(ctx: McpContexto): McpServer {
 
     if (rol === 'input') {
       const gpio = gpioDe(p, id, def.bridge!.pin, buscar);
-      if (gpio === null) return falla(`El pin ${def.bridge!.pin} de "${id}" no está conectado a un pin de la placa.`);
-      const faltan = pinesSinAlimentar(p, id, def);
+      // Un interruptor (pulsador, llave) también sirve sin GPIO: cierra un circuito sin código.
+      const esInterruptor = Boolean(def.switch);
+      if (gpio === null && !esInterruptor) return falla(`El pin ${def.bridge!.pin} de "${id}" no está conectado a un pin de la placa.`);
+      const faltan = gpio === null ? [] : pinesSinAlimentar(p, id, def);
       if (faltan.length > 0) {
         return falla(`"${def.name}" (${id}) sin alimentación: conectá también ${faltan.join(' y ')}, como en la vida real.`);
       }
       const activo = (def.bridge!.activeLevel ?? 1) as 0 | 1;
       const inactivo = (1 - activo) as 0 | 1;
+      /** Cierra/abre el interruptor para el motor eléctrico y, si va a un GPIO, le avisa al firmware. */
+      const aplicar = async (cerrado: boolean): Promise<boolean> => {
+        if (esInterruptor) await ctx.fijarControl(cual, id, cerrado);
+        return gpio === null || ctx.ponerPin(gpio, cerrado ? activo : inactivo);
+      };
       if (accion === 'presionar' || accion === 'encender') {
-        if (!ctx.ponerPin(gpio, activo)) return falla(noCorre);
+        if (!(await aplicar(true))) return falla(noCorre);
       } else if (accion === 'soltar' || accion === 'apagar') {
-        if (!ctx.ponerPin(gpio, inactivo)) return falla(noCorre);
+        if (!(await aplicar(false))) return falla(noCorre);
       } else if (accion === 'pulsar') {
-        if (!ctx.ponerPin(gpio, activo)) return falla(noCorre);
+        if (!(await aplicar(true))) return falla(noCorre);
         await dormir(duracion_ms);
-        ctx.ponerPin(gpio, inactivo);
+        await aplicar(false);
       } else {
         return falla(`"${def.name}" es una entrada: usá presionar, soltar, pulsar, encender o apagar.`);
       }
-      return texto(`${id} (${def.name}): ${accion} → ${nombreDePin(catalogo.get(p.board)?.board, gpio)}`);
+      const destino = gpio === null ? 'circuito (sin GPIO: cierra o abre el paso de corriente)' : nombreDePin(catalogo.get(p.board)?.board, gpio);
+      return texto(`${id} (${def.name}): ${accion} → ${destino}`);
     }
 
     if (rol === 'air') {

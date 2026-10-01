@@ -84,7 +84,11 @@ const state = {
   /** Placas conocidas (GET /api/boards, o las programables del catálogo si no existe). */
   placas: ([] as any[]),
   /** Veredicto del motor eléctrico por LED (GET /pins → electrico.leds): id → { mA, estado }. */
-  electrico: (new Map() as Map<string, { id: string, mA: number, estado: string }>),
+  electrico: (new Map() as Map<string, { id: string, mA: number, estado: string, mAFijo?: number }>),
+  /** ¿La placa tiene con qué andar? (GET /pins → electrico.placa): estado, por dónde, mensaje, quemada. */
+  alimentacion: (null as null | { estado: string; via: string | null; pin: string | null; fuenteId: string | null; consumoMa: number | null; mensaje: string; quemada: boolean }),
+  /** Lo que entrega cada fuente regulable ahora (GET /pins → electrico.fuentes): V, mA, W, modo CV/CC. */
+  fuentes: ([] as { id: string; vAjuste: number; limiteMa: number | null; demandaMa: number | null; mA: number | null; vSalida: number; potenciaW: number; modo: string }[]),
   placaPorDefecto: '',
   /** Placa del proyecto abierto (GET /api/projects/:name → placa): nombre + descriptor `board`. */
   placa: (null as any),
@@ -105,6 +109,13 @@ const state = {
      */
     quemados: new Map(),
     boton: new Map(),
+    /**
+     * Cortocircuitos activos ahora mismo (clave → cuándo se detectó y qué refs "id.PIN"
+     * involucra). A diferencia de un LED quemado, no es daño permanente: al arreglar el
+     * cableado el aviso deja de llegar y la entrada se borra sola (ver `actualizarCortos`).
+     * @type {Map<string, { hora: number, refs: string[] }>}
+     */
+    cortos: new Map(),
   },
 };
 
@@ -306,6 +317,7 @@ function conectarWS() {
         state.sim.niveles.set(msg.pin, msg.level);
         revisarQuemaduras();
         lienzo.pedirRender();
+        recalcularConsumo();
         break;
       case 'rf.tx':
         log('emu', `[rf] ${nombrePlaca()} transmitió ${msg.bits} (protocolo ${msg.protocol})`);
@@ -380,6 +392,8 @@ function marcarSimulacion(listo) {
   } else {
     state.sim.niveles.clear();
     state.sim.controles.clear();
+    // Al parar se sueltan los interruptores (el server también): hay que recalcular la corriente.
+    void refrescarAvisos();
   }
   $('ayuda-lienzo').textContent = listo
     ? 'Simulación corriendo: usá los controles de los módulos (botones, interruptores, control remoto).'
@@ -833,6 +847,33 @@ function textoEsperaSimulacion() {
   return 'Apretá ▶ Ejecutar para poder usarlo.';
 }
 
+/**
+ * Lo que consume cada fuente depende de los pines que maneja el código (un LED en un GPIO).
+ * Cuando el firmware cambia un pin se recalcula, agrupado (un LED que parpadea rápido manda
+ * muchos cambios) y solo si hay fuentes regulables que mostrar.
+ */
+let timerConsumo = 0;
+function recalcularConsumo() {
+  if (!state.fuentes.length || timerConsumo) return;
+  timerConsumo = window.setTimeout(() => {
+    timerConsumo = 0;
+    void refrescarAvisos();
+  }, 300);
+}
+
+/** Pedidos de interruptores en fila: apretar y soltar rápido no puede llegar al revés. */
+let colaInterruptores: Promise<unknown> = Promise.resolve();
+
+/** Le dice al server que el interruptor se cerró/abrió (para el motor eléctrico) y trae el resultado. */
+function avisarInterruptor(id: string, cerrado: boolean) {
+  const proyecto = state.proyecto?.name;
+  if (!proyecto) return;
+  colaInterruptores = colaInterruptores
+    .then(() => api(`/api/projects/${proyecto}/controls`, { method: 'POST', body: JSON.stringify({ id, cerrado }) }))
+    .then(() => refrescarAvisos())
+    .catch((e) => nota(String((e as Error)?.message ?? e)));
+}
+
 function controlModulo(inst, control, indice, evento) {
   const def = state.catalogo.get(inst.type);
   if (!def) return;
@@ -846,11 +887,13 @@ function controlModulo(inst, control, indice, evento) {
   const rol = def.bridge?.role;
   if (rol === 'input') {
     const gpio = gpioDe(inst.id, def.bridge.pin);
-    if (gpio === null) {
+    // Un interruptor (pulsador, llave) también sirve sin GPIO: cierra un circuito sin código.
+    const esInterruptor = Boolean(def.switch);
+    if (gpio === null && !esInterruptor) {
       if (evento === 'down') nota(`Conectá el pin ${def.bridge.pin} del ${def.name} a un pin de la ${nombrePlaca()}.`);
       return;
     }
-    const faltan = pinesSinAlimentar(inst, def);
+    const faltan = gpio === null ? [] : pinesSinAlimentar(inst, def);
     if (faltan.length > 0) {
       if (evento === 'down') nota(`${def.name} sin alimentación: conectá también ${faltan.join(' y ')}, como en la vida real.`);
       return;
@@ -864,7 +907,8 @@ function controlModulo(inst, control, indice, evento) {
       presionado = !state.sim.controles.get(inst.id);
     }
     state.sim.controles.set(inst.id, presionado);
-    enviar({ type: 'pin.in', pin: gpio, level: presionado ? activo : 1 - activo });
+    if (gpio !== null) enviar({ type: 'pin.in', pin: gpio, level: presionado ? activo : 1 - activo });
+    if (esInterruptor) avisarInterruptor(inst.id, presionado);
     lienzo.render();
     return;
   }
@@ -972,6 +1016,9 @@ function vivoDe(inst) {
     // Sin GND (y VCC si lo necesita) no prende, aunque el ESP32 ponga el pin en 1: como en la vida real.
     vivo.on = gpio !== null && state.sim.niveles.get(gpio) === 1 && pinesSinAlimentar(inst, def).length === 0;
   }
+  // Un LED también prende si le llega corriente sin pasar por el código: una fuente, el 3V3
+  // de la placa, un pulsador en serie... (lo calcula el motor eléctrico del server).
+  if (def?.diode && (state.electrico.get(inst.id)?.mAFijo ?? 0) > 0.5) vivo.on = true;
   const quemado = state.sim.quemados.get(inst.id);
   if (quemado) {
     vivo.on = false;
@@ -1009,6 +1056,147 @@ function reemplazarQuemado(id) {
   pintarPanelDerecho();
 }
 
+// --- Alimentación de la placa ---------------------------------------------------------
+// El server decide (motor eléctrico) si la placa tiene energía: USB, o una Fuente regulable
+// en rango en uno de sus pines de alimentación. Sin eso no arranca; con sobretensión se quema.
+// La quemadura la guarda el server; acá se refleja con el mismo efecto que un LED quemado.
+
+function reflejarPlacaQuemada() {
+  const quemada = Boolean(state.alimentacion?.quemada);
+  if (quemada && !state.sim.quemados.has(BOARD_ID)) {
+    state.sim.quemados.set(BOARD_ID, { hora: Date.now(), mA: 0 });
+    nota(`Se quemó ${nombrePlaca()}: ${state.alimentacion!.mensaje} Queda muerta hasta reemplazarla.`);
+    log('emu', `[alimentación] ${state.alimentacion!.mensaje}`);
+    setTimeout(() => lienzo.render(), 1450); // termina la explosión, queda el humo
+  } else if (!quemada && state.sim.quemados.has(BOARD_ID)) {
+    state.sim.quemados.delete(BOARD_ID);
+  }
+}
+
+async function reemplazarPlaca() {
+  if (!state.proyecto) return;
+  await api(`/api/projects/${state.proyecto.name}/board/replace`, { method: 'POST' });
+  state.sim.quemados.delete(BOARD_ID);
+  nota(`${nombrePlaca()} reemplazada por una nueva.`);
+  await refrescarAvisos();
+}
+
+function instanciaPlaca() {
+  return state.diagrama.modules.find((m) => m.id === BOARD_ID);
+}
+
+/** El "USB conectado" de la placa (prop `usb`), o null si la placa no lo tiene (descriptor sin `power`). */
+function usbDePlaca(): boolean | null {
+  const inst = instanciaPlaca();
+  const def = inst && state.catalogo.get(inst.type);
+  if (!def?.props?.usb) return null;
+  return Boolean(inst.props?.usb ?? def.props.usb.default);
+}
+
+function alternarUsb() {
+  const inst = instanciaPlaca();
+  if (!inst || usbDePlaca() === null) return;
+  const on = !usbDePlaca();
+  inst.props = { ...inst.props, usb: on };
+  nota(on ? `USB conectado: ${nombrePlaca()} alimentada por USB.` : `USB desconectado: ${nombrePlaca()} necesita una Fuente regulable para arrancar.`);
+  pintarAlimentacion();
+  guardarDiagrama();
+}
+
+const fmtV = (v: number) => `${v.toFixed(2)} V`;
+const fmtMa = (ma: number | null) => (ma === null ? '—' : `${ma.toFixed(ma < 10 ? 1 : 0)} mA`);
+
+/** Botón USB de la barra + píldora de alimentación del circuito + columna de la ventana Debug. */
+function pintarAlimentacion() {
+  const usb = usbDePlaca();
+  const boton = $('usb') as HTMLButtonElement;
+  boton.hidden = usb === null;
+  boton.classList.toggle('activa', Boolean(usb));
+  boton.setAttribute('aria-pressed', String(Boolean(usb)));
+
+  const a = state.alimentacion;
+  const pildora = $('badge-alimentacion') as HTMLButtonElement;
+  pildora.hidden = !a;
+  if (a) {
+    const f = state.fuentes.find((x) => x.id === a.fuenteId);
+    const [clase, texto] = a.quemada
+      ? ['quemada', 'Placa quemada · Reemplazar']
+      : a.estado === 'ok'
+        ? ['ok', a.via === 'usb' ? 'USB' : a.via === 'fuente' && f ? `${a.fuenteId} · ${fmtV(f.vSalida)} · ${fmtMa(f.mA)}` : 'Alimentada']
+        : ['sin', a.estado === 'baja' ? 'Tensión insuficiente' : 'Sin alimentación'];
+    pildora.className = `badge-alim ${clase}`;
+    pildora.textContent = `⚡ ${texto}`;
+    pildora.title = a.quemada ? `${a.mensaje}\nClick para reemplazar la placa.` : a.mensaje;
+    pildora.disabled = !a.quemada;
+  }
+  pintarDebugAlimentacion();
+}
+
+function pintarDebugAlimentacion() {
+  const cont = $('dbg-alimentacion');
+  const a = state.alimentacion;
+  const estadoPlaca = !a
+    ? ['', '—']
+    : a.quemada
+      ? ['quemada', 'Quemada']
+      : a.estado === 'ok'
+        ? ['ok', a.via === 'usb' ? 'Por USB' : a.via === 'fuente' ? `Por ${a.fuenteId} (${a.pin})${a.consumoMa ? ` · consume ~${a.consumoMa} mA` : ''}` : 'Alimentada']
+        : ['sin', a.estado === 'baja' ? 'Tensión insuficiente' : 'Sin alimentación'];
+  const filas = state.fuentes.map((f) => `<tr>
+      <td>${escapar(f.id)}</td>
+      <td>${fmtV(f.vAjuste)} · ≤${f.limiteMa ?? '—'} mA</td>
+      <td>${fmtV(f.vSalida)}</td>
+      <td><b>${fmtMa(f.mA)}</b></td>
+      <td>${f.potenciaW.toFixed(2)} W</td>
+      <td><span class="modo-fuente ${f.modo}" title="${f.modo === 'CC' ? `Limitando corriente: la carga pediría ~${fmtMa(f.demandaMa)}` : f.modo === 'corto' ? 'Salida en cortocircuito' : 'Voltaje constante'}">${f.modo}</span></td>
+    </tr>`).join('');
+  cont.innerHTML = `
+    <p class="dbg-alim-placa ${estadoPlaca[0]}" title="${escapar(a?.mensaje ?? '')}"><b>${escapar(nombrePlaca())}</b> ${escapar(estadoPlaca[1])}</p>
+    ${filas
+      ? `<table class="dbg-fuentes"><thead><tr><th>Fuente</th><th>Ajuste</th><th>Salida</th><th>Consumo</th><th>Potencia</th><th>Modo</th></tr></thead><tbody>${filas}</tbody></table>`
+      : '<p class="dbg-vacio">Sin fuentes regulables en el circuito.</p>'}`;
+}
+
+// --- Cortocircuitos -----------------------------------------------------------------
+// El motor eléctrico del server manda, con cada aviso de cortocircuito, las refs "id.PIN"
+// involucradas. Mientras el aviso siga llegando el pin/cable queda resaltado; al arreglar
+// el cableado el aviso deja de llegar y el efecto se borra solo (no es daño permanente).
+
+/** Clave estable para un cortocircuito, sin importar el orden de sus refs. */
+const claveCorto = (refs) => [...refs].sort().join('|');
+
+/** Sincroniza `state.sim.cortos` con los avisos de este refresco: alta al aparecer, baja al arreglarse. */
+function actualizarCortos(warnings) {
+  const activos = new Set();
+  for (const w of warnings) {
+    if (w.kind !== 'peligro-electrico' || !w.refs?.length) continue;
+    const clave = claveCorto(w.refs);
+    activos.add(clave);
+    if (!state.sim.cortos.has(clave)) {
+      state.sim.cortos.set(clave, { hora: Date.now(), refs: w.refs });
+      setTimeout(() => lienzo.render(), 1450); // termina la explosión, queda el resaltado
+    }
+  }
+  for (const clave of state.sim.cortos.keys()) if (!activos.has(clave)) state.sim.cortos.delete(clave);
+}
+
+/** Todas las refs "id.PIN" que están en corto ahora mismo. */
+function refsEnCorto() {
+  const refs = new Set();
+  for (const c of state.sim.cortos.values()) for (const r of c.refs) refs.add(r);
+  return refs;
+}
+
+/** ¿Esta ref "id.PIN" es parte de un cortocircuito activo? */
+const estaEnCorto = (ref) => refsEnCorto().has(ref);
+
+/** ¿El corto que involucra esta ref se detectó hace menos de 1.4s (recién "explotó")? */
+function cortoExplotando(ref) {
+  const ahora = Date.now();
+  for (const c of state.sim.cortos.values()) if (c.refs.includes(ref) && ahora - c.hora < 1400) return true;
+  return false;
+}
+
 /** ¿Este pin de un módulo (no de la placa) es de alimentación y le falta cablear? */
 function esPinSinAlimentar(ref) {
   const punto = ref.indexOf('.');
@@ -1022,6 +1210,7 @@ function esPinSinAlimentar(ref) {
 
 /** Texto extra del tooltip de un pin (por qué está reservado, conviene evitarlo, o hace falta cablearlo). */
 function descripcionPin(ref) {
+  if (estaEnCorto(ref)) return 'en cortocircuito: desconectalo o agregá algo que limite la corriente';
   const g = gpioDeRef(ref);
   if (g === null) {
     return esPinSinAlimentar(ref) ? 'sin esto el módulo no funciona, como en la vida real' : '';
@@ -1045,6 +1234,7 @@ function clasePin(ref) {
   } else if (esPinSinAlimentar(ref)) {
     clases.push('sin-alimentar');
   }
+  if (estaEnCorto(ref)) clases.push('en-corto');
   return clases.join(' ');
 }
 
@@ -1057,6 +1247,8 @@ const lienzo = crearLienzo((($('lienzo') as unknown) as SVGSVGElement), {
   vivo: vivoDe,
   clasePin,
   descripcionPin,
+  enCorto: estaEnCorto,
+  cortoExplotando,
   seleccionar,
   moverModulo(id, x, y, fin) {
     const inst = state.diagrama.modules.find((m) => m.id === id);
@@ -1563,6 +1755,11 @@ async function refrescarAvisos() {
     state.codePins = new Set(pins);
     state.avisosDibujo = warnings;
     state.electrico = new Map((respuesta.electrico?.leds ?? []).map((l) => [l.id, l]));
+    state.fuentes = respuesta.electrico?.fuentes ?? [];
+    state.alimentacion = respuesta.electrico?.placa ?? null;
+    reflejarPlacaQuemada();
+    pintarAlimentacion();
+    actualizarCortos(warnings);
     actualizarCuentaProblemas();
     revisarQuemaduras();
     const cont = $('avisos-dibujo');
@@ -1875,10 +2072,41 @@ function abrirNuevoProyecto() {
   // La última elegida en esta sesión; si no, la que el server marca por defecto (no la primera
   // de la lista: está en orden alfabético y sería el Arduino Uno).
   s.value = antes && state.placas.some((b) => b.id === antes) ? antes : state.placaPorDefecto;
-  (s.closest('label') as HTMLElement).hidden = state.placas.length <= 1;
+  (s.closest('label') as HTMLElement).dataset.unica = String(state.placas.length <= 1);
   filtrarLenguajesNuevo();
+  elegirPlantillaNuevo();
+  void cargarPlantillasNuevo();
   dlg().showModal();
 }
+
+/** Plantillas de projects/_template/ (GET /api/templates) para el diálogo de nuevo proyecto. */
+let plantillas: { id: string; nombre: string; descripcion: string; board: string; language: string }[] = [];
+
+async function cargarPlantillasNuevo() {
+  plantillas = await api('/api/templates').catch(() => []);
+  const s = sel('nuevo-plantilla');
+  const antes = s.value;
+  s.length = 1; // deja "Vacío"
+  for (const t of plantillas) {
+    const o = document.createElement('option');
+    o.value = t.id;
+    o.textContent = t.nombre;
+    s.append(o);
+  }
+  s.value = plantillas.some((t) => t.id === antes) ? antes : '';
+  $('nuevo-plantilla-label').hidden = plantillas.length === 0;
+  elegirPlantillaNuevo();
+}
+
+/** Con plantilla, placa y lenguaje los define ella: se ocultan y se muestra su descripción. */
+function elegirPlantillaNuevo() {
+  const t = plantillas.find((x) => x.id === sel('nuevo-plantilla').value);
+  for (const l of dlg().querySelectorAll<HTMLElement>('.sin-plantilla')) l.hidden = Boolean(t) || l.dataset.unica === 'true';
+  const desc = $('nuevo-plantilla-desc');
+  desc.hidden = !t;
+  desc.textContent = t ? `${t.descripcion} (${t.board}, ${t.language})` : '';
+}
+sel('nuevo-plantilla').addEventListener('change', elegirPlantillaNuevo);
 
 /** Deshabilita los lenguajes que la placa elegida no soporta (si el server lo informa). */
 function filtrarLenguajesNuevo() {
@@ -1899,8 +2127,9 @@ $('dlg-nuevo').addEventListener('close', async () => {
   const name = (form.elements.namedItem('name') as HTMLInputElement).value.trim();
   const language = (form.elements.namedItem('language') as HTMLSelectElement).value;
   const board = sel('nuevo-placa').value || undefined;
+  const template = sel('nuevo-plantilla').value || undefined;
   try {
-    await api('/api/projects', { method: 'POST', body: JSON.stringify({ name, language, board }) });
+    await api('/api/projects', { method: 'POST', body: JSON.stringify(template ? { name, template } : { name, language, board }) });
     await cargarProyectos(name);
   } catch (e: any) {
     log('build', `[error] ${String(((e as Error))?.message ?? e)}`);
@@ -1919,6 +2148,14 @@ $('ejecutar').onclick = async () => {
   }
   await guardar(true);
   await refrescarAvisos();
+  // Como en la vida real: sin la energía adecuada la placa no arranca (el server también lo controla).
+  const a = state.alimentacion;
+  if (a && (a.quemada || a.estado !== 'ok')) {
+    const motivo = a.quemada ? `La placa está quemada: reemplazala (click en "⚡ Placa quemada").` : a.mensaje;
+    log('build', `[error] ${motivo}`);
+    nota(motivo);
+    return;
+  }
   const avisos = state.avisosDibujo.length;
   if (avisos > 0) log('build', `Chequeo circuito ↔ código: ${avisos} aviso(s) (no bloquea)`);
   await api(`/api/projects/${state.proyecto.name}/run`, { method: 'POST', body: JSON.stringify({}) }).catch((e) =>
@@ -1927,6 +2164,10 @@ $('ejecutar').onclick = async () => {
 };
 
 $('parar').onclick = () => api('/api/emulator/stop', { method: 'POST' });
+$('usb').onclick = alternarUsb;
+$('badge-alimentacion').onclick = () => {
+  if (state.alimentacion?.quemada) void reemplazarPlaca();
+};
 $('reset').onclick = async () => {
   try {
     const r = await api('/api/emulator/reset', { method: 'POST' });

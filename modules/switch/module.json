@@ -32,6 +32,7 @@
       "kind": "ground"
     }
   ],
+  "switch": true,
   "bridge": {
     "role": "input",
     "pin": "OUT",

@@ -14,6 +14,12 @@ import { analizarCircuito } from './circuitPhysics.js';
 import { diffDiagramVsCode, scanPins } from './pinScan.js';
 import { lenguajeParaCertificar } from './certificacion.js';
 
+/** La placa enchufada por USB: desde que las placas del catálogo declaran `power`, sin alimentación no corre nada. */
+const conUsb = (p: Project): Project => ({
+  ...p,
+  modules: [{ id: 'board', type: p.board, x: 0, y: 0, props: { usb: true } }, ...p.modules.filter((m) => m.id !== 'board')],
+});
+
 const moduloJson = (tipo: string): Record<string, unknown> =>
   JSON.parse(readFileSync(new URL(`../../../modules/${tipo}/module.json`, import.meta.url), 'utf8'));
 const def = (tipo: string): ModuleDef => ModuleDefSchema.parse(moduloJson(tipo));
@@ -100,7 +106,7 @@ describe('validarPlaca (POST /api/boards/validate, MCP validar_placa)', () => {
 
 describe('dibujo, pines y Ley de Ohm con el Arduino Uno', () => {
   const unoDesc = def('arduino-uno').board!;
-  const proyectoUno = (): Project => defaultProject('u', 'arduino', 'arduino-uno', unoDesc);
+  const proyectoUno = (): Project => conUsb(defaultProject('u', 'arduino', 'arduino-uno', unoDesc));
 
   it('normalizarRef entiende los nombres de la placa', () => {
     expect(normalizarRef('13', unoDesc)).toBe('board.D13');
