@@ -376,10 +376,12 @@ export class AvrEmulator implements Emulador {
     const worker = this.worker;
     this.worker = null;
     if (worker) {
-      // Se espera (poco) a que los chips se apaguen y manden lo que guardan antes de cortar el hilo.
+      // Se espera a que los chips se apaguen y manden lo que guardan antes de cortar el hilo. Lo normal
+      // es que conteste en milisegundos; el tope es holgado porque con la máquina cargada (o un chip
+      // lento) cortar antes pierde la hora del RTC o lo último grabado en la EEPROM.
       const detenido = new Promise<void>((r) => {
         this.alDetenerse = r;
-        setTimeout(r, 1000);
+        setTimeout(r, 3000);
       });
       worker.on('message', (m: MensajeDelWorker) => this.recibir(m));
       worker.postMessage({ t: 'parar' } satisfies MensajeAlWorker);
