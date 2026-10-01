@@ -68,6 +68,14 @@ export const UsoChipSchema = z
     id: z.string().regex(CHIP_ID_RE),
     /** Pin del módulo → pin del chip. Los del chip que no estén acá quedan sin conectar. */
     pines: z.record(z.string(), z.string()).default({}),
+    /**
+     * Props del chip que salen de cómo está cableado un pin del módulo, como en la placa real
+     * (SDO a GND → dirección 0x76): prop → { pin del módulo, valor si va a tierra, valor si va
+     * a alimentación }. Sin cablear queda el `default` de la prop del módulo (su pull-up/down).
+     */
+    porCableado: z
+      .record(z.string(), z.object({ pin: z.string(), aTierra: z.string(), aAlimentacion: z.string() }).strict())
+      .default({}),
   })
   .strict();
 

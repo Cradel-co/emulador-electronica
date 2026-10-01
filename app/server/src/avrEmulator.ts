@@ -7,6 +7,10 @@ import type { Emulador, OpcionesArranque, PuenteSim } from './emulatorBackend.js
 import { AvrSimulador, PINES_UNO, RelojAvr, type PinMcu } from './avrSim.js';
 import type { MensajeAlWorker, MensajeDelWorker } from './avrWorker.js';
 import { ControlDepuracionAvr, type EventoAvr, type PedidoAvr, type RespuestaAvr } from './debug/avrControl.js';
+import type { SalidaChip } from '@emu/shared';
+import { armarBusI2c } from './bus/armarBus.js';
+import type { BusI2c } from './bus/busI2c.js';
+import type { ChipEnBus } from './bus/proyectoChips.js';
 
 /** Largo máximo de una línea del Serial antes de cortarla (un sketch sin println). */
 const MAX_LINEA = 1024;
@@ -41,6 +45,14 @@ export class AvrEmulator implements Emulador {
   private frecuenciaHz = 16_000_000;
   private pines: PinMcu[] = PINES_UNO;
   private avisoLento = false;
+  private chips: ChipEnBus[] = [];
+  private arranqueMs = 0;
+  /** Último entorno de cada chip (el que movió el usuario) y lo último que publicó cada uno. */
+  private readonly entornos = new Map<string, Record<string, number>>();
+  private readonly salidasChips = new Map<string, SalidaChip>();
+  private busLocal: BusI2c | null = null;
+  /** Avisa cuando un chip publica algo (pantalla, valores): lo usa index.ts para la UI. */
+  oyenteChips: ((id: string, salida: SalidaChip) => void) | null = null;
   private readonly decodificador = new TextDecoder('utf-8');
   // Modo debug (debug/adaptadorAvr.ts): pedidos al control de depuración que vive junto a la CPU.
   private readonly pedidosDepuracion = new Map<number, (r: RespuestaAvr) => void>();
@@ -66,6 +78,24 @@ export class AvrEmulator implements Emulador {
     return this.lineas.slice(-limit);
   }
 
+  /** Chips del dibujo que están en el bus de esta corrida, con su entorno actual y lo último que publicaron. */
+  chipsEnCorrida(): { id: string; chip: string; nombre: string; alimentado: boolean; entorno: Record<string, number>; salida?: SalidaChip }[] {
+    return this.chips.map((c) => ({
+      id: c.id, chip: c.chip, nombre: c.nombre, alimentado: c.alimentado,
+      entorno: { ...this.entornos.get(c.id) }, salida: this.salidasChips.get(c.id),
+    }));
+  }
+
+  /** El usuario movió el entorno de un chip (sin reiniciar nada). false si ese chip no está en el bus. */
+  ponerEntorno(id: string, valores: Record<string, number>): boolean {
+    const actual = this.entornos.get(id);
+    if (!actual) return false;
+    Object.assign(actual, valores);
+    this.busLocal?.ponerEntorno(id, valores);
+    this.mandar({ t: 'entorno', id, valores });
+    return true;
+  }
+
   getBridge(): PuenteSim | null {
     return this.puente;
   }
@@ -79,6 +109,11 @@ export class AvrEmulator implements Emulador {
     this.hex = await fs.readFile(artifacts.firmware, 'utf8');
     this.frecuenciaHz = opts.frecuenciaHz ?? 16_000_000;
     this.pines = opts.pinesMcu ?? PINES_UNO;
+    this.chips = opts.chips ?? [];
+    this.arranqueMs = opts.arranqueMs ?? 0;
+    this.entornos.clear();
+    this.salidasChips.clear();
+    for (const c of this.chips) this.entornos.set(c.id, { ...c.entorno });
     this.lineas = [];
     this.linea = '';
     this.avisoLento = false;
@@ -121,7 +156,7 @@ export class AvrEmulator implements Emulador {
       this.log(`[emu] el emulador terminó (code=${code})`);
       this.teardown(`terminó con código ${code}`);
     });
-    worker.postMessage({ t: 'iniciar', hex: this.hex, frecuenciaHz: this.frecuenciaHz, pines: this.pines } satisfies MensajeAlWorker);
+    worker.postMessage({ t: 'iniciar', hex: this.hex, frecuenciaHz: this.frecuenciaHz, pines: this.pines, chips: this.chips, arranqueMs: this.arranqueMs } satisfies MensajeAlWorker);
   }
 
   private arrancarLocal(): void {
@@ -130,6 +165,13 @@ export class AvrEmulator implements Emulador {
         onSerial: (b) => this.serial([b]),
         onPin: (pin, nivel) => this.recibir({ t: 'pin', pin, nivel }),
       }, this.frecuenciaHz, this.pines);
+      // En modo local el bus se arma de nuevo en cada arranque (un reset rearma todo).
+      this.busLocal = armarBusI2c(this.chips, this.arranqueMs, {
+        ahoraUs: () => sim.micros,
+        alLog: (linea) => this.recibir({ t: 'log', linea }),
+        alSalida: (id, salida) => this.recibir({ t: 'chip', id, salida }),
+      });
+      if (this.busLocal) sim.conectarI2c(this.busLocal);
       this.controlLocal ??= new ControlDepuracionAvr(
         { sim: () => this.local?.sim ?? null, reloj: () => this.local?.reloj ?? null },
         (evento) => this.recibir({ t: 'depurar-evento', evento }),
@@ -197,6 +239,13 @@ export class AvrEmulator implements Emulador {
         break;
       case 'error':
         this.log(`[avr] error: ${m.mensaje}`);
+        break;
+      case 'chip':
+        this.salidasChips.set(m.id, m.salida);
+        this.oyenteChips?.(m.id, m.salida);
+        break;
+      case 'log':
+        this.log(m.linea);
         break;
       case 'depurar':
         this.pedidosDepuracion.get(m.id)?.(m.respuesta);

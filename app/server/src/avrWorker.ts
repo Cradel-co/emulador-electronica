@@ -1,5 +1,9 @@
 import type { MessagePort } from 'node:worker_threads';
+import type { SalidaChip } from '@emu/shared';
 import { AvrSimulador, RelojAvr, type PinMcu } from './avrSim.js';
+import type { BusI2c } from './bus/busI2c.js';
+import { armarBusI2c } from './bus/armarBus.js';
+import type { ChipEnBus } from './bus/proyectoChips.js';
 import { ControlDepuracionAvr, type EventoAvr, type PedidoAvr, type RespuestaAvr } from './debug/avrControl.js';
 
 /**
@@ -10,7 +14,9 @@ import { ControlDepuracionAvr, type EventoAvr, type PedidoAvr, type RespuestaAvr
  */
 
 export type MensajeAlWorker =
-  | { t: 'iniciar'; hex: string; frecuenciaHz: number; pines: PinMcu[] }
+  | { t: 'iniciar'; hex: string; frecuenciaHz: number; pines: PinMcu[]; chips?: ChipEnBus[]; arranqueMs?: number }
+  /** El usuario movió el entorno de un chip (temperatura...). */
+  | { t: 'entorno'; id: string; valores: Record<string, number> }
   | { t: 'entrada'; pin: number; nivel: 0 | 1 | null }
   | { t: 'vigilar'; pin: number }
   | { t: 'serial'; datos: number[] }
@@ -26,6 +32,10 @@ export type MensajeDelWorker =
   | { t: 'flush' }
   | { t: 'pin'; pin: number; nivel: 0 | 1 }
   | { t: 'velocidad'; valor: number }
+  /** Lo que publicó un chip para mostrar (pantalla, valores). */
+  | { t: 'chip'; id: string; salida: SalidaChip }
+  /** Avisos del bus y de los chips ("[i2c] ..."), para la consola. */
+  | { t: 'log'; linea: string }
   | { t: 'error'; mensaje: string }
   | { t: 'depurar'; id: number; respuesta: RespuestaAvr }
   | { t: 'depurar-evento'; evento: EventoAvr };
@@ -43,12 +53,40 @@ export function atenderWorker(puerto: MessagePort): void {
   const enviar = (m: MensajeDelWorker): void => puerto.postMessage(m);
   const control = new ControlDepuracionAvr({ sim: () => sim, reloj: () => reloj }, (evento) => enviar({ t: 'depurar-evento', evento }));
 
+  // Chips del dibujo en el bus I2C. Viven más que la CPU: un reset del micro no apaga el sensor,
+  // así que el bus se arma una vez por corrida y el tiempo sigue corriendo entre resets.
+  let chips: ChipEnBus[] = [];
+  let arranqueMs = 0;
+  let bus: BusI2c | null = null;
+  let tiempoAntesUs = 0; // µs simulados de las CPU anteriores (resets)
+  const salidas = new Map<string, SalidaChip>();
+  let salidaTimer: NodeJS.Timeout | null = null;
+  const mandarSalidas = (): void => {
+    salidaTimer = null;
+    for (const [id, salida] of salidas) enviar({ t: 'chip', id, salida });
+    salidas.clear();
+  };
+  const armarBus = (): void => {
+    tiempoAntesUs = 0;
+    bus = armarBusI2c(chips, arranqueMs, {
+      ahoraUs: () => tiempoAntesUs + (sim?.micros ?? 0),
+      alLog: (linea) => enviar({ t: 'log', linea }),
+      // Una pantalla puede publicar cientos de veces por segundo: se manda como mucho cada 50 ms.
+      alSalida: (id, salida) => {
+        salidas.set(id, salida);
+        salidaTimer ??= setTimeout(mandarSalidas, 50);
+      },
+    });
+  };
+
   const crear = (): void => {
     reloj?.parar();
+    if (sim) tiempoAntesUs += sim.micros;
     sim = new AvrSimulador(hex, {
       onSerial: (b) => serial.push(b),
       onPin: (pin, nivel) => enviar({ t: 'pin', pin, nivel }),
     }, frecuenciaHz, pines);
+    if (bus) sim.conectarI2c(bus);
     // Tras un reset, los módulos siguen manejando sus entradas como antes.
     for (const [pin, nivel] of entradas) sim.ponerEntrada(pin, nivel);
     control.alCrearSim(sim);
@@ -75,6 +113,10 @@ export function atenderWorker(puerto: MessagePort): void {
           hex = m.hex;
           frecuenciaHz = m.frecuenciaHz;
           pines = m.pines;
+          chips = m.chips ?? [];
+          arranqueMs = m.arranqueMs ?? 0;
+          sim = null;
+          armarBus();
           crear();
           enviar({ t: 'listo' });
           break;
@@ -82,6 +124,9 @@ export function atenderWorker(puerto: MessagePort): void {
           if (m.nivel === null) entradas.delete(m.pin);
           else entradas.set(m.pin, m.nivel);
           sim?.ponerEntrada(m.pin, m.nivel);
+          break;
+        case 'entorno':
+          bus?.ponerEntorno(m.id, m.valores);
           break;
         case 'vigilar':
           sim?.vigilar(m.pin);
@@ -94,6 +139,7 @@ export function atenderWorker(puerto: MessagePort): void {
           break;
         case 'parar':
           reloj?.parar();
+          if (salidaTimer) clearTimeout(salidaTimer);
           puerto.close();
           break;
         case 'depurar':

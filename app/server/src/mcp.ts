@@ -75,6 +75,12 @@ export interface McpContexto {
   quitarDelCatalogo: (type: string) => Promise<void>;
   /** Modo debug (debug/mcpDepuracion.ts): herramientas debug_*. */
   depurador?: Depurador;
+  /** Chips (sensores, relojes...): catálogo, los de un proyecto, y mover su entorno. */
+  chips?: {
+    catalogo: () => unknown[];
+    deProyecto: (nombre: string) => Promise<unknown[]>;
+    moverEntorno: (nombre: string, id: string, valores: Record<string, number>) => Promise<{ entorno: Record<string, number>; enVivo: boolean }>;
+  };
 }
 
 type Resultado = { content: { type: 'text'; text: string }[]; isError?: boolean };
@@ -617,6 +623,30 @@ export function crearServidorMcp(ctx: McpContexto): McpServer {
     if (rol === 'output') return falla(`"${def.name}" es una salida: se lee con leer_pines.`);
     return falla(`"${def.name}" no tiene controles en la simulación.`);
   }));
+
+  if (ctx.chips) {
+    const chips = ctx.chips;
+    server.registerTool('chips', {
+      title: 'Chips con lógica',
+      description: 'Sin proyecto: el catálogo de chips (chips/<id>/: sensores, relojes...) con lo que miden (entorno), su bus, la hoja de datos en la que se basan y lo que NO emulan. ' +
+        'Con proyecto: los módulos de ese proyecto que llevan un chip, con su entorno actual, si quedaron en el bus I2C de la placa y lo último que publicaron.',
+      inputSchema: { proyecto: proyecto.optional() },
+    }, seguro(async ({ proyecto: p }) => (p ? json(`Chips de ${p}:`, await chips.deProyecto(p)) : json('Catálogo de chips:', chips.catalogo()))));
+
+    server.registerTool('mover_entorno', {
+      title: 'Mover el entorno de un sensor',
+      description: 'Cambia lo que mide un módulo con chip (p. ej. { temperatura: 30, humedad: 60 } en un BME280), dentro del rango de su hoja de datos. ' +
+        'Se guarda en el proyecto y, si está corriendo, el firmware lo ve en la próxima medición sin reiniciar. Los nombres salen de `chips`.',
+      inputSchema: {
+        proyecto,
+        id: z.string().describe('Id de la instancia en el dibujo ("bme1")'),
+        valores: z.record(z.string(), z.number()).describe('Magnitud → valor, en las unidades del chip'),
+      },
+    }, seguro(async ({ proyecto: p, id, valores }) => {
+      const r = await chips.moverEntorno(p, id, valores);
+      return json(r.enVivo ? 'Entorno aplicado en vivo:' : 'Entorno guardado (se aplica al ejecutar):', r.entorno);
+    }));
+  }
 
   server.registerTool('poner_pin', {
     title: 'Poner un nivel en un pin',

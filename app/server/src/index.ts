@@ -34,6 +34,9 @@ import { precalentar } from './sim/spice.js';
 import type { AlimentacionPlaca, FuenteElectrica, LedElectrico } from './sim/tipos.js';
 import { Depurador } from './debug/depurador.js';
 import { registrarRutasDepuracion } from './debug/rutas.js';
+import { chipsDelProyecto } from './bus/proyectoChips.js';
+import { chipPublico, chipsDe, moverEntorno, registrarRutasChips, type CorridaChips, type DepsChips } from './bus/rutasChips.js';
+import { cargarChips } from './bus/catalogoChips.js';
 
 const PORT = Number(process.env.PORT ?? 5180);
 const HOST = process.env.HOST ?? '127.0.0.1'; // por defecto nunca 0.0.0.0 (sección 13)
@@ -175,6 +178,13 @@ function emuladorDe(motor: string): Emulador {
     if (!m.disponible) throw new ProjectError(`El motor de emulación "${motor}" todavía no está implementado.`, 400);
     e = m.crear(eventosEmulador);
     instancias.set(motor, e);
+    // Motores con chips en un bus (avr8js): lo que publican (una pantalla, valores) va a la UI.
+    const conChips = e as Emulador & { oyenteChips?: ((id: string, salida: Record<string, unknown>) => void) | null };
+    if ('oyenteChips' in conChips) {
+      conChips.oyenteChips = (id, salida) => {
+        if (runningProject) broadcast({ type: 'chip.salida', project: runningProject, id, salida });
+      };
+    }
   }
   return e;
 }
@@ -191,6 +201,18 @@ const depurador = new Depurador({
 });
 
 export { store, builder, emulator };
+
+/** Lo que necesitan la API y el MCP de los chips (bus/rutasChips.ts). */
+const depsChips: DepsChips = {
+  leer: (n) => store.read(n),
+  guardar: (p) => store.save(p),
+  catalogo: loadCatalog,
+  corrida: (n) => {
+    const e = emulator as Emulador & Partial<CorridaChips>;
+    return runningProject === n && emulator.getStatus().running && e.chipsEnCorrida && e.ponerEntorno ? (e as Emulador & CorridaChips) : null;
+  },
+  emitir: (e) => broadcast(e),
+};
 
 /**
  * Placa tal como la ve la UI / el MCP: id, nombre, el descriptor completo (`board` del
@@ -376,6 +398,8 @@ async function registerRoutes(): Promise<void> {
   });
 
   app.get('/api/modules', async () => ({ modules: await loadCatalog() }));
+
+  registrarRutasChips(app, depsChips, fail);
 
   // Importador de módulos (carpeta, zip, chip de Wokwi, URL / GitHub).
   app.post('/api/modules/import', { bodyLimit: 25 * 1024 * 1024 }, async (req, reply) => {
@@ -883,7 +907,21 @@ async function runProject(
   runningProject = full.name;
   controlesCerrados.clear();
   depurador.alIniciarCorrida({ proyecto: full.name, placa: full.board, lenguaje: full.language, motor: placa.desc.backend.engine, artefactos: artifacts });
-  await emulator.start(full.name, artifacts, motor!.opcionesArranque(placa.desc, artifacts));
+  // Chips del dibujo (sensores, relojes...) en el bus I2C de la placa, si el motor lo emula.
+  const catalogo = await loadCatalog();
+  const buscarDef = (t: string): ModuloCatalogo | undefined => catalogo.find((m) => m.type === t);
+  // Si cada chip está alimentado lo dice el motor eléctrico (su modelo: VDD en rango).
+  const electrico = await analizarCircuito(conPlaca(full), buscarDef, {
+    direcciones: await direccionesDe(full), niveles, cerrados: cerradosDe(full.name), fuentesApagadas: fuentesApagadasDe(full),
+  }).catch(() => null);
+  const enBus = chipsDelProyecto(full, buscarDef, placa.desc, undefined, (id) => electrico?.modulos[id]?.ui?.on);
+  for (const aviso of enBus.avisos) logBuild(`[chips] ${aviso}`);
+  if (enBus.chips.length) logBuild(`[chips] en el bus I2C: ${enBus.chips.map((c) => c.nombre).join(', ')}`);
+  await emulator.start(full.name, artifacts, {
+    ...motor!.opcionesArranque(placa.desc, artifacts),
+    chips: enBus.chips,
+    arranqueMs: placa.desc.arranqueMs,
+  });
   void depurador.alArrancado();
 
   // Sin esto, el chip arranca a un REPL vacío: nada ejecuta el código del usuario (8.8).
@@ -1181,6 +1219,11 @@ async function quitarDelCatalogo(type: string): Promise<void> {
 }
 
 const contextoMcp: McpContexto = {
+  chips: {
+    catalogo: () => cargarChips().map(chipPublico),
+    deProyecto: (n) => chipsDe(n, depsChips),
+    moverEntorno: (n, id, valores) => moverEntorno(n, id, valores, depsChips),
+  },
   store,
   crearProyecto,
   plantillas: () => store.listTemplates(),
