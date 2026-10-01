@@ -43,6 +43,13 @@ export const ChipDefSchema = z
         scl: z.string().regex(NOMBRE_PIN_RE),
         /** Frecuencia máxima de SCL que soporta (Hz), para avisar si el firmware la pasa. */
         maxHz: z.number().positive().optional(),
+        /**
+         * El chip contesta siempre que está encendido y lo que se le escribe no cambia si contesta
+         * (una pantalla: nunca hace NACK). El bus puede entregarle las escrituras en tanda (hasta 16
+         * o 10 ms de emulación, y siempre antes de una lectura o un despertador): mucho menos
+         * trabajo. Cada evento conserva su instante. NO usar en una EEPROM (después de grabar, NACK).
+         */
+        diferirEscrituras: z.boolean().optional(),
       })
       .strict()
       .optional(),

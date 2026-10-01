@@ -164,6 +164,7 @@ describe('SSD1306: imagen con la configuración de Adafruit (A1h, C8h, DAh 12h)'
   it('el scroll por hardware no se emula: se avisa', () => {
     const { m, comandos } = pantalla();
     comandos(...INIT, 0x26, 0, 0, 0, 7, 0, 0xff, 0x2f);
+    m.esperar(11); // las escrituras a la pantalla se entregan en tanda (hasta 10 ms después)
     expect(m.logs.some((l) => /scroll por hardware/.test(l))).toBe(true);
   });
 

@@ -33,6 +33,8 @@ export interface OpcionesDispositivo {
   alimentado?: boolean;
   /** Frecuencia máxima de SCL que soporta (Hz). */
   maxHz?: number;
+  /** Puede recibir las escrituras en tanda (ver `diferirEscrituras` en chip.json). */
+  diferirEscrituras?: boolean;
   /**
    * Cuándo recibió la alimentación (µs, en el reloj del bus). Por defecto, ahora. Con la placa
    * puede ser negativo: el chip se enciende con ella y el micro arranca después (arranqueMs).
@@ -42,9 +44,15 @@ export interface OpcionesDispositivo {
 
 /** Bytes que se piden de antemano al empezar una lectura (el buffer de Wire en AVR es de 32). */
 export const PREFETCH = 32;
+/** Escrituras diferidas: se entregan en tanda de hasta 16, o a los 10 ms de la primera. */
+const DIFERIR_MAX = 16;
+const DIFERIR_US = 10_000;
 
-interface Dispositivo extends Required<Omit<OpcionesDispositivo, 'maxHz' | 'encendidoEnUs'>> {
+interface Dispositivo extends Required<Omit<OpcionesDispositivo, 'maxHz' | 'encendidoEnUs' | 'diferirEscrituras'>> {
   maxHz?: number;
+  diferir: boolean;
+  /** Despertador agendado para entregar las escrituras diferidas. */
+  entregaAgendada: boolean;
   direcciones: number[];
   ocupadoHasta: number;
   pendientes: EventoChip[];
@@ -90,7 +98,7 @@ export class BusI2c {
     const d: Dispositivo = {
       id: o.id, chip: o.chip, motor: o.motor, props: o.props ?? {}, entorno: o.entorno ?? {},
       alimentado: o.alimentado ?? true, maxHz: o.maxHz, direcciones: [], ocupadoHasta: 0, pendientes: [], roto: null,
-      despertar: null, pines: new Map(),
+      despertar: null, pines: new Map(), diferir: o.diferirEscrituras ?? false, entregaAgendada: false,
     };
     this.dispositivos.push(d);
     if (d.alimentado) this.correr(d, [{ tipo: 'encender', t: o.encendidoEnUs ?? this.ev.ahoraUs() }]);
@@ -175,10 +183,27 @@ export class BusI2c {
     return valor;
   }
 
-  /** STOP: termina la transacción y entrega lo pendiente a cada chip. */
+  /** STOP: termina la transacción y entrega lo pendiente a cada chip (o lo junta, si el chip lo permite). */
   parada(): void {
     this.cerrarSegmento();
-    for (const d of this.dispositivos) if (d.pendientes.length > 0) this.correr(d, []);
+    const t = this.ev.ahoraUs();
+    for (const d of this.dispositivos) {
+      if (d.pendientes.length === 0) continue;
+      const primero = d.pendientes[0]!.t;
+      const soloEscrituras = d.pendientes.every((e) => e.tipo === 'escribir');
+      if (d.diferir && this.ev.programar && soloEscrituras && d.pendientes.length < DIFERIR_MAX && t - primero < DIFERIR_US) {
+        // Se entrega más tarde, en tanda: a los 10 ms del primero como mucho.
+        if (!d.entregaAgendada) {
+          d.entregaAgendada = true;
+          this.ev.programar(primero + DIFERIR_US, () => {
+            d.entregaAgendada = false;
+            if (d.pendientes.length > 0) this.correr(d, []);
+          });
+        }
+        continue;
+      }
+      this.correr(d, []);
+    }
   }
 
   // --- Interno ------------------------------------------------------------------------

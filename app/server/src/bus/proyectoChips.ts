@@ -28,6 +28,8 @@ export interface ChipEnBus {
   pinesGpio: Record<string, number>;
   /** Pines del chip con pull-up en la placa: soltados, se leen en 1. */
   pullUps: string[];
+  /** Puede recibir las escrituras en tanda (chip.json → i2c.diferirEscrituras). */
+  diferirEscrituras?: boolean;
 }
 
 export interface ResultadoChips {
@@ -111,6 +113,7 @@ export function chipsDelProyecto(
         maxHz: chip.i2c.maxHz,
         pinesGpio: pinesAlMicro(project, inst.id, uso, buscar, [chip.i2c.sda, chip.i2c.scl]),
         pullUps: uso.pullUps,
+        diferirEscrituras: chip.i2c.diferirEscrituras,
       });
     }
   }

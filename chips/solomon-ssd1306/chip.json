@@ -5,7 +5,7 @@
   "descripcion": "Controlador de pantallas OLED monocromo de hasta 128 × 64, por I2C en 0x3C (SA0 a GND) o 0x3D. Props: 'sa0' = 'bajo' | 'alto'; 'panel' = '128x64' | '128x32' (cómo está cableado el panel del módulo).",
   "hojaDeDatos": "SSD1306 Rev 1.1 (Solomon Systech, abril 2008) y nota de aplicación de la bomba de carga Rev 0.4",
   "pines": ["VDD", "VBAT", "VSS", "SCL", "SDA", "SA0", "RES"],
-  "i2c": { "sda": "SDA", "scl": "SCL", "maxHz": 400000 },
+  "i2c": { "sda": "SDA", "scl": "SCL", "maxHz": 400000, "diferirEscrituras": true },
   "comportamiento": "comportamiento.js",
   "limitaciones": [
     "El scroll por hardware (26h/27h/29h/2Ah + 2Fh) no se emula: la imagen queda quieta (se avisa por la consola).",

@@ -35,7 +35,7 @@ export class MaestroVirtual {
   conectar(chip: ChipCatalogo, o: Omit<OpcionesDispositivo, 'motor' | 'chip'> & { entorno?: Record<string, number> }): SandboxChip {
     const motor = new SandboxChip(chip.id, chip.codigo);
     const entorno = Object.fromEntries(Object.entries(chip.entorno).map(([k, m]) => [k, m.default]));
-    this.bus.agregar({ ...o, chip: chip.id, motor, maxHz: chip.i2c?.maxHz, entorno: { ...entorno, ...o.entorno } });
+    this.bus.agregar({ ...o, chip: chip.id, motor, maxHz: chip.i2c?.maxHz, diferirEscrituras: chip.i2c?.diferirEscrituras, entorno: { ...entorno, ...o.entorno } });
     return motor;
   }
 
