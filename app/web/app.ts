@@ -1931,6 +1931,7 @@ async function refrescarAvisos() {
 // --- Proyectos --------------------------------------------------------------
 
 async function cargarProyectos(seleccionarNombre?: string) {
+  const apertura = aperturas;
   const { projects } = await api('/api/projects');
   state.proyectos = projects;
   const s = sel('proyecto');
@@ -1948,6 +1949,11 @@ async function cargarProyectos(seleccionarNombre?: string) {
     s.append(o);
   }
   if (document.body.classList.contains('inicio')) pintarListaProyectos();
+  // Mientras llegaba la lista se abrió un proyecto (p. ej. por la URL): no se lo pisa.
+  if (aperturas !== apertura && seleccionarNombre === undefined) {
+    s.value = state.proyecto?.name ?? '';
+    return;
+  }
   // Al recargar se vuelve al proyecto que estaba abierto (queda en la URL: #nombre).
   // Sin eso (primera visita, o volviste a la lista a propósito): la pantalla de inicio.
   const enUrl = decodeURIComponent(location.hash.slice(1));
@@ -2178,11 +2184,20 @@ $('zoom-mas').onclick = () => lienzo.zoom(1.2);
 $('zoom-menos').onclick = () => lienzo.zoom(1 / 1.2);
 $('zoom-ajustar').onclick = () => lienzo.ajustar();
 
+/** A qué proyecto se está yendo (mientras se guarda el actual): gana el último pedido. */
+let destino: string | null = null;
+
 async function cambiarDeProyecto(nombre) {
-  if (!nombre || nombre === state.proyecto?.name) return;
-  guardarDiagramaYa();
-  await guardar(true);
-  await abrirProyecto(nombre);
+  if (!nombre || nombre === (destino ?? state.proyecto?.name)) return;
+  destino = nombre;
+  try {
+    guardarDiagramaYa();
+    await guardar(true);
+    if (destino !== nombre) return; // mientras se guardaba, se pidió otro
+    await abrirProyecto(nombre);
+  } finally {
+    if (destino === nombre) destino = null;
+  }
 }
 
 sel('proyecto').addEventListener('change', () => void cambiarDeProyecto(sel('proyecto').value));

@@ -23,6 +23,9 @@ test('un LED que el motor marca "se-quema" se quema al encenderse, queda muerto 
   });
 
   await abrirProyectoNuevo(page, request);
+  // Hasta que la UI no lee el estado real del emulador ("detenido", lo pide al arrancar y al abrir
+  // el proyecto), un bridge.ready inyectado antes quedaría pisado por esa respuesta.
+  await page.waitForLoadState('networkidle');
   await expect.poll(() => alServidor !== null).toBe(true);
 
   // Simulación arrancada, pero el LED todavía apagado: no se quema nada.
