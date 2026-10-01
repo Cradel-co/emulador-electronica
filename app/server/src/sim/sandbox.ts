@@ -22,8 +22,10 @@ import type { ModeloDiodo, Observacion, Primitiva } from '@emu/shared';
  * no para código hostil con exploits de V8.
  */
 
-const TIEMPO_CARGA_MS = 250;
-const TIEMPO_LLAMADA_MS = 50;
+const TIEMPO_CARGA_MS = 1000;
+// Holgado a propósito: con el server cargado, un modelo sano no puede quedar afuera del circuito
+// por tardar unos ms de más. Igual corta un bucle infinito enseguida.
+const TIEMPO_LLAMADA_MS = 300;
 const MAX_ELEMENTOS = 200;
 const MAX_SALIDA = 200_000; // caracteres de JSON que puede devolver una llamada
 

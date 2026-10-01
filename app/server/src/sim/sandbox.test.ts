@@ -79,7 +79,7 @@ describe('sandbox: no se puede colgar el server', () => {
   const rapido = (f: () => void) => {
     const t0 = performance.now();
     expect(f).toThrow(/tardó demasiado/);
-    expect(performance.now() - t0).toBeLessThan(1500);
+    expect(performance.now() - t0).toBeLessThan(3000);
   };
 
   it('bucle infinito al cargar', () => rapido(() => sb(`while (true) {}`)));

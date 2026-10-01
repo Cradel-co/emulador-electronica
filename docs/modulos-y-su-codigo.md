@@ -246,7 +246,7 @@ en un sandbox (`app/server/src/sim/sandbox.ts`, contexto `node:vm`) con estas re
   server y el modelo solo viajan **strings** (JSON). El truco clásico de escape
   (`this.constructor.constructor('return process')()`) no encuentra nada.
 - **Sin generar código**: `eval`, `new Function` y WebAssembly están deshabilitados.
-- **Con tiempo límite**: 250 ms para cargar, 50 ms por llamada, contando las promesas.
+- **Con tiempo límite**: 1 s para cargar, 300 ms por llamada, contando las promesas (holgado: con el server cargado, un modelo sano no queda afuera por tardar unos ms de más).
   Un bucle infinito corta con "tardó demasiado"; el modelo se puede volver a llamar.
 - **La barrera real está en el server**: el código del módulo puede pisar las ayudas del
   sandbox, así que todo lo que devuelve se revisa de nuevo afuera — solo se acepta un
