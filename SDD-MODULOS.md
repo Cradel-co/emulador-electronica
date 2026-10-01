@@ -861,8 +861,11 @@ probados contra su hoja de datos y con el firmware que usa la gente. Guía para 
 | Librerías de Arduino por módulo (`drivers`) y por proyecto (`librerias.txt`) | `toolchains/arduinoCli.ts` |
 | Maestro I2C virtual para probar chips (parte del SDK de la sección 6) | `bus/maestroVirtual.ts` |
 | Chips: BME280, DS3231, AT24C32, SSD1306, MPU-6050. Módulos: `bme280-adafruit`, `ds3231-zs042`, `oled-ssd1306-128x64`, `mpu6050-gy521` | `chips/`, `modules/` |
+| Memoria no volátil de los chips (`ctx.guardar` / `ctx.guardado`): la EEPROM y la hora con pila siguen entre ejecuciones, en `projects/<p>/.chips/` | `bus/memoriaChips.ts`, `avrWorker.ts` |
+| Bus SPI del Uno (`AVRSPI`): CS, DC, modos, orden de bits, `entradas` (RESX); el BME280 también por SPI | `bus/busChips.ts`, `avrSim.ts` |
+| Chip ST7735 y módulo `tft-st7735-128x160` (pantalla a color, imagen RGB565 en el circuito) | `chips/sitronix-st7735/`, `modules/` |
 
-Pruebas: de 418 a 561 tests unitarios (los de chips: maestro virtual + firmware real compilado con
+Pruebas: de 418 a 606 tests unitarios (los de chips: maestro virtual + firmware real compilado con
 las librerías de verdad), y e2e con Playwright para el panel, la compilación con librerías y la
 pantalla en el circuito.
 
@@ -901,15 +904,28 @@ pantalla en el circuito.
    exige que todos los chips de fábrica carguen.
 7. **La electrónica de la placa da sorpresas reales.** La ZS-042 a 5 V carga una CR2032 con ~6 mA;
    el GY-521 tiene los pull-ups a 3,3 V. Solo se ve modelando la placa desde su esquemático.
+8. **Guardar al apagar necesita tiempo.** La hora del RTC se guarda en el evento `apagar`, que corre
+   en el hilo del emulador: parar tiene que esperar a que conteste (hasta 3 s; con 1 s, bajo carga, se
+   perdía). Y hay que parar la corrida anterior antes de cambiar de proyecto, si no se guarda en el
+   proyecto equivocado.
+9. **Las variantes de una placa genérica son parte del módulo.** Las TFT ST7735 de 1,8" vienen con
+   tres paneles distintos; con el `initR` equivocado la imagen sale corrida y con rojo y azul
+   cambiados, como en la vida real. Es una prop (`pestana`), con el síntoma documentado.
+10. **El escáner de pines también tiene que entender las librerías.** Con `SPI.h` y
+    `Adafruit_ST7735 tft(10, 9, 8)`, el código no nombra D13/D11 ni usa `pinMode` en 10/9/8: se
+    avisaba "módulo cableado a un pin que el código no usa". Ahora cuenta el bus SPI y los pines del
+    constructor.
 
 ### Lo que sigue pendiente de este documento
 
 - Secciones 1 a 4: `parte`, `esquematico` (exportar), `reglas` declarativas y `tests.json` por
   módulo. Los chips de esta sección tienen sus tests en `app/server/src/bus/`, no en su carpeta.
 - Importar chips (hoy los chips solo vienen de fábrica, en `chips/`) y la corrección 1 del importador.
-- I2C hacia los chips en los ESP32 (MicroPython reemplazando `machine.I2C`), SPI en el Uno.
-- El consumo de un chip según su modo (el modelo eléctrico del módulo no conoce el estado del chip).
-- La memoria de la EEPROM no se guarda entre ejecuciones.
+- I2C y SPI hacia los chips en los ESP32 (MicroPython reemplazando `machine.I2C`/`SPI` por el puente;
+  ESPHome se va a quitar del proyecto).
+- El consumo de un chip según su modo (el modelo eléctrico del módulo no conoce el estado del chip),
+  y el brillo de una pantalla según la corriente de su retroiluminación.
+- Tarjeta SD por SPI (con una imagen FAT guardada con `ctx.guardar`, o un archivo aparte si pasa de 64 KB).
 
 ## Crear un módulo real, paso a paso
 

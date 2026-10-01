@@ -141,3 +141,74 @@ test('pantalla OLED SSD1306: el dibujo muestra lo que dibuja el programa', async
   // Sin alimentación la pantalla se apaga.
   await expect(modulo(page, 'oled1').locator('image.pantalla-chip')).not.toHaveAttribute('href', /.+/);
 });
+
+const SKETCH_TFT = `#include <Adafruit_GFX.h>
+#include <Adafruit_ST7735.h>
+#include <SPI.h>
+Adafruit_ST7735 tft(10, 9, 8);
+void setup() {
+  Serial.begin(115200);
+  tft.initR(INITR_BLACKTAB);
+  tft.fillScreen(ST77XX_BLACK);
+  tft.fillRect(0, 0, 128, 40, ST77XX_RED);
+  tft.fillRect(0, 40, 128, 40, ST77XX_GREEN);
+  tft.fillRect(0, 80, 128, 40, ST77XX_BLUE);
+  tft.setTextColor(ST77XX_WHITE);
+  tft.setTextSize(2);
+  tft.setCursor(8, 130);
+  tft.print("Hola TFT");
+  Serial.println("listo");
+}
+void loop() {}
+`;
+
+test('pantalla TFT ST7735 por SPI: el dibujo muestra los colores que pinta el programa', async ({ page, request }) => {
+  test.skip(!process.env.E2E_EMU, 'necesita Docker: correr con E2E_EMU=1');
+  test.setTimeout(10 * 60_000);
+  const name = `e2e-tft-${Date.now().toString(36)}`;
+  expect((await request.post('/api/projects', { data: { name, language: 'arduino', board: 'arduino-uno' } })).ok()).toBeTruthy();
+  const { project } = await (await request.get(`/api/projects/${name}`)).json();
+  const placa = project.modules.find((m: { id: string }) => m.id === 'board');
+  const modules = [{ ...placa, props: { ...placa.props, usb: true } }, { id: 'tft1', type: 'tft-st7735-128x160', x: 760, y: 60, props: {} }];
+  const wires = [
+    { from: 'tft1.VCC', to: 'board.5V' }, { from: 'tft1.GND', to: 'board.GND' }, { from: 'tft1.LED', to: 'board.3V3' },
+    { from: 'tft1.SCK', to: 'board.D13' }, { from: 'tft1.SDA', to: 'board.D11' },
+    { from: 'tft1.CS', to: 'board.D10' }, { from: 'tft1.A0', to: 'board.D9' }, { from: 'tft1.RESET', to: 'board.D8' },
+  ];
+  expect((await request.put(`/api/projects/${name}/diagram`, { data: { modules, wires } })).ok()).toBeTruthy();
+  expect((await request.put(`/api/projects/${name}/files/sketch.cpp`, { data: { content: SKETCH_TFT } })).ok()).toBeTruthy();
+  await page.goto(`/#${name}`);
+  await expect(modulo(page, 'tft1')).toBeVisible();
+  // SPI.h y los pines del constructor (10, 9, 8) cuentan como usados: sin avisos de pines sueltos.
+  await expect(page.locator('#avisos-dibujo')).not.toContainText('que el código no usa');
+  await page.locator('#ejecutar').click();
+  await expect(page.locator('#estado')).toHaveAttribute('data-s', 'bridge', { timeout: 9 * 60_000 });
+  await page.locator('.consola-tabs [data-tab="emu"]').click();
+  // initR tarda ~1,2 s de emulación (resets y SLPOUT): "listo" sale después ("puente listo" no cuenta).
+  await expect(page.locator('#consola')).toContainText(/^listo$/m, { timeout: 60_000 });
+  const img = modulo(page, 'tft1').locator('image.pantalla-chip');
+  // Los colores de las tres franjas, leídos de la imagen que puso la app.
+  const leer = () => img.evaluate(async (el) => {
+    const im = new Image();
+    im.src = el.getAttribute('href')!;
+    await im.decode();
+    const c = document.createElement('canvas');
+    c.width = im.width; c.height = im.height;
+    const g = c.getContext('2d')!;
+    g.drawImage(im, 0, 0);
+    const px = (x: number, y: number) => Array.from(g.getImageData(x, y, 1, 1).data.slice(0, 3));
+    return { tam: [im.width, im.height], rojo: px(64, 20), verde: px(64, 60), azul: px(64, 100) };
+  });
+  await expect.poll(async () => (await leer()).azul[2], { timeout: 10_000 }).toBeGreaterThan(200);
+  const colores = await leer();
+  expect(colores.tam).toEqual([128, 160]);
+  expect(colores.rojo[0]).toBeGreaterThan(200);
+  expect(colores.rojo[1]! + colores.rojo[2]!).toBeLessThan(30);
+  expect(colores.verde[1]).toBeGreaterThan(200);
+  expect(colores.azul[2]).toBeGreaterThan(200);
+  await modulo(page, 'tft1').scrollIntoViewIfNeeded();
+  await page.screenshot({ path: 'test-results/tft-corriendo.png' });
+  await modulo(page, 'tft1').screenshot({ path: 'test-results/tft-modulo.png' });
+  await page.locator('#parar').click();
+  await expect(page.locator('#estado')).toHaveAttribute('data-s', 'stopped', { timeout: 15_000 });
+});

@@ -6,18 +6,19 @@ uno o más chips, su electrónica (regulador, pull-ups, LED) y sus pines. Así, 
 comerciales con el mismo chip comparten todo lo difícil: el BME280 de Adafruit y un GY-BME280
 usan el mismo `chips/bosch-bme280/`.
 
-Hoy hay un bus emulado: el **I2C del Arduino Uno** (el TWI del ATmega328P en avr8js). El firmware
-real (Wire, las librerías de Adafruit, RTClib) le habla al chip ciclo a ciclo, con los tiempos
-del bus real. En los ESP32 no se puede todavía: esp-emu no acepta dispositivos I2C propios (ver
+Hoy hay dos buses emulados en el **Arduino Uno** (avr8js): el **I2C** (el TWI del ATmega328P, A4/A5)
+y el **SPI** (D13 SCK, D11 MOSI, D12 MISO; CS, DC y RESET en cualquier pin). El firmware real (Wire,
+SPI, las librerías de Adafruit, RTClib) le habla al chip ciclo a ciclo, con los tiempos del bus real. En los ESP32 no se puede todavía: esp-emu no acepta dispositivos I2C propios (ver
 [`../SDD-MODULOS.md`](../SDD-MODULOS.md), sección 6).
 
 | Chip | Qué emula | Probado con |
 |---|---|---|
-| [`bosch-bme280`](bosch-bme280/) | Temperatura, humedad y presión: modos, t_measure, filtro IIR, resolución, ruido, compensación de Bosch invertida | Adafruit_BME280 2.3.0 |
+| [`bosch-bme280`](bosch-bme280/) | Temperatura, humedad y presión: modos, t_measure, filtro IIR, resolución, ruido, compensación de Bosch invertida; por I2C o por SPI (modos 0 y 3) | Adafruit_BME280 2.3.0 (I2C y SPI) |
 | [`maxim-ds3231`](maxim-ds3231/) | Reloj: hora, alarmas con INT/SQW, temperatura cada 64 s, OSF, aging; con pila, la hora sigue entre ejecuciones | RTClib 2.1.4 |
 | [`atmel-at24c32`](atmel-at24c32/) | EEPROM de 4 KB: páginas, t_WR con acknowledge polling; lo grabado queda en el proyecto | Wire a mano |
 | [`solomon-ssd1306`](solomon-ssd1306/) | Pantalla OLED 128×64: comandos, modos de direccionamiento, remapeos, COM pins; la imagen se ve en el circuito | Adafruit_SSD1306 2.5.17 (píxel por píxel) |
 | [`invensense-mpu6050`](invensense-mpu6050/) | Acelerómetro y giróscopo: escalas, muestreo, DLPF, ruido, errores de fábrica, interrupción de dato listo | Adafruit_MPU6050 2.2.9 |
+| [`sitronix-st7735`](sitronix-st7735/) | Pantalla TFT a color 128×160 por SPI: ventana CASET/RASET, MADCTL (giros, RGB/BGR), 12/16/18 bits, sueño, inversión, RESX; las variantes de panel (pestaña negra/roja/verde) | Adafruit ST7735 1.11.0 (píxel por píxel) |
 
 ## Una carpeta por chip
 
@@ -35,7 +36,9 @@ chips/<fabricante-chip>/
 | `nombre`, `fabricante`, `descripcion` | Lo que se ve en la UI y en el MCP. La descripción explica las props que usa el chip. |
 | `hojaDeDatos` | **Obligatorio en la práctica**: código y revisión de la hoja en la que se basa. Sin esto no se puede verificar nada. |
 | `pines` | Los nombres de la hoja (`INT/SQW` vale). |
-| `i2c` | `{ sda, scl, maxHz }`: qué pines son el bus y la velocidad máxima (si el firmware la pasa, se avisa). |
+| `i2c` | `{ sda, scl, maxHz, diferirEscrituras? }`: qué pines son el bus y la velocidad máxima (si el firmware la pasa, se avisa). |
+| `spi` | `{ sck, mosi, miso?, cs, dc?, modos, lsbPrimero?, maxHz?, soloEscritura? }`. `modos`: los que acepta (con otro, el byte llega corrido, como en la placa). `dc`: el pin dato/comando de las pantallas. `soloEscritura`: no maneja MISO (una pantalla): el bus le entrega lo escrito en tandas. Un chip con `i2c` y `spi` (el BME280) queda en el bus al que esté cableado. |
+| `entradas` | Pines del chip que maneja el micro fuera del bus (RESX de una pantalla): cada cambio llega como evento `pin`. |
 | `entorno` | Lo que mide del mundo: `{ unidad, min, max, default, paso?, etiqueta? }`. La UI arma un control deslizante por magnitud. |
 | `comportamiento` | El `.js` de la carpeta. |
 | `limitaciones` | **Lo que no se emula, dicho claro.** Se muestra en el panel del módulo ("Qué no se emula") y en el MCP. |
@@ -54,6 +57,10 @@ module.exports = {
   leidos(ctx, n) {},                // cuántos de esos se leyeron de verdad (para el puntero)
   tick(ctx) {},                     // despertador pedido con ctx.despertarEn, o aviso antes de cambiar el entorno
   apagar(ctx) {},                   // se corta la alimentación (se detiene la corrida): guardar lo último
+  // SPI
+  seleccionar(ctx) {}, soltar(ctx) {},  // CS baja / sube
+  spi(ctx, mosi, dc) { return [/* un byte de MISO por cada uno de mosi */]; }, // dc[i]: nivel de DC en ese byte
+  pin(ctx, nombre, nivel) {},       // cambió una de sus `entradas` (RESX)
 };
 ```
 
@@ -67,13 +74,13 @@ module.exports = {
 | `ctx.ocupadoHasta(t)` | No contesta a su dirección hasta `t` (arranque, EEPROM grabando). |
 | `ctx.pin(nombre, 0 \| 1 \| null)` | Maneja un pin propio (INT, SQW). `null` = suelto (colector abierto: lo sube el pull-up de la placa si hay). |
 | `ctx.despertarEn(t)` | Pide un `tick` en el instante `t`, aunque nadie le hable por el bus (un cambio de segundo, una muestra). |
-| `ctx.publicar(obj)` | Algo para mostrar. `{ tipo: 'pantalla', ancho, alto, encendida, brillo, filas: [hex...] }` se dibuja sobre la parte `data-pantalla` del SVG del módulo. |
+| `ctx.publicar(obj)` | Algo para mostrar. `{ tipo: 'pantalla', ancho, alto, encendida, brillo, filas: [hex...] }` (monocromo) o `{ tipo: 'pantalla', formato: 'rgb565', ancho, alto, encendida, brillo, rgb565: base64 }` (color, 2 bytes por píxel, fila por fila) se dibuja sobre la parte `data-pantalla` del SVG del módulo. |
 | `ctx.log(texto)` | Aviso a la consola (algo que no se emula, una configuración rara). |
 | `ctx.guardar(datos)`, `ctx.guardado` | Memoria no volátil: lo que graba una EEPROM, la hora de un reloj con pila. Se escribe en `projects/<proyecto>/.chips/<id>.json` y vuelve en `ctx.guardado` al encender la próxima vez (JSON, hasta 64 KB). Borrar esa carpeta = chip nuevo de fábrica. |
 
 `sdk` (global): `u8`, `conSigno(x, bits)`, `sinSigno(x, bits)`, `aBcd`, `deBcd`, `limitar`,
 `invertirMonotona(f, objetivo, min, max)` (búsqueda binaria: "qué valor crudo da 22 °C con la
-fórmula de la hoja"), `azar(semilla)` (ruido repetible).
+fórmula de la hoja"), `azar(semilla)` (ruido repetible), `base64(bytes)` (para publicar una imagen a color).
 
 ### Cómo lo usa el bus
 
@@ -89,7 +96,15 @@ fórmula de la hoja"), `azar(semilla)` (ruido repetible).
   medición que terminó antes del cambio mide lo que había entonces.
 - Un chip que tira un error o tarda más de 250 ms en una llamada queda fuera del bus (deja de contestar) y se avisa.
 
-## Reglas que salieron de hacer estos cinco
+En SPI:
+
+- CS en bajo selecciona (`seleccionar`); con CS en alto el chip no ve nada y MISO queda en 0xFF.
+- Cada byte llega con el nivel de DC de ese momento. El modo SPI y el orden de bits se comparan con los
+  del chip: si no coinciden, el byte llega corrido (y se avisa una vez). Pasar `maxHz` también se avisa.
+- Un chip que contesta (BME280) recibe una llamada por byte, porque MISO depende de lo anterior. Uno
+  `soloEscritura` (pantalla) recibe tandas de hasta 4096 bytes o 10 ms de emulación.
+
+## Reglas que salieron de hacer estos seis
 
 1. **Todo con la hoja de datos al lado, y citada.** Cada número del código lleva la sección. Las
    pruebas se escriben contra la hoja, no contra lo que "uno sabe": varias veces el error estaba en
@@ -112,6 +127,15 @@ fórmula de la hoja"), `azar(semilla)` (ruido repetible).
 7. **Una placa no es su chip.** La electrónica de la placa (regulador, pull-ups, LED, carga de la
    pila) va en el `model.js` del módulo, sacada de su esquemático: la ZS-042 le mete ~6 mA a la
    CR2032 a 5 V, y eso solo se ve modelando la placa.
+8. **Las variantes de una placa genérica son reales.** Las TFT de 1,8" con ST7735 vienen con paneles
+   distintos (la "pestaña" del film protector): memoria de 128×160 o de 132×162 con el panel corrido,
+   filtro RGB o BGR. Con el `initR` equivocado se ve lo mismo que en la vida real: la imagen corrida
+   2 columnas y 1 fila, una franja de basura en el borde, y rojo y azul cambiados. Eso es una prop
+   del módulo (`pestana`), no un error del emulador.
+9. **Los tiempos de las librerías también.** `initR()` de Adafruit tarda ~1,16 s (reset por hardware
+   con 400 ms de esperas, SWRESET 150 ms, SLPOUT 500 ms, DISPON 100 ms): un test que mira la
+   pantalla antes no ve nada. Y en la consola, buscar el texto exacto del programa (`/^listo$/m`):
+   "puente listo" también dice "listo".
 
 ## Rendimiento (medido el 2026-10-01, PC sin otra carga)
 
@@ -124,10 +148,14 @@ Segundos emulados por segundo de PC, con firmware real en el Uno (1 = tiempo rea
 | MPU-6050 cada 100 ms | 1,70× |
 | DS3231 consultado cada 20 ms | 1,67× |
 | Pantalla OLED redibujando sin parar a 400 kHz (27 cuadros/s emulados) | 1,23× |
+| TFT ST7735 pintando la pantalla entera por SPI a 8 MHz (sin el chip: 0,66×) | 0,49× |
 
 Lo caro de cada llamada al sandbox es su vigilante de tiempo límite (~0,1 ms): por eso el bus llama
 una vez por transacción, y la pantalla declara `diferirEscrituras` (sin eso eran 33 llamadas por
-cuadro). Con la PC cargada (la suite de tests en paralelo) los números bajan a la mitad.
+cuadro). Con la PC cargada (la suite de tests en paralelo) los números bajan a la mitad. Pintar
+una TFT entera ya es lento en el Uno solo (40 KB por SPI, byte a byte con `SPI.transfer`): el chip
+agrega ~35 %, casi todo en armar la imagen de 128×160 que se publica (como mucho 20 por segundo
+de emulación).
 
 ## Probar un chip
 

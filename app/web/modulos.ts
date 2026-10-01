@@ -160,8 +160,8 @@ const COLORES_OLED = { blanco: [235, 242, 255], azul: [70, 170, 255], amarillo: 
 const urlsPantalla = new Map<string, string>();
 
 /** PNG de lo que muestra una pantalla de chip (cacheado: el mismo cuadro no se vuelve a armar). */
-export function urlPantalla(p: { ancho: number; alto: number; encendida: boolean; brillo: number; filas: string[] }, color: string): string {
-  const clave = `${color}|${p.encendida}|${p.brillo}|${p.filas.join('')}`;
+export function urlPantalla(p: { ancho: number; alto: number; encendida: boolean; brillo: number; filas?: string[]; formato?: string; rgb565?: string }, color: string): string {
+  const clave = p.formato === 'rgb565' ? `rgb565|${p.rgb565}` : `${color}|${p.encendida}|${p.brillo}|${(p.filas ?? []).join('')}`;
   const hecha = urlsPantalla.get(clave);
   if (hecha) return hecha;
   const c = document.createElement('canvas');
@@ -169,10 +169,26 @@ export function urlPantalla(p: { ancho: number; alto: number; encendida: boolean
   c.height = p.alto;
   const ctx = c.getContext('2d');
   const datos = ctx.createImageData(p.ancho, p.alto);
+  if (p.formato === 'rgb565') {
+    // Pantalla a color (TFT): dos bytes por píxel, RRRRRGGG GGGBBBBB.
+    const bin = atob(p.rgb565 ?? '');
+    for (let k = 0, i = 0; k + 1 < bin.length && i < datos.data.length; k += 2, i += 4) {
+      const v = (bin.charCodeAt(k) << 8) | bin.charCodeAt(k + 1);
+      datos.data[i] = ((v >> 11) & 0x1f) * 255 / 31;
+      datos.data[i + 1] = ((v >> 5) & 0x3f) * 255 / 63;
+      datos.data[i + 2] = (v & 0x1f) * 255 / 31;
+      datos.data[i + 3] = 255;
+    }
+    ctx.putImageData(datos, 0, 0);
+    const u = c.toDataURL('image/png');
+    if (urlsPantalla.size > 200) urlsPantalla.clear();
+    urlsPantalla.set(clave, u);
+    return u;
+  }
   // Con contraste 0 un OLED igual se ve (tenue): el brillo va de 35 % a 100 %.
   const k = p.encendida ? 0.35 + 0.65 * Math.max(0, Math.min(1, p.brillo)) : 0;
   for (let y = 0; y < p.alto; y++) {
-    const fila = p.filas[y] ?? '';
+    const fila = p.filas?.[y] ?? '';
     const base = color === 'amarillo-azul' ? (y < 16 ? COLORES_OLED.amarillo : COLORES_OLED.azul) : (COLORES_OLED[color] ?? COLORES_OLED.blanco);
     for (let x = 0; x < p.ancho; x++) {
       const on = (parseInt(fila.slice((x >> 3) * 2, (x >> 3) * 2 + 2), 16) >> (7 - (x & 7))) & 1;
@@ -192,7 +208,7 @@ export function urlPantalla(p: { ancho: number; alto: number; encendida: boolean
 
 /** Pone (o saca) la imagen de una pantalla. Sin cuadro todavía, se ve el vidrio apagado. */
 export function ponerImagenPantalla(img: Element, p, color: string): void {
-  if (p && Array.isArray(p.filas)) img.setAttribute('href', urlPantalla(p, color));
+  if (p && (Array.isArray(p.filas) || p.formato === 'rgb565')) img.setAttribute('href', urlPantalla(p, color));
   else img.removeAttribute('href');
 }
 

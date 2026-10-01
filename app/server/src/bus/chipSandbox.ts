@@ -127,6 +127,13 @@ var sdk = Object.freeze({
     if (lo > min && Math.abs(f(lo - 1) - objetivo) < Math.abs(f(lo) - objetivo)) return lo - 1;
     return lo;
   },
+  /** Bytes (arreglo de 0-255) a base64: para publicar imágenes grandes (una pantalla a color). */
+  base64: function (bytes) {
+    var T = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/', out = [], i = 0, n = bytes.length;
+    for (; i + 2 < n; i += 3) { var v = (bytes[i] << 16) | (bytes[i + 1] << 8) | bytes[i + 2]; out.push(T[v >> 18], T[(v >> 12) & 63], T[(v >> 6) & 63], T[v & 63]); }
+    if (i < n) { var w = bytes[i] << 16 | (i + 1 < n ? bytes[i + 1] << 8 : 0); out.push(T[w >> 18], T[(w >> 12) & 63], i + 1 < n ? T[(w >> 6) & 63] : '=', '='); }
+    return out.join('');
+  },
   /** Generador pseudoaleatorio con semilla (mulberry32): ruido repetible en los tests. */
   azar: function (semilla) {
     var a = semilla >>> 0;
