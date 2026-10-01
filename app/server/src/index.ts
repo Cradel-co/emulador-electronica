@@ -29,6 +29,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { scanPins, diffDiagramVsCode, type DiagramWarning } from './pinScan.js';
 import { conPlaca } from './diagramOps.js';
 import { analizarCircuito, type AlimentacionPlaca, type FuenteElectrica, type LedElectrico } from './circuitPhysics.js';
+import { circuitoLibre, ledsDelSolver } from './circuitEngine.js';
 import { Depurador } from './debug/depurador.js';
 import { registrarRutasDepuracion } from './debug/rutas.js';
 
@@ -762,7 +763,12 @@ async function avisosDelProyecto(
   const placa = await alimentacionDe(project);
   // Estado de cada LED con su pin/fuente EN ALTO (peor caso, sin mirar la simulación):
   // la UI lo usa para "quemar" el LED cuando la simulación lo prende.
-  const { leds } = analizarCircuito(conLaPlaca, buscar, new Map(), cerradosDe(project.name));
+  // Con EMU_FREE_CIRCUIT=1 responde el motor nuevo, que resuelve la red entera con los
+  // niveles reales: ahí no hace falta el peor caso porque el pulsador en serie, el cátodo
+  // en un GPIO que hunde corriente y la fuente externa salen de las mismas ecuaciones.
+  const { leds } = circuitoLibre()
+    ? { leds: ledsDelSolver(conLaPlaca, buscar, niveles, cerradosDe(project.name)) }
+    : analizarCircuito(conLaPlaca, buscar, new Map(), cerradosDe(project.name));
   // Quemada de antes (ya sin la sobretensión): el motor no lo sabe, se avisa acá.
   const quemadaDeAntes = placa.quemada && placa.estado !== 'quema'
     ? [{ kind: 'peligro-electrico' as const, pin: -1, message: motivoSinArranque(placa)!, refs: undefined }]
