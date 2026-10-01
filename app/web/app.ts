@@ -1796,7 +1796,7 @@ async function solicitudImportacion() {
   switch (fuenteImportacion) {
     case 'carpeta': {
       const archivos = {};
-      const lista = [...(inp('imp-carpeta').files ?? [])].filter((f) => /\.(json|svg)$/i.test(f.name));
+      const lista = [...(inp('imp-carpeta').files ?? [])].filter((f) => /\.(json|svg|js)$/i.test(f.name));
       if (lista.length === 0) throw new Error('Elegí una carpeta que tenga module.json (o .chip.json).');
       if (lista.length > 1000) throw new Error('La carpeta tiene demasiados archivos .json/.svg.');
       for (const f of lista) {
