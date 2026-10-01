@@ -166,6 +166,8 @@ export const BoardDescriptorSchema = z.object({
   buses: z
     .object({
       i2c: z.array(z.object({ sda: z.number().int().nonnegative(), scl: z.number().int().nonnegative() }).strict()).max(4).default([]),
+      /** SPI (maestro): SCK, MOSI y MISO por gpio. El CS de cada chip es cualquier pin del micro. */
+      spi: z.array(z.object({ sck: z.number().int().nonnegative(), mosi: z.number().int().nonnegative(), miso: z.number().int().nonnegative() }).strict()).max(4).default([]),
     })
     .strict()
     .optional(),

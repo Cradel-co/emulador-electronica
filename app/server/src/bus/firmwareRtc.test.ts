@@ -1,14 +1,14 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { AvrSimulador } from '../avrSim.js';
-import { armarBusI2c, LineasCompartidas } from './armarBus.js';
+import { armarBusChips, LineasCompartidas } from './armarBus.js';
 import { cargarChips } from './catalogoChips.js';
 import { entornoDe, type ChipEnBus } from './proyectoChips.js';
 
 /**
  * Firmware real con el DS3231 y la AT24C32 de una ZS-042: RTClib 2.1.4 y Wire del core
  * arduino:avr 1.8.6, ciclo a ciclo en avr8js, con el bus armado igual que en la app
- * (armarBusI2c + líneas compartidas para INT/SQW → D2).
+ * (armarBusChips + líneas compartidas para INT/SQW → D2).
  */
 
 const MS = 16_000;
@@ -28,13 +28,13 @@ function correr(sketch: string, chips: ChipEnBus[]) {
   const logs: string[] = [];
   const sim = new AvrSimulador(hex(sketch), { onSerial: (b) => serial.push(b), onPin: () => undefined });
   const lineas = new LineasCompartidas((g, n) => sim.ponerEntrada(g, n));
-  const bus = armarBusI2c(chips, 66, {
+  const bus = armarBusChips(chips, 66, {
     ahoraUs: () => sim.micros,
     alLog: (l) => logs.push(l),
     alPin: (id, pin, nivel) => { const c = chips.find((x) => x.id === id); if (c) lineas.desdeChip(c, pin, nivel); },
     programar: (t, fn) => sim.cpu.addClockEvent(fn, Math.max(1, Math.round(((t - sim.micros) / 1e6) * sim.frecuenciaHz))),
   })!;
-  sim.conectarI2c(bus);
+  sim.conectarChips(bus);
   const lineasSerial = () => Buffer.from(serial).toString('utf8').split('\n').map((l) => l.trim()).filter(Boolean);
   return { sim, bus, logs, lineas: lineasSerial, ms: (n: number) => sim.ejecutar(n * MS) };
 }

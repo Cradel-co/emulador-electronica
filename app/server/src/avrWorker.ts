@@ -1,8 +1,8 @@
 import type { MessagePort } from 'node:worker_threads';
 import type { SalidaChip } from '@emu/shared';
 import { AvrSimulador, RelojAvr, type PinMcu } from './avrSim.js';
-import type { BusI2c } from './bus/busI2c.js';
-import { armarBusI2c, LineasCompartidas } from './bus/armarBus.js';
+import type { BusChips } from './bus/busChips.js';
+import { armarBusChips, LineasCompartidas } from './bus/armarBus.js';
 import type { ChipEnBus } from './bus/proyectoChips.js';
 import { ControlDepuracionAvr, type EventoAvr, type PedidoAvr, type RespuestaAvr } from './debug/avrControl.js';
 
@@ -62,7 +62,7 @@ export function atenderWorker(puerto: MessagePort): void {
   // así que el bus se arma una vez por corrida y el tiempo sigue corriendo entre resets.
   let chips: ChipEnBus[] = [];
   let arranqueMs = 0;
-  let bus: BusI2c | null = null;
+  let bus: BusChips | null = null;
   let tiempoAntesUs = 0; // µs simulados de las CPU anteriores (resets)
   const salidas = new Map<string, SalidaChip>();
   let salidaTimer: NodeJS.Timeout | null = null;
@@ -74,7 +74,7 @@ export function atenderWorker(puerto: MessagePort): void {
   const armarBus = (): void => {
     tiempoAntesUs = 0;
     const ahora = (): number => tiempoAntesUs + (sim?.micros ?? 0);
-    bus = armarBusI2c(chips, arranqueMs, {
+    bus = armarBusChips(chips, arranqueMs, {
       ahoraUs: ahora,
       alLog: (linea) => enviar({ t: 'log', linea }),
       alGuardar: (id, datos) => enviar({ t: 'guardado', id, datos }),
@@ -103,7 +103,7 @@ export function atenderWorker(puerto: MessagePort): void {
       onPin: (pin, nivel) => enviar({ t: 'pin', pin, nivel }),
     }, frecuenciaHz, pines);
     if (bus) {
-      sim.conectarI2c(bus);
+      sim.conectarChips(bus);
       bus.reengancharHost(); // despertadores y pines de los chips, en la CPU nueva
     }
     // Tras un reset, los módulos y los chips siguen manejando sus entradas como antes.

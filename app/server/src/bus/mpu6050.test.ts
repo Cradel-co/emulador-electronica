@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { AvrSimulador } from '../avrSim.js';
-import { armarBusI2c } from './armarBus.js';
+import { armarBusChips } from './armarBus.js';
 import { cargarChips } from './catalogoChips.js';
 import { MaestroVirtual } from './maestroVirtual.js';
 import { entornoDe, type ChipEnBus } from './proyectoChips.js';
@@ -190,8 +190,8 @@ describe('MPU-6050 con Adafruit_MPU6050 2.2.9 (firmware real)', () => {
     });
     const c: ChipEnBus = { id: 'imu', instancia: 'imu', chip: chip.id, nombre: 'MPU-6050', codigo: chip.codigo, props: { errores: 'ninguno' },
       entorno: { ...entornoDe(chip), aceleracionX: 0.5, aceleracionZ: 0.866, giroZ: 90, temperatura: 28 }, alimentado: true, pinesGpio: {}, pullUps: [] };
-    const bus = armarBusI2c([c], 66, { ahoraUs: () => sim.micros, programar: (t, fn) => sim.cpu.addClockEvent(fn, Math.max(1, Math.round(((t - sim.micros) / 1e6) * sim.frecuenciaHz))) })!;
-    sim.conectarI2c(bus);
+    const bus = armarBusChips([c], 66, { ahoraUs: () => sim.micros, programar: (t, fn) => sim.cpu.addClockEvent(fn, Math.max(1, Math.round(((t - sim.micros) / 1e6) * sim.frecuenciaHz))) })!;
+    sim.conectarChips(bus);
     sim.ejecutar(900 * 16_000);
     const l = Buffer.from(serial).toString('utf8').split('\n').map((x) => x.trim()).filter(Boolean);
     expect(l[0]).toBe('MPU6050 OK');

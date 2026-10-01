@@ -53,6 +53,28 @@ export const ChipDefSchema = z
       })
       .strict()
       .optional(),
+    /**
+     * Bus SPI: qué pines del chip son SCK, MOSI (entra al chip), MISO (sale), CS (selección, activo
+     * en bajo) y, en las pantallas, DC (dato o comando). `modos`: los modos SPI que acepta (si el
+     * firmware usa otro, el byte llega corrido, como en la placa real). `soloEscritura`: no maneja
+     * MISO (una pantalla): el bus le entrega lo escrito en tanda.
+     */
+    spi: z
+      .object({
+        sck: z.string().regex(NOMBRE_PIN_RE),
+        mosi: z.string().regex(NOMBRE_PIN_RE),
+        miso: z.string().regex(NOMBRE_PIN_RE).optional(),
+        cs: z.string().regex(NOMBRE_PIN_RE),
+        dc: z.string().regex(NOMBRE_PIN_RE).optional(),
+        modos: z.array(z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3)])).min(1).default([0]),
+        lsbPrimero: z.boolean().default(false),
+        maxHz: z.number().positive().optional(),
+        soloEscritura: z.boolean().default(false),
+      })
+      .strict()
+      .optional(),
+    /** Pines del chip que LEE del micro (un RST, un ENABLE): le llegan como eventos `pin`. */
+    entradas: z.array(z.string().regex(NOMBRE_PIN_RE)).default([]),
     entorno: z.record(z.string().regex(NOMBRE_RE), MagnitudEntornoSchema).default({}),
     /** Archivo JS con el comportamiento (corre en un sandbox). */
     comportamiento: z.string().regex(/^[\w.-]+\.js$/),
@@ -61,7 +83,7 @@ export const ChipDefSchema = z
   })
   .strict()
   .superRefine((c, ctx) => {
-    for (const p of [c.i2c?.sda, c.i2c?.scl]) {
+    for (const p of [c.i2c?.sda, c.i2c?.scl, c.spi?.sck, c.spi?.mosi, c.spi?.miso, c.spi?.cs, c.spi?.dc, ...c.entradas]) {
       if (p !== undefined && !c.pines.includes(p)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `el pin de bus "${p}" no está en pines` });
     }
   });

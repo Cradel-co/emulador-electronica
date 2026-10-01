@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BusI2c, type MotorChip } from './busI2c.js';
+import { BusChips, type MotorChip } from './busChips.js';
 import type { EventoChip } from './chipSandbox.js';
 
 /** El bus I2C con un chip falso que anota cada llamada: ACK, colector abierto, lecturas, tandas. */
@@ -19,7 +19,7 @@ function falso(direcciones = [0x40]) {
 function bus(diferir: boolean) {
   let t = 0;
   const agenda: { t: number; fn: () => void }[] = [];
-  const b = new BusI2c({ ahoraUs: () => t, programar: (tt, fn) => agenda.push({ t: tt, fn }) });
+  const b = new BusChips({ ahoraUs: () => t, programar: (tt, fn) => agenda.push({ t: tt, fn }) });
   const f = falso();
   b.agregar({ id: 'x', chip: 'falso', motor: f.motor, diferirEscrituras: diferir });
   const escribir = (bytes: number[]) => { b.inicio(); b.conectar(0x40, true); for (const v of bytes) b.escribirByte(v); b.parada(); };
@@ -31,7 +31,7 @@ function bus(diferir: boolean) {
   return { b, f, escribir, avanzar, ahora: () => t };
 }
 
-describe('BusI2c', () => {
+describe('BusChips', () => {
   it('sin diferir: una llamada al chip por transacción de escritura', () => {
     const { f, escribir } = bus(false);
     f.llamadas.length = 0;
@@ -65,7 +65,7 @@ describe('BusI2c', () => {
 
   it('dos chips con la misma dirección: en una lectura gana el 0 (AND) y se avisa', () => {
     const logs: string[] = [];
-    const b = new BusI2c({ ahoraUs: () => 0, alLog: (l) => logs.push(l) });
+    const b = new BusChips({ ahoraUs: () => 0, alLog: (l) => logs.push(l) });
     const uno: MotorChip = { correr: (ev) => ({ lecturas: ev.filter((e) => e.tipo === 'leer').map(() => [0b1100]), direcciones: [0x40], ocupadoHasta: 0, pines: {}, despertarEn: null, logs: [] }) };
     const otro: MotorChip = { correr: (ev) => ({ lecturas: ev.filter((e) => e.tipo === 'leer').map(() => [0b1010]), direcciones: [0x40], ocupadoHasta: 0, pines: {}, despertarEn: null, logs: [] }) };
     b.agregar({ id: 'a', chip: 'x', motor: uno });
@@ -79,7 +79,7 @@ describe('BusI2c', () => {
 
   it('un chip sin alimentación no contesta; uno que tira un error queda fuera del bus', () => {
     const logs: string[] = [];
-    const b = new BusI2c({ ahoraUs: () => 0, alLog: (l) => logs.push(l) });
+    const b = new BusChips({ ahoraUs: () => 0, alLog: (l) => logs.push(l) });
     b.agregar({ id: 'apagado', chip: 'x', motor: falso([0x41]).motor, alimentado: false });
     let veces = 0;
     b.agregar({ id: 'roto', chip: 'x', motor: { correr: () => { if (veces++ > 0) throw new Error('se rompió'); return { lecturas: [], direcciones: [0x42], ocupadoHasta: 0, pines: {}, despertarEn: null, logs: [] }; } } });
@@ -97,7 +97,7 @@ describe('BusI2c', () => {
 
   it('avisa si el maestro va más rápido que lo que soporta el chip', () => {
     const logs: string[] = [];
-    const b = new BusI2c({ ahoraUs: () => 0, alLog: (l) => logs.push(l) });
+    const b = new BusChips({ ahoraUs: () => 0, alLog: (l) => logs.push(l) });
     b.agregar({ id: 'lento', chip: 'x', motor: falso().motor, maxHz: 100_000 });
     b.velocidad(400_000);
     expect(logs.join()).toMatch(/hasta 100 kHz/);

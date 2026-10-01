@@ -32,6 +32,10 @@ export interface ChipEnBus {
   diferirEscrituras?: boolean;
   /** Memoria no volátil de la ejecución anterior (la pone el server al arrancar). */
   guardado?: unknown;
+  /** Si quedó en el bus SPI: su CS y DC (gpio) y lo que acepta. */
+  spi?: { csGpio: number; dcGpio?: number; modos: number[]; lsbPrimero: boolean; soloEscritura: boolean; maxHz?: number };
+  /** Pines del micro que el chip lee (gpio → pin del chip): RST... */
+  entradas?: Record<number, string>;
 }
 
 export interface ResultadoChips {
@@ -74,27 +78,16 @@ export function chipsDelProyecto(
         avisos.push(`${quien}: el chip "${uso.id}" no está en chips/: no va a responder.`);
         continue;
       }
-      if (!chip.i2c) continue; // por ahora solo hay buses I2C
       const delModulo = (pinChip: string): string | undefined => Object.entries(uso.pines).find(([, c]) => c === pinChip)?.[0];
-      const pSda = delModulo(chip.i2c.sda);
-      const pScl = delModulo(chip.i2c.scl);
-      if (!pSda || !pScl) {
-        avisos.push(`${quien}: el módulo no dice qué pin es ${!pSda ? chip.i2c.sda : chip.i2c.scl} del ${chip.nombre}.`);
-        continue;
-      }
-      const gSda = gpioDe(project, inst.id, pSda, buscar);
-      const gScl = gpioDe(project, inst.id, pScl, buscar);
-      if (gSda === null && gScl === null) continue; // sin cablear: no es un error, todavía no está conectado
-      const bus = desc?.buses?.i2c.find((b) => b.sda === gSda && b.scl === gScl);
-      if (!bus) {
-        const cruzado = desc?.buses?.i2c.some((b) => b.sda === gScl && b.scl === gSda);
-        avisos.push(
-          !desc?.buses?.i2c.length
-            ? `${quien}: esta placa no emula el bus I2C hacia los módulos; el ${chip.nombre} no va a responder.`
-            : cruzado
-              ? `${quien}: SDA y SCL están cruzados: el ${chip.nombre} no va a responder (como en la placa real).`
-              : `${quien}: ${pSda} y ${pScl} tienen que ir a los pines SDA y SCL del bus I2C de la placa.`,
-        );
+      const gpioChip = (pinChip: string | undefined): number | null => {
+        const pm = pinChip === undefined ? undefined : delModulo(pinChip);
+        return pm === undefined ? null : gpioDe(project, inst.id, pm, buscar);
+      };
+      // Un chip con dos buses (el BME280 habla I2C o SPI) queda en el que esté cableado.
+      const i2c = enlaceI2c(chip, desc, gpioChip, delModulo, quien);
+      const spi = i2c.estado === 'ok' ? { estado: 'no' as const } : enlaceSpi(chip, desc, gpioChip, quien);
+      if (i2c.estado !== 'ok' && spi.estado !== 'ok') {
+        for (const r of [i2c, spi]) if (r.estado === 'mal') avisos.push(r.aviso);
         continue;
       }
       if (!alimentado && !avisadoAlimentacion) {
@@ -109,14 +102,18 @@ export function chipsDelProyecto(
         chip: chip.id,
         nombre: def.chips.length === 1 ? quien : `${chip.nombre} de ${quien}`,
         codigo: chip.codigo,
-        props: propsDe(project, inst.id, def, uso, buscar, avisos, quien),
+        // En SPI, SDO es MISO (no elige la dirección I2C): no tiene sentido avisar de su nivel.
+        props: propsDe(project, inst.id, def, uso, buscar, spi.estado === 'ok' ? [] : avisos, quien),
         entorno: entornoDe(chip, inst.entorno),
         alimentado,
-        maxHz: chip.i2c.maxHz,
-        pinesGpio: pinesAlMicro(project, inst.id, uso, buscar, [chip.i2c.sda, chip.i2c.scl]),
+        maxHz: i2c.estado === 'ok' ? chip.i2c?.maxHz : undefined,
+        pinesGpio: pinesAlMicro(project, inst.id, uso, buscar, [chip.i2c?.sda, chip.i2c?.scl, chip.spi?.sck, chip.spi?.mosi, chip.spi?.miso]),
         pullUps: uso.pullUps,
-        diferirEscrituras: chip.i2c.diferirEscrituras,
+        diferirEscrituras: i2c.estado === 'ok' ? chip.i2c?.diferirEscrituras : undefined,
+        spi: spi.estado === 'ok' ? spi.config : undefined,
+        entradas: Object.fromEntries(chip.entradas.flatMap((pc) => { const g = gpioChip(pc); return g === null ? [] : [[g, pc]]; })),
       });
+      if (spi.estado === 'ok' && spi.aviso) avisos.push(spi.aviso);
     }
   }
   return { chips, avisos };
@@ -136,7 +133,7 @@ function propsDe(project: Project, id: string, def: ModuleDef, uso: UsoChip, bus
 }
 
 /** Pin del chip → GPIO del micro, para los pines del módulo cableados a la placa (sin contar el bus). */
-function pinesAlMicro(project: Project, id: string, uso: UsoChip, buscar: BuscarDef, delBus: string[]): Record<string, number> {
+function pinesAlMicro(project: Project, id: string, uso: UsoChip, buscar: BuscarDef, delBus: (string | undefined)[]): Record<string, number> {
   const out: Record<string, number> = {};
   for (const [pinModulo, pinChip] of Object.entries(uso.pines)) {
     if (delBus.includes(pinChip)) continue; // SDA/SCL los maneja el bus, no el chip por su cuenta
@@ -164,4 +161,59 @@ function nivelFijo(project: Project, id: string, pin: string, buscar: BuscarDef)
     if (def?.programmable) gpio = true;
   }
   return gpio ? 'gpio' : null;
+}
+
+type Enlace = { estado: 'ok' } | { estado: 'no' } | { estado: 'mal'; aviso: string };
+
+/** ¿El chip quedó en el bus I2C de la placa? SDA y SCL tienen que ir a los pines del bus. */
+function enlaceI2c(
+  chip: ChipCatalogo, desc: BoardDescriptor | undefined, gpioChip: (p: string | undefined) => number | null,
+  delModulo: (p: string) => string | undefined, quien: string,
+): Enlace {
+  if (!chip.i2c) return { estado: 'no' };
+  const pSda = delModulo(chip.i2c.sda);
+  const pScl = delModulo(chip.i2c.scl);
+  if (!pSda || !pScl) return { estado: 'mal', aviso: `${quien}: el módulo no dice qué pin es ${!pSda ? chip.i2c.sda : chip.i2c.scl} del ${chip.nombre}.` };
+  const gSda = gpioChip(chip.i2c.sda);
+  const gScl = gpioChip(chip.i2c.scl);
+  if (gSda === null && gScl === null) return { estado: 'no' }; // sin cablear todavía
+  if (desc?.buses?.i2c.some((b) => b.sda === gSda && b.scl === gScl)) return { estado: 'ok' };
+  const cruzado = desc?.buses?.i2c.some((b) => b.sda === gScl && b.scl === gSda);
+  return {
+    estado: 'mal',
+    aviso: !desc?.buses?.i2c.length
+      ? `${quien}: esta placa no emula el bus I2C hacia los módulos; el ${chip.nombre} no va a responder.`
+      : cruzado
+        ? `${quien}: SDA y SCL están cruzados: el ${chip.nombre} no va a responder (como en la placa real).`
+        : `${quien}: ${pSda} y ${pScl} tienen que ir a los pines SDA y SCL del bus I2C de la placa.`,
+  };
+}
+
+/** ¿El chip quedó en el bus SPI? SCK/MOSI/MISO a los del bus y CS a cualquier pin del micro. */
+function enlaceSpi(
+  chip: ChipCatalogo, desc: BoardDescriptor | undefined, gpioChip: (p: string | undefined) => number | null, quien: string,
+): { estado: 'ok'; config: NonNullable<ChipEnBus['spi']>; aviso?: string } | { estado: 'no' } | { estado: 'mal'; aviso: string } {
+  const s = chip.spi;
+  if (!s) return { estado: 'no' };
+  const sck = gpioChip(s.sck), mosi = gpioChip(s.mosi), miso = gpioChip(s.miso), cs = gpioChip(s.cs), dc = gpioChip(s.dc);
+  if (sck === null && mosi === null) return { estado: 'no' };
+  const bus = desc?.buses?.spi.find((b) => b.sck === sck && b.mosi === mosi);
+  if (!bus) {
+    return {
+      estado: 'mal',
+      aviso: !desc?.buses?.spi.length
+        ? `${quien}: esta placa no emula el bus SPI hacia los módulos; el ${chip.nombre} no va a responder.`
+        : `${quien}: ${s.sck} y ${s.mosi} del ${chip.nombre} tienen que ir a SCK y MOSI del bus SPI de la placa (en el Uno, D13 y D11).`,
+    };
+  }
+  if (cs === null) return { estado: 'mal', aviso: `${quien}: ${s.cs} (selección) no está cableado a un pin de la placa: el ${chip.nombre} nunca queda seleccionado.` };
+  if (s.dc && dc === null) return { estado: 'mal', aviso: `${quien}: ${s.dc} (dato/comando) no está cableado a un pin de la placa.` };
+  const aviso = s.miso && !s.soloEscritura && miso !== bus.miso
+    ? `${quien}: ${s.miso} del ${chip.nombre} no va a MISO del bus (en el Uno, D12): lo que lea el programa va a ser 0xFF.`
+    : undefined;
+  return {
+    estado: 'ok',
+    config: { csGpio: cs, dcGpio: dc ?? undefined, modos: s.modos, lsbPrimero: s.lsbPrimero, soloEscritura: s.soloEscritura || miso !== bus.miso, maxHz: s.maxHz },
+    aviso,
+  };
 }

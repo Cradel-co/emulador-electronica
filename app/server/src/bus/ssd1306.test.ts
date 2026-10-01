@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { AvrSimulador } from '../avrSim.js';
-import { armarBusI2c } from './armarBus.js';
+import { armarBusChips } from './armarBus.js';
 import { cargarChips } from './catalogoChips.js';
 import { MaestroVirtual } from './maestroVirtual.js';
 import { entornoDe, type ChipEnBus } from './proyectoChips.js';
@@ -188,12 +188,12 @@ describe('SSD1306 con Adafruit_SSD1306 2.5.17 (firmware real)', () => {
       onSerial: (b) => serial.push({ b, t: sim.micros }), onPin: () => undefined,
     });
     const c: ChipEnBus = { id: 'oled', instancia: 'oled', chip: chip.id, nombre: 'SSD1306', codigo: chip.codigo, props: {}, entorno: entornoDe(chip), alimentado: true, pinesGpio: {}, pullUps: [] };
-    const bus = armarBusI2c([c], 66, {
+    const bus = armarBusChips([c], 66, {
       ahoraUs: () => sim.micros,
       alSalida: (_id, s) => salidas.push({ t: sim.micros, img: s as Imagen }),
       programar: (t, fn) => sim.cpu.addClockEvent(fn, Math.max(1, Math.round(((t - sim.micros) / 1e6) * sim.frecuenciaHz))),
     })!;
-    sim.conectarI2c(bus);
+    sim.conectarChips(bus);
     /** Líneas del Serial con el instante (µs de emulación) en que terminó cada una. */
     const lineas = () => {
       const out: { txt: string; t: number }[] = [];

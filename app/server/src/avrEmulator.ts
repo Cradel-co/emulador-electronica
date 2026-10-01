@@ -8,8 +8,8 @@ import { AvrSimulador, PINES_UNO, RelojAvr, type PinMcu } from './avrSim.js';
 import type { MensajeAlWorker, MensajeDelWorker } from './avrWorker.js';
 import { ControlDepuracionAvr, type EventoAvr, type PedidoAvr, type RespuestaAvr } from './debug/avrControl.js';
 import type { SalidaChip } from '@emu/shared';
-import { armarBusI2c, LineasCompartidas } from './bus/armarBus.js';
-import type { BusI2c } from './bus/busI2c.js';
+import { armarBusChips, LineasCompartidas } from './bus/armarBus.js';
+import type { BusChips } from './bus/busChips.js';
 import type { ChipEnBus } from './bus/proyectoChips.js';
 
 /** Largo máximo de una línea del Serial antes de cortarla (un sketch sin println). */
@@ -50,7 +50,7 @@ export class AvrEmulator implements Emulador {
   /** Último entorno de cada chip (el que movió el usuario) y lo último que publicó cada uno. */
   private readonly entornos = new Map<string, Record<string, number>>();
   private readonly salidasChips = new Map<string, SalidaChip>();
-  private busLocal: BusI2c | null = null;
+  private busLocal: BusChips | null = null;
   private lineasLocal: LineasCompartidas | null = null;
   /** Avisa cuando un chip publica algo (pantalla, valores): lo usa index.ts para la UI. */
   oyenteChips: ((id: string, salida: SalidaChip) => void) | null = null;
@@ -181,7 +181,7 @@ export class AvrEmulator implements Emulador {
       // En modo local el bus se arma de nuevo en cada arranque (un reset rearma todo).
       this.lineasLocal = new LineasCompartidas((gpio, nivel) => sim.ponerEntrada(gpio, nivel));
       const lineas = this.lineasLocal;
-      this.busLocal = armarBusI2c(this.chips, this.arranqueMs, {
+      this.busLocal = armarBusChips(this.chips, this.arranqueMs, {
         ahoraUs: () => sim.micros,
         alLog: (linea) => this.recibir({ t: 'log', linea }),
         alSalida: (id, salida) => this.recibir({ t: 'chip', id, salida }),
@@ -192,7 +192,7 @@ export class AvrEmulator implements Emulador {
         },
         programar: (tUs, fn) => sim.cpu.addClockEvent(fn, Math.max(1, Math.round(((tUs - sim.micros) / 1e6) * this.frecuenciaHz))),
       });
-      if (this.busLocal) sim.conectarI2c(this.busLocal);
+      if (this.busLocal) sim.conectarChips(this.busLocal);
       this.controlLocal ??= new ControlDepuracionAvr(
         { sim: () => this.local?.sim ?? null, reloj: () => this.local?.reloj ?? null },
         (evento) => this.recibir({ t: 'depurar-evento', evento }),

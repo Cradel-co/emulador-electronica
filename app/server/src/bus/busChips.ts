@@ -37,6 +37,10 @@ export interface OpcionesDispositivo {
   diferirEscrituras?: boolean;
   /** Lo que el chip guardó en la ejecución anterior (memoria no volátil). */
   guardado?: unknown;
+  /** Si el chip está en el bus SPI: su CS y su DC (gpio del micro) y lo que acepta. */
+  spi?: { csGpio: number; dcGpio?: number; modos: number[]; lsbPrimero: boolean; soloEscritura: boolean; maxHz?: number };
+  /** Pines del micro que el chip lee (gpio → nombre del pin del chip): RST, ENABLE... */
+  entradas?: Record<number, string>;
   /**
    * Cuándo recibió la alimentación (µs, en el reloj del bus). Por defecto, ahora. Con la placa
    * puede ser negativo: el chip se enciende con ella y el micro arranca después (arranqueMs).
@@ -50,8 +54,12 @@ export const PREFETCH = 32;
 const DIFERIR_MAX = 16;
 const DIFERIR_US = 10_000;
 
-interface Dispositivo extends Required<Omit<OpcionesDispositivo, 'maxHz' | 'encendidoEnUs' | 'diferirEscrituras' | 'guardado'>> {
+interface Dispositivo extends Required<Omit<OpcionesDispositivo, 'maxHz' | 'encendidoEnUs' | 'diferirEscrituras' | 'guardado' | 'spi' | 'entradas'>> {
   maxHz?: number;
+  spi?: NonNullable<OpcionesDispositivo['spi']>;
+  entradas: Record<number, string>;
+  /** SPI: CS en bajo ahora. */
+  seleccionado: boolean;
   diferir: boolean;
   /** Despertador agendado para entregar las escrituras diferidas. */
   entregaAgendada: boolean;
@@ -87,7 +95,7 @@ export interface TransaccionI2c {
   bytes: number[];
 }
 
-export class BusI2c {
+export class BusChips {
   private readonly dispositivos: Dispositivo[] = [];
   /** Segmento en curso: dirección, sentido y quiénes contestaron. */
   private seg: { direccion: number; lectura: boolean; con: Dispositivo[]; bytes: number[]; leidos: Map<Dispositivo, number[]> } | null = null;
@@ -103,6 +111,7 @@ export class BusI2c {
       id: o.id, chip: o.chip, motor: o.motor, props: o.props ?? {}, entorno: o.entorno ?? {},
       alimentado: o.alimentado ?? true, maxHz: o.maxHz, direcciones: [], ocupadoHasta: 0, pendientes: [], roto: null,
       despertar: null, pines: new Map(), diferir: o.diferirEscrituras ?? false, entregaAgendada: false,
+      spi: o.spi, entradas: o.entradas ?? {}, seleccionado: false,
     };
     this.dispositivos.push(d);
     if (d.alimentado) this.correr(d, [{ tipo: 'encender', t: o.encendidoEnUs ?? this.ev.ahoraUs(), guardado: o.guardado }]);
@@ -219,6 +228,88 @@ export class BusI2c {
     }
   }
 
+  // --- SPI y pines del micro ---------------------------------------------------------
+
+  /** Último nivel de salida de cada pin del micro que interesa (CS, DC, RST...). */
+  private readonly nivelesMcu = new Map<number, 0 | 1>();
+  private avisadoModo = new Set<string>();
+
+  /** Pines del micro que el bus tiene que vigilar: los CS, los DC y las entradas de los chips. */
+  gpiosVigilados(): number[] {
+    const g = new Set<number>();
+    for (const d of this.dispositivos) {
+      if (d.spi) { g.add(d.spi.csGpio); if (d.spi.dcGpio !== undefined) g.add(d.spi.dcGpio); }
+      for (const k of Object.keys(d.entradas)) g.add(Number(k));
+    }
+    return [...g];
+  }
+
+  /**
+   * El micro cambió el nivel de un pin que el bus vigila (en el instante exacto en que lo
+   * escribe el programa): CS selecciona o suelta un chip SPI; un RST le llega al chip.
+   */
+  pinMcu(gpio: number, nivel: 0 | 1): void {
+    if (this.nivelesMcu.get(gpio) === nivel) return;
+    this.nivelesMcu.set(gpio, nivel);
+    const t = this.ev.ahoraUs();
+    for (const d of this.dispositivos) {
+      if (!d.alimentado || d.roto) continue;
+      const nombre = d.entradas[gpio];
+      if (nombre !== undefined) d.pendientes.push({ tipo: 'pin', t, nombre, nivel });
+      if (d.spi?.csGpio === gpio) {
+        if (nivel === 0 && !d.seleccionado) { d.seleccionado = true; d.pendientes.push({ tipo: 'seleccionar', t }); }
+        else if (nivel === 1 && d.seleccionado) { d.seleccionado = false; d.pendientes.push({ tipo: 'soltar', t }); }
+      }
+      // Lo que no es de una pantalla en tanda se entrega enseguida (un RST, una selección).
+      if (d.pendientes.length > 0 && !(d.spi?.soloEscritura && d.seleccionado)) this.correr(d, []);
+    }
+  }
+
+  /** Un byte por SPI: lo que sale del micro por MOSI. Devuelve lo que entra por MISO (0xFF si nadie contesta). */
+  spiByte(mosi: number, cfg: { modo: number; lsbPrimero: boolean; hz: number }): number {
+    const t = this.ev.ahoraUs();
+    let miso = 0xff;
+    for (const d of this.dispositivos) {
+      if (!d.spi || !d.seleccionado || !d.alimentado || d.roto) continue;
+      if (d.spi.maxHz && cfg.hz > d.spi.maxHz * 1.05 && !this.avisadoVelocidad.has(d.id)) {
+        this.avisadoVelocidad.add(d.id);
+        this.ev.alLog?.(`[spi] ${d.id} (${d.chip}) soporta hasta ${d.spi.maxHz / 1e6} MHz y el bus va a ${(cfg.hz / 1e6).toFixed(1)} MHz: en la placa real puede fallar.`);
+      }
+      // Modo SPI u orden de bits distintos a los del chip: el byte llega corrido, como en la placa real.
+      const modoMal = !d.spi.modos.includes(cfg.modo);
+      const ordenMal = cfg.lsbPrimero !== d.spi.lsbPrimero;
+      if ((modoMal || ordenMal) && !this.avisadoModo.has(d.id)) {
+        this.avisadoModo.add(d.id);
+        this.ev.alLog?.(`[spi] ${d.id} (${d.chip}) usa ${modoMal ? `el modo ${d.spi.modos.join('/')}` : ''}${modoMal && ordenMal ? ' y ' : ''}${ordenMal ? (d.spi.lsbPrimero ? 'LSB primero' : 'MSB primero') : ''}, y el programa usa el modo ${cfg.modo}${cfg.lsbPrimero ? ', LSB primero' : ''}: los datos llegan corridos.`);
+      }
+      const entra = deformar(mosi, modoMal, ordenMal);
+      const dc: 0 | 1 = d.spi.dcGpio === undefined ? 1 : (this.nivelesMcu.get(d.spi.dcGpio) ?? 0);
+      if (d.spi.soloEscritura) {
+        // Una pantalla no contesta: se juntan los bytes y se entregan en tanda.
+        const ultimo = d.pendientes.at(-1);
+        if (ultimo?.tipo === 'spi' && ultimo.mosi.length < 4096) { ultimo.mosi.push(entra); ultimo.dc.push(dc); }
+        else d.pendientes.push({ tipo: 'spi', t, mosi: [entra], dc: [dc] });
+        const bytes = d.pendientes.reduce((n, e) => n + (e.tipo === 'spi' ? e.mosi.length : 0), 0);
+        if (bytes >= 4096) this.correr(d, []);
+        else this.agendarEntrega(d);
+        continue;
+      }
+      const r = this.correr(d, [{ tipo: 'spi', t, mosi: [entra], dc: [dc] }]);
+      miso &= deformar(r?.lecturas.at(-1)?.[0] ?? 0xff, modoMal, ordenMal);
+    }
+    return miso;
+  }
+
+  /** Entrega lo juntado de una pantalla a los 10 ms del primer byte, como mucho. */
+  private agendarEntrega(d: Dispositivo): void {
+    if (d.entregaAgendada || !this.ev.programar || d.pendientes.length === 0) return;
+    d.entregaAgendada = true;
+    this.ev.programar(d.pendientes[0]!.t + DIFERIR_US, () => {
+      d.entregaAgendada = false;
+      if (d.pendientes.length > 0) this.correr(d, []);
+    });
+  }
+
   // --- Interno ------------------------------------------------------------------------
 
   private cerrarSegmento(): void {
@@ -265,7 +356,7 @@ export class BusI2c {
       return r;
     } catch (err) {
       d.roto = err instanceof ErrorChip ? err.message : String(err);
-      this.ev.alLog?.(`[i2c] ${d.id} dejó de responder: ${d.roto}`);
+      this.ev.alLog?.(`[${d.spi ? 'spi' : 'i2c'}] ${d.id} dejó de responder: ${d.roto}`);
       return null;
     }
   }
@@ -300,4 +391,12 @@ export class BusI2c {
     this.historial.push({ t: this.ev.ahoraUs(), direccion, lectura, ack, bytes: bytes.slice(0, 64) });
     if (this.historial.length > 500) this.historial.splice(0, this.historial.length - 500);
   }
+}
+
+/** Un byte que pasa por un SPI mal configurado: corrido un bit (modo) o al revés (orden de bits). */
+function deformar(b: number, modoMal: boolean, ordenMal: boolean): number {
+  let x = b & 0xff;
+  if (ordenMal) { let r = 0; for (let i = 0; i < 8; i++) r |= ((x >> i) & 1) << (7 - i); x = r; }
+  if (modoMal) x = (x << 1) & 0xff; // se muestrea en el flanco equivocado: un bit corrido
+  return x;
 }

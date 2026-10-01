@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { AvrSimulador } from '../avrSim.js';
-import { BusI2c } from './busI2c.js';
+import { BusChips } from './busChips.js';
 import { cargarChips } from './catalogoChips.js';
 import { SandboxChip } from './chipSandbox.js';
 
@@ -23,14 +23,14 @@ function correr(sketch: string, instancias: Inst[]) {
   const serial: number[] = [];
   const logs: string[] = [];
   const sim = new AvrSimulador(hex(sketch), { onSerial: (b) => serial.push(b), onPin: () => undefined });
-  const bus = new BusI2c({ ahoraUs: () => sim.micros, alLog: (l) => logs.push(l) });
+  const bus = new BusChips({ ahoraUs: () => sim.micros, alLog: (l) => logs.push(l) });
   for (const i of instancias) {
     const c = chip(i.chip);
     const entorno = { ...Object.fromEntries(Object.entries(c.entorno).map(([k, m]) => [k, m.default])), ...i.entorno };
     // Como en el Uno: el chip se enciende con la placa y el programa arranca 66 ms después.
     bus.agregar({ id: i.id, chip: c.id, motor: new SandboxChip(c.id, c.codigo), props: i.props, entorno, alimentado: i.alimentado, maxHz: c.i2c?.maxHz, encendidoEnUs: -66_000 });
   }
-  sim.conectarI2c(bus);
+  sim.conectarChips(bus);
   const texto = () => Buffer.from(serial).toString('utf8');
   const lineas = () => texto().split('\n').map((l) => l.trim()).filter(Boolean);
   return { sim, bus, logs, texto, lineas, ms: (n: number) => sim.ejecutar(n * MS) };

@@ -2,22 +2,66 @@
   "id": "bosch-bme280",
   "nombre": "BME280",
   "fabricante": "Bosch Sensortec",
-  "descripcion": "Sensor de temperatura, humedad y presión por I2C. Dirección 0x76 (SDO a GND) o 0x77 (SDO a VDDIO): prop 'sdo' = 'bajo' | 'alto'.",
+  "descripcion": "Sensor de temperatura, humedad y presión por I2C o SPI. I2C: 0x76 (SDO a GND) o 0x77 (SDO a VDDIO), prop 'sdo' = 'bajo' | 'alto'. SPI (modos 0 y 3, hasta 10 MHz): en cuanto CSB baja una vez, queda en SPI y el I2C se apaga hasta el próximo reinicio (hoja, 6.1).",
   "hojaDeDatos": "BST-BME280-DS001-23, revisión 1.23 (enero 2022)",
-  "pines": ["VDD", "VDDIO", "GND", "CSB", "SCK", "SDI", "SDO"],
-  "i2c": { "sda": "SDI", "scl": "SCK", "maxHz": 3400000 },
+  "pines": [
+    "VDD",
+    "VDDIO",
+    "GND",
+    "CSB",
+    "SCK",
+    "SDI",
+    "SDO"
+  ],
+  "i2c": {
+    "sda": "SDI",
+    "scl": "SCK",
+    "maxHz": 3400000
+  },
   "entorno": {
-    "temperatura": { "unidad": "°C", "min": -40, "max": 85, "default": 22, "paso": 0.1, "etiqueta": "Temperatura" },
-    "humedad": { "unidad": "%HR", "min": 0, "max": 100, "default": 45, "paso": 0.5, "etiqueta": "Humedad relativa" },
-    "presion": { "unidad": "hPa", "min": 300, "max": 1100, "default": 1013.25, "paso": 0.1, "etiqueta": "Presión" }
+    "temperatura": {
+      "unidad": "°C",
+      "min": -40,
+      "max": 85,
+      "default": 22,
+      "paso": 0.1,
+      "etiqueta": "Temperatura"
+    },
+    "humedad": {
+      "unidad": "%HR",
+      "min": 0,
+      "max": 100,
+      "default": 45,
+      "paso": 0.5,
+      "etiqueta": "Humedad relativa"
+    },
+    "presion": {
+      "unidad": "hPa",
+      "min": 300,
+      "max": 1100,
+      "default": 1013.25,
+      "paso": 0.1,
+      "etiqueta": "Presión"
+    }
   },
   "comportamiento": "comportamiento.js",
   "limitaciones": [
-    "Solo I2C: el modo SPI (CSB a GND) no se emula.",
+    "SPI de 4 hilos sí; el de 3 hilos (spi3w_en) no se emula.",
     "El sensor es ideal salvo el ruido: no tiene el error absoluto de la hoja (±0,5 °C, ±3 %HR, ±1 hPa) ni el autocalentamiento que la hoja menciona (la temperatura medida suele quedar por encima del ambiente).",
     "El ruido usa las tablas típicas a 25 °C (tablas 11, 12 y 14); no cambia con la temperatura (tabla 13).",
     "im_update solo se ve durante el arranque (2 ms); en el chip real también se prende un instante antes de cada medición.",
     "En modo normal, si pasan muchos ciclos sin leer, el filtro IIR se calcula con las últimas 64 mediciones (alcanza para converger con cualquier coeficiente).",
     "Los coeficientes de calibración son fijos (los del ejemplo de Bosch para T y P, y un juego típico para H): en un chip real cambian de unidad a unidad."
-  ]
+  ],
+  "spi": {
+    "sck": "SCK",
+    "mosi": "SDI",
+    "miso": "SDO",
+    "cs": "CSB",
+    "modos": [
+      0,
+      3
+    ],
+    "maxHz": 10000000
+  }
 }

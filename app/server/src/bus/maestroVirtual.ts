@@ -1,4 +1,4 @@
-import { BusI2c, type OpcionesDispositivo } from './busI2c.js';
+import { BusChips, type OpcionesDispositivo } from './busChips.js';
 import { SandboxChip } from './chipSandbox.js';
 import type { ChipCatalogo } from './catalogoChips.js';
 
@@ -17,11 +17,11 @@ export class MaestroVirtual {
   readonly historialPines: { t: number; pin: string; nivel: 0 | 1 | null }[] = [];
   /** Lo último que guardó cada chip (memoria no volátil). */
   readonly guardados = new Map<string, unknown>();
-  readonly bus: BusI2c;
+  readonly bus: BusChips;
   private agenda: { t: number; fn: () => void }[] = [];
 
   constructor() {
-    this.bus = new BusI2c({
+    this.bus = new BusChips({
       ahoraUs: () => this.t,
       alLog: (l) => this.logs.push(l),
       alSalida: (id, s) => this.salidas.set(id, s),
@@ -103,6 +103,25 @@ export class MaestroVirtual {
     }
     const out = Array.from({ length: n }, (_, i) => this.bus.leerByte(i < n - 1));
     this.bus.parada();
+    return out;
+  }
+
+  // --- SPI ------------------------------------------------------------------------------
+
+  /** El micro pone un nivel en un pin que vigila el bus (CS, DC, RST). */
+  pin(gpio: number, nivel: 0 | 1): void {
+    this.bus.pinMcu(gpio, nivel);
+  }
+
+  /**
+   * Una transacción SPI: baja CS, manda los bytes (con DC si se da) y sube CS. Devuelve lo que
+   * entró por MISO. `modo`/`lsbPrimero`/`hz`: la configuración del maestro (por defecto modo 0, 4 MHz).
+   */
+  spi(cs: number, bytes: number[], o: { dc?: { gpio: number; nivel: 0 | 1 }; modo?: number; lsbPrimero?: boolean; hz?: number; mantenerCs?: boolean } = {}): number[] {
+    if (o.dc) this.bus.pinMcu(o.dc.gpio, o.dc.nivel);
+    this.bus.pinMcu(cs, 0);
+    const out = bytes.map((b) => this.bus.spiByte(b, { modo: o.modo ?? 0, lsbPrimero: o.lsbPrimero ?? false, hz: o.hz ?? 4e6 }));
+    if (!o.mantenerCs) this.bus.pinMcu(cs, 1);
     return out;
   }
 }

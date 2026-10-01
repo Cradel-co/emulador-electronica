@@ -75,7 +75,12 @@ var s;          // estado del chip (se arma en reset)
 var azar;
 
 function reset(t) {
+  var spi = s ? s.spi && s.seleccionado : false; // un reset con CSB en bajo sigue en SPI
   s = {
+    spi: spi,                 // CSB bajó alguna vez: SPI hasta el próximo reinicio [6.1]
+    seleccionado: false,
+    spiEstado: 'control',     // SPI: esperando el byte de control, leyendo, o el dato de una escritura
+    spiDir: 0,
     listoDesde: t + ARRANQUE_US,
     puntero: 0,
     ctrlHum: 0, ctrlMeas: 0, config: 0,
@@ -219,7 +224,28 @@ module.exports = {
     reset(ctx.t);
   },
   direcciones: function (ctx) {
+    if (s && s.spi) return []; // en SPI el I2C queda apagado [6.1]
     return [ctx.props.sdo === 'bajo' ? 0x76 : 0x77];
+  },
+  // SPI [6.3]: CSB en bajo selecciona; el primer byte es el control (bit 7 = RW, 1 = leer; los otros 7,
+  // la dirección sin su bit 7). Escribir: pares control/dato. Leer: los datos salen con autoincremento.
+  seleccionar: function (ctx) {
+    avanzar(ctx.t);
+    s.spi = true; s.seleccionado = true; s.spiEstado = 'control';
+  },
+  soltar: function () { s.seleccionado = false; s.spiEstado = 'control'; },
+  spi: function (ctx, mosi) {
+    avanzar(ctx.t);
+    var out = [];
+    for (var i = 0; i < mosi.length; i++) {
+      var b = mosi[i];
+      if (s.spiEstado === 'leyendo') { out.push(leerRegistro(s.spiDir, ctx.t)); s.spiDir = (s.spiDir + 1) & 0xff; continue; }
+      if (s.spiEstado === 'dato') { escribirRegistro(s.spiDir, b, ctx.t); s.spiEstado = 'control'; out.push(0xff); continue; }
+      s.spiDir = (b & 0x7f) | 0x80;
+      s.spiEstado = b & 0x80 ? 'leyendo' : 'dato';
+      out.push(0xff); // mientras entra el control, SDO no maneja nada
+    }
+    return out;
   },
   // Escritura I2C [6.2.1]: el primer byte es el registro; después, pares registro/dato
   // (sin autoincremento al escribir). Un solo byte solo mueve el puntero de lectura.

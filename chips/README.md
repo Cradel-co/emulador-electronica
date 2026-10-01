@@ -87,7 +87,7 @@ fórmula de la hoja"), `azar(semilla)` (ruido repetible).
 - Cada evento tarda en el Uno lo que en el bus real según SCL: 9 períodos por byte.
 - Antes de cambiar el entorno, el bus le da al chip un `tick` con el entorno **viejo**: una
   medición que terminó antes del cambio mide lo que había entonces.
-- Un chip que tira un error o tarda más de 50 ms queda fuera del bus (deja de contestar) y se avisa.
+- Un chip que tira un error o tarda más de 250 ms en una llamada queda fuera del bus (deja de contestar) y se avisa.
 
 ## Reglas que salieron de hacer estos cinco
 
@@ -102,7 +102,7 @@ fórmula de la hoja"), `azar(semilla)` (ruido repetible).
 3. **El tiempo de la placa importa.** El BME280 no contesta los primeros 2 ms; el Uno real
    arranca el programa 65 ms después de la alimentación (fusibles LFUSE = 0xFF): por eso la placa
    declara `arranqueMs` y los chips se encienden antes que el micro.
-4. **Acotar el trabajo de cada llamada.** El sandbox corta a los 50 ms. Un reloj que revisaba las
+4. **Acotar el trabajo de cada llamada.** El sandbox corta a los 250 ms (antes 50: bajo carga, chips sanos quedaban afuera). Un reloj que revisaba las
    alarmas segundo a segundo después de un hueco de dos días pasaba ese límite bajo carga: se
    miran solo los segundos candidatos según las máscaras.
 5. **Los errores reales son parte del chip.** Ruido de las tablas de la hoja, errores de fábrica

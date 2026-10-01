@@ -18,7 +18,9 @@ import type { SalidaChip } from '@emu/shared';
  */
 
 const TIEMPO_CARGA_MS = 1000;
-const TIEMPO_LLAMADA_MS = 50;
+// Holgado a propósito (como el de los modelos): con la PC cargada, un chip sano no puede quedar
+// fuera del bus por tardar unos ms de más. Igual corta un bucle infinito enseguida.
+const TIEMPO_LLAMADA_MS = 250;
 const MAX_SALIDA = 256_000;
 const MAX_LOGS = 20;
 const MAX_GUARDADO = 64 * 1024;
@@ -30,7 +32,14 @@ export type EventoChip =
   | { tipo: 'escribir'; t: number; bytes: number[] }
   | { tipo: 'leer'; t: number; n: number }
   | { tipo: 'leidos'; t: number; n: number }
-  | { tipo: 'tick'; t: number };
+  | { tipo: 'tick'; t: number }
+  /** SPI: CS bajó (el chip queda seleccionado) / subió. */
+  | { tipo: 'seleccionar'; t: number }
+  | { tipo: 'soltar'; t: number }
+  /** SPI: bytes que entraron por MOSI (con el nivel de DC de cada uno). Devuelve lo que sale por MISO. */
+  | { tipo: 'spi'; t: number; mosi: number[]; dc: (0 | 1)[] }
+  /** Un pin de entrada del chip (RST...) cambió de nivel. */
+  | { tipo: 'pin'; t: number; nombre: string; nivel: 0 | 1 };
 
 export interface ResultadoLote {
   /** Un arreglo de bytes por cada evento `leer`, en orden. */
@@ -142,6 +151,10 @@ function __lote(json) {
     else if (ev.tipo === 'leer') { lecturas.push(typeof m.leer === 'function' ? m.leer(ctx, ev.n) : []); }
     else if (ev.tipo === 'leidos') { if (typeof m.leidos === 'function') m.leidos(ctx, ev.n); }
     else if (ev.tipo === 'tick') { if (typeof m.tick === 'function') m.tick(ctx); }
+    else if (ev.tipo === 'seleccionar') { if (typeof m.seleccionar === 'function') m.seleccionar(ctx); }
+    else if (ev.tipo === 'soltar') { if (typeof m.soltar === 'function') m.soltar(ctx); }
+    else if (ev.tipo === 'spi') { lecturas.push(typeof m.spi === 'function' ? (m.spi(ctx, ev.mosi, ev.dc) || []) : []); }
+    else if (ev.tipo === 'pin') { if (typeof m.pin === 'function') m.pin(ctx, ev.nombre, ev.nivel); }
   }
   var r = { lecturas: lecturas, direcciones: __direcciones(), ocupadoHasta: __estado.ocupadoHasta, logs: __logs, pines: __estado.pines, despertarEn: __estado.despertar };
   if (__estado.publico) r.salida = __estado.salida;
@@ -196,12 +209,13 @@ export class SandboxChip {
     } catch {
       throw new ErrorChip(`chip "${this.nombre}": devolvió algo inválido`);
     }
-    const pedidas = eventos.filter((e): e is Extract<EventoChip, { tipo: 'leer' }> => e.tipo === 'leer');
+    // Las lecturas vuelven en orden: una por cada `leer` (n bytes) y por cada `spi` (un byte de MISO por byte de MOSI).
+    const pedidas = eventos.flatMap((e) => (e.tipo === 'leer' ? [{ n: e.n }] : e.tipo === 'spi' ? [{ n: e.mosi.length }] : []));
     const crudas = Array.isArray(o.lecturas) ? o.lecturas : [];
     const lecturas = pedidas.map((p, i) => {
       const l: unknown = crudas[i];
       if (!Array.isArray(l) || !l.every(esByte)) {
-        throw new ErrorChip(`chip "${this.nombre}": leer() tiene que devolver un arreglo de bytes (0-255)`);
+        throw new ErrorChip(`chip "${this.nombre}": leer()/spi() tiene que devolver un arreglo de bytes (0-255)`);
       }
       // Si devuelve menos de lo pedido, el bus suelta SDA: el maestro lee 0xFF (pull-up).
       return Array.from({ length: p.n }, (_, k) => (l[k] as number | undefined) ?? 0xff);

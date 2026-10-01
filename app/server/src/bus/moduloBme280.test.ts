@@ -67,6 +67,20 @@ describe('módulo BME280 de Adafruit en el bus del Uno', () => {
     expect(pinesSinAlimentar(sinVin, 'bme', b('bme280-adafruit')!)).toEqual(['VIN', '3VO']);
   });
 
+  it('cableado por SPI (SCK D13, SDI D11, SDO D12, CS D10) queda en el bus SPI, con CS en el 10', () => {
+    const p = proyecto('arduino-uno', [w('bme.VIN', 'board.5V'), w('bme.GND', 'board.GND'), w('bme.SCK', 'board.D13'), w('bme.SDI', 'board.D11'), w('bme.SDO', 'board.D12'), w('bme.CS', 'board.D10')]);
+    const r = chipsDelProyecto(p, b, descriptorDe(p, b));
+    expect(r.avisos).toEqual([]);
+    expect(r.chips[0]!.spi).toMatchObject({ csGpio: 10, modos: [0, 3], soloEscritura: false });
+  });
+
+  it('por SPI sin cablear CS: no responde y se dice por qué', () => {
+    const p = proyecto('arduino-uno', [w('bme.VIN', 'board.5V'), w('bme.GND', 'board.GND'), w('bme.SCK', 'board.D13'), w('bme.SDI', 'board.D11'), w('bme.SDO', 'board.D12')]);
+    const r = chipsDelProyecto(p, b, descriptorDe(p, b));
+    expect(r.chips).toHaveLength(0);
+    expect(r.avisos.join()).toMatch(/CSB \(selección\) no está cableado/);
+  });
+
   it('SDA y SCL cruzados: no responde y se dice por qué', () => {
     const p = proyecto('arduino-uno', [w('bme.VIN', 'board.5V'), w('bme.GND', 'board.GND'), w('bme.SCK', 'board.A4'), w('bme.SDI', 'board.A5')]);
     const r = chipsDelProyecto(p, b, descriptorDe(p, b));
