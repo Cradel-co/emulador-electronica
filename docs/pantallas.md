@@ -4,8 +4,18 @@
 > módulo de pantalla (...) deja documentada cada una de las posibilidades, y sumale la
 > e-paper, independientemente la medida, para evaluarlo más adelante".
 
-Hoy **no hay ningún módulo de pantalla** en el catálogo, y no es un olvido: la plataforma
-todavía no tiene las piezas para representar una. Este documento explica cuáles faltan y
+> **Actualización (2026-10-01): la opción 3 ya está, en el Arduino Uno.** El módulo
+> `oled-ssd1306-128x64` lleva el chip `chips/solomon-ssd1306`: el firmware real (Adafruit_SSD1306)
+> le habla por I2C y la imagen se dibuja sobre el vidrio del módulo en el circuito (coincide píxel
+> por píxel con el búfer de la librería). Cómo se resolvieron las barreras: B1, el chip publica la
+> imagen (`ctx.publicar`) y la app la pinta sobre `data-pantalla`; B2, en el Uno el I2C del
+> ATmega328P ya llega a los chips (en los ESP32 sigue faltando); B3, la lógica va en un
+> comportamiento de chip, con eventos de bus, no en el modelo eléctrico; B4, la app arma el PNG y
+> cambia solo esa imagen, sin redibujar el circuito. El resto de este documento queda como el
+> análisis original y para las demás opciones (7 segmentos, LCD, e-paper).
+
+Cuando se escribió, **no había ningún módulo de pantalla** en el catálogo, y no era un olvido: la
+plataforma no tenía las piezas para representar una. Este documento explica cuáles faltaban y
 compara las cinco formas de resolverlo, para poder decidir con el costo a la vista.
 
 Discusión y seguimiento: [issue #14](https://github.com/Cradel-co/emulador-electronica/issues/14).

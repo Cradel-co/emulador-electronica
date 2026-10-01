@@ -51,6 +51,8 @@ El código de un módulo (`model.js`) describe su circuito interno con elementos
 | `source` | Fuente regulable: `{ voltageProp, currentProp? }` (props con el voltaje y el límite en mA). |
 | `electrical` | Datos de hoja de datos: `maxCurrentMa` (recomendado) y `burnCurrentMa` (se quema), para los avisos de LEDs. |
 | `model` | Punto de entrada a su código: un `.js` de la carpeta del módulo (ver [Modelo eléctrico](#modelo-eléctrico)). Sin `model`, los flags `passthrough`/`diode`/`switch`/`source` arman uno básico. |
+| `chips` | Los chips con lógica que lleva la placa (`chips/<id>/`: sensor, reloj, pantalla). Cada uno: `id`, `pines` (pin del módulo → pin del chip), `porCableado` (props que salen de cómo está cableado un pin: `{ "sdo": { "pin": "SDO", "aTierra": "bajo", "aAlimentacion": "alto" } }`) y `pullUps` (pines del chip con pull-up en la placa). Ver [`../chips/README.md`](../chips/README.md). |
+| `drivers` | Librerías que usa el código para este módulo: `{ "arduino": { "librerias": ["RTClib@2.1.4"] } }`. Se instalan solas al compilar un proyecto que lo tenga (el proyecto puede sumar otras en `librerias.txt`). |
 
 Un módulo `programmable` es una **placa** (ESP32, Arduino...): corre el código del proyecto y lleva un bloque `board` con su chip, motor de emulación, toolchains por lenguaje, pines del MCU (`pins`: nombre del dibujo → `gpio`, y `port`/`bit` si el motor es nativo), pines reservados/advertencias, `io` (puente por UART o nativo), niveles eléctricos (`logicVoltage`, `maxPinCurrentMa`, `pinOutputOhm`) y el circuito de prueba (`demo`). El importador acepta placas si ese bloque es válido. Esquema completo: `GET /api/boards/schema`; ejemplos: `esp32-s3-devkitc-1/`, `esp32-c3-devkitm-1/`, `esp32-c6-devkitc-1/`, `arduino-uno/`; motores y toolchains disponibles: `app/server/src/engines/README.md` y `app/server/src/toolchains/README.md`. Cada proyecto corre una sola placa.
 
@@ -58,7 +60,7 @@ Un módulo `programmable` es una **placa** (ESP32, Arduino...): corre el código
 
 Todo el circuito (módulos, placa y fuentes) lo resuelve un motor eléctrico real (ngspice): Ohm, Kirchhoff, la curva de los diodos, fuentes con límite de corriente, reguladores, brownout de la placa. Cada módulo aporta su circuito interno:
 
-- con **código** (`"model": "model.js"`): cualquier combinación de resistencias, diodos, fuentes, interruptores, capacitores; sus propias reglas (avisos) y lo que muestra (`ui.on`). Guía completa y SDK: [`../docs/modulos-y-su-codigo.md`](../docs/modulos-y-su-codigo.md); Lo que un módulo puede *mostrar* hoy se limita a `ui.on` y `ui.brillo`, que es la razón por la que todavía no hay pantallas: ver [`../docs/pantallas.md`](../docs/pantallas.md);
+- con **código** (`"model": "model.js"`): cualquier combinación de resistencias, diodos, fuentes, interruptores, capacitores; sus propias reglas (avisos) y lo que muestra (`ui.on`). Guía completa y SDK: [`../docs/modulos-y-su-codigo.md`](../docs/modulos-y-su-codigo.md); lo que un módulo *muestra* desde su modelo se limita a `ui.on` y `ui.brillo`; una pantalla la dibuja su chip (ver `data-pantalla` abajo y [`../docs/pantallas.md`](../docs/pantallas.md));
 - **sin código**: los flags `passthrough` + `ohmsProp`, `diode`, `switch`, `source` le arman un modelo básico;
 - sin ninguno de los dos, se cablea igual pero eléctricamente no está.
 
@@ -75,6 +77,7 @@ Para que el dibujo reaccione a la simulación se marcan partes con atributos:
 | `data-si="on"` / `data-si="!on"` | La parte se ve solo si el estado vale (o no vale). |
 | `data-ctrl="momentary"` / `"toggle"` / `"boton"` (+ `data-indice="0"`) | La parte es un control que se puede tocar durante la simulación. |
 | `{{props.etiqueta}}` | Se reemplaza por el valor de la propiedad. |
+| `data-pantalla` | En un `rect`: ahí la app dibuja la imagen que publica el chip del módulo (una pantalla). El SVG del módulo no puede traer imágenes: la pone la app. |
 | `{{vars.claro}}` | Se reemplaza por el valor de `vars` (ver abajo). |
 
 Estados para `data-si`:

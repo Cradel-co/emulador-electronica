@@ -56,7 +56,7 @@ familia = un motor nuevo, no cambios en el resto.
 | ESP32-S3 DevKitC-1 | ESP32-S3 (Xtensa LX7) / `esp-emu` | ESPHome, ESP-IDF C/C++, Arduino (componente de ESP-IDF), MicroPython | **ESPHome** y **MicroPython**: botón → LED en vivo; certificada "emula". RF 433 (ESPHome). | ESP-IDF/Arduino-ESP32 no verificados en esta PC (falta bajar la imagen de 3 GB) y sin puente: en C/C++ las entradas no llegan al código. Entradas por el puente, no por el pad (límite de esp-emu). |
 | ESP32-C3 DevKitM-1 | ESP32-C3 (RISC-V) / `esp-emu --chip esp32c3` | ídem S3 | **ESPHome** y **MicroPython**: botón → LED en vivo; certificada "emula". | Puente en UART1 = GPIO0/1 (reservados). Sin RF 433. ESP-IDF/Arduino sin verificar (ídem S3). |
 | ESP32-C6 DevKitC-1 | ESP32-C6 (RISC-V) / `esp-emu --chip esp32c6` | ídem S3 | **ESPHome** y **MicroPython**: botón → LED en vivo; certificada "emula". | Puente en UART1 = GPIO0/1 (reservados). Sin RF. ESP-IDF/Arduino sin verificar (ídem S3). |
-| Arduino Uno R3 | ATmega328P a 16 MHz / `avr8js` (Wokwi), en un hilo aparte | Arduino (arduino-cli + core arduino:avr 1.8.6, imagen `docker/arduino-avr`) | Compila en ~3 s, corre ciclo a ciclo, Serial en la consola (y entrada por consola), D2 → D13 en vivo; certificada "emula". **Las entradas llegan al pad real** (digitalRead, pull-ups, interrupciones). Lógica de 5 V en la Ley de Ohm. | Sin I2C/SPI hacia módulos del dibujo, sin RF, ADC siempre en 0 V. Solo las librerías que trae el core (no hay gestor de librerías todavía). Si la PC está muy cargada corre más lento que el tiempo real (lo avisa en la consola). |
+| Arduino Uno R3 | ATmega328P a 16 MHz / `avr8js` (Wokwi), en un hilo aparte | Arduino (arduino-cli + core arduino:avr 1.8.6, imagen `docker/arduino-avr`) | Compila en ~3 s, corre ciclo a ciclo, Serial en la consola (y entrada por consola), D2 → D13 en vivo; certificada "emula". **Las entradas llegan al pad real** (digitalRead, pull-ups, interrupciones). Lógica de 5 V en la Ley de Ohm. | **I2C hacia los chips del dibujo** (BME280, DS3231 + AT24C32, SSD1306, MPU-6050: ver `chips/README.md`); las librerías de cada módulo se instalan solas al compilar (`drivers` y `librerias.txt`). Sin SPI hacia el dibujo, sin RF, ADC siempre en 0 V. Si la PC está muy cargada corre más lento que el tiempo real (lo avisa en la consola; los chips siguen el tiempo de la emulación). |
 
 El ESP32 clásico (Xtensa LX6) sigue sin poder emularse: `esp-emu` no lo soporta.
 
@@ -81,7 +81,10 @@ estén, una placa de otra familia se puede cargar igual y queda en "solo dibujo"
   (preparados, sin implementar). Más placas AVR (Nano, Pro Mini) ya son solo datos.
 - Puente para ESP-IDF/Arduino-ESP32 (hoy en C/C++ las entradas no llegan al código) y
   verificar esos toolchains con la imagen `espressif/idf` bajada.
-- Catálogo con más partes reales (motores, buzzers, sensores I2C) — cada una con su
+- I2C hacia los chips en los ESP32: esp-emu no acepta dispositivos I2C propios; con MicroPython
+  se puede reemplazando `machine.I2C` por el puente (ver `SDD-MODULOS.md`, sección 6).
+- SPI hacia los chips del dibujo en el Uno (avr8js trae `AVRSPI`): pantallas TFT, e-paper, SD.
+- Catálogo con más partes reales (motores, buzzers, más sensores) — cada una con su
   `model.js`, ver [`modulos-y-su-codigo.md`](modulos-y-su-codigo.md).
 - **Motor eléctrico, siguiente fase:** análisis transitorio (capacitores que se cargan,
   PWM, el clic del relé), que lo que el firmware lee (entradas, ADC) salga del motor, y

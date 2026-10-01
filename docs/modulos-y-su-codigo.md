@@ -15,6 +15,16 @@ circuito junto, con Ohm, Kirchhoff y la conservación de la energía. Por eso un
 puede tener las reglas que quiera (un relé que pega con 3,75 V, un LED que se daña con
 5 V al revés) sin poder romper las de la física.
 
+Con una excepción, que se encontró probando un BME280 de Adafruit (ver `SDD-MODULOS.md`,
+sección 6): `fuenteTension` **sí** fija una tensión, y adentro de un módulo que no es una
+fuente crea energía de la nada (la salida "de 3,3 V" seguía alimentada con la entrada en 0 V).
+Para el regulador de una placa se usa `regulador` (saca de su entrada lo que entrega), para una
+pila `bateria`, y un módulo que no es fuente y usa `fuenteTension` recibe un aviso.
+
+La lógica digital de un chip (un sensor que contesta por I2C, una pantalla) no va acá: va en
+`chips/<id>/` y el módulo la usa con `chips` en su module.json. Ver
+[`../chips/README.md`](../chips/README.md).
+
 ## Las piezas de un módulo
 
 ```
@@ -76,6 +86,8 @@ es como después se lo lee en `observar`.
 | `fuenteCorriente(desde, hacia, amperios, nombre)` | Fuente de corriente | La corriente circula por adentro de `desde` a `hacia` (sale al circuito por `hacia`). |
 | `interruptor(a, b, cerrado, { ron?, roff? }, nombre)` | Contacto mecánico | Cerrado: 50 mΩ; abierto: 1 GΩ (configurables). |
 | `interruptorControlado(a, b, ctrlPos, ctrlNeg, { umbral, histeresis?, ron?, roff? }, nombre)` | Interruptor por tensión | Se cierra cuando V(ctrlPos) − V(ctrlNeg) > umbral. Para transistores de salida, osciladores que arrancan, comparadores. |
+| `regulador(entrada, salida, tierra, { voltios, caida, limiteA, iq? }, nombre)` | Regulador lineal (LDO, 7805, AMS1117) | Mantiene `voltios` entre salida y tierra mientras la entrada alcance (si no, la entrada menos `caida`), hasta `limiteA`. Lo que entrega lo **saca de la entrada** y disipa (Vin − Vout)·I. No devuelve corriente. `iq`: consumo propio. `lectura.i(nombre)` es lo que entrega; `lectura.p(nombre)`, lo que disipa. |
+| `bateria(pos, neg, voltios, { rInterna? }, nombre)` | Pila o batería | Fuente legítima (sin el aviso de `fuenteTension`). `lectura.i(nombre)` es **positiva cuando la carga** (entra por el +) y negativa cuando entrega: así un modelo puede avisar si carga una pila que no es recargable (lo hace la ZS-042). |
 | `capacitor(a, b, faradios, { v0? }, nombre)` | Capacitor | En el análisis actual (continua) es un abierto; queda listo para el transitorio. |
 | `inductor(a, b, henrios, { i0? }, nombre)` | Bobina | En continua es un cable. |
 

@@ -143,10 +143,14 @@ En la UI: **Nuevo proyecto** → elegís **placa** y **lenguaje** → la app gen
 
 En el catálogo de la izquierda agregás módulos y los conectás con cables. Cada módulo viene con sus pines, y el editor te avisa si un cable no coincide con un pin, si un pin queda al aire o si el circuito **no puede** funcionar (cortocircuito, fuente sobre demandada — ver la Ley de Ohm real en [`modules/README.md`](modules/README.md)).
 
-Módulos disponibles de fábrica: `arduino-uno`, `esp32-s3-devkitc-1`, `esp32-c3-devkitm-1`, `esp32-c6-devkitc-1`, `button`, `switch`, `led`, `relay`, `resistor`, `rxb6`, `stx882`, `remote-433`, `door-sensor-433`, `siren-433`.
+Módulos disponibles de fábrica: `arduino-uno`, `esp32-s3-devkitc-1`, `esp32-c3-devkitm-1`, `esp32-c6-devkitc-1`, `button`, `switch`, `led`, `relay`, `resistor`, `fuente-regulable`, `rxb6`, `stx882`, `remote-433`, `door-sensor-433`, `siren-433`, y con chip (I2C, en el Uno): `bme280-adafruit`, `ds3231-zs042`, `oled-ssd1306-128x64`, `mpu6050-gy521`.
 
-**Pantallas todavía no hay** (ni OLED, ni LCD, ni 7 segmentos): falta una pieza de la
-plataforma, no el módulo. Por qué, y qué haría falta para cada tipo, en
+**Chips por I2C en el Arduino Uno**: el firmware real (Wire, las librerías de Adafruit, RTClib)
+habla ciclo a ciclo con chips emulados según su hoja de datos: sensor BME280, reloj DS3231 con
+EEPROM AT24C32, pantalla OLED SSD1306 (la imagen se ve en el circuito) y acelerómetro MPU-6050.
+Las librerías de cada módulo se instalan solas al compilar. Lo que mide cada sensor se mueve en
+vivo desde el panel del módulo. Ver [`chips/README.md`](chips/README.md). En los ESP32 todavía
+no: esp-emu no acepta dispositivos I2C propios. Otras pantallas (LCD, 7 segmentos, e-paper):
 [`docs/pantallas.md`](docs/pantallas.md).
 
 ### 3. Escribir el código
@@ -193,7 +197,7 @@ Pestaña **Debug** (Alt+5): breakpoints, paso a paso, variables, pila de llamada
 | **ESP32-S3 DevKitC-1** | ESP32-S3 (Xtensa LX7) / `esp-emu` | ESPHome y MicroPython: botón → LED en vivo. RF 433. Certificada "emula". | Las entradas llegan por el puente UART, no por el pad (límite de `esp-emu`). ESP-IDF/Arduino sin verificar en esta PC. |
 | **ESP32-C3 DevKitM-1** | ESP32-C3 (RISC-V) / `esp-emu` | ídem S3 | Puente en UART1 = GPIO0/1 (reservados). Sin RF 433. |
 | **ESP32-C6 DevKitC-1** | ESP32-C6 (RISC-V) / `esp-emu` | ídem S3 | ídem C3, sin RF. |
-| **Arduino Uno R3** | ATmega328P 16 MHz / `avr8js` | Compila en ~3 s, corre ciclo a ciclo, D2 → D13 en vivo, entradas al **pad real** (pull-ups, interrupciones). Lógica de 5 V. | Sin I2C/SPI hacia el dibujo, sin RF, ADC siempre en 0 V. |
+| **Arduino Uno R3** | ATmega328P 16 MHz / `avr8js` | Compila en ~3 s, corre ciclo a ciclo, D2 → D13 en vivo, entradas al **pad real** (pull-ups, interrupciones). Lógica de 5 V. | I2C hacia los chips del dibujo (BME280, DS3231, AT24C32, SSD1306, MPU-6050). Sin SPI hacia el dibujo, sin RF, ADC siempre en 0 V. |
 
 El **ESP32 clásico (LX6)** no se puede emular: `esp-emu` no lo soporta. Para otras familias (RP2040, STM32, nRF52) hace falta un motor nuevo — la interfaz está preparada (`renode` + `platformio` están planificados pero sin implementar), así que esas placas se pueden cargar igual y quedan en "solo dibujo".
 
@@ -268,7 +272,8 @@ emulador-electronica/
 | [`docs/placas-como-datos.md`](docs/placas-como-datos.md) | El bloque `board` en detalle |
 | [`docs/custom-chips.md`](docs/custom-chips.md) | Crear un chip de Wokwi reutilizable |
 | [`docs/troubleshooting.md`](docs/troubleshooting.md) | Errores de arranque y sus causas (UI en blanco, REPL, 403 en LAN) |
-| [`docs/pantallas.md`](docs/pantallas.md) | Por qué todavía no hay pantallas y qué haría falta (7 segmentos, LCD, OLED, e-paper) |
+| [`docs/pantallas.md`](docs/pantallas.md) | Pantallas: la OLED SSD1306 por I2C ya está; qué haría falta para 7 segmentos, LCD y e-paper |
+| [`chips/README.md`](chips/README.md) | Chips con lógica (sensores, relojes, pantallas): cómo se escriben, se prueban y qué se aprendió |
 | [`modules/README.md`](modules/README.md) | Formato de módulo, importación, Ley de Ohm, seguridad del SVG |
 
 ## Wokwi (opcional)
