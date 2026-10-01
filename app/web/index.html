@@ -164,7 +164,8 @@
             <span id="ayuda-lienzo" class="ayuda-lienzo">Para cablear: click en un pin y después en otro.</span>
           </div>
           <div class="lienzo-wrap">
-            <svg id="lienzo" xmlns="http://www.w3.org/2000/svg"></svg>
+            <!-- El <svg id="lienzo"> lo rinde React (issue #9); canvas.ts lo maneja igual que siempre. -->
+            <div id="react-lienzo"></div>
             <div class="lienzo-zoom">
               <button id="zoom-menos" title="Alejar (Ctrl+−)" aria-label="Alejar">−</button>
               <button id="zoom-ajustar" title="Encuadrar todo (Ctrl+0)">Ajustar</button>
@@ -407,8 +408,6 @@
       </form>
     </dialog>
 
-    <!-- Raíz de React (issue #9): por ahora vacía. La UI sigue siendo la de app.ts. -->
-    <div id="react-root"></div>
     <script type="module" src="/dist/app.js"></script>
   </body>
 </html>

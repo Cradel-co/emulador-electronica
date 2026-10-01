@@ -1,9 +1,9 @@
 // Frontend sin bundler: ES modules nativos contra la API local (sección 11).
-import { crearLienzo } from './canvas.js';
 import { miniatura } from './modulos.js';
 import { lenguajeDeArchivo, NOMBRE_LENGUAJE, resaltar } from './editor.js';
 import { crearDepuracion } from './depuracion.js';
 import { montarReact } from './react/montar.js';
+import { alLienzoListo, registrarCtx } from './react/puente.js';
 
 /**
  * Id de esta pestaña: el server lo devuelve en los eventos para no recargar los cambios propios.
@@ -1396,7 +1396,14 @@ function clasePin(ref) {
 
 // --- Canvas -----------------------------------------------------------------
 
-const lienzo = crearLienzo((($('lienzo') as unknown) as SVGSVGElement), {
+/**
+ * El lienzo lo crea el componente `<Lienzo>` de React contra su propio `<svg>` (#9): acá se deja
+ * el contexto que necesita y se recibe la instancia cuando monta. Lo que sigue usando `lienzo`
+ * en este archivo no cambió — corre después del montaje, que pasa al arrancar `main()`.
+ */
+let lienzo;
+alLienzoListo((l) => { lienzo = l; });
+registrarCtx({
   diagrama: () => state.diagrama,
   def: (type) => state.catalogo.get(type),
   seleccion: () => state.seleccion,
@@ -3024,6 +3031,9 @@ const depuracion = crearDepuracion({
 });
 
 (async function main() {
+  // Antes que nada: React monta el lienzo (sincrónico, ver montarReact) y todo lo que viene
+  // después ya puede dibujar en él.
+  montarReact();
   iniciarRedimension();
   restaurarVentanas();
   const { modules } = await api('/api/modules').catch(() => ({ modules: [] }));
@@ -3033,8 +3043,6 @@ const depuracion = crearDepuracion({
   conectarWS();
   await cargarPlacas();
   await cargarProyectos();
-  // React (issue #9): todavía no dibuja nada, se monta para tener la cadena armada.
-  montarReact();
   const emu = await api('/api/emulator').catch(() => null);
   if (emu?.status) {
     aplicarEstadoEmulador(emu.status);
