@@ -8,6 +8,7 @@ import {
   ClientEventSchema,
   LanguageSchema,
   ServerEventSchema,
+  tienePlaca,
   type Language,
   type Project,
   type ServerEvent,
@@ -27,8 +28,10 @@ import { ImportError, ModuleInstaller, importar, type OpcionesImportacion, type 
 import { crearServidorMcp, type McpContexto } from './mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { scanPins, diffDiagramVsCode, type DiagramWarning } from './pinScan.js';
-import { conPlaca } from './diagramOps.js';
-import { analizarCircuito, type AlimentacionPlaca, type FuenteElectrica, type LedElectrico } from './circuitPhysics.js';
+import { conPlaca, ponerPlaca, sacarPlaca } from './diagramOps.js';
+import { analizarCircuito } from './sim/analisis.js';
+import { precalentar } from './sim/spice.js';
+import type { AlimentacionPlaca, FuenteElectrica, LedElectrico } from './sim/tipos.js';
 import { Depurador } from './debug/depurador.js';
 import { registrarRutasDepuracion } from './debug/rutas.js';
 
@@ -217,15 +220,11 @@ function certificarEnFondo(placa: Placa, lenguaje?: Language): 'iniciada' | 'ya-
   return ya ? 'ya-en-curso' : 'iniciada';
 }
 
-/** Crea un proyecto: valida placa ↔ lenguaje y escribe la plantilla (la de la placa o la de su toolchain). */
-async function crearProyecto(nombre: string, lenguaje: Language, board = DEFAULT_BOARD, plantilla?: string): Promise<Project> {
-  // Desde una plantilla (projects/_template/<id>/): placa, lenguaje, circuito y código salen de ella.
-  if (plantilla) {
-    const datos = (await store.listTemplates()).find((t) => t.id === plantilla);
-    if (!datos) throw new ProjectError(`No hay una plantilla "${plantilla}" en projects/_template/`, 404);
-    if (!(await buscarPlaca(datos.board))) throw new ProjectError(`La plantilla "${plantilla}" usa la placa "${datos.board}", que no está en el catálogo.`, 400);
-    return store.createFromTemplate(nombre, plantilla);
-  }
+/**
+ * La placa del catálogo y los archivos de código con que arranca en un lenguaje (la plantilla
+ * de la placa o la de su toolchain). Valida placa ↔ lenguaje.
+ */
+async function placaConArchivos(board: string, lenguaje: Language) {
   const placa = await buscarPlaca(board);
   if (!placa) {
     const ids = (await listarPlacas()).map((p) => p.id).join(', ');
@@ -243,7 +242,57 @@ async function crearProyecto(nombre: string, lenguaje: Language, board = DEFAULT
     propia && Object.keys(propia).length > 0
       ? propia
       : (TOOLCHAINS[destino.toolchain]?.plantilla(lenguaje, placa, destino.options) ?? {});
+  return { placa, archivos };
+}
+
+/**
+ * Crea un proyecto: con placa (valida placa ↔ lenguaje y escribe su plantilla de código), sin
+ * placa (`board: null`: solo un circuito con una fuente regulable), o desde una plantilla.
+ */
+async function crearProyecto(nombre: string, lenguaje: Language | null, board: string | null = DEFAULT_BOARD, plantilla?: string): Promise<Project> {
+  // Desde una plantilla (projects/_template/<id>/): placa, lenguaje, circuito y código salen de ella.
+  if (plantilla) {
+    const datos = (await store.listTemplates()).find((t) => t.id === plantilla);
+    if (!datos) throw new ProjectError(`No hay una plantilla "${plantilla}" en projects/_template/`, 404);
+    if (datos.board && !(await buscarPlaca(datos.board))) {
+      throw new ProjectError(`La plantilla "${plantilla}" usa la placa "${datos.board}", que no está en el catálogo.`, 400);
+    }
+    return store.createFromTemplate(nombre, plantilla);
+  }
+  if (board === null) return store.crearSinPlaca(nombre);
+  if (!lenguaje) throw new ProjectError('Falta el lenguaje de la placa', 400);
+  const { placa, archivos } = await placaConArchivos(board, lenguaje);
   return store.create(nombre, lenguaje, { id: placa.id, desc: placa.desc }, archivos);
+}
+
+/**
+ * Agrega una placa a un proyecto sin placa (la placa es un módulo que se agrega y se quita):
+ * la pone en el dibujo y escribe su código inicial sin pisar el que ya hubiera de antes.
+ */
+async function agregarPlaca(nombre: string, board: string, lenguaje: Language, pos: { x?: number; y?: number } = {}): Promise<Project> {
+  const { placa, archivos } = await placaConArchivos(board, lenguaje);
+  const def = (await loadCatalog()).find((m) => m.type === placa.id);
+  if (!def) throw new ProjectError(`La placa "${board}" no está en el catálogo`, 400);
+  const actual = await store.read(nombre);
+  const nuevo = ponerPlaca(actual, def, lenguaje, pos);
+  // Con placa, ▶ vuelve a significar "correr el firmware": el circuito deja de estar energizado aparte.
+  if (proyectoEnergizado === nombre) energizar(nombre, false);
+  await store.escribirSiFalta(nombre, lenguaje, archivos);
+  const guardado = await store.save(nuevo);
+  return guardado;
+}
+
+/** Quita la placa (y sus cables). El código queda en disco: si se vuelve a poner la placa, sigue ahí. */
+async function quitarPlaca(nombre: string): Promise<Project> {
+  const actual = await store.read(nombre);
+  if (runningProject === nombre && emulator.getStatus().running) {
+    eventosEmulador.onLog('[placa] Se quitó la placa: se detuvo la simulación.');
+    await emulator.stop();
+    runningProject = null;
+    controlesCerrados.clear();
+  }
+  placasQuemadas.delete(nombre);
+  return store.save(sacarPlaca(actual));
 }
 
 // --- Utilidades -------------------------------------------------------------
@@ -372,11 +421,14 @@ async function registerRoutes(): Promise<void> {
   app.get('/api/templates', async () => store.listTemplates());
 
   app.post('/api/projects', async (req, reply) => {
-    const body = (req.body ?? {}) as { name?: string; language?: string; board?: string; template?: string };
+    const body = (req.body ?? {}) as { name?: string; language?: string; board?: string | null; template?: string };
     try {
+      // board: null = proyecto sin placa (solo circuito). Sin board = ESP32-S3, como siempre.
       const project = body.template
-        ? await crearProyecto(String(body.name ?? ''), 'esphome', DEFAULT_BOARD, String(body.template))
-        : await crearProyecto(String(body.name ?? ''), LanguageSchema.parse(body.language) as Language, body.board ?? DEFAULT_BOARD);
+        ? await crearProyecto(String(body.name ?? ''), null, null, String(body.template))
+        : body.board === null
+          ? await crearProyecto(String(body.name ?? ''), null, null)
+          : await crearProyecto(String(body.name ?? ''), LanguageSchema.parse(body.language) as Language, body.board ?? DEFAULT_BOARD);
       reply.code(201).send({ project });
     } catch (err) {
       fail(reply, err);
@@ -388,7 +440,7 @@ async function registerRoutes(): Promise<void> {
     try {
       const project = await requireProject(name);
       const files = await store.listFiles(name, project.language);
-      const placa = await buscarPlaca(project.board);
+      const placa = project.board ? await buscarPlaca(project.board) : undefined;
       reply.send({ project, files, placa: placa ? await placaParaUi(placa) : null });
     } catch (err) {
       fail(reply, err);
@@ -512,6 +564,52 @@ async function registerRoutes(): Promise<void> {
     }
   });
 
+  // Proyecto sin placa: prender/apagar el circuito (▶/⏹). Con placa, ▶ es /run.
+  app.post('/api/projects/:name/energia', async (req, reply) => {
+    const { name } = req.params as { name: string };
+    try {
+      const p = await requireProject(name);
+      if (p.board) throw new ProjectError('Este proyecto tiene placa: se ejecuta con /run', 400);
+      const body = (req.body ?? {}) as { encendido?: unknown };
+      if (typeof body.encendido !== 'boolean') throw new ProjectError('hace falta { encendido }', 400);
+      energizar(name, body.encendido);
+      reply.send({ ok: true, energizado: proyectoEnergizado === name });
+    } catch (err) {
+      fail(reply, err);
+    }
+  });
+
+  // La placa es un módulo que se agrega (eligiendo su lenguaje) y se quita.
+  app.post('/api/projects/:name/board', async (req, reply) => {
+    const { name } = req.params as { name: string };
+    try {
+      await requireProject(name);
+      const body = (req.body ?? {}) as { board?: unknown; language?: unknown; x?: unknown; y?: unknown };
+      const lenguaje = LanguageSchema.safeParse(body.language);
+      if (typeof body.board !== 'string' || !lenguaje.success) {
+        throw new ProjectError('hace falta { board, language }: la placa se agrega eligiendo en qué se programa', 400);
+      }
+      const pos = { x: typeof body.x === 'number' ? body.x : undefined, y: typeof body.y === 'number' ? body.y : undefined };
+      const project = await agregarPlaca(name, body.board, lenguaje.data, pos);
+      broadcast({ type: 'project.changed', project: name, what: 'diagram', origin: clienteDe(req) });
+      reply.send({ project });
+    } catch (err) {
+      fail(reply, err);
+    }
+  });
+
+  app.delete('/api/projects/:name/board', async (req, reply) => {
+    const { name } = req.params as { name: string };
+    try {
+      await requireProject(name);
+      const project = await quitarPlaca(name);
+      broadcast({ type: 'project.changed', project: name, what: 'diagram', origin: clienteDe(req) });
+      reply.send({ project });
+    } catch (err) {
+      fail(reply, err);
+    }
+  });
+
   app.post('/api/projects/:name/board/replace', async (req, reply) => {
     const { name } = req.params as { name: string };
     try {
@@ -549,6 +647,7 @@ async function registerRoutes(): Promise<void> {
     await emulator.stop();
     runningProject = null;
     controlesCerrados.clear();
+    if (proyectoEnergizado) energizar(proyectoEnergizado, false);
     reply.send({ ok: true });
   });
 
@@ -612,8 +711,17 @@ async function runBuild(project: { name: string }): Promise<BuildResult> {
   return result;
 }
 
-async function runProject(project: { name: string }, forceBuild: boolean): Promise<{ ok: boolean; errors: BuildErrorLike[]; sinAlimentacion?: boolean }> {
+async function runProject(
+  project: { name: string },
+  forceBuild: boolean,
+): Promise<{ ok: boolean; errors: BuildErrorLike[]; sinAlimentacion?: boolean; energizado?: boolean }> {
   const full = await store.read(project.name);
+  // Sin placa no hay firmware: ▶ energiza el circuito (prende las fuentes regulables).
+  if (!tienePlaca(full)) {
+    energizar(full.name, true);
+    logBuild(`Circuito "${full.name}" energizado: las fuentes regulables entregan tensión. ⏹ lo apaga.`);
+    return { ok: true, errors: [], energizado: true };
+  }
   // Como en la vida real: sin la alimentación adecuada la placa no arranca.
   const sinArranque = motivoSinArranque(await alimentacionDe(full));
   if (sinArranque) {
@@ -677,9 +785,10 @@ async function runProject(project: { name: string }, forceBuild: boolean): Promi
 }
 
 /** Todos los pines que el código del proyecto usa (archivos de código). */
-async function pinsDeCodigo(project: { name: string; language: Language; board: string }): Promise<number[]> {
+async function pinsDeCodigo(project: { name: string; language: Language | null; board: string | null }): Promise<number[]> {
+  if (!project.language) return []; // sin placa no hay código
   const files = await store.listFiles(project.name, project.language);
-  const desc = (await buscarPlaca(project.board))?.desc;
+  const desc = project.board ? (await buscarPlaca(project.board))?.desc : undefined;
   const pines = new Set<number>();
   for (const f of files) {
     const content = await store.readFile(project.name, f.path, project.language).catch(() => '');
@@ -705,7 +814,28 @@ type EstadoPlaca = AlimentacionPlaca & { quemada: boolean };
  * empezar, nadie está apretando nada.
  */
 const controlesCerrados = new Map<string, Set<string>>();
+
+/**
+ * Proyecto sin placa "energizado" (▶): sus fuentes regulables entregan tensión. Uno a la vez,
+ * como la simulación. Con placa no aplica: ▶ corre el firmware y las fuentes siempre entregan.
+ */
+let proyectoEnergizado: string | null = null;
+
+/** ¿Las fuentes de este proyecto están apagadas? (sin placa y sin energizar) */
+const fuentesApagadasDe = (p: Project): boolean => !p.board && proyectoEnergizado !== p.name;
+
+function energizar(nombre: string, encendido: boolean): void {
+  const antes = proyectoEnergizado;
+  if (encendido) proyectoEnergizado = nombre;
+  else if (proyectoEnergizado === nombre) proyectoEnergizado = null;
+  controlesCerrados.clear(); // al prender o apagar, nadie está apretando nada
+  estadosModulos.delete(nombre); // y los módulos arrancan de cero, como al cortar la energía
+  if (antes && antes !== proyectoEnergizado) broadcast({ type: 'project.changed', project: antes, what: 'diagram', origin: 'server' });
+  broadcast({ type: 'project.changed', project: nombre, what: 'diagram', origin: 'server' });
+}
 const cerradosDe = (nombre: string): Set<string> => controlesCerrados.get(nombre) ?? new Set();
+/** Estado interno que cada modelo de módulo devolvió en `observar` (por proyecto → módulo). */
+const estadosModulos = new Map<string, Map<string, Record<string, unknown>>>();
 
 async function fijarControl(nombre: string, id: string, cerrado: boolean): Promise<void> {
   const set = controlesCerrados.get(nombre) ?? new Set<string>();
@@ -732,7 +862,9 @@ function motivoSinArranque(a: EstadoPlaca): string | null {
 
 /** Después de cada cambio del dibujo: si la placa se quemó o se quedó sin energía, la simulación se corta. */
 async function revisarAlimentacion(nombre: string): Promise<void> {
-  const estado = await alimentacionDe(await store.read(nombre));
+  const p = await store.read(nombre);
+  if (!p.board) return; // sin placa no hay nada que se quede sin energía
+  const estado = await alimentacionDe(p);
   const motivo = motivoSinArranque(estado);
   if (!motivo || runningProject !== nombre || !emulator.getStatus().running) return;
   eventosEmulador.onLog(`[alimentación] ${motivo} Se detuvo la simulación.`);
@@ -751,28 +883,54 @@ async function avisosDelProyecto(
 ): Promise<{
   pins: number[];
   warnings: DiagramWarning[];
-  electrico: { leds: LedElectrico[]; fuentes: FuenteElectrica[]; placa: EstadoPlaca };
+  /**
+   * placa: null = proyecto sin placa. energizado: el circuito sin placa está prendido (▶).
+   * tensiones: lo que mediría un tester en cada pin cableado.
+   */
+  electrico: {
+    leds: LedElectrico[];
+    fuentes: FuenteElectrica[];
+    placa: EstadoPlaca | null;
+    energizado: boolean;
+    tensiones: Record<string, number>;
+    /** Estado visible que decidió el modelo de cada módulo (`observar` → ui), con la física en vivo. */
+    modulos: Record<string, { on?: boolean; brillo?: number }>;
+  };
 }> {
   const pins = await pinsDeCodigo(project);
   const catalogo = await loadCatalog();
   const buscar = (t: string): ModuloCatalogo | undefined => catalogo.find((m) => m.type === t);
   const conLaPlaca = conPlaca(project);
-  // Con los niveles reales de la simulación: avisos, lo que entrega cada fuente y si la placa tiene energía.
-  const { avisos: electricos, fuentes } = analizarCircuito(conLaPlaca, buscar, niveles, cerradosDe(project.name));
-  const placa = await alimentacionDe(project);
-  // Estado de cada LED con su pin/fuente EN ALTO (peor caso, sin mirar la simulación):
-  // la UI lo usa para "quemar" el LED cuando la simulación lo prende.
-  const { leds } = analizarCircuito(conLaPlaca, buscar, new Map(), cerradosDe(project.name));
+  const cerrados = cerradosDe(project.name);
+  const fuentesApagadas = fuentesApagadasDe(project);
+  // Con los niveles reales de la simulación: avisos, lo que entrega cada fuente, si la placa tiene energía.
+  const estados = estadosModulos.get(project.name) ?? new Map<string, Record<string, unknown>>();
+  const vivo = await analizarCircuito(conLaPlaca, buscar, { niveles, cerrados, fuentesApagadas, estados });
+  // Lo que cada modelo quiere recordar vuelve en el próximo cálculo (solo del vivo: los otros son hipotéticos).
+  for (const [id, m] of Object.entries(vivo.modulos)) if (m.estado) estados.set(id, m.estado);
+  estadosModulos.set(project.name, estados);
+  const placa = project.board ? conQuemadura(project, vivo.alimentacion) : null;
+  // Cada LED con las salidas del código EN ALTO (peor caso, sin mirar la simulación): la UI lo usa
+  // para "quemarlo" cuando la simulación lo prende. Y con las salidas en bajo: la corriente que le
+  // llega sin depender del código (mAFijo), para prenderlo aunque ningún GPIO lo maneje.
+  // Sin placa no hay salidas del código: alcanza con un solo cálculo.
+  const peor = project.board ? await analizarCircuito(conLaPlaca, buscar, { cerrados, fuentesApagadas }) : vivo;
+  const fijo = project.board ? await analizarCircuito(conLaPlaca, buscar, { cerrados, fuentesApagadas, salidasForzadas: 0 }) : vivo;
+  const leds = peor.leds.map((l) => ({ ...l, mAFijo: fijo.leds.find((x) => x.id === l.id)?.mA ?? 0 }));
+  const { avisos: electricos, fuentes } = vivo;
   // Quemada de antes (ya sin la sobretensión): el motor no lo sabe, se avisa acá.
-  const quemadaDeAntes = placa.quemada && placa.estado !== 'quema'
+  const quemadaDeAntes = placa?.quemada && placa.estado !== 'quema'
     ? [{ kind: 'peligro-electrico' as const, pin: -1, message: motivoSinArranque(placa)!, refs: undefined }]
     : [];
   return {
     pins,
-    electrico: { leds, fuentes, placa },
+    electrico: {
+      leds, fuentes, placa, energizado: proyectoEnergizado === project.name, tensiones: vivo.tensiones,
+      modulos: Object.fromEntries(Object.entries(vivo.modulos).map(([id, m]) => [id, m.ui ?? {}])),
+    },
     warnings: [
       ...quemadaDeAntes,
-      ...diffDiagramVsCode(project, pins, buscar(project.board)?.board),
+      ...diffDiagramVsCode(project, pins, project.board ? buscar(project.board)?.board : undefined),
       ...electricos.map((a) => ({
         kind: a.severidad === 'peligro' ? ('peligro-electrico' as const) : ('advertencia-electrica' as const),
         pin: a.pin,
@@ -861,6 +1019,17 @@ const contextoMcp: McpContexto = {
   },
   pinesYAvisos: (nombre) => store.read(nombre).then(avisosDelProyecto),
   fijarControl,
+  async agregarPlaca(nombre, tipo, lenguaje, pos) {
+    const p = await agregarPlaca(nombre, tipo, lenguaje, pos);
+    broadcast({ type: 'project.changed', project: nombre, what: 'diagram', origin: 'mcp' });
+    return p;
+  },
+  async quitarPlaca(nombre) {
+    const p = await quitarPlaca(nombre);
+    broadcast({ type: 'project.changed', project: nombre, what: 'diagram', origin: 'mcp' });
+    return p;
+  },
+  proyectoEnergizado: () => proyectoEnergizado,
   async reemplazarPlaca(nombre) {
     const habia = reemplazarPlaca(nombre);
     broadcast({ type: 'project.changed', project: nombre, what: 'diagram', origin: 'mcp' });
@@ -872,6 +1041,7 @@ const contextoMcp: McpContexto = {
     await emulator.stop();
     runningProject = null;
     controlesCerrados.clear();
+    if (proyectoEnergizado) energizar(proyectoEnergizado, false);
   },
   resetear: () => emulator.reset(),
   estadoEmulador: () => emulator.getStatus(),

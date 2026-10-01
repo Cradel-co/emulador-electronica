@@ -88,6 +88,10 @@ const state = {
   /** ¿La placa tiene con qué andar? (GET /pins → electrico.placa): estado, por dónde, mensaje, quemada. */
   alimentacion: (null as null | { estado: string; via: string | null; pin: string | null; fuenteId: string | null; consumoMa: number | null; mensaje: string; quemada: boolean }),
   /** Lo que entrega cada fuente regulable ahora (GET /pins → electrico.fuentes): V, mA, W, modo CV/CC. */
+  /** Proyecto sin placa: ¿el circuito está energizado (▶)? (GET /pins → electrico.energizado) */
+  energizado: false,
+  /** Lo que el modelo de cada módulo decidió mostrar (`observar` → ui), según la física en vivo. */
+  uiModulos: new Map<string, { on?: boolean; brillo?: number }>(),
   fuentes: ([] as { id: string; vAjuste: number; limiteMa: number | null; demandaMa: number | null; mA: number | null; vSalida: number; potenciaW: number; modo: string }[]),
   placaPorDefecto: '',
   /** Placa del proyecto abierto (GET /api/projects/:name → placa): nombre + descriptor `board`. */
@@ -362,7 +366,27 @@ const NOMBRE_ESTADO = {
   hung: 'colgado',
 };
 
+/** ¿El proyecto abierto es sin placa (solo circuito)? */
+const sinPlaca = (): boolean => Boolean(state.proyecto) && !state.proyecto.board;
+
+/**
+ * Proyecto sin placa: ▶/⏹ prenden y apagan el circuito (no hay emulador). Se ve igual que
+ * la simulación corriendo: "En vivo", ⏹ habilitado y los controles de los módulos activos.
+ */
+function aplicarEnergia() {
+  const on = state.energizado;
+  $('estado').textContent = on ? 'energizado' : 'apagado';
+  $('estado').dataset.s = on ? 'bridge' : 'stopped';
+  document.body.classList.toggle('corriendo', on);
+  btn('ejecutar').disabled = on;
+  btn('parar').disabled = !on;
+  btn('abrir-web').disabled = true;
+  marcarSimulacion(on);
+}
+
 function aplicarEstadoEmulador(status) {
+  // El emulador es global: en un proyecto sin placa, ▶/⏹ siguen a la energía del circuito.
+  if (sinPlaca()) return aplicarEnergia();
   $('estado').textContent = NOMBRE_ESTADO[status.state] ?? status.state;
   $('estado').dataset.s = status.state;
   const corriendo = Boolean(status.running);
@@ -396,7 +420,9 @@ function marcarSimulacion(listo) {
     void refrescarAvisos();
   }
   $('ayuda-lienzo').textContent = listo
-    ? 'Simulación corriendo: usá los controles de los módulos (botones, interruptores, control remoto).'
+    ? sinPlaca()
+      ? 'Circuito energizado: usá los pulsadores e interruptores. ⏹ lo apaga.'
+      : 'Simulación corriendo: usá los controles de los módulos (botones, interruptores, control remoto).'
     : 'Para cablear: click en un pin y después en otro.';
   $('badge-modo').hidden = !listo;
   document.body.classList.toggle('simulando', listo);
@@ -761,7 +787,9 @@ function agregarModulo(type, x?: number, y?: number) {
   const def = state.catalogo.get(type);
   if (!def || !state.proyecto) return;
   if (def.programmable) {
-    nota(`El proyecto ya tiene su placa (${nombrePlaca()}): la simulación corre un solo microcontrolador a la vez.`);
+    // La placa es un módulo más, pero una sola: sin placa se agrega eligiendo el lenguaje.
+    if (!state.proyecto.board) return abrirAgregarPlaca(type, x, y);
+    nota(`El proyecto ya tiene su placa (${nombrePlaca()}): la simulación corre un solo microcontrolador a la vez. Para cambiarla, quitá esta primero.`);
     seleccionar({ tipo: 'modulo', id: BOARD_ID });
     return;
   }
@@ -782,13 +810,78 @@ function agregarModulo(type, x?: number, y?: number) {
   guardarDiagrama();
   seleccionar({ tipo: 'modulo', id: inst.id });
   nota(def.pins.length
-    ? `${def.name} agregado: conectá sus pines a la ${nombrePlaca()} (click en un pin y después en otro).`
+    ? `${def.name} agregado: conectá sus pines ${state.proyecto.board ? `a la ${nombrePlaca()}` : 'al circuito'} (click en un pin y después en otro).`
     : `${def.name} agregado: es inalámbrico, no lleva cables.`);
+}
+
+// --- Agregar y quitar la placa ---------------------------------------------------------
+// La placa es un módulo que se agrega (eligiendo en qué se programa) y se quita. Sin placa,
+// el proyecto es solo un circuito: ▶ lo energiza. Quitarla no borra su código (queda en disco).
+
+const dlgPlaca = () => document.getElementById('dlg-placa') as HTMLDialogElement;
+let posPlacaNueva: { x?: number; y?: number } = {};
+
+function abrirAgregarPlaca(tipo: string, x?: number, y?: number) {
+  const s = sel('placa-nueva');
+  s.textContent = '';
+  for (const b of state.placas) {
+    const o = document.createElement('option');
+    o.value = b.id;
+    o.textContent = b.nombre ?? b.name ?? b.id;
+    s.append(o);
+  }
+  s.value = tipo;
+  const def = state.catalogo.get(tipo);
+  posPlacaNueva = x === undefined || !def ? {} : { x: Math.round(x - def.width / 2), y: Math.round(y - def.height / 2) };
+  llenarLenguajesPlaca();
+  dlgPlaca().showModal();
+}
+
+function llenarLenguajesPlaca() {
+  const placa = state.placas.find((b) => b.id === sel('placa-nueva').value);
+  const soportados: string[] = placa?.lenguajes ?? placa?.languages ?? Object.keys(NOMBRE_LENGUAJE_PROYECTO);
+  const s = sel('placa-lenguaje');
+  s.textContent = '';
+  for (const l of soportados) {
+    const o = document.createElement('option');
+    o.value = l;
+    o.textContent = NOMBRE_LENGUAJE_PROYECTO[l] ?? l;
+    s.append(o);
+  }
+}
+sel('placa-nueva').addEventListener('change', llenarLenguajesPlaca);
+
+dlgPlaca().addEventListener('close', async () => {
+  if (dlgPlaca().returnValue !== 'agregar' || !state.proyecto) return;
+  const nombre = state.proyecto.name;
+  const board = sel('placa-nueva').value;
+  const language = sel('placa-lenguaje').value;
+  try {
+    await api(`/api/projects/${nombre}/board`, { method: 'POST', body: JSON.stringify({ board, language, ...posPlacaNueva }) });
+    await abrirProyecto(nombre);
+    nota(`${nombrePlaca()} agregada (${NOMBRE_LENGUAJE_PROYECTO[language] ?? language}): ya podés programarla. ▶ ahora compila y ejecuta.`);
+  } catch (e: any) {
+    nota(String((e as Error)?.message ?? e));
+  }
+});
+
+async function quitarPlaca() {
+  if (!state.proyecto?.board) return;
+  const nombre = state.proyecto.name;
+  const placa = nombrePlaca();
+  if (!confirm(`¿Quitar la ${placa} del proyecto?\nSe borran sus cables; el código queda guardado y vuelve si la agregás de nuevo. El circuito sigue, sin placa: ▶ lo energiza.`)) return;
+  try {
+    await api(`/api/projects/${nombre}/board`, { method: 'DELETE' });
+    await abrirProyecto(nombre);
+    nota(`${placa} quitada: el proyecto queda como circuito sin placa.`);
+  } catch (e: any) {
+    nota(String((e as Error)?.message ?? e));
+  }
 }
 
 function eliminarModulo(id) {
   if (id === BOARD_ID) {
-    nota(`La ${nombrePlaca()} no se puede quitar: es la que corre el código del proyecto.`);
+    void quitarPlaca();
     return;
   }
   const prefijo = `${id}.`;
@@ -844,7 +937,7 @@ function conectar(a, b) {
 function textoEsperaSimulacion() {
   const s = $('estado').dataset.s;
   if (s === 'starting' || s === 'booted' || s === 'wifi') return 'Esperando a que la simulación termine de arrancar…';
-  return 'Apretá ▶ Ejecutar para poder usarlo.';
+  return sinPlaca() ? 'Apretá ▶ para energizar el circuito y poder usarlo.' : 'Apretá ▶ Ejecutar para poder usarlo.';
 }
 
 /**
@@ -1116,8 +1209,17 @@ function pintarAlimentacion() {
 
   const a = state.alimentacion;
   const pildora = $('badge-alimentacion') as HTMLButtonElement;
-  pildora.hidden = !a;
-  if (a) {
+  pildora.hidden = !a && !sinPlaca();
+  if (sinPlaca()) {
+    // Sin placa: la píldora muestra si el circuito está energizado y cuánto entregan las fuentes.
+    const total = state.fuentes.reduce((s, f) => s + (f.mA ?? 0), 0);
+    pildora.className = `badge-alim ${state.energizado ? 'ok' : 'sin'}`;
+    pildora.textContent = state.energizado
+      ? `⚡ Energizado · ${fmtMa(total)}`
+      : `⚡ Apagado${state.fuentes.length ? '' : ' · sin fuentes'}`;
+    pildora.title = state.energizado ? 'Las fuentes regulables entregan tensión. ⏹ apaga el circuito.' : '▶ energiza el circuito (prende las fuentes regulables).';
+    pildora.disabled = true;
+  } else if (a) {
     const f = state.fuentes.find((x) => x.id === a.fuenteId);
     const [clase, texto] = a.quemada
       ? ['quemada', 'Placa quemada · Reemplazar']
@@ -1135,7 +1237,9 @@ function pintarAlimentacion() {
 function pintarDebugAlimentacion() {
   const cont = $('dbg-alimentacion');
   const a = state.alimentacion;
-  const estadoPlaca = !a
+  const estadoPlaca = sinPlaca()
+    ? [state.energizado ? 'ok' : 'sin', state.energizado ? 'Sin placa · circuito energizado' : 'Sin placa · circuito apagado (▶ lo energiza)']
+    : !a
     ? ['', '—']
     : a.quemada
       ? ['quemada', 'Quemada']
@@ -1148,10 +1252,10 @@ function pintarDebugAlimentacion() {
       <td>${fmtV(f.vSalida)}</td>
       <td><b>${fmtMa(f.mA)}</b></td>
       <td>${f.potenciaW.toFixed(2)} W</td>
-      <td><span class="modo-fuente ${f.modo}" title="${f.modo === 'CC' ? `Limitando corriente: la carga pediría ~${fmtMa(f.demandaMa)}` : f.modo === 'corto' ? 'Salida en cortocircuito' : 'Voltaje constante'}">${f.modo}</span></td>
+      <td><span class="modo-fuente ${f.modo}" title="${f.modo === 'CC' ? `Limitando corriente: la carga pediría ~${fmtMa(f.demandaMa)}` : f.modo === 'corto' ? 'Salida en cortocircuito' : f.modo === 'apagada' ? 'Salida apagada: ▶ energiza el circuito' : 'Voltaje constante'}">${f.modo}</span></td>
     </tr>`).join('');
   cont.innerHTML = `
-    <p class="dbg-alim-placa ${estadoPlaca[0]}" title="${escapar(a?.mensaje ?? '')}"><b>${escapar(nombrePlaca())}</b> ${escapar(estadoPlaca[1])}</p>
+    <p class="dbg-alim-placa ${estadoPlaca[0]}" title="${escapar(a?.mensaje ?? '')}"><b>${escapar(sinPlaca() ? 'Circuito' : nombrePlaca())}</b> ${escapar(estadoPlaca[1])}</p>
     ${filas
       ? `<table class="dbg-fuentes"><thead><tr><th>Fuente</th><th>Ajuste</th><th>Salida</th><th>Consumo</th><th>Potencia</th><th>Modo</th></tr></thead><tbody>${filas}</tbody></table>`
       : '<p class="dbg-vacio">Sin fuentes regulables en el circuito.</p>'}`;
@@ -1318,13 +1422,36 @@ function pintarPanelDerecho() {
   const inst = s?.tipo === 'modulo' ? state.diagrama.modules.find((m) => m.id === s.id) : null;
   const def = inst ? state.catalogo.get(inst.type) : null;
   const muestraCodigo = !s || (s.tipo === 'modulo' && (!inst || def?.programmable));
-  $('panel-codigo').hidden = !muestraCodigo;
   const panel = $('panel-modulo');
+  // Sin placa no hay código: en su lugar, qué es este proyecto y cómo sumarle una placa.
+  if (muestraCodigo && sinPlaca()) {
+    $('panel-codigo').hidden = true;
+    panel.hidden = false;
+    return pintarPanelSinPlaca(panel);
+  }
+  $('panel-codigo').hidden = !muestraCodigo;
   panel.hidden = muestraCodigo;
   if (muestraCodigo) return;
   if (s.tipo === 'cable') return pintarPanelCable(panel, s.indice);
   if (!def) return pintarPanelDesconocido(panel, inst);
   pintarPanelModulo(panel, inst, def);
+}
+
+function pintarPanelSinPlaca(panel: HTMLElement) {
+  const on = state.energizado;
+  panel.innerHTML = `
+    <h2 class="panel-header">${ICONOS.modulo} Circuito sin placa</h2>
+    <div class="insp">
+      <p class="insp-desc">Un circuito como en una protoboard: fuentes regulables y componentes, sin microcontrolador ni código.
+      Cerrá cada camino contra el <b>GND de la fuente</b>.</p>
+      <div class="insp-badge ${on ? '' : 'advertencia'}">${on
+        ? '<b>Energizado</b> — las fuentes entregan tensión: usá los pulsadores e interruptores. ⏹ lo apaga.'
+        : '<b>Apagado</b> — las fuentes no entregan nada. ▶ energiza el circuito.'}</div>
+      <h3>Placa</h3>
+      <p class="hint">Si querés programar algo, agregá una placa (o arrastrala desde el catálogo): elegís en qué lenguaje y aparece su código.</p>
+      <button type="button" id="sp-agregar-placa" class="primario">Agregar placa</button>
+    </div>`;
+  $('sp-agregar-placa').onclick = () => abrirAgregarPlaca(state.placaPorDefecto || state.placas[0]?.id);
 }
 
 function pintarPanelCable(panel, indice) {
@@ -1423,7 +1550,9 @@ function pintarPanelModulo(panel: HTMLElement, inst, def) {
       <div class="insp-badge ${esAire ? 'aire' : ''}">
         ${esAire
           ? `<b>Inalámbrico</b> — no se programa ni lleva cables: se comunica por radio 433 MHz con el receptor o transmisor conectado a la ${escapar(nombrePlaca())}.`
-          : `<b>Sin código</b> — este módulo no se programa: se conecta a la ${escapar(nombrePlaca())} con cables y el código de la placa lo controla.`}
+          : sinPlaca()
+            ? '<b>Sin código</b> — se cablea al circuito; con ▶ se energiza y funciona por la corriente que le llega.'
+            : `<b>Sin código</b> — este módulo no se programa: se conecta a la ${escapar(nombrePlaca())} con cables y el código de la placa lo controla.`}
       </div>
       ${state.sim.quemados.has(inst.id) ? `
         <div class="insp-badge quemado"><b>Quemado</b>: le pasaron ~${Math.round(state.sim.quemados.get(inst.id)?.mA ?? 0)} mA. Ya no enciende aunque arregles el circuito, igual que un LED real.
@@ -1437,7 +1566,7 @@ function pintarPanelModulo(panel: HTMLElement, inst, def) {
       ${def.pins.length ? `
         <h3>Pines</h3>
         <table class="insp-pines"><tbody>${filasPines}</tbody></table>
-        <p class="hint">Para cablear: click en un pin del módulo en el circuito y después en un pin de la ${escapar(nombrePlaca())}.</p>` : ''}
+        <p class="hint">Para cablear: click en un pin del módulo en el circuito y después en ${sinPlaca() ? 'otro pin (cerrá los caminos contra el GND de la fuente)' : `un pin de la ${escapar(nombrePlaca())}`}.</p>` : ''}
       <h3>Rotación</h3>
       <div class="insp-rotacion">
         <button type="button" data-girar="-90" title="Girar 90° a la izquierda (Shift+R)" aria-label="Girar a la izquierda">⟲</button>
@@ -1610,7 +1739,7 @@ async function aplicarCambioExterno(msg) {
     clearTimeout(state.timerDiagrama);
     state.timerDiagrama = null;
     state.diagrama = { modules: [...project.modules], wires: [...project.wires] };
-    if (!state.diagrama.modules.some((m) => m.id === BOARD_ID)) {
+    if (project.board && !state.diagrama.modules.some((m) => m.id === BOARD_ID)) {
       state.diagrama.modules.unshift({ id: BOARD_ID, type: project.board, x: 0, y: 0, props: {} });
     }
     const s = state.seleccion;
@@ -1756,7 +1885,13 @@ async function refrescarAvisos() {
     state.avisosDibujo = warnings;
     state.electrico = new Map((respuesta.electrico?.leds ?? []).map((l) => [l.id, l]));
     state.fuentes = respuesta.electrico?.fuentes ?? [];
+    state.uiModulos = new Map(Object.entries(respuesta.electrico?.modulos ?? {}));
     state.alimentacion = respuesta.electrico?.placa ?? null;
+    const energizado = Boolean(respuesta.electrico?.energizado);
+    if (energizado !== state.energizado) {
+      state.energizado = energizado;
+      if (sinPlaca()) aplicarEnergia();
+    }
     reflejarPlacaQuemada();
     pintarAlimentacion();
     actualizarCortos(warnings);
@@ -1795,7 +1930,7 @@ async function cargarProyectos(seleccionarNombre?: string) {
   for (const p of projects) {
     const o = document.createElement('option');
     o.value = p.name;
-    o.textContent = `${p.name} (${p.language})`;
+    o.textContent = `${p.name} (${p.board ? p.language : 'sin placa'})`;
     s.append(o);
   }
   if (document.body.classList.contains('inicio')) pintarListaProyectos();
@@ -1846,9 +1981,17 @@ function pintarWidgetsProyecto() {
     raiz.setProperty('--color-proyecto', colorProyecto(p.name));
     raiz.setProperty('--tinte', colorProyecto(p.name).replace(')', ' / .22)'));
     $('insignia-proyecto').textContent = iniciales(p.name);
-    const placa = state.catalogo.get(p.board);
-    $('dispositivo-texto').textContent = placa?.name ?? p.board ?? '–';
-    $('config-run-texto').textContent = NOMBRE_LENGUAJE_PROYECTO[p.language] ?? p.language;
+    const placa = p.board ? state.catalogo.get(p.board) : null;
+    $('dispositivo-texto').textContent = p.board ? (placa?.name ?? p.board) : 'Sin placa';
+    $('dispositivo').title = p.board ? 'Placa que se emula' : 'Proyecto sin placa: solo circuito. Agregá una placa desde el catálogo para programarla.';
+    // Sin placa no hay lenguaje, ni reset, ni web del dispositivo: ▶ solo energiza el circuito.
+    $('config-run').hidden = !p.board;
+    $('quitar-placa').hidden = !p.board;
+    $('reset').hidden = !p.board;
+    $('abrir-web').hidden = !p.board;
+    $('config-run-texto').textContent = p.language ? (NOMBRE_LENGUAJE_PROYECTO[p.language] ?? p.language) : '';
+    btn('ejecutar').title = p.board ? 'Compilar y ejecutar (Shift+F10 · Ctrl+Enter)' : 'Energizar el circuito: prende las fuentes regulables (Shift+F10 · Ctrl+Enter)';
+    btn('parar').title = p.board ? 'Parar (Ctrl+F2)' : 'Apagar el circuito (Ctrl+F2)';
     document.title = `${p.name} – Emulador de electrónica`;
   } else {
     raiz.removeProperty('--color-proyecto');
@@ -1888,12 +2031,12 @@ function pintarListaProyectos() {
     const abrir = document.createElement('button');
     abrir.type = 'button';
     abrir.className = 'proyecto-abrir';
-    const placa = state.catalogo.get(p.board)?.name ?? p.board ?? '';
+    const placa = p.board ? (state.catalogo.get(p.board)?.name ?? p.board) : 'sin placa';
     abrir.innerHTML = `
       <span class="insignia" style="--color-proyecto:${colorProyecto(p.name)}">${escapar(iniciales(p.name))}</span>
       <span class="nombre">${escapar(p.name)}</span>
       <span class="linea2">
-        <span class="lenguaje">${escapar(p.language)}</span>
+        <span class="lenguaje">${escapar(p.language ?? 'circuito')}</span>
         <span class="detalle">${p.modules.length} módulo(s) en el circuito${placa ? ` · ${escapar(placa)}` : ''}</span>
       </span>
     `;
@@ -1950,10 +2093,11 @@ async function abrirProyecto(nombre) {
   state.archivos = files.filter((f) => !/(^|\/)(secrets\.yaml|project\.json)$/.test(f.path));
   sel('proyecto').value = nombre;
   state.diagrama = { modules: [...project.modules], wires: [...project.wires] };
-  if (!state.diagrama.modules.some((m) => m.id === BOARD_ID)) {
-    // Proyectos anteriores al canvas: la placa se agrega sola.
+  if (project.board && !state.diagrama.modules.some((m) => m.id === BOARD_ID)) {
+    // Proyectos anteriores al canvas: la placa se agrega sola. (Sin placa: solo circuito.)
     state.diagrama.modules.unshift({ id: BOARD_ID, type: project.board, x: 0, y: 0, props: {} });
   }
+  state.energizado = false; // lo confirma refrescarAvisos (GET /pins)
   state.seleccion = null;
   state.activo = null;
   const main = state.archivos.find((f) => /main\.(yaml|c|cpp|py)$|sketch\.cpp$/.test(f.path));
@@ -1964,9 +2108,12 @@ async function abrirProyecto(nombre) {
   pintarWidgetsProyecto();
   lienzo.render();
   lienzo.ajustar();
-  log('build', `── proyecto ${nombre} (${project.language}) ──`);
+  log('build', `── proyecto ${nombre} (${project.board ? project.language : 'sin placa: solo circuito'}) ──`);
   void depuracion?.alAbrirProyecto();
   await refrescarAvisos();
+  // Con placa, el estado de ▶/⏹ lo manda el emulador; sin placa, si el circuito está energizado.
+  if (project.board) void api('/api/emulator').then((r) => aplicarEstadoEmulador(r.status)).catch(() => {});
+  else aplicarEnergia();
 }
 
 // --- Eventos ----------------------------------------------------------------
@@ -2069,10 +2216,14 @@ function abrirNuevoProyecto() {
     o.textContent = b.nombre ?? b.name ?? b.id;
     s.append(o);
   }
+  // Sin placa: solo un circuito (fuente regulable + componentes), sin código.
+  const sinPlacaOpt = document.createElement('option');
+  sinPlacaOpt.value = SIN_PLACA;
+  sinPlacaOpt.textContent = 'Sin placa (solo circuito)';
+  s.append(sinPlacaOpt);
   // La última elegida en esta sesión; si no, la que el server marca por defecto (no la primera
   // de la lista: está en orden alfabético y sería el Arduino Uno).
-  s.value = antes && state.placas.some((b) => b.id === antes) ? antes : state.placaPorDefecto;
-  (s.closest('label') as HTMLElement).dataset.unica = String(state.placas.length <= 1);
+  s.value = antes && (antes === SIN_PLACA || state.placas.some((b) => b.id === antes)) ? antes : state.placaPorDefecto;
   filtrarLenguajesNuevo();
   elegirPlantillaNuevo();
   void cargarPlantillasNuevo();
@@ -2101,15 +2252,27 @@ async function cargarPlantillasNuevo() {
 /** Con plantilla, placa y lenguaje los define ella: se ocultan y se muestra su descripción. */
 function elegirPlantillaNuevo() {
   const t = plantillas.find((x) => x.id === sel('nuevo-plantilla').value);
-  for (const l of dlg().querySelectorAll<HTMLElement>('.sin-plantilla')) l.hidden = Boolean(t) || l.dataset.unica === 'true';
+  actualizarDialogoNuevo();
   const desc = $('nuevo-plantilla-desc');
   desc.hidden = !t;
-  desc.textContent = t ? `${t.descripcion} (${t.board}, ${t.language})` : '';
+  desc.textContent = t ? `${t.descripcion} (${t.board ? `${t.board}, ${t.language}` : 'sin placa'})` : '';
+}
+
+/** Con plantilla, placa y lenguaje los define ella; sin placa, no hay lenguaje que elegir. */
+function actualizarDialogoNuevo() {
+  const conPlantilla = Boolean(sel('nuevo-plantilla').value);
+  const sinPlacaElegido = sel('nuevo-placa').value === SIN_PLACA;
+  (sel('nuevo-placa').closest('label') as HTMLElement).hidden = conPlantilla;
+  (dlg().querySelector<HTMLElement>('select[name="language"]')!.closest('label') as HTMLElement).hidden = conPlantilla || sinPlacaElegido;
 }
 sel('nuevo-plantilla').addEventListener('change', elegirPlantillaNuevo);
 
 /** Deshabilita los lenguajes que la placa elegida no soporta (si el server lo informa). */
+/** Valor del selector de placa de "Nuevo proyecto" para un proyecto sin placa. */
+const SIN_PLACA = '__sin-placa__';
+
 function filtrarLenguajesNuevo() {
+  actualizarDialogoNuevo();
   const placa = state.placas.find((b) => b.id === sel('nuevo-placa').value);
   const soportados = placa?.languages ?? placa?.lenguajes ?? null;
   const lenguaje = (dlg().querySelector<HTMLElement>('select[name="language"]') as HTMLSelectElement);
@@ -2129,7 +2292,8 @@ $('dlg-nuevo').addEventListener('close', async () => {
   const board = sel('nuevo-placa').value || undefined;
   const template = sel('nuevo-plantilla').value || undefined;
   try {
-    await api('/api/projects', { method: 'POST', body: JSON.stringify(template ? { name, template } : { name, language, board }) });
+    const cuerpo = template ? { name, template } : board === SIN_PLACA ? { name, board: null } : { name, language, board };
+    await api('/api/projects', { method: 'POST', body: JSON.stringify(cuerpo) });
     await cargarProyectos(name);
   } catch (e: any) {
     log('build', `[error] ${String(((e as Error))?.message ?? e)}`);
@@ -2157,14 +2321,20 @@ $('ejecutar').onclick = async () => {
     return;
   }
   const avisos = state.avisosDibujo.length;
-  if (avisos > 0) log('build', `Chequeo circuito ↔ código: ${avisos} aviso(s) (no bloquea)`);
+  if (avisos > 0) log('build', `Chequeo ${sinPlaca() ? 'del circuito' : 'circuito ↔ código'}: ${avisos} aviso(s) (no bloquea)`);
   await api(`/api/projects/${state.proyecto.name}/run`, { method: 'POST', body: JSON.stringify({}) }).catch((e) =>
     nota(String((e as Error)?.message ?? e)),
   );
+  // Sin placa no hay emulador que avise: ▶ energizó el circuito, se trae el estado ya.
+  if (sinPlaca()) await refrescarAvisos();
 };
 
-$('parar').onclick = () => api('/api/emulator/stop', { method: 'POST' });
+$('parar').onclick = async () => {
+  await api('/api/emulator/stop', { method: 'POST' });
+  if (sinPlaca()) await refrescarAvisos();
+};
 $('usb').onclick = alternarUsb;
+$('quitar-placa').onclick = () => void quitarPlaca();
 $('badge-alimentacion').onclick = () => {
   if (state.alimentacion?.quemada) void reemplazarPlaca();
 };

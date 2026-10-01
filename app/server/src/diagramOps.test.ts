@@ -107,7 +107,13 @@ describe('diagramOps', () => {
     expect(() => desconectar(p0, 'btn1.OUT', 'GPIO7')).toThrow('no hay un cable');
     const sinBoton = quitarModulo(p0, 'btn1');
     expect(sinBoton.wires.some((w) => w.from.startsWith('btn1.'))).toBe(false);
-    expect(() => quitarModulo(p0, 'board')).toThrow('no se puede quitar');
+    // La placa es un módulo más: quitarla deja el proyecto sin placa (ni lenguaje) y sin sus cables.
+    const sinPlaca = quitarModulo(p0, 'board');
+    expect(sinPlaca.board).toBeNull();
+    expect(sinPlaca.language).toBeNull();
+    expect(sinPlaca.modules.some((m) => m.id === 'board')).toBe(false);
+    expect(sinPlaca.wires.some((w) => w.from.startsWith('board.') || w.to.startsWith('board.'))).toBe(false);
+    expect(() => quitarModulo(sinPlaca, 'board')).toThrow('no tiene placa');
   });
 
   it('mueve y configura', () => {
