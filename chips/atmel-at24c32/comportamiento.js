@@ -14,10 +14,18 @@ function direccion(ctx) {
   return n >= 0x50 && n <= 0x57 ? n : 0x50;
 }
 
+function guardar(ctx) {
+  var hex = '';
+  for (var i = 0; i < TAM; i++) hex += (mem[i] < 16 ? '0' : '') + mem[i].toString(16);
+  ctx.guardar({ hex: hex });
+}
+
 module.exports = {
-  encender: function () {
+  encender: function (ctx) {
     mem = [];
-    for (var i = 0; i < TAM; i++) mem.push(0xff); // de fábrica viene borrada
+    // Es memoria no volátil: lo grabado en otra ejecución sigue ahí. De fábrica, borrada (FFh).
+    var g = ctx.guardado && typeof ctx.guardado.hex === 'string' && ctx.guardado.hex.length === TAM * 2 ? ctx.guardado.hex : null;
+    for (var i = 0; i < TAM; i++) mem.push(g ? parseInt(g.substr(i * 2, 2), 16) : 0xff);
     actual = 0;
   },
   direcciones: function (ctx) { return [direccion(ctx)]; },
@@ -33,6 +41,7 @@ module.exports = {
       off = (off + 1) & (PAGINA - 1);          // vuelta dentro de la página
     }
     actual = base + off;
+    guardar(ctx);
     var twr = Number(ctx.props.tWrMs);
     ctx.ocupadoHasta(ctx.t + (twr > 0 ? twr : 5) * 1000); // grabando: no contesta
   },

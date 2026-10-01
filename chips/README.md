@@ -14,8 +14,8 @@ del bus real. En los ESP32 no se puede todavía: esp-emu no acepta dispositivos 
 | Chip | Qué emula | Probado con |
 |---|---|---|
 | [`bosch-bme280`](bosch-bme280/) | Temperatura, humedad y presión: modos, t_measure, filtro IIR, resolución, ruido, compensación de Bosch invertida | Adafruit_BME280 2.3.0 |
-| [`maxim-ds3231`](maxim-ds3231/) | Reloj: hora, alarmas con INT/SQW, temperatura cada 64 s, OSF, aging | RTClib 2.1.4 |
-| [`atmel-at24c32`](atmel-at24c32/) | EEPROM de 4 KB: páginas, t_WR con acknowledge polling | Wire a mano |
+| [`maxim-ds3231`](maxim-ds3231/) | Reloj: hora, alarmas con INT/SQW, temperatura cada 64 s, OSF, aging; con pila, la hora sigue entre ejecuciones | RTClib 2.1.4 |
+| [`atmel-at24c32`](atmel-at24c32/) | EEPROM de 4 KB: páginas, t_WR con acknowledge polling; lo grabado queda en el proyecto | Wire a mano |
 | [`solomon-ssd1306`](solomon-ssd1306/) | Pantalla OLED 128×64: comandos, modos de direccionamiento, remapeos, COM pins; la imagen se ve en el circuito | Adafruit_SSD1306 2.5.17 (píxel por píxel) |
 | [`invensense-mpu6050`](invensense-mpu6050/) | Acelerómetro y giróscopo: escalas, muestreo, DLPF, ruido, errores de fábrica, interrupción de dato listo | Adafruit_MPU6050 2.2.9 |
 
@@ -53,6 +53,7 @@ module.exports = {
   leer(ctx, n) { return [/* n bytes */]; }, // lectura pedida de antemano (una foto del momento)
   leidos(ctx, n) {},                // cuántos de esos se leyeron de verdad (para el puntero)
   tick(ctx) {},                     // despertador pedido con ctx.despertarEn, o aviso antes de cambiar el entorno
+  apagar(ctx) {},                   // se corta la alimentación (se detiene la corrida): guardar lo último
 };
 ```
 
@@ -68,6 +69,7 @@ module.exports = {
 | `ctx.despertarEn(t)` | Pide un `tick` en el instante `t`, aunque nadie le hable por el bus (un cambio de segundo, una muestra). |
 | `ctx.publicar(obj)` | Algo para mostrar. `{ tipo: 'pantalla', ancho, alto, encendida, brillo, filas: [hex...] }` se dibuja sobre la parte `data-pantalla` del SVG del módulo. |
 | `ctx.log(texto)` | Aviso a la consola (algo que no se emula, una configuración rara). |
+| `ctx.guardar(datos)`, `ctx.guardado` | Memoria no volátil: lo que graba una EEPROM, la hora de un reloj con pila. Se escribe en `projects/<proyecto>/.chips/<id>.json` y vuelve en `ctx.guardado` al encender la próxima vez (JSON, hasta 64 KB). Borrar esa carpeta = chip nuevo de fábrica. |
 
 `sdk` (global): `u8`, `conSigno(x, bits)`, `sinSigno(x, bits)`, `aBcd`, `deBcd`, `limitar`,
 `invertirMonotona(f, objetivo, min, max)` (búsqueda binaria: "qué valor crudo da 22 °C con la

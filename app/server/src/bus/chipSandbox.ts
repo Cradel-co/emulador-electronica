@@ -21,10 +21,12 @@ const TIEMPO_CARGA_MS = 1000;
 const TIEMPO_LLAMADA_MS = 50;
 const MAX_SALIDA = 256_000;
 const MAX_LOGS = 20;
+const MAX_GUARDADO = 64 * 1024;
 
 /** Un evento para el chip, en orden. `t` = µs de emulación desde que arrancó. */
 export type EventoChip =
-  | { tipo: 'encender'; t: number }
+  | { tipo: 'encender'; t: number; guardado?: unknown }
+  | { tipo: 'apagar'; t: number }
   | { tipo: 'escribir'; t: number; bytes: number[] }
   | { tipo: 'leer'; t: number; n: number }
   | { tipo: 'leidos'; t: number; n: number }
@@ -43,6 +45,8 @@ export interface ResultadoLote {
   pines: Record<string, 0 | 1 | null>;
   /** El chip pide que lo llamen (`tick`) en este instante (µs), aunque nadie le hable por el bus. */
   despertarEn: number | null;
+  /** Lo que el chip pidió guardar (memoria no volátil: EEPROM, la hora con pila), si guardó algo. */
+  guardar?: unknown;
   logs: string[];
 }
 
@@ -64,7 +68,8 @@ var __logs = [];
 var console = { log: function () { if (__logs.length < ${MAX_LOGS}) __logs.push(Array.prototype.join.call(arguments, ' ').slice(0, 300)); } };
 console.warn = console.log; console.error = console.log;
 function __fallo(m) { throw new Error(m); }
-var __estado = { t: 0, entorno: {}, props: {}, ocupadoHasta: 0, salida: undefined, publico: false, pines: {}, despertar: null };
+var __estado = { t: 0, entorno: {}, props: {}, ocupadoHasta: 0, salida: undefined, publico: false, pines: {}, despertar: null,
+  guardado: null, guardar: undefined, guardo: false };
 var ctx = Object.freeze({
   get t() { return __estado.t; },
   /** Milisegundos de emulación (con decimales). */
@@ -82,6 +87,10 @@ var ctx = Object.freeze({
     if (nivel !== 0 && nivel !== 1 && nivel !== null) __fallo('pin: el nivel es 0, 1 o null');
     __estado.pines[nombre] = nivel;
   },
+  /** Lo que se guardó en la ejecución anterior (null si nada): memoria no volátil. */
+  get guardado() { return __estado.guardado; },
+  /** Guarda algo que sobrevive a apagar la placa (una EEPROM, la hora de un reloj con pila). JSON, hasta 64 KB. */
+  guardar: function (o) { __estado.guardar = o; __estado.guardo = true; },
   /** Pedir que lo llamen (tick) en el instante t (µs). Vale el más temprano pedido en el lote. */
   despertarEn: function (t) {
     if (typeof t !== 'number' || !isFinite(t)) __fallo('despertarEn: t inválido');
@@ -122,12 +131,13 @@ function __direcciones() {
 }
 function __lote(json) {
   var e = JSON.parse(json), m = module.exports, lecturas = [];
-  __logs = []; __estado.publico = false; __estado.pines = {}; __estado.despertar = null;
+  __logs = []; __estado.publico = false; __estado.pines = {}; __estado.despertar = null; __estado.guardo = false;
   __estado.entorno = Object.freeze(e.entorno); __estado.props = Object.freeze(e.props);
   for (var i = 0; i < e.eventos.length; i++) {
     var ev = e.eventos[i];
     __estado.t = ev.t;
-    if (ev.tipo === 'encender') { if (typeof m.encender === 'function') m.encender(ctx); }
+    if (ev.tipo === 'encender') { __estado.guardado = ev.guardado === undefined ? null : ev.guardado; if (typeof m.encender === 'function') m.encender(ctx); }
+    else if (ev.tipo === 'apagar') { if (typeof m.apagar === 'function') m.apagar(ctx); }
     else if (ev.tipo === 'escribir') { if (typeof m.escribir === 'function') m.escribir(ctx, ev.bytes); }
     else if (ev.tipo === 'leer') { lecturas.push(typeof m.leer === 'function' ? m.leer(ctx, ev.n) : []); }
     else if (ev.tipo === 'leidos') { if (typeof m.leidos === 'function') m.leidos(ctx, ev.n); }
@@ -135,6 +145,7 @@ function __lote(json) {
   }
   var r = { lecturas: lecturas, direcciones: __direcciones(), ocupadoHasta: __estado.ocupadoHasta, logs: __logs, pines: __estado.pines, despertarEn: __estado.despertar };
   if (__estado.publico) r.salida = __estado.salida;
+  if (__estado.guardo) r.guardar = __estado.guardar;
   return JSON.stringify(r);
 }
 `;
@@ -208,6 +219,10 @@ export class SandboxChip {
     }
     const despertarEn = typeof o.despertarEn === 'number' && Number.isFinite(o.despertarEn) ? o.despertarEn : null;
     const res: ResultadoLote = { lecturas, direcciones, ocupadoHasta, logs, pines, despertarEn };
+    if ('guardar' in o) {
+      if (JSON.stringify(o.guardar ?? null).length > MAX_GUARDADO) throw new ErrorChip(`chip "${this.nombre}": guardar() pasa de 64 KB`);
+      res.guardar = o.guardar ?? null;
+    }
     if ('salida' in o && o.salida !== null && typeof o.salida === 'object') res.salida = o.salida as SalidaChip;
     return res;
   }

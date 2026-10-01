@@ -15,6 +15,8 @@ export class MaestroVirtual {
   /** Nivel actual de cada pin que maneja un chip ("id.PIN"), y su historia con el instante. */
   readonly pines = new Map<string, 0 | 1 | null>();
   readonly historialPines: { t: number; pin: string; nivel: 0 | 1 | null }[] = [];
+  /** Lo último que guardó cada chip (memoria no volátil). */
+  readonly guardados = new Map<string, unknown>();
   readonly bus: BusI2c;
   private agenda: { t: number; fn: () => void }[] = [];
 
@@ -28,6 +30,7 @@ export class MaestroVirtual {
         this.historialPines.push({ t: this.t, pin: `${id}.${pin}`, nivel });
       },
       programar: (t, fn) => this.agenda.push({ t, fn }),
+      alGuardar: (id, d) => this.guardados.set(id, d),
     });
   }
 

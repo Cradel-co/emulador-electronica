@@ -54,6 +54,9 @@ export class AvrEmulator implements Emulador {
   private lineasLocal: LineasCompartidas | null = null;
   /** Avisa cuando un chip publica algo (pantalla, valores): lo usa index.ts para la UI. */
   oyenteChips: ((id: string, salida: SalidaChip) => void) | null = null;
+  /** Un chip guardó su memoria no volátil: index.ts la escribe en el proyecto. */
+  oyenteGuardado: ((id: string, datos: unknown) => void) | null = null;
+  private alDetenerse: (() => void) | null = null;
   private readonly decodificador = new TextDecoder('utf-8');
   // Modo debug (debug/adaptadorAvr.ts): pedidos al control de depuración que vive junto a la CPU.
   private readonly pedidosDepuracion = new Map<number, (r: RespuestaAvr) => void>();
@@ -182,6 +185,7 @@ export class AvrEmulator implements Emulador {
         ahoraUs: () => sim.micros,
         alLog: (linea) => this.recibir({ t: 'log', linea }),
         alSalida: (id, salida) => this.recibir({ t: 'chip', id, salida }),
+        alGuardar: (id, datos) => this.recibir({ t: 'guardado', id, datos }),
         alPin: (id, pin, nivel) => {
           const c = this.chips.find((x) => x.id === id);
           if (c) lineas.desdeChip(c, pin, nivel);
@@ -264,6 +268,12 @@ export class AvrEmulator implements Emulador {
         break;
       case 'log':
         this.log(m.linea);
+        break;
+      case 'guardado':
+        this.oyenteGuardado?.(m.id, m.datos);
+        break;
+      case 'detenido':
+        this.alDetenerse?.();
         break;
       case 'depurar':
         this.pedidosDepuracion.get(m.id)?.(m.respuesta);
@@ -366,8 +376,18 @@ export class AvrEmulator implements Emulador {
     const worker = this.worker;
     this.worker = null;
     if (worker) {
+      // Se espera (poco) a que los chips se apaguen y manden lo que guardan antes de cortar el hilo.
+      const detenido = new Promise<void>((r) => {
+        this.alDetenerse = r;
+        setTimeout(r, 1000);
+      });
+      worker.on('message', (m: MensajeDelWorker) => this.recibir(m));
       worker.postMessage({ t: 'parar' } satisfies MensajeAlWorker);
+      await detenido;
+      this.alDetenerse = null;
       await worker.terminate().catch(() => undefined);
+    } else {
+      this.busLocal?.apagar();
     }
     this.teardown('parado');
   }

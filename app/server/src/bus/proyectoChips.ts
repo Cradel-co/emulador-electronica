@@ -30,6 +30,8 @@ export interface ChipEnBus {
   pullUps: string[];
   /** Puede recibir las escrituras en tanda (chip.json → i2c.diferirEscrituras). */
   diferirEscrituras?: boolean;
+  /** Memoria no volátil de la ejecución anterior (la pone el server al arrancar). */
+  guardado?: unknown;
 }
 
 export interface ResultadoChips {

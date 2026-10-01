@@ -35,6 +35,8 @@ export interface OpcionesDispositivo {
   maxHz?: number;
   /** Puede recibir las escrituras en tanda (ver `diferirEscrituras` en chip.json). */
   diferirEscrituras?: boolean;
+  /** Lo que el chip guardó en la ejecución anterior (memoria no volátil). */
+  guardado?: unknown;
   /**
    * Cuándo recibió la alimentación (µs, en el reloj del bus). Por defecto, ahora. Con la placa
    * puede ser negativo: el chip se enciende con ella y el micro arranca después (arranqueMs).
@@ -48,7 +50,7 @@ export const PREFETCH = 32;
 const DIFERIR_MAX = 16;
 const DIFERIR_US = 10_000;
 
-interface Dispositivo extends Required<Omit<OpcionesDispositivo, 'maxHz' | 'encendidoEnUs' | 'diferirEscrituras'>> {
+interface Dispositivo extends Required<Omit<OpcionesDispositivo, 'maxHz' | 'encendidoEnUs' | 'diferirEscrituras' | 'guardado'>> {
   maxHz?: number;
   diferir: boolean;
   /** Despertador agendado para entregar las escrituras diferidas. */
@@ -72,6 +74,8 @@ export interface EventosBus {
   alPin?: (id: string, pin: string, nivel: 0 | 1 | null) => void;
   /** Llamar a `fn` cuando la emulación llegue a `tUs` (el host lo agenda en su reloj). */
   programar?: (tUs: number, fn: () => void) => void;
+  /** Un chip guardó su memoria no volátil (EEPROM, la hora con pila): el host la persiste. */
+  alGuardar?: (id: string, datos: unknown) => void;
 }
 
 /** Una transacción del bus, para el analizador (la grabadora del modo debug, los tests). */
@@ -101,7 +105,16 @@ export class BusI2c {
       despertar: null, pines: new Map(), diferir: o.diferirEscrituras ?? false, entregaAgendada: false,
     };
     this.dispositivos.push(d);
-    if (d.alimentado) this.correr(d, [{ tipo: 'encender', t: o.encendidoEnUs ?? this.ev.ahoraUs() }]);
+    if (d.alimentado) this.correr(d, [{ tipo: 'encender', t: o.encendidoEnUs ?? this.ev.ahoraUs(), guardado: o.guardado }]);
+  }
+
+  /**
+   * Se corta la alimentación (se detiene la corrida): cada chip recibe `apagar` con lo que tenía
+   * pendiente, para guardar lo último de su memoria no volátil.
+   */
+  apagar(): void {
+    const t = this.ev.ahoraUs();
+    for (const d of this.dispositivos) if (d.alimentado && !d.roto) this.correr(d, [{ tipo: 'apagar', t }]);
   }
 
   /** Cambió el entorno de una instancia (la temperatura que mueve el usuario). */
@@ -242,6 +255,7 @@ export class BusI2c {
       d.ocupadoHasta = r.ocupadoHasta;
       for (const l of r.logs) this.ev.alLog?.(`[${d.id}] ${l}`);
       if (r.salida) this.ev.alSalida?.(d.id, r.salida);
+      if ('guardar' in r) this.ev.alGuardar?.(d.id, r.guardar);
       for (const [pin, nivel] of Object.entries(r.pines)) {
         if (d.pines.get(pin) === nivel) continue;
         d.pines.set(pin, nivel);

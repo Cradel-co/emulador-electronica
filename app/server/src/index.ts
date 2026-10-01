@@ -37,6 +37,7 @@ import { registrarRutasDepuracion } from './debug/rutas.js';
 import { chipsDelProyecto } from './bus/proyectoChips.js';
 import { chipPublico, chipsDe, moverEntorno, registrarRutasChips, type CorridaChips, type DepsChips } from './bus/rutasChips.js';
 import { cargarChips } from './bus/catalogoChips.js';
+import { guardarMemoria, leerMemoria } from './bus/memoriaChips.js';
 
 const PORT = Number(process.env.PORT ?? 5180);
 const HOST = process.env.HOST ?? '127.0.0.1'; // por defecto nunca 0.0.0.0 (sección 13)
@@ -183,6 +184,14 @@ function emuladorDe(motor: string): Emulador {
     if ('oyenteChips' in conChips) {
       conChips.oyenteChips = (id, salida) => {
         if (runningProject) broadcast({ type: 'chip.salida', project: runningProject, id, salida });
+      };
+    }
+    // Memoria no volátil de los chips (EEPROM, la hora con pila): se guarda en el proyecto.
+    const conMemoria = e as Emulador & { oyenteGuardado?: ((id: string, datos: unknown) => void) | null };
+    if ('oyenteGuardado' in conMemoria) {
+      conMemoria.oyenteGuardado = (id, datos) => {
+        const p = runningProject;
+        if (p) void guardarMemoria(store.projectDir(p), id, datos).catch((err: unknown) => logBuild(`[chips] no se pudo guardar la memoria de ${id}: ${(err as Error).message}`));
       };
     }
   }
@@ -902,7 +911,9 @@ async function runProject(
     logBuild(`[error] ${(err as Error).message}`);
     return { ok: false, errors: [{ line: null, file: null, message: (err as Error).message }] };
   }
-  if (siguiente !== emulator && emulator.getStatus().running) await emulator.stop();
+  // Se para la corrida anterior ANTES de cambiar de proyecto: al pararse, sus chips guardan su
+  // memoria (EEPROM, la hora) y tiene que ir al proyecto de ellos, no al que arranca ahora.
+  if (emulator.getStatus().running) await emulator.stop();
   emulator = siguiente;
   runningProject = full.name;
   controlesCerrados.clear();
@@ -916,6 +927,7 @@ async function runProject(
   }).catch(() => null);
   const enBus = chipsDelProyecto(full, buscarDef, placa.desc, undefined, (id) => electrico?.modulos[id]?.ui?.on);
   for (const aviso of enBus.avisos) logBuild(`[chips] ${aviso}`);
+  for (const c of enBus.chips) c.guardado = await leerMemoria(store.projectDir(full.name), c.id);
   if (enBus.chips.length) logBuild(`[chips] en el bus I2C: ${enBus.chips.map((c) => c.nombre).join(', ')}`);
   await emulator.start(full.name, artifacts, {
     ...motor!.opcionesArranque(placa.desc, artifacts),

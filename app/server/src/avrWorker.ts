@@ -36,6 +36,10 @@ export type MensajeDelWorker =
   | { t: 'chip'; id: string; salida: SalidaChip }
   /** Avisos del bus y de los chips ("[i2c] ..."), para la consola. */
   | { t: 'log'; linea: string }
+  /** Un chip guardó su memoria no volátil (EEPROM, la hora con pila). */
+  | { t: 'guardado'; id: string; datos: unknown }
+  /** Respuesta a 'parar': los chips ya se apagaron y mandaron lo que guardan. */
+  | { t: 'detenido' }
   | { t: 'error'; mensaje: string }
   | { t: 'depurar'; id: number; respuesta: RespuestaAvr }
   | { t: 'depurar-evento'; evento: EventoAvr };
@@ -73,6 +77,7 @@ export function atenderWorker(puerto: MessagePort): void {
     bus = armarBusI2c(chips, arranqueMs, {
       ahoraUs: ahora,
       alLog: (linea) => enviar({ t: 'log', linea }),
+      alGuardar: (id, datos) => enviar({ t: 'guardado', id, datos }),
       alPin: (id, pin, nivel) => {
         const c = chips.find((x) => x.id === id);
         if (c) lineas.desdeChip(c, pin, nivel);
@@ -152,6 +157,8 @@ export function atenderWorker(puerto: MessagePort): void {
         case 'parar':
           reloj?.parar();
           if (salidaTimer) clearTimeout(salidaTimer);
+          bus?.apagar(); // los chips guardan lo último (EEPROM, la hora) antes de cortar
+          enviar({ t: 'detenido' });
           puerto.close();
           break;
         case 'depurar':

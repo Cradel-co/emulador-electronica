@@ -14,7 +14,7 @@ export function armarBusI2c(chips: ChipEnBus[], arranqueMs: number, ev: EventosB
     try {
       bus.agregar({
         id: c.id, chip: c.chip, motor: new SandboxChip(c.chip, c.codigo), props: c.props, entorno: c.entorno,
-        alimentado: c.alimentado, maxHz: c.maxHz, encendidoEnUs: -arranqueMs * 1000, diferirEscrituras: c.diferirEscrituras,
+        alimentado: c.alimentado, maxHz: c.maxHz, encendidoEnUs: -arranqueMs * 1000, diferirEscrituras: c.diferirEscrituras, guardado: c.guardado,
       });
     } catch (err) {
       ev.alLog?.(`[i2c] ${c.nombre}: ${(err as Error).message}`);

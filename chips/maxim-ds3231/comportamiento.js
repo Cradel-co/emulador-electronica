@@ -80,6 +80,29 @@ function inicial(t) {
     puntero: 0,
     avisadoSqw: false,
   };
+  // Con pila, el chip siguió andando mientras la placa estuvo apagada: retoma la hora y los
+  // registros que guardó, más el tiempo real que pasó (a su frecuencia), y las alarmas que
+  // vencieron en ese lapso prenden sus flags [Power Control: con VBAT el oscilador sigue].
+  var g = ctx.guardado;
+  if (en && !ctx.props.inicio && g && typeof g.seg === 'number' && typeof g.pcMs === 'number') {
+    s.aging = g.aging | 0; s.alarmas = g.alarmas || s.alarmas; s.control = (g.control | 0) & ~0x20;
+    s.doce = !!g.doce; s.osf = g.osf | 0; s.en32 = g.en32 === undefined ? 1 : g.en32 | 0;
+    s.a1f = g.a1f | 0; s.a2f = g.a2f | 0;
+    var apagado = Math.max(0, (Date.now() - g.pcMs) / 1000) * factor();
+    var ahora = g.seg + apagado;
+    s.s0 = ahora; s.dia0 = Math.floor(g.seg / 86400); s.dow0 = g.dow || 1;
+    var d0 = Math.floor(ahora / 86400);
+    s.dow0 = ((s.dow0 - 1 + d0 - s.dia0) % 7 + 7) % 7 + 1; s.dia0 = d0;
+    s.revisadoHasta = Math.floor(g.seg);
+  }
+}
+
+/** Guarda lo que conserva la pila: la hora (con el reloj de la PC, para sumar lo que esté apagado) y los registros. */
+function guardar(t) {
+  if (ctx.props.pila === 'ninguna' || ctx.props.estado === 'sin-pila') return;
+  var seg = segEn(t);
+  ctx.guardar({ seg: seg, pcMs: Date.now(), dow: diaSemana(seg), doce: s.doce, alarmas: s.alarmas.slice(),
+    control: s.control, osf: s.osf, en32: s.en32, a1f: s.a1f, a2f: s.a2f, aging: s.aging });
 }
 
 // --- Temperatura -------------------------------------------------------------------------
@@ -251,6 +274,7 @@ module.exports = {
     }
     if (s.control & 0x20 && !s.convManual) s.control &= ~0x20;
     avanzar(ctx.t);
+    guardar(ctx.t);
   },
   // Lectura: la hora se copia a un búfer en cada START [Address Map], así que una ráfaga es una foto.
   leer: function (ctx, n) {
@@ -265,4 +289,5 @@ module.exports = {
   },
   leidos: function (ctx, n) { for (var i = 0; i < n; i++) s.puntero = s.puntero >= 0x12 ? 0 : s.puntero + 1; },
   tick: function (ctx) { avanzar(ctx.t); },
+  apagar: function (ctx) { avanzar(ctx.t); guardar(ctx.t); },
 };

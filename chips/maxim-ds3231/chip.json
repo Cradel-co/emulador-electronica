@@ -2,7 +2,7 @@
   "id": "maxim-ds3231",
   "nombre": "DS3231",
   "fabricante": "Maxim Integrated (Analog Devices)",
-  "descripcion": "Reloj de tiempo real con oscilador compensado en temperatura (TCXO), dos alarmas, salida INT/SQW de colector abierto y sensor de temperatura. I2C en 0x68. Props: 'estado' = 'en-hora' (con pila, ya puesto en hora: arranca con la hora de la PC) | 'sin-pila' (primer encendido: OSF = 1 y 00:00:00 del 1/1/2000); 'inicio' = fecha y hora ISO para arrancar en un instante fijo; 'errorPpm' = error de frecuencia del cristal.",
+  "descripcion": "Reloj de tiempo real con oscilador compensado en temperatura (TCXO), dos alarmas, salida INT/SQW de colector abierto y sensor de temperatura. I2C en 0x68. Props: 'estado' = 'en-hora' (con pila: la primera vez arranca con la hora de la PC; después, sigue desde la hora que tenía, contando lo que estuvo apagado) | 'sin-pila' (primer encendido: OSF = 1 y 00:00:00 del 1/1/2000); 'inicio' = fecha y hora ISO para arrancar en un instante fijo; 'errorPpm' = error de frecuencia del cristal.",
   "hojaDeDatos": "DS3231 (Maxim 19-5170, transcripción del fabricante del módulo: tablas de registros, control, estado, alarmas y temperatura)",
   "pines": ["VCC", "GND", "SCL", "SDA", "INT/SQW", "32kHz", "RST", "VBAT"],
   "i2c": { "sda": "SDA", "scl": "SCL", "maxHz": 400000 },
@@ -13,7 +13,7 @@
   "limitaciones": [
     "La salida 32kHz no se emula (son 65 536 flancos por segundo): el pin queda suelto.",
     "INT/SQW como onda cuadrada solo a 1 Hz; 1,024, 4,096 y 8,192 kHz no se emulan (se avisa por la consola).",
-    "No se emula el funcionamiento con la pila sola (VBAT): EOSC, BBSQW y RST no hacen nada. Cada ejecución es un encendido nuevo con la pila puesta.",
+    "Con pila, entre una ejecución y otra el reloj sigue contando con el reloj de la PC (como si hubiera estado andando con la pila) y las alarmas que vencieron prenden sus flags; pero mientras está apagado no maneja INT/SQW, y EOSC, BBSQW y RST no hacen nada.",
     "La frecuencia no cambia con la temperatura (el TCXO la compensa): el error es fijo ('errorPpm' más el aging, −0,1 ppm por paso a 25 °C). La hoja da ±2 ppm de 0 a 40 °C.",
     "El sensor de temperatura es ideal salvo el redondeo a 0,25 °C (la hoja da ±3 °C de error).",
     "Si pasan más de 2 días de emulación sin que el programa lea el chip (ni haya una alarma con interrupción habilitada), las alarmas se evalúan solo en los últimos 2 días."
