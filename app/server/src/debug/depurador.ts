@@ -5,7 +5,7 @@ import type { BuildArtifacts, BuildResult } from '../buildService.js';
 import type { EmulatorStatus } from '../emulator.js';
 import type { Emulador } from '../emulatorBackend.js';
 import type { ModuloCatalogo } from '../catalog.js';
-import { analizarCircuito } from '../circuitPhysics.js';
+import { analizarCircuito } from '../sim/analisis.js';
 import { conPlaca, gpioDe } from '../diagramOps.js';
 import { stripAnsi } from '../logParser.js';
 import { AdaptadorAvr } from './adaptadorAvr.js';
@@ -132,7 +132,7 @@ export class Depurador {
       const [p, catalogo] = await Promise.all([this.deps.leerProyecto(nombre), this.deps.catalogo()]);
       const mapa = new Map(catalogo.map((m) => [m.type, m]));
       this.proyectoCache = { p: conPlaca(p), buscar: (t) => mapa.get(t) };
-      this.revisarElectrico();
+      void this.revisarElectrico();
     } catch {
       this.proyectoCache = null;
     }
@@ -328,7 +328,7 @@ export class Depurador {
     if (this.timerElectrico) return;
     this.timerElectrico = setTimeout(() => {
       this.timerElectrico = null;
-      this.revisarElectrico();
+      void this.revisarElectrico();
     }, 200);
     this.timerElectrico.unref?.();
   }
@@ -349,11 +349,11 @@ export class Depurador {
     return niveles;
   }
 
-  private revisarElectrico(): void {
+  private async revisarElectrico(): Promise<void> {
     const pc = this.proyectoCache;
     if (!pc || !this.corrida) return;
     try {
-      const { avisos, leds } = analizarCircuito(pc.p, pc.buscar, this.nivelesActuales());
+      const { avisos, leds } = await analizarCircuito(pc.p, pc.buscar, { niveles: this.nivelesActuales() });
       for (const a of avisos) {
         if (this.avisosElectricos.has(a.mensaje)) continue;
         this.avisosElectricos.add(a.mensaje);
@@ -614,7 +614,7 @@ export class Depurador {
     const c = this.corrida;
     const lineasSerial = opciones.lineasSerial ?? 40;
     const pc = this.proyectoCache;
-    const desc = pc?.buscar(pc.p.board)?.board;
+    const desc = pc?.p.board ? pc.buscar(pc.p.board)?.board : undefined;
 
     // Pines: estado de cada GPIO y qué módulo está en cada uno.
     const pines: Record<string, Record<string, unknown>> = {};
@@ -668,18 +668,17 @@ export class Depurador {
     let electrico: Record<string, unknown> | null = null;
     if (pc) {
       try {
-        const r = analizarCircuito(pc.p, pc.buscar, this.nivelesActuales());
+        const r = await analizarCircuito(pc.p, pc.buscar, { niveles: this.nivelesActuales() });
+        // Lo que mediría un tester: tensión de cada pin, y corriente/potencia de cada elemento físico.
+        const redondear = (x: number, d: number) => Math.round(x * 10 ** d) / 10 ** d;
         electrico = {
-          ramas: r.ramas.map((x) => ({
-            desde: x.origenRef,
-            hasta: x.destinoRef,
-            tensionFuenteV: x.origenV,
-            resistenciaSerieOhm: x.ohms,
-            resistenciaFuenteOhm: x.ohmsFuente,
-            caidaLedV: x.vf,
-            corrienteMa: Number.isFinite(x.amperios) ? Math.round(x.amperios * 1e4) / 10 : 'cortocircuito',
-            componentes: x.componentes.map((k) => `${k.instId} (${k.tipo})`),
-          })),
+          tensionesV: Object.fromEntries(Object.entries(r.tensiones).map(([k, v]) => [k, redondear(v, 3)])),
+          elementos: r.elementos
+            .filter((e) => !e.local.startsWith('prot_') || Math.abs(e.i) > 1e-4)
+            .map((e) => ({ elemento: e.id, corrienteMa: redondear(e.i * 1000, 3), potenciaMw: redondear(e.p * 1000, 3) })),
+          chipEncendido: r.chipEncendido,
+          alimentacion: r.alimentacion,
+          fuentes: r.fuentes,
           leds: r.leds,
           avisos: r.avisos,
         };

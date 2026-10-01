@@ -1,0 +1,599 @@
+import {
+  BOARD_MODULE_ID,
+  corrienteRecomendada,
+  nombreDePin,
+  type BoardDescriptor,
+  type ModuleDef,
+  type Observacion,
+  type Primitiva,
+  type Project,
+} from '@emu/shared';
+import { gpioDe, gpioDeRef } from '../diagramOps.js';
+import { Netlist, type ElementoResuelto } from './netlist.js';
+import { armarPlaca, type PlacaArmada, type RielesPlaca } from './placa.js';
+import { modeloDe } from './modelos.js';
+import { correrSpice, ErrorSpice, type ResultadoSpice } from './spice.js';
+import type { AlimentacionPlaca, AvisoElectrico, EstadoLed, FuenteElectrica, LedElectrico } from './tipos.js';
+
+/**
+ * Motor eléctrico: arma el circuito del proyecto con los modelos de sus módulos y de la placa,
+ * lo resuelve con ngspice (análisis de punto de operación: Kirchhoff, Ohm, diodos reales,
+ * fuentes CV/CC, reguladores) y devuelve lo que ve la UI: avisos, LEDs, fuentes, alimentación
+ * de la placa, y la tensión de cada pin y la corriente/potencia de cada elemento.
+ */
+
+export type BuscarDef = (type: string) => (ModuleDef & { modeloCodigo?: string }) | undefined;
+
+export interface OpcionesAnalisis {
+  /** Nivel de cada GPIO que el firmware maneja como salida. Los que falten: en alto (peor caso). */
+  niveles?: Map<number, 0 | 1>;
+  /** Forzar todas las salidas del firmware a un nivel (0: "lo que no depende del código"). */
+  salidasForzadas?: 0 | 1;
+  /** Interruptores (`switch`) cerrados: pulsador apretado, llave encendida. */
+  cerrados?: ReadonlySet<string>;
+  /** Fuentes regulables con la salida apagada (proyecto sin placa sin energizar). */
+  fuentesApagadas?: boolean;
+  /** Estado interno de los modelos (lo que dejó `observar` la vez anterior), por id de instancia. */
+  estados?: Map<string, Record<string, unknown>>;
+}
+
+export interface ModuloResuelto {
+  ui?: Observacion['ui'];
+  estado?: Record<string, unknown>;
+}
+
+export interface AnalisisCircuito {
+  avisos: AvisoElectrico[];
+  leds: LedElectrico[];
+  fuentes: FuenteElectrica[];
+  alimentacion: AlimentacionPlaca;
+  /** Tensión de cada pin cableado ("id.PIN" → V, respecto de la tierra del circuito). */
+  tensiones: Record<string, number>;
+  /** Lo que decidió el modelo de cada módulo (estado visible, estado interno). */
+  modulos: Record<string, ModuloResuelto>;
+  /** Todos los elementos físicos resueltos (corriente, potencia): para verificar y para medir. */
+  elementos: ElementoResuelto[];
+  /** ¿El chip de la placa quedó andando? (false sin placa) */
+  chipEncendido: boolean;
+}
+
+class UnionFind {
+  private padre = new Map<string, string>();
+  tiene(x: string): boolean {
+    return this.padre.has(x);
+  }
+  buscar(x: string): string {
+    if (!this.padre.has(x)) this.padre.set(x, x);
+    let r = x;
+    while (this.padre.get(r) !== r) r = this.padre.get(r)!;
+    let c = x;
+    while (this.padre.get(c) !== r) {
+      const s = this.padre.get(c)!;
+      this.padre.set(c, r);
+      c = s;
+    }
+    return r;
+  }
+  unir(a: string, b: string): void {
+    const ra = this.buscar(a);
+    const rb = this.buscar(b);
+    if (ra !== rb) this.padre.set(ra, rb);
+  }
+}
+
+const limpio = (s: string): string => s.replace(/[^A-Za-z0-9_]/g, '_').toLowerCase();
+
+/** Todo lo que no cambia entre pasadas (el dibujo, las redes, los nodos). */
+interface Contexto {
+  project: Project;
+  buscar: BuscarDef;
+  opciones: OpcionesAnalisis;
+  hayPlaca: boolean;
+  placaDef: (ModuleDef & { modeloCodigo?: string }) | undefined;
+  desc: BoardDescriptor | undefined;
+  etiquetaPlaca: string;
+  nodo: (ref: string) => string;
+  refsDeNodo: Map<string, string[]>;
+  rieles: RielesPlaca;
+  gpios: Map<number, string>;
+  salidas: Set<number>;
+  pullups: Set<number>;
+  instancias: { id: string; def: ModuleDef & { modeloCodigo?: string }; props: Record<string, string | number | boolean> }[];
+}
+
+function preparar(project: Project, buscar: BuscarDef, opciones: OpcionesAnalisis): Contexto {
+  const hayPlaca = Boolean(project.board);
+  const placaDef = project.board ? buscar(project.board) : undefined;
+  const desc = placaDef?.board;
+  const uf = new UnionFind();
+  for (const w of project.wires) uf.unir(w.from, w.to);
+
+  // Los pines de alimentación de la placa son rieles: todos los GND son uno, los 5V son uno...
+  if (hayPlaca) {
+    const logica5 = (desc?.logicVoltage ?? 3.3) >= 4.5;
+    uf.buscar('#gnd');
+    uf.buscar('#5v');
+    uf.buscar('#3v3');
+    uf.buscar('#vin');
+    for (const p of placaDef?.pins ?? []) {
+      const ref = `${BOARD_MODULE_ID}.${p.name}`;
+      if (/^GND(_\d+)?$/.test(p.name)) uf.unir(ref, '#gnd');
+      else if (/^5V(_\d+)?$/.test(p.name)) uf.unir(ref, '#5v');
+      else if (/^3V3(_\d+)?$/.test(p.name)) uf.unir(ref, '#3v3');
+      else if (/^VIN(_\d+)?$/.test(p.name)) uf.unir(ref, '#vin');
+      else if (/^IOREF$/.test(p.name)) uf.unir(ref, logica5 ? '#5v' : '#3v3');
+    }
+  }
+
+  const instancias = project.modules
+    .filter((m) => m.id !== BOARD_MODULE_ID)
+    .flatMap((m) => {
+      const def = buscar(m.type);
+      if (!def) return [];
+      const props: Record<string, string | number | boolean> = {};
+      for (const [k, p] of Object.entries(def.props)) if (p.default !== undefined) props[k] = p.default;
+      Object.assign(props, m.props);
+      return [{ id: m.id, def, props }];
+    });
+
+  // Sin placa, la tierra del circuito es el GND de la (primera) fuente.
+  if (!hayPlaca) {
+    for (const ins of instancias) {
+      const gnd = ins.def.source ? ins.def.pins.find((p) => p.kind === 'ground') : undefined;
+      if (gnd) {
+        uf.unir(`${ins.id}.${gnd.name}`, '#gnd');
+        break;
+      }
+    }
+  }
+
+  const tierra = uf.tiene('#gnd') ? uf.buscar('#gnd') : null;
+  const nombres = new Map<string, string>();
+  let k = 0;
+  const nodoDeRed = (raiz: string): string => {
+    if (raiz === tierra) return '0';
+    let n = nombres.get(raiz);
+    if (!n) {
+      n = `n${++k}`;
+      nombres.set(raiz, n);
+    }
+    return n;
+  };
+  const nodo = (ref: string): string => (uf.tiene(ref) ? nodoDeRed(uf.buscar(ref)) : `f_${limpio(ref)}`);
+  const rieles: RielesPlaca = hayPlaca
+    ? { n5v: nodo('#5v'), n3v3: nodo('#3v3'), nvin: nodo('#vin') }
+    : { n5v: 'p5v', n3v3: 'p3v3', nvin: 'pvin' };
+
+  const refsDeNodo = new Map<string, string[]>();
+  const vistos = new Set<string>();
+  for (const w of project.wires) {
+    for (const ref of [w.from, w.to]) {
+      if (vistos.has(ref)) continue;
+      vistos.add(ref);
+      const n = nodo(ref);
+      if (!refsDeNodo.has(n)) refsDeNodo.set(n, []);
+      refsDeNodo.get(n)!.push(ref);
+    }
+  }
+
+  // GPIO cableados, cuáles maneja el firmware como salida y cuáles lee con pull-up.
+  const gpios = new Map<number, string>();
+  if (hayPlaca) {
+    for (const ref of vistos) {
+      const g = gpioDeRef(ref, desc);
+      if (g !== null) gpios.set(g, nodo(ref));
+    }
+  }
+  const salidas = new Set<number>();
+  const pullups = new Set<number>();
+  for (const ins of instancias) {
+    const b = ins.def.bridge;
+    if (!b || !hayPlaca) continue;
+    const g = gpioDe(project, ins.id, b.pin, buscar);
+    if (g === null) continue;
+    if (b.role === 'output') salidas.add(g);
+    if (b.role === 'input' && b.pull === 'up') pullups.add(g);
+  }
+
+  return {
+    project, buscar, opciones, hayPlaca, placaDef, desc,
+    etiquetaPlaca: placaDef?.name ?? (project.board ? project.board : 'la placa'),
+    nodo, refsDeNodo, rieles, gpios, salidas, pullups, instancias,
+  };
+}
+
+interface PorModulo {
+  id: string;
+  def: ModuleDef & { modeloCodigo?: string };
+  props: Record<string, string | number | boolean>;
+  control: boolean;
+  vars: Record<string, string>;
+  prims: Primitiva[];
+  elementos: Map<string, ElementoResuelto>;
+}
+
+interface Pasada {
+  res: ResultadoSpice;
+  elementos: ElementoResuelto[];
+  modulos: PorModulo[];
+  placa?: PlacaArmada;
+  avisosModelos: AvisoElectrico[];
+}
+
+function varsDe(def: ModuleDef, props: Record<string, string | number | boolean>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(def.vars ?? {})) out[k] = v.map[String(props[v.prop])] ?? v.default;
+  return out;
+}
+
+async function pasada(c: Contexto, chipEncendido: boolean, propsExtra: Map<string, Record<string, number>>): Promise<Pasada> {
+  const n = new Netlist(`proyecto ${c.project.name}`);
+  const avisosModelos: AvisoElectrico[] = [];
+  const modulos: PorModulo[] = [];
+
+  for (const ins of c.instancias) {
+    const { id, def } = ins;
+    const props = { ...ins.props, ...(propsExtra.get(id) ?? {}) };
+    const control = def.switch ? Boolean(c.opciones.cerrados?.has(id)) : def.source ? !c.opciones.fuentesApagadas : false;
+    const vars = varsDe(def, props);
+    const modelo = modeloDe(def);
+    if (modelo.error) {
+      avisosModelos.push({ severidad: 'advertencia', pin: -1, mensaje: `${def.name} (${id}): su modelo tiene un error (${modelo.error}); se usa el comportamiento básico.` });
+    }
+    let prims: Primitiva[] = [];
+    try {
+      prims = modelo.circuito({ pines: def.pins.map((p) => p.name), props, control, estado: c.opciones.estados?.get(id) ?? {}, vars });
+    } catch (err) {
+      avisosModelos.push({ severidad: 'advertencia', pin: -1, mensaje: `${def.name} (${id}): su modelo falló (${(err as Error).message}); quedó afuera del cálculo eléctrico.` });
+    }
+    const mapear = (x: string): string => (x.startsWith('pin:') ? c.nodo(`${id}.${x.slice(4)}`) : `i_${limpio(id)}_${limpio(x.slice(4))}`);
+    for (const p of prims) {
+      if (p.tipo === 'SV') n.agregar(id, { ...p, a: mapear(p.a), b: mapear(p.b), cp: mapear(p.cp), cn: mapear(p.cn) });
+      else n.agregar(id, { ...p, a: mapear(p.a), b: mapear(p.b) });
+    }
+    modulos.push({ id, def, props, control, vars, prims, elementos: new Map() });
+  }
+
+  let placa: PlacaArmada | undefined;
+  if (c.hayPlaca) {
+    const inst = c.project.modules.find((m) => m.id === BOARD_MODULE_ID);
+    const usb = (inst?.props?.usb ?? c.placaDef?.props.usb?.default) === true;
+    const niveles = new Map<number, 0 | 1>();
+    for (const g of c.salidas) niveles.set(g, c.opciones.salidasForzadas ?? c.opciones.niveles?.get(g) ?? 1);
+    placa = armarPlaca(n, { desc: c.desc, rieles: c.rieles, usb, chipEncendido, salidas: niveles, pullups: c.pullups, gpios: c.gpios });
+  }
+
+  const res = await correrSpice(n.texto());
+  const elementos = n.resolver(res);
+  for (const el of elementos) modulos.find((m) => m.id === el.dueno)?.elementos.set(el.local, el);
+  return { res, elementos, modulos, placa, avisosModelos };
+}
+
+const tension = (p: Pasada, nodo: string): number => (nodo === '0' ? 0 : (p.res.valores.get(`v(${nodo})`) ?? 0));
+const fmt = (x: number, d = 1): string => x.toFixed(d).replace('.', ',');
+
+export async function analizarCircuito(project: Project, buscar: BuscarDef, opciones: OpcionesAnalisis = {}): Promise<AnalisisCircuito> {
+  const c = preparar(project, buscar, opciones);
+  let p: Pasada;
+  let chipEncendido = c.hayPlaca;
+  try {
+    p = await pasada(c, chipEncendido, new Map());
+    // Brownout: si con el chip andando su riel cae por debajo del umbral, se resetea (se apaga).
+    if (c.hayPlaca && p.placa && tension(p, p.placa.riel) < p.placa.brownout) {
+      chipEncendido = false;
+      p = await pasada(c, false, new Map());
+    }
+  } catch (err) {
+    return fallido(c, err);
+  }
+
+  const avisos: AvisoElectrico[] = [...p.avisosModelos];
+  const modulos: Record<string, ModuloResuelto> = {};
+  const tensiones: Record<string, number> = {};
+  for (const [nodo, refs] of c.refsDeNodo) for (const ref of refs) tensiones[ref] = tension(p, nodo);
+
+  // Cada modelo lee sus voltajes y corrientes reales.
+  for (const m of p.modulos) {
+    const v: Record<string, number> = {};
+    for (const pin of m.def.pins) v[pin.name] = tension(p, c.nodo(`${m.id}.${pin.name}`));
+    const i: Record<string, number> = {};
+    const pot: Record<string, number> = {};
+    for (const [local, el] of m.elementos) {
+      i[local] = el.i;
+      pot[local] = el.p;
+    }
+    let obs: Observacion = {};
+    try {
+      obs = modeloDe(m.def).observar({ props: m.props, control: m.control, estado: opciones.estados?.get(m.id) ?? {}, vars: m.vars, v, i, p: pot });
+    } catch (err) {
+      avisos.push({ severidad: 'advertencia', pin: -1, mensaje: `${m.def.name} (${m.id}): su modelo falló al leer el circuito (${(err as Error).message}).` });
+    }
+    modulos[m.id] = { ui: obs.ui, estado: obs.estado };
+    for (const a of obs.avisos ?? []) avisos.push({ severidad: a.severidad, pin: -1, mensaje: `${m.def.name} (${m.id}): ${a.mensaje}` });
+  }
+
+  const leds = calcularLeds(p);
+  for (const l of leds) {
+    const m = p.modulos.find((x) => x.id === l.id)!;
+    const lim = { max: m.def.electrical?.maxCurrentMa ?? 20, quema: m.def.electrical?.burnCurrentMa ?? 60 };
+    if (l.estado === 'se-quema') {
+      avisos.push({ severidad: 'peligro', pin: -1, mensaje: `Por el LED (${l.id}) pasarían ~${fmt(l.mA, 0)} mA: aguanta hasta ~${lim.quema} mA, se va a quemar. Poné una resistencia en serie (220 Ω anda bien a 3,3–5 V).` });
+    } else if (l.estado === 'sobreexigido') {
+      avisos.push({ severidad: 'advertencia', pin: -1, mensaje: `~${fmt(l.mA, 0)} mA por el LED (${l.id}): más de lo recomendado (${lim.max} mA). No se quema enseguida, pero brilla de más y dura menos. Poné (o subí) una resistencia en serie.` });
+    }
+  }
+
+  const fuentes = await calcularFuentes(c, p, chipEncendido, avisos);
+  const alimentacion = c.hayPlaca ? calcularAlimentacion(c, p, chipEncendido, fuentes) : sinPlaca();
+  if (alimentacion.estado !== 'ok') {
+    avisos.unshift({ severidad: alimentacion.estado === 'quema' ? 'peligro' : 'advertencia', pin: -1, mensaje: alimentacion.mensaje });
+  }
+  if (c.hayPlaca && p.placa) avisosPlaca(c, p, avisos, alimentacion);
+
+  return { avisos, leds, fuentes, alimentacion, tensiones, modulos, elementos: p.elementos, chipEncendido };
+}
+
+function sinPlaca(): AlimentacionPlaca {
+  return { estado: 'ok', via: null, pin: null, entrada: null, fuenteId: null, v: null, consumoMa: null, consumeDe: null, mensaje: 'Proyecto sin placa: solo circuito.' };
+}
+
+/** ngspice no pudo resolver: no se inventa nada, se avisa con lo que dijo. */
+function fallido(c: Contexto, err: unknown): AnalisisCircuito {
+  const detalle = err instanceof ErrorSpice ? err.errores.filter((e) => e.trim()).slice(-3).join(' · ') : (err as Error).message;
+  return {
+    avisos: [{ severidad: 'peligro', pin: -1, mensaje: `No se pudo resolver el circuito eléctrico${detalle ? `: ${detalle}` : ''}. Revisá si hay fuentes ideales en paralelo o lazos imposibles.` }],
+    leds: [],
+    fuentes: [],
+    alimentacion: c.hayPlaca
+      ? { ...sinPlaca(), estado: 'sin-energia', mensaje: 'No se pudo resolver el circuito eléctrico.' }
+      : sinPlaca(),
+    tensiones: {},
+    modulos: {},
+    elementos: [],
+    chipEncendido: false,
+  };
+}
+
+function calcularLeds(p: Pasada): LedElectrico[] {
+  return p.modulos
+    .filter((m) => m.def.diode)
+    .map((m) => {
+      const d = m.prims.find((x) => x.tipo === 'D');
+      const el = d ? m.elementos.get(d.nombre) : undefined;
+      const mA = el ? el.i * 1000 : 0;
+      const max = m.def.electrical?.maxCurrentMa ?? 20;
+      const quema = m.def.electrical?.burnCurrentMa ?? 60;
+      // 5 % de margen: un LED de 20 mA a 20,1 mA está bien (tolerancia normal de componentes).
+      const estado: EstadoLed = mA > quema ? 'se-quema' : mA > max * 1.05 ? 'sobreexigido' : 'ok';
+      const r = Math.round(mA * 10) / 10;
+      return { id: m.id, mA: r, estado, mAFijo: r };
+    });
+}
+
+async function calcularFuentes(c: Contexto, p: Pasada, chipEncendido: boolean, avisos: AvisoElectrico[]): Promise<FuenteElectrica[]> {
+  const out: FuenteElectrica[] = [];
+  for (const m of p.modulos.filter((x) => x.def.source)) {
+    const src = m.def.source!;
+    const vAjuste = Number(m.props[src.voltageProp] ?? 0);
+    const limiteRaw = src.currentProp ? Number(m.props[src.currentProp]) : m.def.electrical?.maxCurrentMa;
+    const limiteMa = Number.isFinite(limiteRaw) && (limiteRaw as number) > 0 ? (limiteRaw as number) : null;
+    const v = m.prims.find((x) => x.tipo === 'V');
+    const el = v ? m.elementos.get(v.nombre) : undefined;
+    if (!el || c.opciones.fuentesApagadas) {
+      out.push({ id: m.id, vAjuste, limiteMa, demandaMa: 0, mA: 0, vSalida: 0, potenciaW: 0, modo: 'apagada' });
+      continue;
+    }
+    const entregado = -el.i; // la corriente que sale por su terminal positivo
+    const mA = entregado * 1000;
+    const vSalida = el.va - el.vb;
+    const enCC = limiteMa !== null && Math.abs(mA) >= 0.97 * limiteMa;
+    const corto = enCC && Math.abs(vSalida) < Math.max(0.1, 0.05 * Math.abs(vAjuste));
+    let demandaMa: number | null = Math.abs(mA);
+    if (corto) demandaMa = null;
+    else if (enCC && src.currentProp) {
+      // ¿Cuánto pediría la carga sin límite? Misma corriente, la fuente "sin perilla".
+      try {
+        const sinLimite = await pasada(c, chipEncendido, new Map([[m.id, { [src.currentProp]: 1e9 }]]));
+        const el2 = sinLimite.modulos.find((x) => x.id === m.id)?.elementos.get(v!.nombre);
+        demandaMa = el2 ? Math.abs(el2.i) * 1000 : null;
+      } catch {
+        demandaMa = null;
+      }
+    }
+    const modo: FuenteElectrica['modo'] = corto ? 'corto' : enCC ? 'CC' : 'CV';
+    out.push({ id: m.id, vAjuste, limiteMa, demandaMa, mA: Math.abs(mA), vSalida, potenciaW: Math.abs(vSalida * entregado), modo });
+
+    const refV = `${m.id}.${m.def.pins.find((x) => x.kind === 'power')?.name ?? 'V'}`;
+    const refG = `${m.id}.${m.def.pins.find((x) => x.kind === 'ground')?.name ?? 'GND'}`;
+    if (corto) {
+      avisos.push({
+        severidad: 'peligro', pin: -1, refs: refsDelCorto(c, refV, refG),
+        mensaje: `${m.id} está en cortocircuito: su salida quedó unida a su GND (o a otra tensión) sin nada que limite la corriente, y entrega todo su límite (${limiteMa} mA) con ~0 V. Revisá el cableado.`,
+      });
+    } else if (enCC) {
+      avisos.push({
+        severidad: 'advertencia', pin: -1,
+        mensaje: `${m.id} está en modo CC: la carga pediría ~${demandaMa === null ? '?' : fmt(demandaMa, 0)} mA y la fuente la limita a ${limiteMa} mA (la salida baja de ${fmt(vAjuste, 2)} V a ~${fmt(vSalida, 2)} V). Subí el límite de corriente si la carga lo necesita.`,
+      });
+    }
+  }
+  return out;
+}
+
+/** Refs para dibujar un corto: dos puntas de la misma red (un cable real), o las dos del elemento. */
+function refsDelCorto(c: Contexto, a: string, b: string): string[] {
+  const na = c.nodo(a);
+  const enRed = c.refsDeNodo.get(na) ?? [];
+  if (na === c.nodo(b) && enRed.length >= 2) {
+    const otro = enRed.find((r) => r !== a) ?? b;
+    return [a, otro];
+  }
+  return [a, b];
+}
+
+function calcularAlimentacion(c: Contexto, p: Pasada, chipEncendido: boolean, fuentes: FuenteElectrica[]): AlimentacionPlaca {
+  const power = c.desc?.power;
+  const base = { pin: null, entrada: null, fuenteId: null, v: null, consumoMa: power?.currentMa ?? null, consumeDe: null };
+  const et = c.etiquetaPlaca;
+  if (!power) {
+    return { ...base, estado: chipEncendido ? 'ok' : 'baja', via: 'sin-datos', mensaje: `${et}: su descriptor no dice cómo se alimenta; se asume enchufada.` };
+  }
+  const nodoEntrada = (feeds: 'vin' | '5v' | '3v3') => (feeds === 'vin' ? c.rieles.nvin : feeds === '5v' ? c.rieles.n5v : c.rieles.n3v3);
+  // Qué fuente regulable llega a cada entrada (su salida está en ese nodo).
+  const fuenteEn = (nodo: string) =>
+    p.modulos.find((m) => {
+      if (!m.def.source) return false;
+      const pos = m.def.pins.find((x) => x.kind === 'power');
+      return pos !== undefined && c.nodo(`${m.id}.${pos.name}`) === nodo && nodo !== '0';
+    });
+  const gndDe = (id: string) => {
+    const m = p.modulos.find((x) => x.id === id)!;
+    const g = m.def.pins.find((x) => x.kind === 'ground');
+    return g ? c.nodo(`${id}.${g.name}`) : '';
+  };
+
+  // Sobretensión o polaridad invertida en una entrada: se quema.
+  for (const ent of power.inputs) {
+    const nodo = nodoEntrada(ent.feeds);
+    const v = tension(p, nodo);
+    if (v > ent.max + 0.05 || v < -0.3) {
+      const f = fuenteEn(nodo);
+      const quien = f ? f.id : 'Algo';
+      return {
+        ...base, estado: 'quema', via: f ? 'fuente' : null, pin: ent.pin, entrada: ent.feeds, fuenteId: f?.id ?? null, v,
+        mensaje: v < 0
+          ? `${quien} pone ${fmt(v, 2)} V en ${et} · ${ent.pin}: polaridad invertida, la placa se quema.`
+          : `${quien} pone ${fmt(v, 2)} V en ${et} · ${ent.pin}, que aguanta hasta ${fmt(ent.max)} V: la placa se quema.`,
+      };
+    }
+  }
+
+  const inst = c.project.modules.find((m) => m.id === BOARD_MODULE_ID);
+  const usb = (inst?.props?.usb ?? c.placaDef?.props.usb?.default) === true;
+  // La entrada que efectivamente la alimenta: una fuente regulable entregando en ella.
+  let porFuente: { ent: (typeof power.inputs)[number]; id: string } | null = null;
+  for (const ent of power.inputs) {
+    const f = fuenteEn(nodoEntrada(ent.feeds));
+    const fe = f && fuentes.find((x) => x.id === f.id);
+    if (f && fe && fe.modo !== 'apagada') {
+      porFuente = { ent, id: f.id };
+      break;
+    }
+  }
+
+  if (chipEncendido) {
+    if (porFuente) {
+      const v = tension(p, nodoEntrada(porFuente.ent.feeds));
+      return {
+        ...base, estado: 'ok', via: 'fuente', pin: porFuente.ent.pin, entrada: porFuente.ent.feeds, fuenteId: porFuente.id, v,
+        consumeDe: porFuente.id, mensaje: `${et} alimentada por ${porFuente.id} (${fmt(v, 2)} V en ${porFuente.ent.pin}).`,
+      };
+    }
+    return { ...base, estado: 'ok', via: usb ? 'usb' : null, entrada: usb ? '5v' : null, v: tension(p, c.rieles.n5v), mensaje: usb ? `${et} alimentada por USB.` : `${et} alimentada.` };
+  }
+
+  // No arranca: por qué.
+  if (porFuente) {
+    const f = fuentes.find((x) => x.id === porFuente!.id)!;
+    const v = tension(p, nodoEntrada(porFuente.ent.feeds));
+    const datos = { ...base, via: 'fuente' as const, pin: porFuente.ent.pin, entrada: porFuente.ent.feeds, fuenteId: porFuente.id, v };
+    if (gndDe(porFuente.id) !== '0') {
+      return { ...datos, estado: 'sin-energia', mensaje: `${porFuente.id} llega a ${et} · ${porFuente.ent.pin}, pero su GND no está unido al GND de la placa: el circuito no cierra y la placa no arranca.` };
+    }
+    if (f.modo === 'CC' || f.modo === 'corto') {
+      return {
+        ...datos, estado: 'baja', consumeDe: porFuente.id,
+        mensaje: `${porFuente.id} limita a ${f.limiteMa} mA y ${et} necesita ~${power.currentMa} mA: la fuente entra en modo CC, la tensión cae a ${fmt(v, 2)} V y la placa no arranca (se resetea por baja tensión). Subí el límite de corriente.`,
+      };
+    }
+    if (v < porFuente.ent.min) {
+      return { ...datos, estado: 'baja', mensaje: `${porFuente.id} entrega ${fmt(v, 2)} V en ${et} · ${porFuente.ent.pin}, y hacen falta al menos ${fmt(porFuente.ent.min)} V: la placa no arranca.` };
+    }
+    return { ...datos, estado: 'baja', mensaje: `${et} no llega a arrancar con ${fmt(v, 2)} V en ${porFuente.ent.pin}: la tensión de su chip cae por debajo del mínimo.` };
+  }
+  if (usb) {
+    return { ...base, estado: 'baja', via: 'usb', mensaje: `${et} está enchufada por USB pero su tensión cae por debajo del mínimo: algo le pide más de lo que el USB entrega (500 mA).` };
+  }
+  const opciones = power.inputs.map((i) => `${fmt(i.min)}–${fmt(i.max)} V a ${i.pin}`).join(' o ');
+  return {
+    ...base, estado: 'sin-energia', via: null,
+    mensaje: `${et} no tiene alimentación: prendé "USB conectado" en la placa, o cableá una Fuente regulable (${opciones}) con su GND al GND de la placa.`,
+  };
+}
+
+/** Pines del microcontrolador: sobrecorriente, cortos, tensión de afuera por los diodos de protección. */
+function avisosPlaca(c: Contexto, p: Pasada, avisos: AvisoElectrico[], alimentacion: AlimentacionPlaca): void {
+  const desc = c.desc;
+  const max = desc?.maxPinCurrentMa ?? 40;
+  const recomendado = desc ? corrienteRecomendada(desc) : 20;
+  const chip = desc?.chipName ?? desc?.chip ?? 'chip';
+  const el = (local: string) => p.elementos.find((e) => e.dueno === 'board' && e.local === local);
+  const riel = p.placa!.riel;
+  const vRiel = tension(p, riel);
+
+  for (const [g, nodo] of c.gpios) {
+    const nombre = nombreDePin(desc, g);
+    const refPin = `${BOARD_MODULE_ID}.${nombre}`;
+    const salida = el(`gpio${g}`);
+    if (salida) {
+      const mA = Math.abs(salida.i) * 1000;
+      const vPin = tension(p, nodo);
+      const alto = salida.a === riel;
+      // Contra la tensión opuesta, sin nada de por medio: un corto (p. ej. un GPIO en alto a GND).
+      if (mA > 2 * max && Math.abs(vPin - (alto ? 0 : vRiel)) < 0.2) {
+        const otros = (c.refsDeNodo.get(nodo) ?? []).filter((r) => r !== refPin);
+        avisos.push({
+          severidad: 'peligro', pin: g, refs: [refPin, otros[0] ?? refPin],
+          mensaje: `${nombre} en ${alto ? 'alto' : 'bajo'} está en cortocircuito contra ${alto ? 'GND' : 'la alimentación'}: tendría que manejar ~${fmt(mA, 0)} mA, muy por encima del máximo del ${chip} (${max} mA). Se daña el pin.`,
+        });
+      } else if (mA > max) {
+        avisos.push({ severidad: 'peligro', pin: g, mensaje: `${nombre} tendría que entregar ~${fmt(mA, 0)} mA: por encima del máximo del ${chip} (${max} mA). Agregá o subí una resistencia en serie.` });
+      } else if (mA > recomendado) {
+        avisos.push({ severidad: 'advertencia', pin: g, mensaje: `${nombre} entregaría ~${fmt(mA, 0)} mA: por encima de lo recomendado (${recomendado} mA). Funciona, pero acorta la vida del pin.` });
+      }
+    }
+    // Diodos de protección conduciendo: le entra tensión de afuera al pin.
+    const alto = el(`prot_alto_${g}`);
+    const bajo = el(`prot_bajo_${g}`);
+    const iny = Math.max(alto?.i ?? 0, bajo?.i ?? 0) * 1000;
+    if (iny > 1) {
+      const vPin = tension(p, nodo);
+      avisos.push({
+        severidad: 'peligro', pin: g,
+        mensaje: (alto?.i ?? 0) > (bajo?.i ?? 0)
+          ? `A ${nombre} le llegan ${fmt(vPin, 2)} V de afuera, más que su alimentación (${fmt(vRiel, 2)} V): conducen sus diodos de protección (~${fmt(iny, 0)} mA) y puede dañarse el chip. Usá un divisor resistivo o un adaptador de nivel.`
+          : `A ${nombre} le llega tensión negativa (${fmt(vPin, 2)} V): conducen sus diodos de protección (~${fmt(iny, 0)} mA) y puede dañarse el chip.`,
+      });
+    }
+  }
+
+  // Anda, pero con la entrada por debajo de su mínimo (p. ej. el regulador en dropout): fuera de
+  // especificación, como una placa real que arranca "de casualidad" y se resetea con cualquier pico.
+  const entrada = c.desc?.power?.inputs.find((i) => i.pin === alimentacion.pin);
+  if (alimentacion.estado === 'ok' && entrada && alimentacion.v !== null && alimentacion.v < entrada.min) {
+    avisos.push({
+      severidad: 'advertencia', pin: -1,
+      mensaje: `${c.etiquetaPlaca} recibe ${fmt(alimentacion.v, 2)} V en ${entrada.pin} y su mínimo es ${fmt(entrada.min)} V: arranca, pero está fuera de especificación (su regulador no llega a la tensión nominal y cualquier pico de consumo la resetea).`,
+    });
+  }
+
+  // Rieles de la placa en corto (el regulador o el USB que lo alimenta entregan su límite con ~0 V).
+  const ldo = el('ldo');
+  const corto3v3 = ldo !== undefined && Math.abs(ldo.i) > 0.3 && tension(p, c.rieles.n3v3) < 0.3;
+  if (corto3v3) {
+    const refs = (c.refsDeNodo.get(c.rieles.n3v3) ?? []).slice(0, 2);
+    avisos.push({ severidad: 'peligro', pin: -1, refs: refs.length === 2 ? refs : undefined, mensaje: `La salida 3V3 de ${c.etiquetaPlaca} está en cortocircuito: su regulador entrega todo lo que puede (~${fmt(Math.abs(ldo!.i) * 1000, 0)} mA) con ~0 V. Se recalienta. Revisá el cableado de 3V3.` });
+  }
+  const usb = el('usb');
+  if (usb && Math.abs(usb.i) > 0.48) {
+    const v5 = tension(p, c.rieles.n5v);
+    if (corto3v3) {
+      // Es consecuencia del corto del 3V3: el USB no da abasto y su 5V también cae.
+    } else if (v5 < 0.5) {
+      const refs = (c.refsDeNodo.get(c.rieles.n5v) ?? []).slice(0, 2);
+      avisos.push({ severidad: 'peligro', pin: -1, refs: refs.length === 2 ? refs : undefined, mensaje: `El 5V de ${c.etiquetaPlaca} está en cortocircuito: el USB entrega su máximo (500 mA) con ~0 V y el polifusible corta.` });
+    } else {
+      avisos.push({ severidad: 'advertencia', pin: -1, mensaje: `El USB está entregando su máximo (500 mA): lo que cuelga de ${c.etiquetaPlaca} pide demasiado, la tensión cae (${fmt(v5, 2)} V).` });
+    }
+  }
+}

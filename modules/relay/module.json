@@ -37,5 +37,6 @@
     "role": "output",
     "pin": "IN"
   },
-  "svg": "module.svg"
+  "svg": "module.svg",
+  "model": "model.js"
 }

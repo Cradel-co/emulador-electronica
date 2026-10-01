@@ -79,5 +79,6 @@
       },
       "default": "#5a1f1a"
     }
-  }
+  },
+  "model": "model.js"
 }

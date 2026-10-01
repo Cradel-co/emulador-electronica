@@ -1112,6 +1112,9 @@ function vivoDe(inst) {
   // Un LED también prende si le llega corriente sin pasar por el código: una fuente, el 3V3
   // de la placa, un pulsador en serie... (lo calcula el motor eléctrico del server).
   if (def?.diode && (state.electrico.get(inst.id)?.mAFijo ?? 0) > 0.5) vivo.on = true;
+  // Y lo que diga su propio modelo (un relé que "pega", un módulo importado...), siempre que el
+  // circuito esté vivo: sin simulación ni energía, las salidas del cálculo son hipotéticas.
+  if (state.uiModulos.get(inst.id)?.on && (state.sim.listo || state.energizado)) vivo.on = true;
   const quemado = state.sim.quemados.get(inst.id);
   if (quemado) {
     vivo.on = false;
@@ -1732,8 +1735,19 @@ async function recargarCatalogo() {
 async function aplicarCambioExterno(msg) {
   const nombre = state.proyecto?.name;
   if (!nombre) return;
+  // Solo cambió la física (un pulsador apretado desde el MCP u otra pestaña): se recalcula, nada más.
+  if (msg.what === 'electrico') {
+    await refrescarAvisos();
+    lienzo.render();
+    return;
+  }
   const { project, files } = await api(`/api/projects/${nombre}`);
   if (state.proyecto?.name !== nombre) return;
+  // Se agregó o se quitó la placa (otra pestaña, el MCP): cambian el código, la barra y el modo de ▶.
+  if (project.board !== state.proyecto.board || project.language !== state.proyecto.language) {
+    await abrirProyecto(nombre);
+    return;
+  }
   if (msg.what === 'diagram') {
     // El cambio de afuera gana: lo pendiente de esta pestaña se descarta.
     clearTimeout(state.timerDiagrama);

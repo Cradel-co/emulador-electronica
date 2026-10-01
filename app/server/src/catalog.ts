@@ -7,6 +7,8 @@ import { PATHS } from './paths.js';
 export type ModuloCatalogo = ModuleDef & {
   /** Contenido de module.svg (si tiene). */
   svgMarkup?: string;
+  /** Código del modelo eléctrico (`model` del module.json), si tiene: lo corre el motor en un sandbox. */
+  modeloCodigo?: string;
   /** De fábrica (sin `origin`): no se puede quitar ni reemplazar. */
   builtin: boolean;
 };
@@ -34,6 +36,9 @@ export async function loadCatalog(): Promise<ModuloCatalogo[]> {
         mods.push({
           ...def,
           svgMarkup: existsSync(svgPath) ? readFileSync(svgPath, 'utf8') : undefined,
+          modeloCodigo: def.model && existsSync(path.join(dir, entry.name, def.model))
+            ? readFileSync(path.join(dir, entry.name, def.model), 'utf8')
+            : undefined,
           builtin: !def.origin,
         });
       } catch (err) {

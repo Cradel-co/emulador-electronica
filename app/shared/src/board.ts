@@ -104,7 +104,7 @@ export const BoardDescriptorSchema = z.object({
   /**
    * Resistencia interna de un pin de salida en alto (Ω), de la curva VOH/IOH de la hoja
    * de datos: es lo que limita la corriente de un LED conectado sin resistencia. Por
-   * defecto 33 Ω (ESP32 con drive strength por defecto). Ver circuitPhysics.ts.
+   * defecto 33 Ω (ESP32 con drive strength por defecto). Ver sim/placa.ts.
    */
   pinOutputOhm: z.number().nonnegative().optional(),
   /** Resistencia de las salidas de alimentación 3V3/5V (regulador, USB) (Ω). Por defecto 0.5 Ω. */

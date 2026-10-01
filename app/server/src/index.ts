@@ -844,12 +844,21 @@ async function fijarControl(nombre: string, id: string, cerrado: boolean): Promi
   controlesCerrados.set(nombre, set);
   // Un interruptor puede cortar (o cerrar) la alimentación de la placa.
   await revisarAlimentacion(nombre);
+  // Cambió la física (no el dibujo): las pestañas recalculan corrientes y LEDs (p. ej. si lo apretó el MCP).
+  broadcast({ type: 'project.changed', project: nombre, what: 'electrico', origin: 'server' });
 }
 
 async function alimentacionDe(project: Project): Promise<EstadoPlaca> {
   const catalogo = await loadCatalog();
   const buscar = (t: string): ModuloCatalogo | undefined => catalogo.find((m) => m.type === t);
-  const { alimentacion } = analizarCircuito(conPlaca(project), buscar, niveles, cerradosDe(project.name));
+  const { alimentacion } = await analizarCircuito(conPlaca(project), buscar, {
+    niveles, cerrados: cerradosDe(project.name), fuentesApagadas: fuentesApagadasDe(project),
+  });
+  return conQuemadura(project, alimentacion);
+}
+
+/** La quemadura de la placa se recuerda (queda muerta hasta reemplazarla), aunque se arregle el cableado. */
+function conQuemadura(project: Project, alimentacion: AlimentacionPlaca): EstadoPlaca {
   if (alimentacion.estado === 'quema') placasQuemadas.add(project.name);
   return { ...alimentacion, quemada: placasQuemadas.has(project.name) };
 }
@@ -1162,6 +1171,8 @@ export async function startServer(): Promise<{ close: () => Promise<void>; port:
   await logger.listen({ port: PORT, host: HOST });
   attachWebSocket(logger.server);
   console.log(`Emulador listo en http://${HOST}:${PORT}`);
+  // El motor eléctrico (ngspice) tarda ~0,7 s en arrancar: mejor ahora que en el primer cálculo.
+  void precalentar().catch((err) => console.error(`[motor eléctrico] no arrancó: ${(err as Error).message}`));
 
   const shutdown = async (): Promise<void> => {
     await emulator.shutdown();
