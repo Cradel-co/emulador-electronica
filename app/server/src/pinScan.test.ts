@@ -140,3 +140,51 @@ binary_sensor:
     expect(direccionesDeCodigo('arduino', 'void setup() { digitalWrite(7, HIGH); }').has(7)).toBe(false);
   });
 });
+
+/**
+ * Caso real: en la plantilla de MicroPython se comenta el LED para probar solo el botón.
+ * Los avisos salían justo al revés — "usa GPIO7" (la línea comentada) y "GPIO6 no lo usa
+ * el código" (el `simbridge.pin(6)` que scanPins no miraba).
+ */
+describe('código comentado y simbridge.pin', () => {
+  const soloBoton = [
+    'import time',
+    '#from machine import Pin',
+    'import simbridge',
+    '',
+    'boton = simbridge.pin(6)',
+    '#led = Pin(7, Pin.OUT)',
+    '',
+    'while True:',
+    '    presionado = boton.value() == 0',
+    '    #led.value(1 if presionado else 0)',
+    '    time.sleep_ms(50)',
+  ].join('\n');
+
+  it('simbridge.pin(6) cuenta como uso del pin', () => {
+    expect(scanPins('micropython', soloBoton)).toContain(6);
+  });
+
+  it('un Pin() comentado no cuenta', () => {
+    expect(scanPins('micropython', soloBoton)).not.toContain(7);
+    expect(scanPins('micropython', soloBoton)).toEqual([6]);
+  });
+
+  it('no avisa que el código no usa el pin del botón', () => {
+    const avisos = diffDiagramVsCode({ ...project, language: 'micropython' }, scanPins('micropython', soloBoton));
+    expect(avisos.map((a) => a.message).join(' ')).not.toContain('GPIO6');
+  });
+
+  it('el LED comentado no queda como salida', () => {
+    const dirs = direccionesDeCodigo('micropython', soloBoton);
+    expect(dirs.get(7)).toBeUndefined();
+    expect(dirs.get(6)).toMatchObject({ salida: false, pull: 'up' });
+  });
+
+  it('en C/C++ el # de las directivas sigue contando (no es un comentario)', () => {
+    const c = ['#define PIN_LED 7', '// gpio_set_level(6, 1);', 'void app_main(){ gpio_set_level(PIN_LED, 1); }'].join('\n');
+    const pines = scanPins('idf-c', c);
+    expect(pines).toContain(7);
+    expect(pines).not.toContain(6);
+  });
+});

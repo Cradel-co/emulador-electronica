@@ -29,8 +29,34 @@ const RE_BY_LANGUAGE: Record<Language, RegExp[]> = {
     /\bdigitalWrite\s*\(\s*(\d{1,2})/g,
     /\bdigitalRead\s*\(\s*(\d{1,2})/g,
   ],
-  micropython: [/Pin\s*\(\s*(\d{1,2})/g, /Pin\s*\(\s*"GPIO(\d{1,2})"/g],
+  // `simbridge.pin(6)` es como las plantillas leen las entradas del circuito: cuenta
+  // igual que `Pin(6)` (direccionesDeCodigo ya lo tomaba, scanPins no: avisaba que el
+  // pin del botón "no lo usa el código").
+  micropython: [/Pin\s*\(\s*(\d{1,2})/g, /Pin\s*\(\s*"GPIO(\d{1,2})"/g, /\bsimbridge\.pin\s*\(\s*(\d{1,2})/g],
 };
+
+/** Comentarios por lenguaje: lo que está comentado no es código y no usa ningún pin. */
+const COMENTARIOS: Record<Language, RegExp[]> = {
+  esphome: [/#[^\n]*/g],
+  micropython: [/#[^\n]*/g],
+  // En C/C++ `#` abre directivas (`#define PIN_LED 7`), que sí cuentan: solo // y /* */.
+  'idf-c': [/\/\/[^\n]*/g, /\/\*[\s\S]*?\*\//g],
+  'idf-cpp': [/\/\/[^\n]*/g, /\/\*[\s\S]*?\*\//g],
+  arduino: [/\/\/[^\n]*/g, /\/\*[\s\S]*?\*\//g],
+};
+
+/**
+ * Saca los comentarios, dejando los saltos de línea en su lugar (los patrones de ESPHome
+ * anclan por línea). Aproximado como el resto del escaneo: un `#` o `//` dentro de un
+ * string se toma por comentario, lo que a lo sumo deja de ver un pin — nunca inventa uno.
+ */
+function sinComentarios(language: Language, content: string): string {
+  let out = content;
+  for (const re of COMENTARIOS[language] ?? []) {
+    out = out.replace(new RegExp(re.source, re.flags), (m) => m.replace(/[^\n]/g, ' '));
+  }
+  return out;
+}
 
 /**
  * Arduino en placas AVR: además de los números, `A0`..`A5` (= 14..19) y `LED_BUILTIN` (= 13),
@@ -48,6 +74,8 @@ function valorPinAvr(txt: string): number | null {
 
 export function scanPins(language: Language, content: string, desc?: BoardDescriptor): number[] {
   const found = new Set<number>();
+  // Un `Pin(7, Pin.OUT)` comentado no prende nada: contarlo avisaba de un pin que el código no usa.
+  const texto = sinComentarios(language, content);
   // Con descriptor, solo los pines que la placa tiene; sin él, el rango del ESP32-S3.
   const validos = desc ? new Set(Object.values(desc.pins).map((p) => p.gpio)) : null;
   const agregar = (n: number | null): void => {
@@ -59,7 +87,7 @@ export function scanPins(language: Language, content: string, desc?: BoardDescri
   for (const re of avr && language === 'arduino' ? RE_ARDUINO_AVR : RE_BY_LANGUAGE[language]) {
     const rx = new RegExp(re.source, re.flags);
     let m: RegExpExecArray | null;
-    while ((m = rx.exec(content)) !== null) {
+    while ((m = rx.exec(texto)) !== null) {
       agregar(avr ? valorPinAvr(m[1]!) : Number(m[1]));
       if (m.index === rx.lastIndex) rx.lastIndex++; // evita loops en regex globales
     }
@@ -67,8 +95,8 @@ export function scanPins(language: Language, content: string, desc?: BoardDescri
   if (avr && language === 'arduino') {
     // Constantes con nombre que después se usan en pinMode/digitalWrite/digitalRead.
     const usadas = new Set<string>();
-    for (const m of content.matchAll(/\b(?:pinMode|digitalWrite|digitalRead|analogRead|analogWrite)\s*\(\s*([A-Za-z_]\w*)/g)) usadas.add(m[1]!);
-    for (const m of content.matchAll(/(?:#define\s+([A-Za-z_]\w*)\s+|\b(?:const\s+)?(?:int|byte|uint8_t)\s+([A-Za-z_]\w*)\s*=\s*)(A\d|LED_BUILTIN|\d{1,2})\b/g)) {
+    for (const m of texto.matchAll(/\b(?:pinMode|digitalWrite|digitalRead|analogRead|analogWrite)\s*\(\s*([A-Za-z_]\w*)/g)) usadas.add(m[1]!);
+    for (const m of texto.matchAll(/(?:#define\s+([A-Za-z_]\w*)\s+|\b(?:const\s+)?(?:int|byte|uint8_t)\s+([A-Za-z_]\w*)\s*=\s*)(A\d|LED_BUILTIN|\d{1,2})\b/g)) {
       const nombre = m[1] ?? m[2]!;
       if (usadas.has(nombre)) agregar(valorPinAvr(m[3]!));
     }
@@ -82,7 +110,9 @@ export function scanPins(language: Language, content: string, desc?: BoardDescri
  * tenga enchufado. Lee las formas habituales de cada lenguaje (las de las plantillas y las de
  * la documentación de cada plataforma); un pin que el código no configura no aparece.
  */
-export function direccionesDeCodigo(language: Language, content: string): Map<number, DireccionPin> {
+export function direccionesDeCodigo(language: Language, contenido: string): Map<number, DireccionPin> {
+  // Mismo criterio que scanPins: un pin configurado en una línea comentada no se configura.
+  const content = sinComentarios(language, contenido);
   const d = new Map<number, DireccionPin>();
   const salida = (g: number | null) => { if (g !== null) d.set(g, { salida: true }); };
   const entrada = (g: number | null, pull?: 'up' | 'down') => { if (g !== null) d.set(g, pull ? { salida: false, pull } : { salida: false }); };
