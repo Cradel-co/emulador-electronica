@@ -28,7 +28,8 @@ cd /home/marcos/marcos/emulador-electronica/app && npm run dev
 
 # Para entrar desde la tailnet (http://100.64.0.1:5180): el server escucha en 127.0.0.1
 # y además valida el Host contra DNS rebinding, así que hacen falta las dos variables.
-HOST=0.0.0.0 EMU_ALLOWED_HOSTS=100.64.0.1:5180 npm run dev
+# El package.json está en app/, no en la raíz del repo.
+cd /home/marcos/marcos/emulador-electronica/app && HOST=0.0.0.0 EMU_ALLOWED_HOSTS=100.64.0.1:5180 npm run dev
 
 # Tests unitarios (vitest) y e2e (playwright)
 cd /home/marcos/marcos/emulador-electronica/app && npx vitest run
