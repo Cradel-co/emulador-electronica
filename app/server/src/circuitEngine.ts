@@ -8,8 +8,9 @@ import type { EstadoLed, LedElectrico } from './sim/tipos.js';
  * Puente entre el motor eléctrico nuevo (circuitNetwork + solver) y lo que la app ya
  * consume de `circuitPhysics.ts`, para poder cambiarlo sin tocar la UI.
  *
- * Se activa con `EMU_FREE_CIRCUIT=1`. Apagado (por defecto) no cambia nada: responde
- * el motor de siempre. Ver SDD-CIRCUITO-LIBRE.md §9.
+ * Hoy la app usa el motor ngspice (sim/) para todo; estas funciones las usan los tests, en
+ * particular sim/comparacion.test.ts, que resuelve los mismos circuitos con los dos motores.
+ * `EMU_FREE_CIRCUIT` ya no cambia nada en el server. Ver SDD-CIRCUITO-LIBRE.md.
  */
 
 /** ¿Resuelve la red completa (MNA) en vez de recorrer caminos desde una fuente conocida? */

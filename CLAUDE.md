@@ -42,10 +42,9 @@ cd /home/marcos/marcos/emulador-electronica/app/server && npx tsc -p tsconfig.js
 cd /home/marcos/marcos/emulador-electronica/app && npm run build
 ```
 
-El script `dev` levanta con `EMU_FREE_CIRCUIT=1` (motor eléctrico nuevo, ver
-[SDD-CIRCUITO-LIBRE.md](./SDD-CIRCUITO-LIBRE.md)). Sin esa variable responde el motor viejo
-y un circuito con un interruptor en serie reporta 0 mA. Si algo "no prende" en la UI, lo
-primero es ver contra qué servidor estás mirando y si tiene el flag:
+Hay un solo motor eléctrico y no hace falta ningún flag: `npm run dev` ya resuelve el circuito
+entero (ngspice, ver [docs/motor-electrico.md](./docs/motor-electrico.md)). Si algo "no prende"
+en la UI, lo primero es ver contra qué servidor estás mirando y qué calcula:
 
 ```bash
 curl -s localhost:5180/api/projects/<proyecto>/pins | python3 -m json.tool | grep -A4 leds
@@ -61,8 +60,14 @@ curl -s localhost:5180/api/projects/<proyecto>/pins | python3 -m json.tool | gre
   Un cambio que valga para todos va en una plantilla.
 - Las placas y los módulos son **datos** (`modules/<id>/module.json`): agregar hardware no debería
   pedir código nuevo.
-- Física eléctrica: `app/server/src/circuitPhysics.ts` (caminos fuente → GND, Ley de Ohm) y
-  `app/server/src/solver.ts` (MNA, red completa — ver [SDD-CIRCUITO-LIBRE.md](./SDD-CIRCUITO-LIBRE.md)).
+- Física eléctrica: `app/server/src/sim/` (motor ngspice: el que usa la app, ver
+  [docs/motor-electrico.md](./docs/motor-electrico.md)) y `app/server/src/solver.ts` +
+  `circuitNetwork.ts` (MNA escrito a mano, ver [SDD-CIRCUITO-LIBRE.md](./SDD-CIRCUITO-LIBRE.md)):
+  hoy es el verificador independiente — `sim/comparacion.test.ts` resuelve los mismos circuitos
+  con los dos y exige que coincidan.
+- Qué es salida y qué entrada lo decide el código del programa (`pinScan.direccionesDeCodigo`),
+  no lo que tenga enchufado el pin. Lo que lee una entrada sale del motor (pull interno y
+  umbrales VIL/VIH de la placa: `board.inputThresholds`).
 - Cambios en el solver o en la física: TDD. Primero el test que falla por la razón correcta.
 
 ## Documentación

@@ -3,7 +3,14 @@
 **Versión**: 1.0  
 **Fecha**: 2026-09-30  
 **Autor**: Marcos  
-**Estado**: En implementación (tests 1 y 2 en verde; ver §8)
+**Estado**: Integrado (2026-10-01). Sus ideas —la topología sale de los cables, un GPIO en
+bajo hunde corriente, el programa decide quién maneja un pin, las entradas leen el voltaje del
+circuito— se llevaron al motor ngspice de la app (`app/server/src/sim/`, ver
+[docs/motor-electrico.md](./docs/motor-electrico.md)). Este solver quedó como verificador
+independiente: `sim/comparacion.test.ts` resuelve los mismos circuitos con los dos. La revisión
+le sumó fuentes entre dos bornes con límite CV/CC, el Vf del LED a 20 mA, los rieles por nombre,
+la placa sin alimentar y los pull internos (commit "solver de circuito libre: arreglar lo que la
+revisión encontró"). El flag `EMU_FREE_CIRCUIT` de §9 ya no cambia nada.
 
 ---
 

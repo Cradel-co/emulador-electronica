@@ -104,6 +104,28 @@ un tester con la punta negra ahí). Una fuente cuyo GND no está unido al resto 
 El brownout se resuelve en dos pasadas: primero con el chip andando; si su riel queda
 por debajo del umbral, se recalcula con el chip apagado (se resetea, como uno real).
 
+### Quién maneja cada pin, y qué lee el programa (aportes del PR #5)
+
+Como en la placa real, que un pin entregue corriente o solo escuche lo decide **el programa**,
+no lo que tenga enchufado (idea del solver de circuito libre de Marcos, PR #5):
+
+- `pinScan.direccionesDeCodigo` lee del código cómo se configura cada pin: `output:` /
+  `switch:` / `binary_sensor` (ESPHome), `Pin(n, Pin.OUT / Pin.IN, Pin.PULL_UP)` y
+  `simbridge.pin` (MicroPython), `pinMode` (Arduino), `gpio_config_t`, `gpio_set_direction`,
+  `gpio_set_pull_mode` (ESP-IDF). Sin dato del código, un pin del que el puente informó un nivel
+  es una salida; si tampoco, se deduce de los módulos.
+- Salida: el riel (o GND) detrás de la resistencia interna del pin: en bajo **hunde** corriente
+  (un LED con el cátodo en un pin en bajo prende).
+- Entrada: alta impedancia, más el pull-up o pull-down interno (~45 kΩ) si el programa lo activó.
+- Lo que lee (`entradas` del análisis): V ≤ VIL → 0, V ≥ VIH → 1, en el medio indefinido (el pin
+  conserva lo que tenía, como la histéresis de una entrada Schmitt). Umbrales de la placa
+  (`board.inputThresholds`): ESP32 0,25·VDD / 0,75·VDD; ATmega328P 0,3·VCC / 0,6·VCC. Un pin
+  que flota (nada fija su tensión) se avisa.
+- El server se lo manda al firmware cada vez que cambia algo (un pulsador, una salida, el
+  arranque): `refrescarEntradasDelCircuito`. Un pulsador ya no le dice su nivel directo al
+  firmware: cierra el circuito y el motor resuelve qué lee el pin. Mal cableado, el programa
+  no ve nada, como en la mesa.
+
 ### Tres cálculos por proyecto
 
 `GET /api/projects/:nombre/pins` corre el motor hasta tres veces (~10 ms en total):
@@ -154,8 +176,8 @@ Resultado de la última corrida: 332 tests unitarios y 43 e2e, todos verdes.
 - **Solo continua (punto de operación).** Los capacitores son circuitos abiertos y las
   bobinas, cables: todavía no hay tiempo (cargas, rebotes, PWM, el clic del relé). El
   SDK ya acepta capacitores e inductores; el análisis transitorio es la siguiente fase.
-- **El firmware ve niveles digitales.** El motor sabe si un pin está en alto o en bajo,
-  pero lo que el firmware **lee** (una entrada, el ADC) todavía no sale del motor.
+- **Entradas analógicas.** Lo que lee el programa en una entrada digital ya sale del motor;
+  el ADC (`analogRead`, `sensor: adc`) todavía no.
 - **Sin temperatura ni daño acumulado.** "Se quema" es un umbral de hoja de datos, no un
   modelo térmico; un LED quemado lo recuerda la UI, una placa quemada el server.
 - **Valores típicos.** Consumos, Vf, caídas de reguladores y resistencias de pin son de
