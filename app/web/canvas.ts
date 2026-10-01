@@ -1,7 +1,7 @@
 // Canvas del circuito (sección 11.2): módulos arrastrables, cables pin a pin,
 // zoom con la rueda y paneo arrastrando el fondo. No guarda nada: avisa los
 // cambios por callbacks y el que lo usa (app.ts) decide qué persistir.
-import { el, dibujarModulo, defDesconocido } from './modulos.js';
+import { el, dibujarModulo, defDesconocido, aplicarEstadoVivo } from './modulos.js';
 import { curva, girar, medioDeCurva, resolverPin, rotacionDe, salida, semiCaja, tipoCable } from './geometria.js';
 
 const COLOR_CABLE = { power: '#e2554b', ground: '#8a96a3', signal: '#56c271' };
@@ -73,11 +73,40 @@ export function crearLienzo(svg, ctx) {
   let frame = 0;
 
   /**
-   * Redibuja en el próximo frame: para lo que llega en ráfagas (niveles de pines de un
-   * firmware que parpadea rápido), así se rearma el SVG una vez por frame y no por mensaje.
+   * Refresca en el próximo frame lo que cambió de estado, sin rearmar el dibujo: es la vía de
+   * las ráfagas (los niveles de pines de un firmware que parpadea rápido, hasta 60 por segundo).
+   * Prender un LED pasa a ser quitar un atributo, no reconstruir el circuito entero.
+   *
+   * Lo estructural (agregar, borrar, mover, seleccionar) sigue llamando a `render()` directo.
    */
   function pedirRender() {
-    if (!frame) frame = requestAnimationFrame(render);
+    if (!frame) frame = requestAnimationFrame(pintarVivo);
+  }
+
+  /**
+   * Reaplica el estado visible de cada módulo sobre los nodos que ya están dibujados.
+   *
+   * Cae a un `render()` completo si el dibujo no puede estar al día: si todavía no se dibujó
+   * nada, si falta el nodo de algún módulo (lo agregaron y no se redibujó) o si cambió el
+   * estado de quemado, que no es un atributo sino nodos nuevos (chamuscado, humo, explosión).
+   */
+  function pintarVivo() {
+    if (frame) {
+      cancelAnimationFrame(frame);
+      frame = 0;
+    }
+    if (!capa) return render();
+    const { modules } = ctx.diagrama();
+    const vivos = [];
+    for (const inst of modules) {
+      const g = capa.querySelector(`.modulo[data-id="${CSS.escape(inst.id)}"]`);
+      if (!g) return render();
+      const vivo = ctx.vivo(inst);
+      // `dibujarQuemadura` marca el grupo con la clase `quemado` y le agrega nodos: es estructural.
+      if (Boolean(vivo.quemado) !== g.classList.contains('quemado')) return render();
+      vivos.push([g, vivo]);
+    }
+    for (const [g, vivo] of vivos) aplicarEstadoVivo(g, vivo);
   }
 
   function render() {

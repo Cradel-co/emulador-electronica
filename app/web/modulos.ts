@@ -104,6 +104,30 @@ function estados(vivo) {
 }
 
 /**
+ * Muestra u oculta las partes del dibujo marcadas con `data-si` según el estado del módulo
+ * (`on`, `presionado`, `flash`, `boton3`...), poniendo y quitando el atributo `display`.
+ *
+ * Está separada de `dibujarModulo` porque es lo único que cambia cuando cambia un nivel de
+ * pin: el canvas la vuelve a aplicar sobre los nodos que ya están, en vez de rearmar el SVG
+ * entero en cada frame.
+ *
+ * @param {Element} raiz @param {Vivo} vivo
+ */
+export function aplicarEstadoVivo(raiz, vivo) {
+  const e = estados(vivo ?? {});
+  for (const nodo of raiz.querySelectorAll('[data-si]')) {
+    const cond = nodo.getAttribute('data-si').trim();
+    const negado = cond.startsWith('!');
+    const mostrar = Boolean(e[negado ? cond.slice(1) : cond]) !== negado;
+    // Importante poner *y* quitar: al redibujar el nodo nace limpio, pero acá se reusa.
+    // Y solo si cambió: escribir el mismo valor invalida el estilo del nodo al por nada.
+    const oculto = nodo.getAttribute('display') === 'none';
+    if (mostrar && oculto) nodo.removeAttribute('display');
+    else if (!mostrar && !oculto) nodo.setAttribute('display', 'none');
+  }
+}
+
+/**
  * Dibuja el cuerpo del módulo (sin pines) dentro de `g`.
  * @param {SVGElement} g @param {any} def @param {{ props?: Record<string, any> }} inst @param {Vivo} [vivo]
  */
@@ -112,12 +136,7 @@ export function dibujarModulo(g, def, inst, vivo = {}) {
   if (!nodos) return dibujarGenerico(g, def);
   const cuerpo = el('g', { class: 'cuerpo' }, g);
   for (const n of nodos) cuerpo.append(document.importNode(n, true));
-  const e = estados(vivo);
-  for (const nodo of cuerpo.querySelectorAll('[data-si]')) {
-    const cond = nodo.getAttribute('data-si').trim();
-    const negado = cond.startsWith('!');
-    if (Boolean(e[negado ? cond.slice(1) : cond]) === negado) nodo.setAttribute('display', 'none');
-  }
+  aplicarEstadoVivo(cuerpo, vivo);
   for (const nodo of cuerpo.querySelectorAll('[data-ctrl]')) {
     nodo.classList.add('ctrl');
     nodo.setAttribute('data-control', nodo.getAttribute('data-ctrl'));
