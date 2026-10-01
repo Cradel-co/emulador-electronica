@@ -30,7 +30,7 @@ beforeAll(async () => {
 type Mod = Omit<ModuleInstance, 'x' | 'y'>;
 const mods = (ms: Mod[]): ModuleInstance[] => ms.map((m) => ({ x: 0, y: 0, ...m }));
 const w = (from: string, to: string): Wire => ({ from, to });
-const SIM = { wifiSsid: 'x', wifiPassword: 'y' };
+const SIM = { wifiSsid: 'x', wifiPassword: 'y', autoReload: false };
 const sinPlaca = (m: Mod[], c: Wire[]): Project => ({ schemaVersion: 1, name: 't', board: null, language: null, modules: mods(m), wires: c, sim: SIM });
 const conPlaca = (m: Mod[], c: Wire[], usb = true): Project => ({
   schemaVersion: 1, name: 't', board: 'esp32-s3-devkitc-1', language: 'micropython',

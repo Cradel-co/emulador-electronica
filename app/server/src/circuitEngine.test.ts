@@ -14,7 +14,7 @@ const buscar = (t: string): ModuleDef | undefined => CATALOGO.get(t);
 /** El circuito que la app hoy reporta en 0 mA: la placa alimenta y el pulsador está en serie. */
 const PROYECTO: Project = {
   schemaVersion: 1, name: 'test', board: 'esp32-s3-devkitc-1', language: 'micropython',
-  sim: { wifiSsid: 'sim', wifiPassword: 'sim' },
+  sim: { wifiSsid: 'sim', wifiPassword: 'sim', autoReload: false },
   modules: [
     { id: 'board', type: 'esp32-s3-devkitc-1', x: 0, y: 0, props: { usb: true } },
     { id: 'led1', type: 'led', x: 0, y: 0, props: { color: 'red' } },
@@ -69,7 +69,7 @@ describe('nivelesDeEntrada: lo que un GPIO de entrada lee del circuito', () => {
   /** Interruptor en serie con la carga y un GPIO sensando el nodo del medio. */
   const SENSADO: Project = {
     schemaVersion: 1, name: 'test', board: 'esp32-s3-devkitc-1', language: 'micropython',
-    sim: { wifiSsid: 'sim', wifiPassword: 'sim' },
+    sim: { wifiSsid: 'sim', wifiPassword: 'sim', autoReload: false },
     modules: [
       { id: 'board', type: 'esp32-s3-devkitc-1', x: 0, y: 0, props: { usb: true } },
       { id: 'led1', type: 'led', x: 0, y: 0, props: { color: 'red' } },

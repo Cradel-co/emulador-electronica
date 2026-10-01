@@ -253,7 +253,7 @@ describe('buildSimYaml', () => {
       language: 'esphome' as const,
       modules: [],
       wires: [],
-      sim: { wifiSsid: 'desde-proyecto', wifiPassword: 'clave' },
+      sim: { wifiSsid: 'desde-proyecto', wifiPassword: 'clave', autoReload: false },
     };
     const doc = parse(buildSimYaml(project, USER_YAML).text) as Record<string, any>;
     expect(doc.wifi.ssid).toBe('desde-proyecto');

@@ -14,7 +14,7 @@ const project = {
     { from: 'board.6', to: 'module:boton:SIGNAL' },
     { from: 'board.7', to: 'module:led:IN' },
   ],
-  sim: { wifiSsid: 'a', wifiPassword: 'b' },
+  sim: { wifiSsid: 'a', wifiPassword: 'b', autoReload: false },
 } satisfies Project;
 
 describe('scanPins', () => {

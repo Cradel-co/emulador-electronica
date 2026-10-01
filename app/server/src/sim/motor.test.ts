@@ -18,7 +18,7 @@ beforeAll(async () => {
   await precalentar();
 }, 60_000);
 
-const SIM = { wifiSsid: 'x', wifiPassword: 'y' };
+const SIM = { wifiSsid: 'x', wifiPassword: 'y', autoReload: false };
 type Mod = Omit<ModuleInstance, 'x' | 'y'> & { x?: number; y?: number };
 const mods = (ms: Mod[]): ModuleInstance[] => ms.map((m) => ({ x: 0, y: 0, ...m }));
 const w = (from: string, to: string): Wire => ({ from, to });

@@ -17,7 +17,7 @@ const buscar = (t: string): ModuleDef | undefined => CATALOGO.get(t);
 function proyecto(modules: Project['modules'], wires: Project['wires']): Project {
   return {
     schemaVersion: 1, name: 'test', board: 'esp32-s3-devkitc-1', language: 'micropython',
-    modules, wires, sim: { wifiSsid: 'sim', wifiPassword: 'sim' },
+    modules, wires, sim: { wifiSsid: 'sim', wifiPassword: 'sim', autoReload: false },
   };
 }
 

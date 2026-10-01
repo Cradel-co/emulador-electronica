@@ -154,7 +154,31 @@ Editor con pestañas en el panel central. Para ESPHome, la app **inyecta el comp
 - **Build** (Alt+0) — compila con Docker. Los errores llegan con archivo y línea, y los marcás en el editor.
 - **Emulador** (Alt+F12) — arranca el firmware real. Los botones del diagrama quedan accionables y la consola muestra UART0/Serial en vivo.
 
-### 5. Debuggear
+### 5. Editar con el emulador corriendo
+
+El código que corre en el chip es el que estaba al arrancar: editar el archivo no lo
+cambia solo. Para llevarle los cambios **no hace falta parar y volver a arrancar**:
+
+- **Recargar** (Ctrl+Shift+F5, o el botón ⟳ de la barra) — lleva el código guardado al chip.
+- **Simulación → Recargar al guardar** — lo hace solo cada vez que guardás. Viene activado
+  en los proyectos nuevos (es `sim.autoReload` en el `project.json`).
+
+Lo que pasa al recargar depende del lenguaje, igual que en una placa real:
+
+| Lenguaje | Qué hace | Cuánto tarda |
+|---|---|---|
+| MicroPython | re-sube los archivos por el REPL y hace un *soft reboot* | instantáneo, el emulador no se reinicia |
+| ESPHome, ESP-IDF, Arduino | compila y relanza la corrida con el firmware nuevo | lo que tarde Docker + el arranque |
+
+En los compilados el código vive dentro del firmware grabado, así que no hay recarga en
+caliente posible: es el mismo rebuild que harías a mano, en un paso. Si tenés
+**Recargar al guardar** activado en un proyecto compilado, cada guardado dispara un
+build — con los guardados seguidos se agrupan y se compila una sola vez.
+
+El programa **se reinicia desde cero** en los dos casos: la recarga no preserva el estado
+del que venía corriendo.
+
+### 6. Debuggear
 
 Pestaña **Debug** (Alt+5): breakpoints, paso a paso, variables, pila de llamadas, y un analizador de pines con los últimos 10 segundos. Habla GDB/RSP por debajo. Detalle por motor en [`docs/depuracion.md`](docs/depuracion.md).
 

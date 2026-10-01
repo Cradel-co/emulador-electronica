@@ -5,6 +5,7 @@ import {
   isValidProjectName,
   ProjectSchema,
   MAIN_FILE,
+  proyectoSinPlaca,
 } from './project.js';
 
 describe('isValidProjectName', () => {
@@ -55,7 +56,7 @@ describe('ProjectSchema', () => {
         { from: 'btn1.OUT', to: 'board.GPIO6' },
         { from: 'led1.IN', to: 'board.GPIO7' },
       ],
-      sim: { wifiSsid: 'sim-wifi', wifiPassword: 'sim-password' },
+      sim: { wifiSsid: 'sim-wifi', wifiPassword: 'sim-password', autoReload: true },
     };
     const parsed = ProjectSchema.parse(project);
     expect(parsed.modules).toHaveLength(3);
@@ -110,5 +111,17 @@ describe('MAIN_FILE', () => {
     expect(MAIN_FILE['idf-cpp']).toBe('main/main.cpp');
     expect(MAIN_FILE.arduino).toBe('sketch.cpp');
     expect(MAIN_FILE.micropython).toBe('main.py');
+  });
+});
+
+describe('sim.autoReload', () => {
+  it('los proyectos anteriores al campo se leen con la recarga apagada', () => {
+    const viejo = { schemaVersion: 1, name: 'v', board: 'esp32-s3-devkitc-1', language: 'micropython', modules: [], wires: [], sim: { wifiSsid: 'a', wifiPassword: 'b' } };
+    expect(ProjectSchema.parse(viejo).sim.autoReload).toBe(false);
+  });
+
+  it('un proyecto nuevo con placa la trae activa; sin placa, no', () => {
+    expect(defaultProject('n', 'micropython').sim.autoReload).toBe(true);
+    expect(proyectoSinPlaca('n').sim.autoReload).toBe(false);
   });
 });

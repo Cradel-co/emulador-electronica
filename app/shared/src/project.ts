@@ -23,6 +23,12 @@ export function isValidProjectName(name: string): boolean {
 export const SimConfigSchema = z.object({
   wifiSsid: z.string().min(1),
   wifiPassword: z.string(),
+  /**
+   * Al guardar un archivo de código, llevarlo al chip sin volver a arrancar el emulador
+   * (index.ts → recargarCodigo). Queda activa al incorporar la placa; los proyectos
+   * anteriores al campo arrancan en `false` y lo activan desde la UI.
+   */
+  autoReload: z.boolean().default(false),
 });
 
 export type SimConfig = z.infer<typeof SimConfigSchema>;
@@ -78,7 +84,8 @@ export function proyectoSinPlaca(name: string): Project {
       { from: 'led1.GND', to: 'r1.1' },
       { from: 'r1.2', to: 'fuente1.GND' },
     ],
-    sim: { wifiSsid: 'sim-wifi', wifiPassword: 'sim-password' },
+    // Sin placa no hay código ni chip: la recarga al guardar no aplica.
+    sim: { wifiSsid: 'sim-wifi', wifiPassword: 'sim-password', autoReload: false },
   };
 }
 
@@ -131,6 +138,8 @@ export function defaultProject(name: string, language: Language, board: string =
     sim: {
       wifiSsid: 'sim-wifi',
       wifiPassword: 'sim-password',
+      // El proyecto nace con placa: la recarga al guardar viene activa.
+      autoReload: true,
     },
   };
 }
