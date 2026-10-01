@@ -3,6 +3,7 @@ import { crearLienzo } from './canvas.js';
 import { miniatura } from './modulos.js';
 import { lenguajeDeArchivo, NOMBRE_LENGUAJE, resaltar } from './editor.js';
 import { crearDepuracion } from './depuracion.js';
+import { montarReact } from './react/montar.js';
 
 /**
  * Id de esta pestaña: el server lo devuelve en los eventos para no recargar los cambios propios.
@@ -3032,6 +3033,8 @@ const depuracion = crearDepuracion({
   conectarWS();
   await cargarPlacas();
   await cargarProyectos();
+  // React (issue #9): todavía no dibuja nada, se monta para tener la cadena armada.
+  montarReact();
   const emu = await api('/api/emulator').catch(() => null);
   if (emu?.status) {
     aplicarEstadoEmulador(emu.status);
