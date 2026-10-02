@@ -199,7 +199,10 @@ test('pantalla TFT ST7735 por SPI: el dibujo muestra los colores que pinta el pr
     const px = (x: number, y: number) => Array.from(g.getImageData(x, y, 1, 1).data.slice(0, 3));
     return { tam: [im.width, im.height], rojo: px(64, 20), verde: px(64, 60), azul: px(64, 100) };
   });
-  await expect.poll(async () => (await leer()).azul[2], { timeout: 10_000 }).toBeGreaterThan(200);
+  // Las tres franjas a la vez (una pantalla en blanco también tiene azul = 255).
+  const pintada = (c: { rojo: number[]; verde: number[]; azul: number[] } | null) =>
+    !!c && c.rojo[0]! > 200 && c.rojo[2]! < 30 && c.verde[1]! > 200 && c.verde[0]! < 30 && c.azul[2]! > 200 && c.azul[0]! < 30;
+  await expect.poll(async () => pintada(await leer()), { timeout: 15_000 }).toBe(true);
   const colores = await leer();
   expect(colores.tam).toEqual([128, 160]);
   expect(colores.rojo[0]).toBeGreaterThan(200);
@@ -326,7 +329,7 @@ test('ESP32 con MicroPython: machine.SPI + Pin para CS/DC/RST manejan la TFT ST7
     const px = (x: number, y: number) => Array.from(g.getImageData(x, y, 1, 1).data.slice(0, 3));
     return { rojo: px(64, 20), verde: px(64, 80), azul: px(64, 140) };
   }).catch(() => null);
-  await expect.poll(async () => (await leer())?.azul[2] ?? 0, { timeout: 15_000 }).toBeGreaterThan(200);
+  await expect.poll(async () => { const c = await leer(); return !!c && c.rojo[0]! > 200 && c.verde[1]! > 200 && c.azul[2]! > 200 && c.azul[0]! < 30; }, { timeout: 15_000 }).toBe(true);
   const c = (await leer())!;
   expect(c.rojo[0]).toBeGreaterThan(200);
   expect(c.verde[1]).toBeGreaterThan(200);
