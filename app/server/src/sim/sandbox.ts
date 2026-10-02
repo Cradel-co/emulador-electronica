@@ -1,5 +1,6 @@
 import vm from 'node:vm';
 import type { ModeloDiodo, Observacion, Primitiva } from '@emu/shared';
+import { ErrorTranspilar, esTypeScript, transpilarModelo } from './transpilar.js';
 
 /**
  * Sandbox de los modelos de módulo (el código del `model` del module.json).
@@ -150,7 +151,16 @@ export interface EntradaObservar extends Omit<EntradaCircuito, 'pines'> {
 export class SandboxModelo {
   private readonly ctx: vm.Context;
 
-  constructor(readonly tipo: string, codigo: string) {
+  /** `archivo`: cómo se llama el código en el module.json (`model.ts`); si es .ts se pasa a JavaScript antes de cargarlo. */
+  constructor(readonly tipo: string, codigo: string, archivo = 'model.js') {
+    if (esTypeScript(archivo)) {
+      try {
+        codigo = transpilarModelo(codigo, archivo);
+      } catch (err) {
+        if (err instanceof ErrorTranspilar) throw new ErrorModelo(`modelo de "${tipo}": ${err.message}`);
+        throw err;
+      }
+    }
     this.ctx = vm.createContext(Object.create(null), {
       codeGeneration: { strings: false, wasm: false },
       microtaskMode: 'afterEvaluate',
@@ -160,8 +170,9 @@ export class SandboxModelo {
     try {
       vm.runInContext(PRELUDIO, this.ctx, { timeout: TIEMPO_CARGA_MS });
       const script = new vm.Script(
-        envolver(`(function () {\n${codigo}\n})(), typeof module.exports.circuito === 'function' ? '' : 'el modelo no exporta circuito(ctx)'`),
-        { filename: `modules/${tipo}/model.js` },
+        // `export default {...}` (TypeScript) llega como exports.default: ese es el modelo.
+        envolver(`(function () {\n${codigo}\n})(), (module.exports && module.exports.__esModule && module.exports.default ? (module.exports = module.exports.default) : 0), typeof module.exports.circuito === 'function' ? '' : 'el modelo no exporta circuito(ctx)'`),
+        { filename: `modules/${tipo}/${archivo.replace(/\.ts$/, '.js')}` },
       );
       salida = script.runInContext(this.ctx, { timeout: TIEMPO_CARGA_MS });
     } catch (err) {

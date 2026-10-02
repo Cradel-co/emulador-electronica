@@ -38,7 +38,7 @@
     "pin": "IN"
   },
   "svg": "module.svg",
-  "model": "model.js",
+  "model": "model.ts",
   "parte": {
     "fabricante": "genérico (relé Songle)",
     "mpn": "Módulo relé 1 canal 5 V SRD-05VDC-SL-C",

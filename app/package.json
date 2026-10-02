@@ -17,7 +17,8 @@
     "build:web": "npm --workspace web run build",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "typecheck:modulos": "tsc -p ../modules/tsconfig.json"
   },
   "devDependencies": {
     "@playwright/test": "^1.48.2",

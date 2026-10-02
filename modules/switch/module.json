@@ -40,7 +40,7 @@
     "pull": "up"
   },
   "svg": "module.svg",
-  "model": "model.js",
+  "model": "model.ts",
   "parte": {"fabricante": "C&K", "mpn": "OS102011MS2QN1", "descripcion": "Llave deslizante de un polo, dos posiciones"},
   "esquematico": {
     "referencia": "SW",

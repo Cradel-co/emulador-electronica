@@ -16,7 +16,7 @@
   },
   "source": { "voltageProp": "voltage", "currentProp": "currentLimitMa" },
   "svg": "module.svg",
-  "model": "model.js",
+  "model": "model.ts",
   "parte": {
     "fabricante": "genérico",
     "mpn": "Fuente de laboratorio regulable (CV/CC)",

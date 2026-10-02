@@ -6,7 +6,9 @@ const N = 2; // factor de idealidad típico de un LED
 const RS = 2; // resistencia serie interna (Ω)
 const I_NOM = 0.02; // corriente a la que se especifica el Vf
 
-module.exports = {
+import type { ModeloModulo } from '@emu/shared';
+
+export default {
   circuito(ctx) {
     const vf = Number(ctx.vars.vf) || 2;
     // Corriente de saturación tal que a 20 mA la caída sea exactamente el Vf del color.
@@ -18,4 +20,4 @@ module.exports = {
     // La tensión inversa máxima (5 V de hoja de datos) está en las `reglas` del module.json.
     return { ui: { on: mA > 0.5, brillo: Math.max(0, Math.min(1, mA / 20)) } };
   },
-};
+} satisfies ModeloModulo;

@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { loadCatalog, type ModuloCatalogo } from '../catalog.js';
@@ -47,6 +48,19 @@ describe('módulos de fábrica: cada uno se prueba a sí mismo', () => {
     const sin = cat.filter((m) => m.pins.length > 0 && !(m.pruebas?.length)).map((m) => m.type);
     expect(sin).toEqual([]);
   });
+
+  it('el código de todos los módulos de fábrica es TypeScript (model.ts), no JavaScript', () => {
+    const js = cat.filter((m) => m.model && !m.model.endsWith('.ts')).map((m) => `${m.type}: ${m.model}`);
+    expect(js).toEqual([]);
+    expect(cat.filter((m) => m.model).length).toBeGreaterThan(10);
+  });
+
+  it('los tipos de todos los model.ts se verifican con el tsconfig de modules/ (strict)', () => {
+    const tsc = new URL('../../../node_modules/typescript/bin/tsc', import.meta.url).pathname;
+    const r = spawnSync(process.execPath, [tsc, '-p', new URL('../../../../modules/tsconfig.json', import.meta.url).pathname], { encoding: 'utf8' });
+    expect(r.stdout + r.stderr).toBe('');
+    expect(r.status).toBe(0);
+  }, 180_000);
 
   it('los símbolos y huellas de KiCad existen en las librerías oficiales (lista verificada)', () => {
     const usados = cat.flatMap((m) => [

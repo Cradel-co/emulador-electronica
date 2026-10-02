@@ -6,7 +6,9 @@
 // Consumo: el de un OLED depende de cuántos píxeles están prendidos y del contraste (de ~1 mA con
 // la pantalla negra a ~20 mA toda blanca). El modelo eléctrico no conoce la imagen: usa 10 mA,
 // un valor típico con texto y gráficos.
-module.exports = {
+import type { ModeloModulo } from '@emu/shared';
+
+export default {
   circuito(ctx) {
     const vcc = ctx.pin('VCC'), gnd = ctx.pin('GND');
     ctx.regulador(vcc, ctx.nodo('v33'), gnd, { voltios: 3.3, caida: 0.25, limiteA: 0.2, iq: 1e-6 }, 'ldo');
@@ -19,4 +21,4 @@ module.exports = {
     // Los límites de VCC están en las `reglas` del module.json.
     return { ui: { on: vcc >= 3.0 && vcc <= 6 } };
   },
-};
+} satisfies ModeloModulo;

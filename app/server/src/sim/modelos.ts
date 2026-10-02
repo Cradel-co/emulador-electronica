@@ -34,7 +34,7 @@ export function modeloDe(def: DefConCodigo): ModeloEjecutable {
 function crear(def: DefConCodigo): ModeloEjecutable {
   if (def.modeloCodigo) {
     try {
-      const sb = new SandboxModelo(def.type, def.modeloCodigo);
+      const sb = new SandboxModelo(def.type, def.modeloCodigo, def.model);
       return { circuito: (e) => sb.circuito(e), observar: (e) => sb.observar(e) };
     } catch (err) {
       const error = (err as Error).message;

@@ -21,7 +21,7 @@
   ],
   "drivers": { "arduino": { "librerias": ["Adafruit SSD1306@2.5.17", "Adafruit GFX Library@1.12.6", "Adafruit BusIO@1.17.4"] } },
   "svg": "module.svg",
-  "model": "model.js",
+  "model": "model.ts",
   "parte": {
     "fabricante": "genérico (Solomon Systech SSD1306)",
     "mpn": "OLED 0,96\" 128x64 I2C SSD1306",

@@ -80,7 +80,7 @@
       "default": "#5a1f1a"
     }
   },
-  "model": "model.js",
+  "model": "model.ts",
   "parte": {
     "fabricante": "Kingbright",
     "mpn": {

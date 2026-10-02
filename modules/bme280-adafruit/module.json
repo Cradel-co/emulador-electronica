@@ -62,7 +62,7 @@
     }
   },
   "svg": "module.svg",
-  "model": "model.js",
+  "model": "model.ts",
   "drivers": {
     "arduino": {
       "librerias": [

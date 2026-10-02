@@ -32,7 +32,7 @@
     "pin": "DATA"
   },
   "svg": "module.svg",
-  "model": "model.js",
+  "model": "model.ts",
   "parte": {
     "fabricante": "genérico",
     "mpn": "STX882 433 MHz",

@@ -28,7 +28,7 @@
   ],
   "drivers": { "arduino": { "librerias": ["RTClib@2.1.4", "Adafruit BusIO@1.17.4"] } },
   "svg": "module.svg",
-  "model": "model.js",
+  "model": "model.ts",
   "parte": {
     "fabricante": "genérico (Analog Devices DS3231 + Microchip AT24C32)",
     "mpn": "ZS-042",

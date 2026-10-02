@@ -197,7 +197,7 @@ function problemasModelo(def: ModuleDef, codigo: string | undefined): string[] {
   const vars: Record<string, string> = {};
   for (const [k, v] of Object.entries(def.vars)) vars[k] = v.map[String(props[v.prop])] ?? v.default;
   try {
-    const sb = new SandboxModelo(def.type, codigo);
+    const sb = new SandboxModelo(def.type, codigo, def.model);
     for (const control of [false, true]) sb.circuito({ pines: def.pins.map((x) => x.name), props, control, estado: {}, vars });
     return [];
   } catch (err) {
@@ -364,7 +364,7 @@ export function paquetesDeArchivos(archivos: Map<string, string>, kind: OrigenKi
       try {
         const j = JSON.parse(normal.get(ruta)!) as { svg?: unknown; model?: unknown };
         if (typeof j.svg === 'string' && /^[\w.-]+\.svg$/.test(j.svg)) svgNombre = j.svg;
-        if (typeof j.model === 'string' && /^[\w.-]+\.js$/.test(j.model)) modeloNombre = j.model;
+        if (typeof j.model === 'string' && /^[\w.-]+\.(ts|js)$/.test(j.model)) modeloNombre = j.model;
       } catch {
         /* el error de JSON lo informa la validación */
       }
@@ -463,7 +463,7 @@ export async function paquetesDeUrl(url: string, opcionesWokwi: OpcionesWokwi = 
     }
   };
   const svg = await vecino(svgNombre);
-  const modelo = typeof json.model === 'string' && /^[\w.-]+\.js$/.test(json.model) ? await vecino(json.model) : undefined;
+  const modelo = typeof json.model === 'string' && /^[\w.-]+\.(ts|js)$/.test(json.model) ? await vecino(json.model) : undefined;
   const pruebas = await vecino('tests.json');
   return { paquetes: [{ json: texto, svg, modelo, pruebas, origen: url, kind: 'url' as const }], errores: [], avisos: [] };
 }

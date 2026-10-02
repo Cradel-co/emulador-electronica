@@ -3,7 +3,9 @@
 // de 4,7 kΩ de SCL y SDA a los 3,3 V regulados (no a VCC: los pines del MPU-6050 no aguantan 5 V),
 // pull-down de 4,7 kΩ en AD0 y LED de encendido con 1 kΩ.
 // Consumo del MPU-6050 midiendo: 3,8 mA (PS-MPU-6000A, 6.3: giróscopo + acelerómetro).
-module.exports = {
+import type { ModeloModulo } from '@emu/shared';
+
+export default {
   circuito(ctx) {
     const vcc = ctx.pin('VCC'), gnd = ctx.pin('GND'), v33 = ctx.nodo('v33');
     ctx.regulador(vcc, v33, gnd, { voltios: 3.3, caida: 0.25, limiteA: 0.2, iq: 1e-6 }, 'ldo');
@@ -20,4 +22,4 @@ module.exports = {
     // anda. Los límites de VCC están en las `reglas` del module.json.
     return { ui: { on: vcc - 0.25 >= 2.375 && vcc <= 6 } };
   },
-};
+} satisfies ModeloModulo;

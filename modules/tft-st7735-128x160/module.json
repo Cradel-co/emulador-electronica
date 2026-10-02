@@ -24,7 +24,7 @@
   ],
   "drivers": { "arduino": { "librerias": ["Adafruit ST7735 and ST7789 Library@1.11.0", "Adafruit GFX Library@1.12.6", "Adafruit BusIO@1.17.4"] } },
   "svg": "module.svg",
-  "model": "model.js",
+  "model": "model.ts",
   "parte": {
     "fabricante": "genérico (Sitronix ST7735R)",
     "mpn": "TFT 1,8\" 128x160 SPI ST7735",

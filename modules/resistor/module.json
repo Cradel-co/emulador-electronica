@@ -16,7 +16,7 @@
   "passthrough": true,
   "ohmsProp": "ohms",
   "svg": "module.svg",
-  "model": "model.js",
+  "model": "model.ts",
   "parte": {
     "fabricante": "Yageo",
     "mpn": "CFR-25JB-52-{{props.ohms|codigoR}}",

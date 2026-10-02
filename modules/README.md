@@ -12,7 +12,7 @@ desde el primer día. Lo que se le agrega lo hace subir de nivel:
 | Nivel | Qué tiene | Qué se puede hacer |
 |---|---|---|
 | `dibujo` | `module.json` con pines (y su `module.svg`) | Dibujarlo y cablearlo. No consume ni hace nada. |
-| `simula` | + un modelo eléctrico (`model.js` o los flags), un rol en la simulación o chips | Simularlo: consume, se prende, se quema, avisa. |
+| `simula` | + un modelo eléctrico (`model.ts` o los flags), un rol en la simulación o chips | Simularlo: consume, se prende, se quema, avisa. |
 | `probado` | + `tests.json` con casos de su hoja de datos, que pasan | Confiar en lo que simula: lo verifica el motor real en cada cambio. |
 | `fabricable` | + `parte` (qué se compra) y `esquematico` con su huella | Exportarlo para fabricar: símbolo, huella, BOM. |
 
@@ -27,7 +27,7 @@ y `probar_modulo`.
 modules/relay/
 ├── module.json   # obligatorio: qué es, pines, props, simulación, parte, esquemático, reglas
 ├── module.svg    # el dibujo (sin él: una caja con su nombre)
-├── model.js      # su circuito interno, para el motor eléctrico (ver ../docs/modulos-y-su-codigo.md)
+├── model.ts      # su circuito interno en TypeScript, para el motor eléctrico (ver ../docs/modulos-y-su-codigo.md)
 └── tests.json    # sus pruebas, con valores de la hoja de datos
 ```
 
@@ -60,7 +60,7 @@ pruebas**: si algo falla, no se instala y dice qué se midió.
   "bridge": { "role": "output", "pin": "SIG" },
   "controls": [],
   "props": { "etiqueta": { "type": "string", "default": "BZ", "label": "Rótulo" } },
-  "model": "model.js"
+  "model": "model.ts"
 }
 ```
 
@@ -78,7 +78,7 @@ pruebas**: si algo falla, no se instala y dice qué se midió.
 
 | Campo | Qué es |
 |---|---|
-| `model` | Su código: un `.js` de la carpeta que describe su circuito interno con elementos físicos (resistencias, diodos, fuentes, reguladores...) y lo que muestra. Guía completa: [`../docs/modulos-y-su-codigo.md`](../docs/modulos-y-su-codigo.md). |
+| `model` | Su código, en **TypeScript** (`"model": "model.ts"`): un archivo de la carpeta que describe su circuito interno con elementos físicos (resistencias, diodos, fuentes, reguladores...) y lo que muestra. Cómo se escribe: [Código del módulo en TypeScript](#código-del-módulo-en-typescript) y [`../docs/modulos-y-su-codigo.md`](../docs/modulos-y-su-codigo.md). |
 | `passthrough` + `ohmsProp`, `diode`, `switch`, `source` | Sin `model`: flags que le arman un modelo básico (resistencia, diodo, contacto, fuente). |
 | `electrical` | Datos de hoja de datos de un LED: `maxCurrentMa` (recomendado) y `burnCurrentMa` (se quema). |
 | `bridge` | Cómo participa en la simulación del firmware: `role` `input` (maneja un pin del micro, como un botón; `activeLevel` 0 o 1), `output` (muestra el nivel de un pin, como un LED), `rf-rx` / `rf-tx` (radio 433 MHz), `air` (inalámbrico, sin cables); `pin`: cuál de sus pines. |
@@ -140,13 +140,13 @@ Para exportar el proyecto a KiCad y mandarlo a fabricar.
 | `huella` | Huella de KiCad. | Una tira de pines de 2,54 mm con tantos pines como el módulo, en su orden |
 | `pines` | Pin del módulo → número de pin del símbolo y la huella. **Obligatorio con `simbolo`**, y tiene que nombrar todos los pines. | 1, 2, 3... en el orden de `pins` |
 | `conectores` | En vez de `huella`: varios conectores, cada uno con sus pines en orden (un DevKit con dos tiras). Cada pin del módulo en uno solo. | — |
-| `discreto` | El despiece real, para fabricar el módulo en vez de comprarlo: cada pieza con `ref`, `valor`, `simbolo`, `huella` y `nodos` (número de pin → pin del módulo **o nodo interno del `model.js`**). `elemento` dice qué elemento del modelo la representa. | — |
+| `discreto` | El despiece real, para fabricar el módulo en vez de comprarlo: cada pieza con `ref`, `valor`, `simbolo`, `huella` y `nodos` (número de pin → pin del módulo **o nodo interno del `model.ts`**). `elemento` dice qué elemento del modelo la representa. | — |
 | `notas` | Lo que hay que saber al armarlo ("SDO a GND = 0x76"). | — |
 
 Lo que se valida (y si no, no se instala):
 
 - los pines de `pines` y `conectores` existen, y no queda ninguno afuera;
-- cada `nodos` del despiece es un pin del módulo o un nodo de su `model.js` (`ctx.nodo('base')` →
+- cada `nodos` del despiece es un pin del módulo o un nodo de su `model.ts` (`ctx.nodo('base')` →
   `"base"`), y cada `elemento` existe en el modelo: **el esquemático no puede mentir respecto de lo
   que se simula**;
 - en los de fábrica, cada símbolo y huella está en
@@ -180,7 +180,7 @@ en el MCP con el nombre del módulo adelante.
 |---|---|---|
 | `tensionMax` | V(`entre[0]`) − V(`entre[1]`) pasa `max`. Con `entre` al revés sirve para la tensión inversa (un LED: `["GND", "IN"]`). | `peligro` |
 | `tensionMin` | Está por debajo de `min`, pero solo si hay algo aplicado (más de `desde`, 0,5 V por defecto): sin alimentar no molesta. | `advertencia` |
-| `corrienteMax` | \|I\| de un elemento del `model.js` pasa `maxMa`. | `peligro` |
+| `corrienteMax` | \|I\| de un elemento del `model.ts` pasa `maxMa`. | `peligro` |
 | `potenciaMax` | \|P\| de un elemento pasa `maxMw`. | `peligro` |
 | `conectado` | Alguno de esos pines no tiene cable (no hace falta simular). | `advertencia` |
 
@@ -191,7 +191,53 @@ en el MCP con el nombre del módulo adelante.
 - **Cuándo una regla y cuándo `observar()`**: un límite fijo de la hoja de datos es una regla. Lo que
   depende de varias cosas a la vez (el relé que no pega con menos del 75 % de su corriente, el
   regulador en caída, una pila que no es recargable recibiendo carga) va en `observar()` del
-  `model.js`. Nunca los dos para lo mismo: el aviso saldría repetido.
+  `model.ts`. Nunca los dos para lo mismo: el aviso saldría repetido.
+
+## Código del módulo en TypeScript
+
+**Todo el código de un módulo está en TypeScript**: `model.ts`. El server le quita los tipos al
+cargarlo (con `typescript`, sin resolver imports ni ejecutar nada) y corre el JavaScript resultante en
+su sandbox. Se escribe siempre igual, con los tipos de `@emu/shared`:
+
+```ts
+import type { AvisoModelo, ModeloModulo } from '@emu/shared';
+
+export default {
+  circuito(ctx) {
+    ctx.resistencia(ctx.pin('VCC'), ctx.pin('GND'), 167, 'bobina');
+  },
+  observar(l) {
+    const avisos: AvisoModelo[] = [];
+    if (l.vEntre('VCC', 'GND') > 6) avisos.push({ severidad: 'peligro', mensaje: 'Se daña.' });
+    return { ui: { on: l.i('bobina') > 0.005 }, avisos };
+  },
+} satisfies ModeloModulo;
+```
+
+- **`export default { ... } satisfies ModeloModulo`**: así `ctx` y `l` ya vienen tipados (el editor
+  autocompleta `ctx.regulador(...)`, `l.vEntre(...)`) y un error de nombre o de argumentos se ve al
+  escribir, no al correr.
+- **Solo `import type`**: un módulo no puede importar nada en tiempo de ejecución (el sandbox no tiene
+  `require`). Los tipos se borran al transpilar. Un `import` de verdad se rechaza al importar, con
+  ese motivo.
+- **Los tipos se verifican de verdad**, en modo estricto, con `modules/tsconfig.json`:
+
+  ```bash
+  cd app && npm run typecheck:modulos
+  ```
+
+  El test del catálogo (`sim/catalogoModulos.test.ts`) lo corre, así que un `model.ts` de fábrica que
+  no compila rompe los tests. Con `strict`, `const avisos = []` falla (se ensancha a `any[]`): hay que
+  escribir `const avisos: AvisoModelo[] = []`; y `l.estado` es `Record<string, unknown>`, por lo que un
+  contador se lee `Number(l.estado.veces ?? 0)`.
+- **Un error de sintaxis se informa con su línea**: `model.ts (línea 12): ...`. El importador no
+  chequea los tipos (eso es del editor y de `typecheck:modulos`): solo exige que transpile, cargue y
+  arme su circuito.
+- Los módulos importados de antes, con `model.js` (`module.exports = {...}`), siguen cargando. Los de
+  fábrica tienen que ser `.ts` (lo exige el test del catálogo) y todo módulo nuevo debería serlo.
+
+Los **chips** (`chips/<id>/comportamiento.js`) siguen en JavaScript: corren en otro sandbox con otra API
+(`ctx.publicar`, `ctx.despertarEn`...) y no son un módulo.
 
 ## tests.json: el módulo se prueba a sí mismo
 
@@ -237,7 +283,7 @@ Lo que se puede esperar:
 | Campo | Qué compara |
 |---|---|
 | `tension` | `{ "3VO": [3.28, 3.32] }` respecto de tierra, o `{ "VCC:GND": [...] }` entre dos pines, en V. |
-| `corrienteMa` | \|I\| de un elemento del `model.js`, en mA. |
+| `corrienteMa` | \|I\| de un elemento del `model.ts`, en mA. |
 | `potenciaMw` | \|P\| de un elemento, en mW. |
 | `ui` | Lo que devuelve `observar()` en `ui`: un valor (`"on": true`) o un rango (`"brillo": [0.45, 0.55]`). |
 | `sinAvisos` | Ningún aviso de este módulo (ni de `observar` ni de `reglas`). |
@@ -272,7 +318,7 @@ maestro virtual y con firmware real en `app/server/src/bus/` (ver [`../chips/REA
 Hay dos puertas, según lo que se tenga:
 
 - **Con el esquemático de la placa** (Adafruit, SparkFun y la mayoría de los fabricantes lo publican):
-  el `model.js` copia sus piezas una por una (regulador, pull-ups, LED, diodos) y el `discreto` del
+  el `model.ts` copia sus piezas una por una (regulador, pull-ups, LED, diodos) y el `discreto` del
   esquemático las nombra igual. Ejemplos: [`bme280-adafruit/`](bme280-adafruit/), [`relay/`](relay/).
 - **Sabiendo cómo se comporta** (la hoja de datos, o medido en la mesa): el modelo es su consumo y sus
   umbrales, las reglas son sus máximos, y el esquemático puede quedar en "módulo con su conector".
@@ -281,7 +327,7 @@ Hay dos puertas, según lo que se tenga:
 1. **Carpeta y `module.json`**: copiá uno parecido. Los pines con los nombres serigrafiados y en el
    orden del conector.
 2. **`module.svg`**: el dibujo (ver abajo).
-3. **`model.js`**: su circuito interno (empezá por el consumo) y su `ui`. Ver
+3. **`model.ts`**: su circuito interno (empezá por el consumo) y su `ui`. Ver
    [`../docs/modulos-y-su-codigo.md`](../docs/modulos-y-su-codigo.md).
 4. **`reglas`**: los máximos y mínimos absolutos de la hoja de datos.
 5. **`tests.json`**: los casos de arriba, con los valores de la hoja.
@@ -301,7 +347,7 @@ Hay dos puertas, según lo que se tenga:
 - [ ] `tests.json` cubre el caso típico, cada límite, lo que es de la placa y cada prop eléctrica.
 - [ ] El número de parte está verificado (o es `generico` con descripción).
 - [ ] Símbolo y huella existen en KiCad y la numeración de pines salió del símbolo.
-- [ ] Si tiene `discreto`, cada pieza nombra los mismos nodos que el `model.js`.
+- [ ] Si tiene `discreto`, cada pieza nombra los mismos nodos que el `model.ts`.
 - [ ] `probar_modulo` (o el test del catálogo) da `ok` y el nivel esperado.
 
 ## module.svg
@@ -345,7 +391,7 @@ Ejemplos completos: [`led/`](led/), [`button/`](button/), [`remote-433/`](remote
 
 | Desde | Cómo |
 |---|---|
-| Carpeta | Una carpeta con `module.json` + `module.svg` (+ su `model.js` y su `tests.json`), o una colección con una subcarpeta por módulo. |
+| Carpeta | Una carpeta con `module.json` + `module.svg` (+ su `model.ts` y su `tests.json`), o una colección con una subcarpeta por módulo. |
 | Zip | Lo mismo, comprimido. Límites: 512 KB por archivo y 8 MB en total. |
 | Chip de Wokwi | El `.chip.json` de un [chip custom](https://docs.wokwi.com/chips-api/chip-json). Se importan los pines con un dibujo genérico (pines a los costados, como Wokwi). La lógica del chip (WASM) **no** se ejecuta; se le puede asignar un rol (`input`, `output`, `rf-rx`, `rf-tx`). |
 | URL | `https://` a un zip, un `module.json` (su SVG, su modelo y su `tests.json` se buscan al lado), un `.chip.json`, o un repo de GitHub: `https://github.com/dueño/repo` o `…/tree/rama/carpeta`. |
@@ -354,7 +400,7 @@ Antes de instalar cada módulo se corre su banco de pruebas (ver [Cómo se valid
 
 ## Seguridad
 
-El `model.js` corre aislado en un sandbox (sin acceso al server, con tiempo límite, y lo que devuelve se revisa entero); al importar se lo carga y se lo prueba, y si falla no se instala. Detalle en [`../docs/modulos-y-su-codigo.md`](../docs/modulos-y-su-codigo.md#seguridad-por-qué-se-puede-importar-código-de-otros).
+El `model.ts` corre aislado en un sandbox (sin acceso al server, con tiempo límite, y lo que devuelve se revisa entero); al importar se lo carga y se lo prueba, y si falla no se instala. Detalle en [`../docs/modulos-y-su-codigo.md`](../docs/modulos-y-su-codigo.md#seguridad-por-qué-se-puede-importar-código-de-otros).
 
 El SVG termina dentro de la página, así que al importar se **rechaza** (no se "arregla") si trae:
 

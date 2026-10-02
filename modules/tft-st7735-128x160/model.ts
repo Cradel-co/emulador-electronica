@@ -2,7 +2,9 @@
 // regulador de 3,3 V (662K) para el controlador, y la retroiluminación (LEDs blancos) con una
 // resistencia en serie desde el pin LED. El valor de esa resistencia cambia de placa a placa: este
 // modelo usa 47 Ω y un LED blanco equivalente (Vf ≈ 3 V), aproximado.
-module.exports = {
+import type { AvisoModelo, ModeloModulo } from '@emu/shared';
+
+export default {
   circuito(ctx) {
     const vcc = ctx.pin('VCC'), gnd = ctx.pin('GND');
     ctx.regulador(vcc, ctx.nodo('v33'), gnd, { voltios: 3.3, caida: 0.25, limiteA: 0.2, iq: 1e-6 }, 'ldo');
@@ -12,10 +14,10 @@ module.exports = {
   },
   observar(l) {
     const vcc = l.vEntre('VCC', 'GND');
-    const avisos = [];
+    const avisos: AvisoModelo[] = [];
     // El máximo de VCC está en las `reglas` del module.json.
     const luz = l.i('backlight');
     if (vcc >= 3 && luz < 1e-3) avisos.push({ severidad: 'advertencia', mensaje: 'La retroiluminación (LED) no recibe corriente: la pantalla va a verse oscura. Conectá LED a 3,3 V o 5 V (o a un pin con PWM).' });
     return { ui: { on: vcc >= 3 && vcc <= 6 }, avisos };
   },
-};
+} satisfies ModeloModulo;
