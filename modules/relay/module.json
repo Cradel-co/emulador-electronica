@@ -38,5 +38,64 @@
     "pin": "IN"
   },
   "svg": "module.svg",
-  "model": "model.js"
+  "model": "model.js",
+  "parte": {
+    "fabricante": "genérico (relé Songle)",
+    "mpn": "Módulo relé 1 canal 5 V SRD-05VDC-SL-C",
+    "generico": true,
+    "descripcion": "Módulo de un relé de 5 V con transistor de mando"
+  },
+  "esquematico": {
+    "referencia": "A",
+    "valor": "Relé 5 V {{props.label}}",
+    "huella": "Connector_PinHeader_2.54mm:PinHeader_1x03_P2.54mm_Vertical",
+    "pines": {"IN": "1", "VCC": "2", "GND": "3"},
+    "fabricacion": "modulo",
+    "notas": ["Los contactos (COM, NA, NC) van en la bornera del módulo: no están en la simulación."],
+    "discreto": [
+      {
+        "ref": "R",
+        "valor": "1k",
+        "simbolo": "Device:R",
+        "huella": "Resistor_THT:R_Axial_DIN0207_L6.3mm_D2.5mm_P10.16mm_Horizontal",
+        "elemento": "rbase",
+        "nodos": {"1": "IN", "2": "base"}
+      },
+      {
+        "ref": "Q",
+        "valor": "S8050",
+        "simbolo": "Transistor_BJT:S8050",
+        "huella": "Package_TO_SOT_THT:TO-92_Inline",
+        "elemento": "transistor",
+        "nodos": {"1": "GND", "2": "base", "3": "bobina"}
+      },
+      {
+        "ref": "D",
+        "valor": "1N4148",
+        "simbolo": "Device:D",
+        "huella": "Diode_THT:D_DO-35_SOD27_P7.62mm_Horizontal",
+        "elemento": "ruedalibre",
+        "nodos": {"1": "VCC", "2": "bobina"}
+      },
+      {
+        "ref": "K",
+        "valor": "SRD-05VDC-SL-C",
+        "simbolo": "Relay:SANYOU_SRD_Form_C",
+        "huella": "Relay_THT:Relay_SPDT_SANYOU_SRD_Series_Form_C",
+        "fabricante": "Songle",
+        "mpn": "SRD-05VDC-SL-C",
+        "elemento": "bobina",
+        "nodos": {"2": "VCC", "5": "bobina"}
+      }
+    ]
+  },
+  "reglas": [
+    {
+      "tipo": "tensionMax",
+      "entre": ["VCC", "GND"],
+      "max": 7,
+      "severidad": "peligro",
+      "mensaje": "VCC del relé en {v} V: la bobina es de 5 V, se recalienta."
+    }
+  ]
 }

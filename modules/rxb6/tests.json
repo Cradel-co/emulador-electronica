@@ -1,0 +1,17 @@
+[
+  {
+    "nombre": "con 5 V consume ~4,5 mA y recibe",
+    "banco": {"VCC": {"fuente": 5}, "GND": "tierra"},
+    "espera": {"corrienteMa": {"consumo": [4.4, 4.7]}, "ui": {"on": true}, "sinAvisos": true}
+  },
+  {
+    "nombre": "con 3 V no recibe bien",
+    "banco": {"VCC": {"fuente": 3}, "GND": "tierra"},
+    "espera": {"ui": {"on": false}, "avisos": [{"severidad": "advertencia", "contiene": "entre 3,3 y 5,5 V"}]}
+  },
+  {
+    "nombre": "con 7 V se daña",
+    "banco": {"VCC": {"fuente": 7}, "GND": "tierra"},
+    "espera": {"avisos": [{"severidad": "peligro", "contiene": "se daña"}]}
+  }
+]

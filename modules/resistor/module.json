@@ -16,5 +16,34 @@
   "passthrough": true,
   "ohmsProp": "ohms",
   "svg": "module.svg",
-  "model": "model.js"
+  "model": "model.js",
+  "parte": {
+    "fabricante": "Yageo",
+    "mpn": "CFR-25JB-52-{{props.ohms|codigoR}}",
+    "descripcion": "Resistencia de película de carbón, 1/4 W, 5 %"
+  },
+  "esquematico": {
+    "referencia": "R",
+    "valor": "{{props.ohms|ohms}}",
+    "simbolo": "Device:R",
+    "huella": "Resistor_THT:R_Axial_DIN0207_L6.3mm_D2.5mm_P10.16mm_Horizontal",
+    "pines": {"1": "1", "2": "2"},
+    "fabricacion": "discreto"
+  },
+  "reglas": [
+    {
+      "tipo": "potenciaMax",
+      "elemento": "r",
+      "maxMw": 500,
+      "severidad": "peligro",
+      "mensaje": "Disipa {w} W: más del doble de su potencia nominal (1/4 W). Se quema."
+    },
+    {
+      "tipo": "potenciaMax",
+      "elemento": "r",
+      "maxMw": 250,
+      "severidad": "advertencia",
+      "mensaje": "Disipa {w} W: más de su potencia nominal (1/4 W), se calienta de más. Usá una de 1/2 W o más."
+    }
+  ]
 }

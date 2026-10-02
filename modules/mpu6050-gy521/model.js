@@ -16,10 +16,8 @@ module.exports = {
   },
   observar(l) {
     const vcc = l.vEntre('VCC', 'GND');
-    const avisos = [];
-    if (vcc > 6) avisos.push({ severidad: 'peligro', mensaje: `VCC en ${vcc.toFixed(1).replace('.', ',')} V: la placa es para 3,3 a 5 V (su regulador aguanta hasta 6 V).` });
-    // El MPU-6050 necesita 2,375 V (PS 6.3): con el regulador en caída, debajo de ~2,6 V de VCC no anda.
-    if (vcc > 0.5 && vcc - 0.25 < 2.375) avisos.push({ severidad: 'advertencia', mensaje: `VCC en ${vcc.toFixed(2).replace('.', ',')} V: al MPU-6050 le llegan menos de 2,375 V (su mínimo). No va a responder.` });
-    return { ui: { on: vcc - 0.25 >= 2.375 && vcc <= 6 }, avisos };
+    // El MPU-6050 necesita 2,375 V (PS 6.3): con el regulador en caída, debajo de ~2,6 V de VCC no
+    // anda. Los límites de VCC están en las `reglas` del module.json.
+    return { ui: { on: vcc - 0.25 >= 2.375 && vcc <= 6 } };
   },
 };

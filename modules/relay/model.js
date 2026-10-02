@@ -19,7 +19,7 @@ module.exports = {
     if (iBobina > 0.005 && !pega) {
       avisos.push({ severidad: 'advertencia', mensaje: `La bobina recibe ${vcc.toFixed(1).replace('.', ',')} V (${(iBobina * 1000).toFixed(0)} mA): no alcanza para cerrar el contacto. El relé es de 5 V.` });
     }
-    if (vcc > 7) avisos.push({ severidad: 'peligro', mensaje: `VCC del relé en ${vcc.toFixed(1).replace('.', ',')} V: la bobina es de 5 V, se recalienta.` });
+    // El máximo de VCC (7 V) está en las `reglas` del module.json.
     return { ui: { on: pega }, avisos };
   },
 };

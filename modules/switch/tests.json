@@ -1,0 +1,13 @@
+[
+  {
+    "nombre": "suelto: OUT queda en lo que fija el pull-up",
+    "banco": {"OUT": {"fuente": 3.3, "limiteMa": 0.33}, "GND": "tierra"},
+    "espera": {"tension": {"OUT:GND": [3.29, 3.31]}, "sinAvisos": true}
+  },
+  {
+    "nombre": "activo: une OUT con GND (~50 mΩ)",
+    "control": true,
+    "banco": {"OUT": {"fuente": 3.3, "limiteMa": 0.33}, "GND": "tierra"},
+    "espera": {"tension": {"OUT:GND": [0, 0.001]}, "corrienteMa": {"contacto": [0.32, 0.34]}}
+  }
+]

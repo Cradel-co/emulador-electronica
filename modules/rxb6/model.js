@@ -6,9 +6,7 @@ module.exports = {
   },
   observar(l) {
     const v = l.vEntre('VCC', 'GND');
-    const avisos = [];
-    if (v > 6) avisos.push({ severidad: 'peligro', mensaje: `VCC del RXB6 en ${v.toFixed(1).replace('.', ',')} V: el máximo es 5,5 V, se daña.` });
-    else if (v > 0.5 && v < 3.3) avisos.push({ severidad: 'advertencia', mensaje: `VCC del RXB6 en ${v.toFixed(1).replace('.', ',')} V: necesita entre 3,3 y 5,5 V para recibir bien.` });
-    return { ui: { on: v >= 3.3 && v <= 5.5 }, avisos };
+    // Los límites de VCC (3,3 a 5,5 V) están en las `reglas` del module.json.
+    return { ui: { on: v >= 3.3 && v <= 5.5 } };
   },
 };

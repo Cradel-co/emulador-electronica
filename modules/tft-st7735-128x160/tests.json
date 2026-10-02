@@ -1,0 +1,12 @@
+[
+  {
+    "nombre": "con 5 V y LED a 3,3 V: ~6 mA del controlador y la retroiluminación prendida",
+    "banco": {"VCC": {"fuente": 5}, "GND": "tierra", "LED": {"fuente": 3.3}},
+    "espera": {"corrienteMa": {"st7735": [5.9, 6.1], "backlight": [5, 40]}, "ui": {"on": true}, "sinAvisos": true}
+  },
+  {
+    "nombre": "sin LED: se va a ver oscura",
+    "banco": {"VCC": {"fuente": 5}, "GND": "tierra"},
+    "espera": {"avisos": [{"severidad": "advertencia", "contiene": "retroiluminación"}]}
+  }
+]

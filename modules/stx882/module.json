@@ -32,5 +32,28 @@
     "pin": "DATA"
   },
   "svg": "module.svg",
-  "model": "model.js"
+  "model": "model.js",
+  "parte": {
+    "fabricante": "genérico",
+    "mpn": "STX882 433 MHz",
+    "generico": true,
+    "descripcion": "Transmisor de 433 MHz (ASK/OOK)"
+  },
+  "esquematico": {
+    "referencia": "A",
+    "valor": "STX882",
+    "huella": "Connector_PinHeader_2.54mm:PinHeader_1x03_P2.54mm_Vertical",
+    "pines": {"DATA": "1", "VCC": "2", "GND": "3"},
+    "fabricacion": "modulo",
+    "notas": ["Antena: 17,3 cm de cable (cuarto de onda a 433 MHz)."]
+  },
+  "reglas": [
+    {
+      "tipo": "tensionMax",
+      "entre": ["VCC", "GND"],
+      "max": 6.5,
+      "severidad": "peligro",
+      "mensaje": "VCC del STX882 en {v} V: el máximo es 6 V, se daña."
+    }
+  ]
 }

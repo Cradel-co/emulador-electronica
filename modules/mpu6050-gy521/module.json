@@ -29,5 +29,39 @@
   ],
   "drivers": { "arduino": { "librerias": ["Adafruit MPU6050@2.2.9", "Adafruit Unified Sensor@1.1.15", "Adafruit BusIO@1.17.4"] } },
   "svg": "module.svg",
-  "model": "model.js"
+  "model": "model.js",
+  "parte": {
+    "fabricante": "genérico (TDK InvenSense MPU-6050)",
+    "mpn": "GY-521",
+    "generico": true,
+    "descripcion": "Acelerómetro y giróscopo MPU-6050 con regulador de 3,3 V",
+    "datasheet": "https://invensense.tdk.com/wp-content/uploads/2015/02/MPU-6000-Datasheet1.pdf"
+  },
+  "esquematico": {
+    "referencia": "A",
+    "valor": "MPU-6050 (GY-521)",
+    "huella": "Connector_PinHeader_2.54mm:PinHeader_1x08_P2.54mm_Vertical",
+    "pines": {"VCC": "1", "GND": "2", "SCL": "3", "SDA": "4", "XDA": "5", "XCL": "6", "AD0": "7", "INT": "8"},
+    "fabricacion": "modulo",
+    "notas": [
+      "AD0 a 3,3 V = dirección 0x69; sin cablear (pull-down de la placa) = 0x68.",
+      "Los pull-ups de SCL/SDA van a 3,3 V: con un micro de 5 V no hace falta adaptador."
+    ]
+  },
+  "reglas": [
+    {
+      "tipo": "tensionMax",
+      "entre": ["VCC", "GND"],
+      "max": 6,
+      "severidad": "peligro",
+      "mensaje": "VCC en {v} V: la placa es para 3,3 a 5 V (su regulador aguanta hasta 6 V)."
+    },
+    {
+      "tipo": "tensionMin",
+      "entre": ["VCC", "GND"],
+      "min": 2.625,
+      "severidad": "advertencia",
+      "mensaje": "VCC en {v} V: al MPU-6050 le llegan menos de 2,375 V (su mínimo). No va a responder."
+    }
+  ]
 }

@@ -16,9 +16,7 @@ module.exports = {
   },
   observar(l) {
     const vcc = l.vEntre('VCC', 'GND');
-    const avisos = [];
-    if (vcc > 6) avisos.push({ severidad: 'peligro', mensaje: `VCC en ${vcc.toFixed(1).replace('.', ',')} V: el módulo es para 3,3 a 5 V (su regulador aguanta hasta 6 V).` });
-    else if (vcc > 0.5 && vcc < 3.0) avisos.push({ severidad: 'advertencia', mensaje: `VCC en ${vcc.toFixed(2).replace('.', ',')} V: la bomba de carga del SSD1306 necesita al menos ~3,3 V en su entrada; la pantalla puede no prender.` });
-    return { ui: { on: vcc >= 3.0 && vcc <= 6 }, avisos };
+    // Los límites de VCC están en las `reglas` del module.json.
+    return { ui: { on: vcc >= 3.0 && vcc <= 6 } };
   },
 };

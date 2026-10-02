@@ -28,5 +28,39 @@
   ],
   "drivers": { "arduino": { "librerias": ["RTClib@2.1.4", "Adafruit BusIO@1.17.4"] } },
   "svg": "module.svg",
-  "model": "model.js"
+  "model": "model.js",
+  "parte": {
+    "fabricante": "genérico (Analog Devices DS3231 + Microchip AT24C32)",
+    "mpn": "ZS-042",
+    "generico": true,
+    "descripcion": "Reloj de tiempo real DS3231 + EEPROM AT24C32, con portapila CR2032",
+    "datasheet": "https://www.analog.com/media/en/technical-documentation/data-sheets/DS3231.pdf"
+  },
+  "esquematico": {
+    "referencia": "A",
+    "valor": "RTC DS3231 (ZS-042)",
+    "huella": "Connector_PinHeader_2.54mm:PinHeader_1x06_P2.54mm_Vertical",
+    "pines": {"32K": "1", "SQW": "2", "SCL": "3", "SDA": "4", "VCC": "5", "GND": "6"},
+    "fabricacion": "modulo",
+    "notas": [
+      "Con una CR2032 (no recargable), alimentar con 3,3 V o sacar el diodo/la resistencia de 200 Ω del circuito de carga.",
+      "SQW/INT es colector abierto: la placa trae pull-up de 4,7 kΩ."
+    ]
+  },
+  "reglas": [
+    {
+      "tipo": "tensionMax",
+      "entre": ["VCC", "GND"],
+      "max": 5.5,
+      "severidad": "peligro",
+      "mensaje": "VCC en {v} V: el DS3231 aguanta hasta 5,5 V."
+    },
+    {
+      "tipo": "tensionMin",
+      "entre": ["VCC", "GND"],
+      "min": 2.3,
+      "severidad": "advertencia",
+      "mensaje": "VCC en {v} V: el DS3231 necesita al menos 2,3 V; queda andando con la pila."
+    }
+  ]
 }

@@ -1,27 +1,56 @@
-# Catálogo de módulos
+# Módulos: cómo tiene que ser uno
 
-Cada módulo es una carpeta `modules/<tipo>/`:
+Un **módulo** es una pieza real que se cablea en el circuito: una resistencia, un LED, un relé, un
+sensor en su placa, una pantalla, una placa programable. Cada uno vive en su carpeta
+`modules/<tipo>/` y dice de sí mismo todo lo que hace falta para **dibujarlo, simularlo, probarlo y
+fabricarlo**.
+
+La regla de diseño: **lo único obligatorio es el `module.json` con sus pines.** Todo lo demás es
+opcional y tiene un valor por defecto que la app genera sola, así un módulo inventado ayer anda
+desde el primer día. Lo que se le agrega lo hace subir de nivel:
+
+| Nivel | Qué tiene | Qué se puede hacer |
+|---|---|---|
+| `dibujo` | `module.json` con pines (y su `module.svg`) | Dibujarlo y cablearlo. No consume ni hace nada. |
+| `simula` | + un modelo eléctrico (`model.js` o los flags), un rol en la simulación o chips | Simularlo: consume, se prende, se quema, avisa. |
+| `probado` | + `tests.json` con casos de su hoja de datos, que pasan | Confiar en lo que simula: lo verifica el motor real en cada cambio. |
+| `fabricable` | + `parte` (qué se compra) y `esquematico` con su huella | Exportarlo para fabricar: símbolo, huella, BOM. |
+
+Los módulos de fábrica tienen que llegar a **`fabricable`**: lo exige
+`app/server/src/sim/catalogoModulos.test.ts`. El nivel de cada módulo y lo que le falta se ven en su
+panel (sección **Pieza real**), en `GET /api/modules` (`nivel`) y en las herramientas MCP `catalogo`
+y `probar_modulo`.
+
+## La carpeta
 
 ```
-modules/
-└── zumbador/
-    ├── module.json   # nombre, pines, rol en la simulación, propiedades
-    ├── module.svg    # el dibujo
-    └── model.js      # (opcional) su modelo eléctrico: con qué está hecho por dentro
+modules/relay/
+├── module.json   # obligatorio: qué es, pines, props, simulación, parte, esquemático, reglas
+├── module.svg    # el dibujo (sin él: una caja con su nombre)
+├── model.js      # su circuito interno, para el motor eléctrico (ver ../docs/modulos-y-su-codigo.md)
+└── tests.json    # sus pruebas, con valores de la hoja de datos
 ```
 
-No hace falta tocar el código de la app para agregar uno: se importa desde la UI (**+ Importar** en el catálogo), por la API (`POST /api/modules/import`) o por MCP (`importar_modulo`). También se puede copiar la carpeta acá y reiniciar el server.
+Si el módulo tiene **lógica digital** (un sensor que habla I2C, una pantalla, un reloj), esa lógica
+es un **chip** y vive aparte, en `chips/<id>/` (ver [`../chips/README.md`](../chips/README.md)). El
+módulo lo usa con `chips` y le agrega lo que es de la placa: regulador, pull-ups, LED, conector.
+Así varias placas comerciales con el mismo chip comparten lo difícil.
 
-El código de un módulo (`model.js`) describe su circuito interno con elementos físicos y lo resuelve el motor eléctrico (ngspice): **cómo funciona y cómo escribir uno está en [`../docs/modulos-y-su-codigo.md`](../docs/modulos-y-su-codigo.md)**. Ese código nunca corre en el server: corre en un sandbox aislado, y el importador lo prueba antes de instalarlo. El SVG se revisa al importar y otra vez antes de dibujarlo (ver [Seguridad](#seguridad)).
+No hace falta tocar el código de la app para agregar un módulo: se importa desde la UI
+(**+ Importar**), por la API (`POST /api/modules/import`) o por MCP (`importar_modulo`), o se copia la
+carpeta acá y se reinicia el server. Antes de instalarlo, el importador **corre su banco de
+pruebas**: si algo falla, no se instala y dice qué se midió.
 
 ## module.json
+
+### Qué es y cómo se ve
 
 ```json
 {
   "type": "zumbador",
   "name": "Zumbador",
   "category": "Salidas",
-  "description": "Suena cuando el ESP32 pone su pin en 1.",
+  "description": "Suena cuando el pin está en 1. Activo de 5 V, 30 mA.",
   "width": 60,
   "height": 60,
   "pins": [
@@ -30,41 +59,250 @@ El código de un módulo (`model.js`) describe su circuito interno con elementos
   ],
   "bridge": { "role": "output", "pin": "SIG" },
   "controls": [],
-  "props": { "etiqueta": { "type": "string", "default": "BZ", "label": "Rótulo" } }
+  "props": { "etiqueta": { "type": "string", "default": "BZ", "label": "Rótulo" } },
+  "model": "model.js"
 }
 ```
 
 | Campo | Qué es |
 |---|---|
 | `type` | Id del módulo y nombre de la carpeta: `[a-z0-9-]`, hasta 40. |
-| `name`, `category`, `description` | Lo que se ve en el catálogo. Las categorías nuevas aparecen solas. |
+| `name`, `category`, `description` | Lo que se ve en el catálogo. Las categorías nuevas aparecen solas. La descripción dice para qué sirve y cómo se conecta. |
 | `width`, `height` | Tamaño del dibujo, en las mismas unidades que el SVG. |
-| `pins` | `name` (único, `[A-Za-z0-9_+-]`), posición `x`,`y` dentro del módulo (normalmente en el borde) y `kind`: `digital-in`, `digital-out`, `digital-io`, `power`, `ground`, `analog-in`, `other`. Los pines los dibuja la app encima del SVG. |
-| `bridge` | Cómo participa en la simulación (opcional). `role`: `input` (el módulo maneja un pin del ESP32, como un botón; `activeLevel` 0 o 1), `output` (muestra el nivel de un pin, como un LED), `rf-rx` / `rf-tx` (receptor/transmisor 433 MHz), `air` (inalámbrico, sin cables). `pin`: cuál de sus pines se conecta al ESP32. Sin `bridge`, el módulo se cablea pero es pasivo. |
+| `pins` | `name` (único, `[A-Za-z0-9_+-]`, **el mismo que está serigrafiado en la placa real**), posición `x`,`y` dentro del módulo (normalmente en el borde) y `kind`: `digital-in`, `digital-out`, `digital-io`, `power`, `ground`, `analog-in`, `other`. **En el orden físico del conector**: ese orden es el de la huella por defecto. |
 | `controls` | Qué se puede tocar: `momentary` (mientras se mantiene), `toggle` (alterna), `button`. |
 | `props` | Propiedades editables en el panel: `type` `string`/`number`/`boolean`, `default`, `label`, `enum`, `min`, `max`. |
-| `vars` | Valores para el SVG que dependen de una propiedad (ver abajo). |
-| `passthrough` | Componente de 2 pines "en línea" (como una resistencia): para la lógica digital (qué GPIO prende qué salida) la app lo salta, como si el cable siguiera derecho. Requiere `ohmsProp`. |
-| `ohmsProp` | Nombre de la prop (`type: "number"`) que tiene su resistencia en ohms — con ella el motor eléctrico le arma su resistencia si no tiene `model`. |
-| `diode` | Se comporta como un diodo (LED). Su Vf a 20 mA sale de `vars.vf` (ver abajo) o de `diodeVfDefault` (por defecto 2 V). |
-| `switch` | Contacto de 2 pines: une sus pines mientras su control está activo (pulsador, llave). |
-| `source` | Fuente regulable: `{ voltageProp, currentProp? }` (props con el voltaje y el límite en mA). |
-| `electrical` | Datos de hoja de datos: `maxCurrentMa` (recomendado) y `burnCurrentMa` (se quema), para los avisos de LEDs. |
-| `model` | Punto de entrada a su código: un `.js` de la carpeta del módulo (ver [Modelo eléctrico](#modelo-eléctrico)). Sin `model`, los flags `passthrough`/`diode`/`switch`/`source` arman uno básico. |
-| `chips` | Los chips con lógica que lleva la placa (`chips/<id>/`: sensor, reloj, pantalla). Cada uno: `id`, `pines` (pin del módulo → pin del chip), `porCableado` (props que salen de cómo está cableado un pin: `{ "sdo": { "pin": "SDO", "aTierra": "bajo", "aAlimentacion": "alto" } }`) y `pullUps` (pines del chip con pull-up en la placa). Ver [`../chips/README.md`](../chips/README.md). |
-| `drivers` | Librerías que usa el código para este módulo: `{ "arduino": { "librerias": ["RTClib@2.1.4"] } }`. Se instalan solas al compilar un proyecto que lo tenga (el proyecto puede sumar otras en `librerias.txt`). |
+| `vars` | Valores para el SVG que dependen de una propiedad (ver [module.svg](#modulesvg)). |
 
-Un módulo `programmable` es una **placa** (ESP32, Arduino...): corre el código del proyecto y lleva un bloque `board` con su chip, motor de emulación, toolchains por lenguaje, pines del MCU (`pins`: nombre del dibujo → `gpio`, y `port`/`bit` si el motor es nativo), pines reservados/advertencias, `io` (puente por UART o nativo), niveles eléctricos (`logicVoltage`, `maxPinCurrentMa`, `pinOutputOhm`) y el circuito de prueba (`demo`). El importador acepta placas si ese bloque es válido. Esquema completo: `GET /api/boards/schema`; ejemplos: `esp32-s3-devkitc-1/`, `esp32-c3-devkitm-1/`, `esp32-c6-devkitc-1/`, `arduino-uno/`; motores y toolchains disponibles: `app/server/src/engines/README.md` y `app/server/src/toolchains/README.md`. Cada proyecto corre una sola placa.
+### Cómo se simula
 
-### Modelo eléctrico
+| Campo | Qué es |
+|---|---|
+| `model` | Su código: un `.js` de la carpeta que describe su circuito interno con elementos físicos (resistencias, diodos, fuentes, reguladores...) y lo que muestra. Guía completa: [`../docs/modulos-y-su-codigo.md`](../docs/modulos-y-su-codigo.md). |
+| `passthrough` + `ohmsProp`, `diode`, `switch`, `source` | Sin `model`: flags que le arman un modelo básico (resistencia, diodo, contacto, fuente). |
+| `electrical` | Datos de hoja de datos de un LED: `maxCurrentMa` (recomendado) y `burnCurrentMa` (se quema). |
+| `bridge` | Cómo participa en la simulación del firmware: `role` `input` (maneja un pin del micro, como un botón; `activeLevel` 0 o 1), `output` (muestra el nivel de un pin, como un LED), `rf-rx` / `rf-tx` (radio 433 MHz), `air` (inalámbrico, sin cables); `pin`: cuál de sus pines. |
+| `chips` | Los chips con lógica de la placa: `id` (de `chips/`), `pines` (pin del módulo → pin del chip), `porCableado` (props que salen del cableado: SDO a GND → dirección 0x76) y `pullUps`. |
+| `drivers` | Librerías del código para este módulo: `{ "arduino": { "librerias": ["RTClib@2.1.4"] } }`. Se instalan solas al compilar. |
+| `programmable` + `board` | Es una **placa**: corre el código del proyecto. Esquema del bloque `board`: `GET /api/boards/schema`; ejemplos en `arduino-uno/` y `esp32-*/`. |
 
-Todo el circuito (módulos, placa y fuentes) lo resuelve un motor eléctrico real (ngspice): Ohm, Kirchhoff, la curva de los diodos, fuentes con límite de corriente, reguladores, brownout de la placa. Cada módulo aporta su circuito interno:
+### `parte`: qué se compra
 
-- con **código** (`"model": "model.js"`): cualquier combinación de resistencias, diodos, fuentes, interruptores, capacitores; sus propias reglas (avisos) y lo que muestra (`ui.on`). Guía completa y SDK: [`../docs/modulos-y-su-codigo.md`](../docs/modulos-y-su-codigo.md); lo que un módulo *muestra* desde su modelo se limita a `ui.on` y `ui.brillo`; una pantalla la dibuja su chip (ver `data-pantalla` abajo y [`../docs/pantallas.md`](../docs/pantallas.md));
-- **sin código**: los flags `passthrough` + `ohmsProp`, `diode`, `switch`, `source` le arman un modelo básico;
-- sin ninguno de los dos, se cablea igual pero eléctricamente no está.
+Para la lista de materiales (BOM) y para encontrarlo en un proveedor.
 
-Los avisos (cortocircuito, LED que se quema o sobreexigido, pin por encima de su corriente, tensión de afuera en un pin, fuente en modo CC, avisos de cada modelo) salen en `#avisos-dibujo`, en Problemas y en el MCP. `GET /api/projects/:nombre/pins` devuelve además `electrico` (LEDs, fuentes, alimentación de la placa, tensión de cada pin y lo que muestra cada módulo). Cómo funciona el motor y qué leyes respeta: [`../docs/motor-electrico.md`](../docs/motor-electrico.md).
+```json
+"parte": {
+  "fabricante": "Kingbright",
+  "mpn": { "prop": "color", "map": { "red": "WP7113ID", "blue": "WP7113QBC/D" }, "default": "WP7113ID" },
+  "descripcion": "LED de 5 mm (T-1 3/4), 20 mA",
+  "datasheet": "https://...",
+  "proveedores": [{ "nombre": "Adafruit", "sku": "2652", "url": "https://www.adafruit.com/product/2652" }]
+}
+```
+
+| Campo | Qué es |
+|---|---|
+| `fabricante` | Quién lo hace. En una placa genérica, `"genérico (Bosch BME280)"`: el fabricante del chip entre paréntesis. |
+| `mpn` | Número de parte del fabricante. Si depende de una prop: una plantilla (`"CFR-25JB-52-{{props.ohms\|codigoR}}"` → `CFR-25JB-52-4K7`) o un mapa por valor (como el LED de arriba). Filtros: `ohms` (4k7) y `codigoR` (4K7, 220R). |
+| `generico` | `true` para placas sin un número de parte único (ZS-042, GY-521, el relé de un canal): se compran por nombre. El exportador lo marca. |
+| `descripcion`, `datasheet`, `proveedores` | Opcionales. Las URLs tienen que ser `https://`. |
+
+**Un número de parte se verifica antes de escribirlo** (en el sitio del fabricante o de un
+distribuidor). Si no se sabe, mejor `generico: true` con una descripción clara que un MPN inventado.
+
+### `esquematico`: símbolo, huella y despiece
+
+Para exportar el proyecto a KiCad y mandarlo a fabricar.
+
+```json
+"esquematico": {
+  "referencia": "A",
+  "valor": "Relé 5 V {{props.label}}",
+  "huella": "Connector_PinHeader_2.54mm:PinHeader_1x03_P2.54mm_Vertical",
+  "pines": { "IN": "1", "VCC": "2", "GND": "3" },
+  "fabricacion": "modulo",
+  "notas": ["Los contactos (COM, NA, NC) van en la bornera del módulo."],
+  "discreto": [
+    { "ref": "R", "valor": "1k", "simbolo": "Device:R", "huella": "Resistor_THT:R_Axial_DIN0207_L6.3mm_D2.5mm_P10.16mm_Horizontal",
+      "elemento": "rbase", "nodos": { "1": "IN", "2": "base" } },
+    { "ref": "Q", "valor": "S8050", "simbolo": "Transistor_BJT:S8050", "huella": "Package_TO_SOT_THT:TO-92_Inline",
+      "elemento": "transistor", "nodos": { "1": "GND", "2": "base", "3": "bobina" } }
+  ]
+}
+```
+
+| Campo | Qué es | Si no está |
+|---|---|---|
+| `fabricacion` | `modulo`: se compra la placa y se enchufa en su conector (un breakout). `discreto`: la pieza va soldada (una resistencia, un LED). `externo`: no va en la placa (una fuente de laboratorio, un control remoto): solo en la BOM, y un conector si tiene cables. | `modulo` |
+| `referencia` | Prefijo: `R`, `C`, `D`, `Q`, `K`, `SW`, `J`, `U`, `A` (un módulo armado). | `U` (`A` en una placa) |
+| `valor` | Lo que se escribe al lado del símbolo. Admite `{{props.x}}`. | El nombre del módulo |
+| `simbolo` | Símbolo de las librerías oficiales de KiCad: `"Biblioteca:Nombre"`. | Una caja con los pines del módulo |
+| `huella` | Huella de KiCad. | Una tira de pines de 2,54 mm con tantos pines como el módulo, en su orden |
+| `pines` | Pin del módulo → número de pin del símbolo y la huella. **Obligatorio con `simbolo`**, y tiene que nombrar todos los pines. | 1, 2, 3... en el orden de `pins` |
+| `conectores` | En vez de `huella`: varios conectores, cada uno con sus pines en orden (un DevKit con dos tiras). Cada pin del módulo en uno solo. | — |
+| `discreto` | El despiece real, para fabricar el módulo en vez de comprarlo: cada pieza con `ref`, `valor`, `simbolo`, `huella` y `nodos` (número de pin → pin del módulo **o nodo interno del `model.js`**). `elemento` dice qué elemento del modelo la representa. | — |
+| `notas` | Lo que hay que saber al armarlo ("SDO a GND = 0x76"). | — |
+
+Lo que se valida (y si no, no se instala):
+
+- los pines de `pines` y `conectores` existen, y no queda ninguno afuera;
+- cada `nodos` del despiece es un pin del módulo o un nodo de su `model.js` (`ctx.nodo('base')` →
+  `"base"`), y cada `elemento` existe en el modelo: **el esquemático no puede mentir respecto de lo
+  que se simula**;
+- en los de fábrica, cada símbolo y huella está en
+  [`../app/server/src/fixtures/kicad-verificados.txt`](../app/server/src/fixtures/kicad-verificados.txt),
+  la lista verificada contra las librerías oficiales de KiCad
+  ([símbolos](https://gitlab.com/kicad/libraries/kicad-symbols), [huellas](https://gitlab.com/kicad/libraries/kicad-footprints)).
+  Para usar uno nuevo: buscarlo ahí, mirar la numeración de sus pines en el archivo del símbolo, y
+  sumarlo a la lista.
+
+La numeración de pines sale del símbolo de KiCad, no de la intuición: en `Device:LED` el 1 es el
+cátodo (K) y el 2 el ánodo (A); en `Transistor_BJT:S8050` (EBC) 1 = E, 2 = B, 3 = C; en
+`Relay:SANYOU_SRD_Form_C` la bobina es 2-5.
+
+### `reglas`: los límites de la hoja de datos
+
+Los máximos y mínimos de la hoja de datos, dichos como datos. El motor eléctrico los evalúa en cada
+cálculo con los mismos valores que ve el modelo, y los avisos salen en el circuito, en Problemas y
+en el MCP con el nombre del módulo adelante.
+
+```json
+"reglas": [
+  { "tipo": "tensionMax", "entre": ["VCC", "GND"], "max": 6, "severidad": "peligro", "mensaje": "VCC en {v} V: el máximo es 5,5 V, se daña." },
+  { "tipo": "tensionMin", "entre": ["VCC", "GND"], "min": 3.3, "mensaje": "VCC en {v} V: necesita al menos 3,3 V." },
+  { "tipo": "potenciaMax", "elemento": "r", "maxMw": 250, "severidad": "advertencia" },
+  { "tipo": "corrienteMax", "elemento": "bobina", "maxMa": 90 },
+  { "tipo": "conectado", "pines": ["GND"] }
+]
+```
+
+| Tipo | Avisa cuando | Severidad por defecto |
+|---|---|---|
+| `tensionMax` | V(`entre[0]`) − V(`entre[1]`) pasa `max`. Con `entre` al revés sirve para la tensión inversa (un LED: `["GND", "IN"]`). | `peligro` |
+| `tensionMin` | Está por debajo de `min`, pero solo si hay algo aplicado (más de `desde`, 0,5 V por defecto): sin alimentar no molesta. | `advertencia` |
+| `corrienteMax` | \|I\| de un elemento del `model.js` pasa `maxMa`. | `peligro` |
+| `potenciaMax` | \|P\| de un elemento pasa `maxMw`. | `peligro` |
+| `conectado` | Alguno de esos pines no tiene cable (no hace falta simular). | `advertencia` |
+
+- `mensaje` puede llevar el valor medido: `{v}` (V), `{ma}` (mA), `{mw}` (mW), `{w}` (W con 2
+  decimales). Sin `mensaje`, la app arma uno con el límite.
+- **De varias reglas que miran lo mismo, sale solo la más grave**: con 0,25 W (advertencia) y 0,5 W
+  (peligro) sobre la misma resistencia, a 0,77 W sale solo "se quema".
+- **Cuándo una regla y cuándo `observar()`**: un límite fijo de la hoja de datos es una regla. Lo que
+  depende de varias cosas a la vez (el relé que no pega con menos del 75 % de su corriente, el
+  regulador en caída, una pila que no es recargable recibiendo carga) va en `observar()` del
+  `model.js`. Nunca los dos para lo mismo: el aviso saldría repetido.
+
+## tests.json: el módulo se prueba a sí mismo
+
+Cada caso arma un **banco** alrededor del módulo con piezas de fábrica, lo resuelve con el motor
+eléctrico real (ngspice) y compara con lo que dice la hoja de datos. **Siempre con rangos**: las
+piezas reales tienen tolerancia.
+
+```json
+[
+  {
+    "nombre": "con 5 V e IN en 3,3 V: la bobina (70 Ω) toma ~70 mA y pega",
+    "banco": { "VCC": { "fuente": 5 }, "GND": "tierra", "IN": { "fuente": 3.3 } },
+    "espera": { "corrienteMa": { "bobina": [65, 72] }, "ui": { "on": true }, "sinAvisos": true }
+  },
+  {
+    "nombre": "con 3 V en VCC no alcanza para cerrar el contacto",
+    "banco": { "VCC": { "fuente": 3 }, "GND": "tierra", "IN": { "fuente": 3.3 } },
+    "espera": { "ui": { "on": false }, "avisos": [{ "severidad": "advertencia", "contiene": "no alcanza" }] }
+  }
+]
+```
+
+| Campo | Qué es |
+|---|---|
+| `nombre` | Qué se prueba y qué tiene que pasar, en una frase. Es lo que se lee cuando falla. |
+| `props` | Props del módulo para este caso (`{ "color": "blue" }`). Las demás, las de por defecto. |
+| `control` | `true`: su control activo (pulsador apretado, llave encendida). |
+| `banco` | Qué se conecta a cada pin (los que no aparecen quedan sueltos). |
+| `espera` | Lo que se tiene que cumplir (todo junto). |
+
+Lo que se le puede conectar a un pin en el `banco`:
+
+| Conexión | Qué es |
+|---|---|
+| `"tierra"` | GND del banco. |
+| `{ "fuente": 5 }` | Una fuente de 5 V (de −24 a 24) contra tierra; `"limiteMa"` (por defecto 1000) la pasa a corriente constante si la carga pide más: sirve para "un LED a 10 mA" o "un pull-up de 10 kΩ" (3,3 V con 0,33 mA). |
+| `{ "resistencia": 4700 }` | Una resistencia del pin a tierra; con `"a": "VCC"`, a otro pin del módulo. |
+| `"sonda"` | Un multímetro: 10 MΩ a tierra, para medir un pin que maneja el módulo (3VO). Los pines que se miden en `espera.tension` y no están en el banco llevan una sola. |
+| `"abierto"` | Nada (es lo mismo que no ponerlo). |
+
+Lo que se puede esperar:
+
+| Campo | Qué compara |
+|---|---|
+| `tension` | `{ "3VO": [3.28, 3.32] }` respecto de tierra, o `{ "VCC:GND": [...] }` entre dos pines, en V. |
+| `corrienteMa` | \|I\| de un elemento del `model.js`, en mA. |
+| `potenciaMw` | \|P\| de un elemento, en mW. |
+| `ui` | Lo que devuelve `observar()` en `ui`: un valor (`"on": true`) o un rango (`"brillo": [0.45, 0.55]`). |
+| `sinAvisos` | Ningún aviso de este módulo (ni de `observar` ni de `reglas`). |
+| `avisos` | Avisos que tienen que aparecer: `{ "severidad": "peligro", "contiene": "se daña" }`. |
+
+**Qué casos escribir** (con valores de la hoja de datos o del esquemático, no "lo que dio"):
+
+1. El caso típico de la hoja: tensión nominal, consumo nominal, sin avisos.
+2. Cada límite que importa: por debajo del mínimo, por encima del máximo (tiene que avisar).
+3. Lo que hace la placa y no el chip: a qué tensión van los pull-ups, cuánto da el regulador, la
+   corriente de carga de una pila.
+4. Cada prop que cambia la electricidad (el color de un LED, la pila del RTC).
+
+Además de los casos del `tests.json`, siempre corre una **prueba de humo**: con 3,3 V en sus pines de
+alimentación, el modelo resuelve sin NaN. Un módulo sin pines (un control remoto inalámbrico) no
+tiene nada eléctrico que probar y no necesita `tests.json`.
+
+La lógica de un chip (registros, protocolo, tiempos) **no** se prueba acá: tiene sus pruebas con el
+maestro virtual y con firmware real en `app/server/src/bus/` (ver [`../chips/README.md`](../chips/README.md)).
+
+## Cómo se valida y se prueba
+
+| Dónde | Cómo |
+|---|---|
+| Al importar | El importador valida el formato, carga el modelo, revisa que el esquemático, las reglas y las pruebas nombren pines y elementos que existen, y corre las pruebas. Si algo falla, no se instala: dice qué y con qué valor medido. **Solo validar** hace todo eso sin instalar. |
+| Por MCP | `probar_modulo { "tipo": "relay" }`: el informe caso por caso, su nivel, lo que le falta y cómo sale en el esquemático. |
+| Por la API | `POST /api/modules/<tipo>/probar` (el mismo informe). `GET /api/modules` trae el `nivel` de cada uno. |
+| En los tests | `npx vitest run server/src/sim/catalogoModulos.test.ts` (desde `app/`): todos los de fábrica, con todo lo anterior y en `fabricable`. |
+
+## Crear un módulo real, paso a paso
+
+Hay dos puertas, según lo que se tenga:
+
+- **Con el esquemático de la placa** (Adafruit, SparkFun y la mayoría de los fabricantes lo publican):
+  el `model.js` copia sus piezas una por una (regulador, pull-ups, LED, diodos) y el `discreto` del
+  esquemático las nombra igual. Ejemplos: [`bme280-adafruit/`](bme280-adafruit/), [`relay/`](relay/).
+- **Sabiendo cómo se comporta** (la hoja de datos, o medido en la mesa): el modelo es su consumo y sus
+  umbrales, las reglas son sus máximos, y el esquemático puede quedar en "módulo con su conector".
+  Ejemplos: [`rxb6/`](rxb6/), [`stx882/`](stx882/).
+
+1. **Carpeta y `module.json`**: copiá uno parecido. Los pines con los nombres serigrafiados y en el
+   orden del conector.
+2. **`module.svg`**: el dibujo (ver abajo).
+3. **`model.js`**: su circuito interno (empezá por el consumo) y su `ui`. Ver
+   [`../docs/modulos-y-su-codigo.md`](../docs/modulos-y-su-codigo.md).
+4. **`reglas`**: los máximos y mínimos absolutos de la hoja de datos.
+5. **`tests.json`**: los casos de arriba, con los valores de la hoja.
+6. **`parte`** y **`esquematico`**: el número de parte verificado, la huella (y el símbolo si existe en
+   KiCad), la numeración de pines leída del símbolo.
+7. Si tiene lógica digital: el chip en `chips/` (ver [`../chips/README.md`](../chips/README.md)) y `chips`
+   en el module.json.
+8. **Probalo**: `importar_modulo` con `solo_validar` (o, si es de fábrica, el test del catálogo). Mirá
+   el informe: lo medido tiene que tener sentido físico, no solo "pasar".
+
+### Lista de verificación
+
+- [ ] Los pines se llaman como en la placa real y están en el orden del conector.
+- [ ] La descripción dice qué es, con qué tensión anda y cómo se conecta.
+- [ ] El modelo usa valores de la hoja de datos o del esquemático, y lo dice en un comentario (con la sección).
+- [ ] Los límites absolutos están en `reglas`, no repetidos en `observar()`.
+- [ ] `tests.json` cubre el caso típico, cada límite, lo que es de la placa y cada prop eléctrica.
+- [ ] El número de parte está verificado (o es `generico` con descripción).
+- [ ] Símbolo y huella existen en KiCad y la numeración de pines salió del símbolo.
+- [ ] Si tiene `discreto`, cada pieza nombra los mismos nodos que el `model.js`.
+- [ ] `probar_modulo` (o el test del catálogo) da `ok` y el nivel esperado.
 
 ## module.svg
 
@@ -107,12 +345,12 @@ Ejemplos completos: [`led/`](led/), [`button/`](button/), [`remote-433/`](remote
 
 | Desde | Cómo |
 |---|---|
-| Carpeta | Una carpeta con `module.json` + `module.svg` (+ su `model.js`), o una colección con una subcarpeta por módulo. |
+| Carpeta | Una carpeta con `module.json` + `module.svg` (+ su `model.js` y su `tests.json`), o una colección con una subcarpeta por módulo. |
 | Zip | Lo mismo, comprimido. Límites: 512 KB por archivo y 8 MB en total. |
 | Chip de Wokwi | El `.chip.json` de un [chip custom](https://docs.wokwi.com/chips-api/chip-json). Se importan los pines con un dibujo genérico (pines a los costados, como Wokwi). La lógica del chip (WASM) **no** se ejecuta; se le puede asignar un rol (`input`, `output`, `rf-rx`, `rf-tx`). |
-| URL | `https://` a un zip, un `module.json` (su SVG y su modelo se buscan al lado), un `.chip.json`, o un repo de GitHub: `https://github.com/dueño/repo` o `…/tree/rama/carpeta`. |
+| URL | `https://` a un zip, un `module.json` (su SVG, su modelo y su `tests.json` se buscan al lado), un `.chip.json`, o un repo de GitHub: `https://github.com/dueño/repo` o `…/tree/rama/carpeta`. |
 
-Una colección puede mezclar módulos y chips de Wokwi. Si uno falla, los demás entran igual y el resultado dice qué pasó con cada uno. **Solo validar** revisa todo sin instalar nada. Los módulos de fábrica no se pueden reemplazar ni quitar; los importados sí, con **Reemplazar** o con la × de su tarjeta. Si se quita un módulo que un circuito usa, el circuito lo muestra como desconocido hasta que se vuelva a importar o se borre.
+Antes de instalar cada módulo se corre su banco de pruebas (ver [Cómo se valida y se prueba](#cómo-se-valida-y-se-prueba)). Una colección puede mezclar módulos y chips de Wokwi. Si uno falla, los demás entran igual y el resultado dice qué pasó con cada uno. **Solo validar** revisa todo sin instalar nada. Los módulos de fábrica no se pueden reemplazar ni quitar; los importados sí, con **Reemplazar** o con la × de su tarjeta. Si se quita un módulo que un circuito usa, el circuito lo muestra como desconocido hasta que se vuelva a importar o se borre.
 
 ## Seguridad
 
@@ -124,5 +362,7 @@ El SVG termina dentro de la página, así que al importar se **rechaza** (no se 
 - atributos de eventos (`onclick`, `onload`, …);
 - referencias externas: `href` o `url(...)` que no empiecen con `#`, o `javascript:`;
 - `DOCTYPE` o entidades XML.
+
+Los enlaces de `parte` (`datasheet`, `proveedores[].url`) tienen que ser `https://`.
 
 Los elementos permitidos son `svg`, `g`, `path`, `rect`, `circle`, `ellipse`, `line`, `polyline`, `polygon`, `text`, `tspan`, `title`, `desc`, `defs`, `linearGradient`, `radialGradient`, `stop`, `clipPath`, `mask`, `pattern`, `use` y `symbol`. Además, el navegador vuelve a filtrar con la misma lista antes de dibujar. Las descargas por URL solo aceptan `https://`, con un máximo de 15 MB y 20 s.

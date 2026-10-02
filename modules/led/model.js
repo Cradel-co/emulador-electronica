@@ -15,15 +15,7 @@ module.exports = {
   },
   observar(l) {
     const mA = l.i('led') * 1000;
-    const avisos = [];
-    const inversa = -l.vEntre('IN', 'GND');
-    const v = inversa.toFixed(1).replace('.', ',');
-    // 5 V es el máximo de hoja de datos: justo ahí aguanta; pasado, entra en avalancha y se daña.
-    if (inversa > 5.2) {
-      avisos.push({ severidad: 'peligro', mensaje: `Polarizado al revés con ${v} V: más de los 5 V que aguanta un LED en inversa, se daña.` });
-    } else if (inversa > 4.5) {
-      avisos.push({ severidad: 'advertencia', mensaje: `Polarizado al revés con ${v} V: no prende y está al límite de los 5 V que aguanta en inversa.` });
-    }
-    return { ui: { on: mA > 0.5, brillo: Math.max(0, Math.min(1, mA / 20)) }, avisos };
+    // La tensión inversa máxima (5 V de hoja de datos) está en las `reglas` del module.json.
+    return { ui: { on: mA > 0.5, brillo: Math.max(0, Math.min(1, mA / 20)) } };
   },
 };

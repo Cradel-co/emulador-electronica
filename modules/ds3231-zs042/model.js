@@ -23,8 +23,7 @@ module.exports = {
   observar(l) {
     const vcc = l.vEntre('VCC', 'GND');
     const avisos = [];
-    if (vcc > 5.5) avisos.push({ severidad: 'peligro', mensaje: `VCC en ${vcc.toFixed(1).replace('.', ',')} V: el DS3231 aguanta hasta 5,5 V.` });
-    else if (vcc > 0.5 && vcc < 2.3) avisos.push({ severidad: 'advertencia', mensaje: `VCC en ${vcc.toFixed(2).replace('.', ',')} V: el DS3231 necesita al menos 2,3 V; queda andando con la pila.` });
+    // Los límites de VCC (2,3 a 5,5 V) están en las `reglas` del module.json.
     if (l.props.pila !== 'ninguna') {
       const carga = l.i('pila'); // positiva: entra por el + y la atraviesa (la está cargando)
       if (l.props.pila === 'CR2032' && carga > 10e-6) {

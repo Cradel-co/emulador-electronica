@@ -13,7 +13,7 @@ module.exports = {
   observar(l) {
     const vcc = l.vEntre('VCC', 'GND');
     const avisos = [];
-    if (vcc > 6) avisos.push({ severidad: 'peligro', mensaje: `VCC en ${vcc.toFixed(1).replace('.', ',')} V: el módulo es para 3,3 a 5 V.` });
+    // El máximo de VCC está en las `reglas` del module.json.
     const luz = l.i('backlight');
     if (vcc >= 3 && luz < 1e-3) avisos.push({ severidad: 'advertencia', mensaje: 'La retroiluminación (LED) no recibe corriente: la pantalla va a verse oscura. Conectá LED a 3,3 V o 5 V (o a un pin con PWM).' });
     return { ui: { on: vcc >= 3 && vcc <= 6 }, avisos };

@@ -16,5 +16,23 @@
   },
   "source": { "voltageProp": "voltage", "currentProp": "currentLimitMa" },
   "svg": "module.svg",
-  "model": "model.js"
+  "model": "model.js",
+  "parte": {
+    "fabricante": "genérico",
+    "mpn": "Fuente de laboratorio regulable (CV/CC)",
+    "generico": true,
+    "descripcion": "Un canal de una fuente de banco"
+  },
+  "esquematico": {
+    "referencia": "J",
+    "valor": "Fuente {{props.voltage}} V",
+    "fabricacion": "externo",
+    "conectores": [
+      {
+        "huella": "TerminalBlock_Phoenix:TerminalBlock_Phoenix_MKDS-1,5-2_1x02_P5.00mm_Horizontal",
+        "pines": ["V", "GND"]
+      }
+    ],
+    "notas": ["La fuente no va en la placa: se conecta a esta bornera."]
+  }
 }

@@ -8,9 +8,7 @@ module.exports = {
       { umbral: 1.0, histeresis: 0.1, ron: 1 }, 'modulador');
   },
   observar(l) {
-    const v = l.vEntre('VCC', 'GND');
-    const avisos = [];
-    if (v > 6.5) avisos.push({ severidad: 'peligro', mensaje: `VCC del STX882 en ${v.toFixed(1).replace('.', ',')} V: el máximo es 6 V, se daña.` });
-    return { ui: { on: l.i('tx') > 0.005 }, avisos };
+    // El máximo de VCC está en las `reglas` del module.json.
+    return { ui: { on: l.i('tx') > 0.005 } };
   },
 };
