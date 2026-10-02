@@ -81,6 +81,9 @@ curl -s localhost:5180/api/projects/<proyecto>/pins | python3 -m json.tool | gre
 - [SDD-CIRCUITO-LIBRE.md](./SDD-CIRCUITO-LIBRE.md) — diseño del solver de circuito libre y su plan de tests.
 - [SDD-MODULOS.md](./SDD-MODULOS.md) — diseño de módulos completos (esquemático exportable, reglas y tests
   propios, comportamiento digital, entorno y salidas); la sección 8 dice qué ya está hecho y qué se aprendió.
-- [chips/README.md](./chips/README.md) — chips con lógica (I2C en el Uno): cómo se escriben y se prueban.
+- [modules/README.md](./modules/README.md) — **cómo tiene que ser un módulo**: formato, `parte`, `esquematico`, `reglas`,
+  `tests.json` y niveles. Los de fábrica tienen que ser "fabricables" (`sim/catalogoModulos.test.ts`); un símbolo o
+  huella de KiCad nuevo se verifica contra las librerías oficiales y se suma a `fixtures/kicad-verificados.txt`.
+- [chips/README.md](./chips/README.md) — chips con lógica (I2C y SPI en el Uno, ESP32 con MicroPython): cómo se escriben y se prueban.
   Los sketches de prueba se compilan con `sh app/server/src/fixtures/chips/compilar.sh` (Docker) y los
   `.hex` se versionan: los tests corren sin Docker.

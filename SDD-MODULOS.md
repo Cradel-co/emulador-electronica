@@ -865,6 +865,9 @@ probados contra su hoja de datos y con el firmware que usa la gente. Guía para 
 | Bus SPI del Uno (`AVRSPI`): CS, DC, modos, orden de bits, `entradas` (RESX); el BME280 también por SPI | `bus/busChips.ts`, `avrSim.ts` |
 | Chip ST7735 y módulo `tft-st7735-128x160` (pantalla a color, imagen RGB565 en el circuito) | `chips/sitronix-st7735/`, `modules/` |
 | Chips en ESP32 con MicroPython: el puente reemplaza `machine.I2C`/`SoftI2C`/`SPI`/`SoftSPI`; cualquier par de pines (`board.buses.matriz`) | `templates/micropythonBridge.ts`, `bus/puenteChips.ts`, `emulator.ts` |
+| Secciones 1 a 4 (2026-10-02): `parte`, `esquematico` (símbolo, huella, `pines`, `conectores`, `discreto`, `notas`), `reglas` declarativas y `tests.json` por módulo, con nivel dibujo → simula → probado → fabricable | `shared/src/fabricacion.ts`, `sim/reglas.ts`, `sim/pruebasModulo.ts` |
+| Los 20 módulos de fábrica en `fabricable`: número de parte verificado, símbolos y huellas verificados contra las librerías oficiales de KiCad, y su banco de pruebas | `modules/*`, `fixtures/kicad-verificados.txt`, `sim/catalogoModulos.test.ts` |
+| El importador corre el banco de pruebas antes de instalar; MCP `probar_modulo`, `POST /api/modules/:tipo/probar`; el nivel en el panel ("Pieza real") | `moduleImporter.ts`, `mcp.ts`, `web/app.ts` |
 
 Pruebas: de 418 a 610 tests unitarios (los de chips: maestro virtual + firmware real compilado con
 las librerías de verdad), y e2e con Playwright para el panel, la compilación con librerías y la
@@ -917,10 +920,40 @@ pantalla en el circuito.
     avisaba "módulo cableado a un pin que el código no usa". Ahora cuenta el bus SPI y los pines del
     constructor.
 
+### Secciones 1 a 4: en qué se apartó y qué se aprendió (2026-10-02)
+
+- **`simbolo` y `huella` son textos `Biblioteca:Nombre`**, no `{ kicad: ... }`: no hay otra fuente de
+  símbolos que valga la pena, y el formato de KiCad ya dice la librería.
+- **`conectores`** (no estaba en el diseño): un DevKit tiene dos tiras de pines y no hay una huella
+  única en KiCad para el ESP32-S3-DevKitC-1 ni el C6.
+- **`fabricacion: "externo"`** (no estaba): una fuente de laboratorio o un control remoto no van en la
+  placa; van en la BOM, y con un conector si tienen cables.
+- **Banco de pruebas en vez de `{ fuente, tierra }` libres**: los casos solo conectan cosas a los pines
+  del módulo (fuente con límite, resistencia, sonda, tierra). Alcanzó para los 20 módulos: un pull-up
+  es una fuente de 3,3 V con 0,33 mA de límite; un LED a 10 mA es una fuente limitada a 10 mA.
+- **La regla más grave gana**: dos umbrales sobre lo mismo (0,25 W y 0,5 W) no avisan dos veces.
+
+Lo que se aprendió:
+
+1. **Verificar contra la fuente atrapa errores reales.** La huella del interruptor deslizante que
+   "todo el mundo usa" (`SW_Slide_1P2T_CK_OS102011MS2Q`) ya no existe en KiCad: se llama
+   `SW_Slide_SPDT_Straight_CK_OS102011MS2Q`. Por eso hay una lista verificada y un test.
+2. **La numeración de pines sale del símbolo.** La bobina del relé SRD es 2-5 (no 1-2), el S8050 es
+   E-B-C, el cátodo del LED es el 1. Las dos tiras del ESP32-C3-DevKitM-1 numeran en sentidos
+   opuestos (J3 va de abajo hacia arriba): GPIO20/21 caen en RX/TX del símbolo, como en la placa.
+3. **Los módulos genéricos no tienen MPN.** ZS-042, GY-521, el relé de un canal: `generico: true` es
+   lo honesto. Un MPN inventado es peor que ninguno.
+4. **Las pruebas con valores físicos explican el módulo.** "A 5 V le entran 6,2 mA a la CR2032" o
+   "los pull-ups del GY-521 van a 3,3 V aunque VCC sea 5 V" son lo que una persona necesita saber
+   del módulo, y ahora están escritos y verificados en su carpeta.
+
 ### Lo que sigue pendiente de este documento
 
-- Secciones 1 a 4: `parte`, `esquematico` (exportar), `reglas` declarativas y `tests.json` por
-  módulo. Los chips de esta sección tienen sus tests en `app/server/src/bus/`, no en su carpeta.
+- El exportador del proyecto (KiCad + BOM, después SVG/PDF y SPICE): los módulos ya tienen todo lo
+  que necesita (`esquematicoEfectivo` en `sim/pruebasModulo.ts` dice cómo sale cada uno).
+- Reglas estáticas de ERC entre módulos (`nivelLogico`, salida contra salida): hoy solo `conectado`.
+- Las pruebas de la lógica de un chip siguen en `app/server/src/bus/`, no en el `tests.json` del módulo
+  (que es eléctrico). Un `tests.json` con secuencias del maestro virtual sería el paso siguiente.
 - Importar chips (hoy los chips solo vienen de fábrica, en `chips/`) y la corrección 1 del importador.
 - Chips en ESP32 con Arduino o ESP-IDF (esp-emu no los acepta; ESPHome se va a quitar del proyecto).
   En MicroPython ya andan; falta que el tiempo de cada transacción sea el del bus real.
