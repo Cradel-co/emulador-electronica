@@ -4,7 +4,8 @@ import { lenguajeDeArchivo, NOMBRE_LENGUAJE, resaltar } from './editor.js';
 import { crearDepuracion } from './depuracion.js';
 import { montarReact } from './react/montar.js';
 import { alLienzoListo, registrarAcciones, registrarCtx, registrarEstado, registrarMenu, registrarPaleta, registrarVistas } from './react/puente.js';
-import { notificar, observable } from './react/estado.js';
+import { ahora, notificar, observable } from './react/estado.js';
+import { NOMBRE_LENGUAJE_PROYECTO, SIN_PLACA } from './constantes.js';
 import {
   cablesDe as cablesDePuro, esPinSinAlimentar as esPinSinAlimentarPuro, NOMBRE_KIND,
   nombreRef as nombreRefPuro, pinesSinAlimentar as pinesSinAlimentarPuro,
@@ -75,6 +76,10 @@ const state = observable({
   filtroModulos: '',
   /** Texto del buscador de la pantalla de inicio. Lo lee <Proyectos>. */
   filtroProyectos: '',
+  /** Plantillas de proyecto (GET /api/templates): las lista <OpcionesPlantillas>. */
+  plantillas: ([] as { id: string; nombre: string; descripcion: string; board: string; language: string }[]),
+  /** Placa elegida en el diálogo "Agregar placa": de ella salen los lenguajes que se ofrecen. */
+  placaNuevaId: '',
   /** La última importación de módulos (lo muestra <ResultadoImportacion>): cargando, error o resultado. */
   importacion: (null as any),
   /** Sube cada vez que se abre la paleta de comandos: <Paleta> arranca de cero. */
@@ -898,34 +903,16 @@ const dlgPlaca = () => document.getElementById('dlg-placa') as HTMLDialogElement
 let posPlacaNueva: { x?: number; y?: number } = {};
 
 function abrirAgregarPlaca(tipo: string, x?: number, y?: number) {
-  const s = sel('placa-nueva');
-  s.textContent = '';
-  for (const b of state.placas) {
-    const o = document.createElement('option');
-    o.value = b.id;
-    o.textContent = b.nombre ?? b.name ?? b.id;
-    s.append(o);
-  }
-  s.value = tipo;
+  // Las placas las rinde <OpcionesPlacas> y los lenguajes <OpcionesLenguajePlaca> (#9), que
+  // dependen de cuál está elegida: `ahora` para que estén listos antes de abrir el diálogo.
+  sel('placa-nueva').value = tipo;
+  ahora(() => { state.placaNuevaId = tipo; });
   const def = state.catalogo.get(tipo);
   posPlacaNueva = x === undefined || !def ? {} : { x: Math.round(x - def.width / 2), y: Math.round(y - def.height / 2) };
-  llenarLenguajesPlaca();
   dlgPlaca().showModal();
 }
 
-function llenarLenguajesPlaca() {
-  const placa = state.placas.find((b) => b.id === sel('placa-nueva').value);
-  const soportados: string[] = placa?.lenguajes ?? placa?.languages ?? Object.keys(NOMBRE_LENGUAJE_PROYECTO);
-  const s = sel('placa-lenguaje');
-  s.textContent = '';
-  for (const l of soportados) {
-    const o = document.createElement('option');
-    o.value = l;
-    o.textContent = NOMBRE_LENGUAJE_PROYECTO[l] ?? l;
-    s.append(o);
-  }
-}
-sel('placa-nueva').addEventListener('change', llenarLenguajesPlaca);
+sel('placa-nueva').addEventListener('change', () => { state.placaNuevaId = sel('placa-nueva').value; });
 
 dlgPlaca().addEventListener('close', async () => {
   if (dlgPlaca().returnValue !== 'agregar' || !state.proyecto) return;
@@ -1693,21 +1680,10 @@ async function refrescarAvisos() {
 async function cargarProyectos(seleccionarNombre?: string) {
   const apertura = aperturas;
   const { projects } = await api('/api/projects');
-  state.proyectos = projects;
+  // Las opciones las rinde <OpcionesProyectos> (#9). `ahora`: abajo se fija el value, y para
+  // eso las opciones tienen que existir ya.
+  ahora(() => { state.proyectos = projects; });
   const s = sel('proyecto');
-  s.textContent = '';
-  // Opción vacía (oculta en la lista desplegada): sin ella, un <select> nativo muestra
-  // el primer proyecto como "elegido" aunque en realidad no haya ninguno abierto.
-  const vacio = document.createElement('option');
-  vacio.value = '';
-  vacio.hidden = true;
-  s.append(vacio);
-  for (const p of projects) {
-    const o = document.createElement('option');
-    o.value = p.name;
-    o.textContent = `${p.name} (${p.board ? p.language : 'sin placa'})`;
-    s.append(o);
-  }
   // Mientras llegaba la lista se abrió un proyecto (p. ej. por la URL): no se lo pisa.
   if (aperturas !== apertura && seleccionarNombre === undefined) {
     s.value = state.proyecto?.name ?? '';
@@ -1747,9 +1723,6 @@ function iniciales(nombre) {
   return ((partes[0]?.[0] ?? '') + (partes[1]?.[0] ?? partes[0]?.[1] ?? '')).toUpperCase() || '?';
 }
 
-const NOMBRE_LENGUAJE_PROYECTO = {
-  esphome: 'ESPHome', 'idf-c': 'ESP-IDF C', 'idf-cpp': 'ESP-IDF C++', arduino: 'Arduino', micropython: 'MicroPython',
-};
 
 /** Barra de título y de estado según el proyecto abierto (o ninguno). */
 function pintarWidgetsProyecto() {
@@ -1947,20 +1920,13 @@ async function cargarPlacas() {
 
 function abrirNuevoProyecto() {
   cerrarMenus();
+  // Las opciones (las placas y "sin placa") las rinde <OpcionesPlacaNueva> (#9) desde que llegan
+  // las placas, así que ya están: solo queda elegir.
   const s = sel('nuevo-placa');
-  const antes = s.value;
-  s.textContent = '';
-  for (const b of state.placas) {
-    const o = document.createElement('option');
-    o.value = b.id;
-    o.textContent = b.nombre ?? b.name ?? b.id;
-    s.append(o);
-  }
-  // Sin placa: solo un circuito (fuente regulable + componentes), sin código.
-  const sinPlacaOpt = document.createElement('option');
-  sinPlacaOpt.value = SIN_PLACA;
-  sinPlacaOpt.textContent = 'Sin placa (solo circuito)';
-  s.append(sinPlacaOpt);
+  // La última que eligió el usuario, no `s.value`: con las opciones ya puestas, el navegador
+  // selecciona una por su cuenta (la que hubiera cuando el <select> tenía una sola opción) y no
+  // hay forma de distinguirla de una elección real.
+  const antes = placaNuevaRecordada;
   // La última elegida en esta sesión; si no, la que el server marca por defecto (no la primera
   // de la lista: está en orden alfabético y sería el Arduino Uno).
   s.value = antes && (antes === SIN_PLACA || state.placas.some((b) => b.id === antes)) ? antes : state.placaPorDefecto;
@@ -1971,19 +1937,13 @@ function abrirNuevoProyecto() {
 }
 
 /** Plantillas de projects/_template/ (GET /api/templates) para el diálogo de nuevo proyecto. */
-let plantillas: { id: string; nombre: string; descripcion: string; board: string; language: string }[] = [];
 
 async function cargarPlantillasNuevo() {
-  plantillas = await api('/api/templates').catch(() => []);
+  const plantillas = await api('/api/templates').catch(() => []);
   const s = sel('nuevo-plantilla');
   const antes = s.value;
-  s.length = 1; // deja "Vacío"
-  for (const t of plantillas) {
-    const o = document.createElement('option');
-    o.value = t.id;
-    o.textContent = t.nombre;
-    s.append(o);
-  }
+  // Las opciones las rinde <OpcionesPlantillas> (#9); `ahora` porque abajo se fija el value.
+  ahora(() => { state.plantillas = plantillas; });
   s.value = plantillas.some((t) => t.id === antes) ? antes : '';
   $('nuevo-plantilla-label').hidden = plantillas.length === 0;
   elegirPlantillaNuevo();
@@ -1991,7 +1951,7 @@ async function cargarPlantillasNuevo() {
 
 /** Con plantilla, placa y lenguaje los define ella: se ocultan y se muestra su descripción. */
 function elegirPlantillaNuevo() {
-  const t = plantillas.find((x) => x.id === sel('nuevo-plantilla').value);
+  const t = state.plantillas.find((x) => x.id === sel('nuevo-plantilla').value);
   actualizarDialogoNuevo();
   const desc = $('nuevo-plantilla-desc');
   desc.hidden = !t;
@@ -2009,7 +1969,6 @@ sel('nuevo-plantilla').addEventListener('change', elegirPlantillaNuevo);
 
 /** Deshabilita los lenguajes que la placa elegida no soporta (si el server lo informa). */
 /** Valor del selector de placa de "Nuevo proyecto" para un proyecto sin placa. */
-const SIN_PLACA = '__sin-placa__';
 
 function filtrarLenguajesNuevo() {
   actualizarDialogoNuevo();
@@ -2019,7 +1978,12 @@ function filtrarLenguajesNuevo() {
   for (const o of lenguaje.options) o.disabled = Array.isArray(soportados) && !soportados.includes(o.value);
   if (lenguaje.selectedOptions[0]?.disabled) lenguaje.value = [...lenguaje.options].find((o) => !o.disabled)?.value ?? '';
 }
-sel('nuevo-placa').addEventListener('change', filtrarLenguajesNuevo);
+/** La placa que eligió el usuario en "Nuevo proyecto" en esta sesión (vacía: la de por defecto). */
+let placaNuevaRecordada = '';
+sel('nuevo-placa').addEventListener('change', () => {
+  placaNuevaRecordada = sel('nuevo-placa').value;
+  filtrarLenguajesNuevo();
+});
 $('nuevo').onclick = abrirNuevoProyecto;
 $('nuevo-inicio').onclick = abrirNuevoProyecto;
 
