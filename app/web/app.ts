@@ -3,7 +3,7 @@ import { miniatura, ponerImagenPantalla } from './modulos.js';
 import { lenguajeDeArchivo, NOMBRE_LENGUAJE, resaltar } from './editor.js';
 import { crearDepuracion } from './depuracion.js';
 import { montarReact } from './react/montar.js';
-import { alLienzoListo, registrarAcciones, registrarCtx, registrarEstado, registrarVistas } from './react/puente.js';
+import { alLienzoListo, registrarAcciones, registrarCtx, registrarEstado, registrarMenu, registrarPaleta, registrarVistas } from './react/puente.js';
 import { notificar, observable } from './react/estado.js';
 import {
   cablesDe as cablesDePuro, esPinSinAlimentar as esPinSinAlimentarPuro, NOMBRE_KIND,
@@ -74,6 +74,10 @@ const state = observable({
   filtroModulos: '',
   /** Texto del buscador de la pantalla de inicio. Lo lee <Proyectos>. */
   filtroProyectos: '',
+  /** Sube cada vez que se abre la paleta de comandos: <Paleta> arranca de cero. */
+  paletaVez: 0,
+  /** El menú principal está abierto (lo mira <Menu> para reevaluar qué acciones están disponibles). */
+  menuAbierto: false,
   /** Módulo cuyo pulsador del panel está apretado ahora (lo pinta <Controles>). */
   panelPresionado: (null as any),
   /** Se incrementan para avisarle a React de cambios dentro de un Map (ver react/estado.ts). */
@@ -2442,6 +2446,7 @@ const ACCIONES = [
   { id: 'acerca', titulo: 'Atajos y acerca de', menu: 'Ayuda', hacer: () => ($('dlg-acerca') as HTMLDialogElement).showModal() },
 ];
 const MENUS = ['Archivo', 'Editar', 'Ver', 'Simulación', 'Depurar', 'Ayuda'];
+registrarMenu({ grupos: MENUS, acciones: ACCIONES, cerrar: () => cerrarMenus() });
 
 /** Combinación de teclas normalizada: "Ctrl+Shift+P", "Alt+1", "Delete". */
 function combo(e) {
@@ -2490,70 +2495,12 @@ document.addEventListener('keydown', (e) => {
 
 // --- Menú principal (hamburguesa) ---------------------------------------------------------
 
-function pintarMenu() {
-  const menu = $('menu');
-  menu.textContent = '';
-  for (const grupo of MENUS) {
-    const item = document.createElement('div');
-    item.className = 'menu-item sub';
-    item.tabIndex = 0;
-    item.setAttribute('role', 'menuitem');
-    item.setAttribute('aria-haspopup', 'menu');
-    item.append(grupo);
-    const sub = document.createElement('div');
-    sub.className = 'menu submenu';
-    sub.setAttribute('role', 'menu');
-    for (const a of ACCIONES.filter((x) => x.menu === grupo)) {
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.className = 'menu-item';
-      b.setAttribute('role', 'menuitem');
-      b.innerHTML = `<span>${escapar(a.titulo)}</span>${a.atajo ? `<span class="atajo">${escapar(a.atajo)}</span>` : ''}`;
-      b.disabled = Boolean(a.habilitada && !a.habilitada());
-      b.onclick = (ev) => {
-        ev.stopPropagation();
-        cerrarMenus();
-        a.hacer();
-      };
-      sub.append(b);
-    }
-    item.append(sub);
-    const abrir = () => {
-      for (const o of menu.querySelectorAll('.abierto')) o.classList.remove('abierto');
-      item.classList.add('abierto');
-    };
-    item.addEventListener('mouseenter', abrir);
-    item.addEventListener('focus', abrir);
-    item.addEventListener('keydown', (ev) => {
-      if (ev.key === 'ArrowRight' || ev.key === 'Enter') {
-        abrir();
-        (sub.querySelector<HTMLElement>('button:not(:disabled)') as HTMLElement | null)?.focus();
-        ev.preventDefault();
-      }
-    });
-    menu.append(item);
-  }
-  // Flechas arriba/abajo entre los items del mismo nivel.
-  menu.onkeydown = (ev) => {
-    if (ev.key !== 'ArrowDown' && ev.key !== 'ArrowUp' && ev.key !== 'ArrowLeft') return;
-    const actual = (document.activeElement as HTMLElement);
-    if (ev.key === 'ArrowLeft') {
-      (actual.closest('.menu-item.sub') as HTMLElement | null)?.focus();
-      ev.preventDefault();
-      return;
-    }
-    const nivel = actual.parentElement;
-    if (!nivel) return;
-    const hermanos = ([...nivel.children].filter((c) => c.matches('.menu-item:not(:disabled)')) as HTMLElement[]);
-    const i = hermanos.indexOf(actual);
-    hermanos[(i + (ev.key === 'ArrowDown' ? 1 : -1) + hermanos.length) % hermanos.length]?.focus();
-    ev.preventDefault();
-    ev.stopPropagation();
-  };
-}
+// El menú lo rinde <Menu> (#9) a partir de `ACCIONES`: acá solo se abre y se cierra.
+
 
 function cerrarMenus() {
   $('menu').hidden = true;
+  state.menuAbierto = false;
   $('menu-principal').setAttribute('aria-expanded', 'false');
   $('lista-notificaciones').hidden = true;
   $('tw-notificaciones').classList.remove('activa');
@@ -2561,7 +2508,8 @@ function cerrarMenus() {
 
 $('menu-principal').onclick = () => {
   if (!$('menu').hidden) return cerrarMenus();
-  pintarMenu();
+  // <Menu> se entera y reevalúa qué acciones están disponibles ahora.
+  state.menuAbierto = true;
   $('menu').hidden = false;
   $('menu-principal').setAttribute('aria-expanded', 'true');
   ($('menu').querySelector<HTMLElement>('.menu-item') as HTMLElement | null)?.focus();
@@ -2574,15 +2522,15 @@ document.addEventListener('mousedown', (e) => {
 
 // --- Buscar en todo (paleta de comandos) -------------------------------------------------
 
-const paleta = { items: ([] as any[]), sel: 0 };
+// La lista, la búsqueda y el teclado los maneja <Paleta> (#9), y el puntaje y el resaltado son
+// puros (paleta.ts). Acá queda abrirla y decidir qué se puede buscar, que es lo que sabe app.ts.
 
 function abrirPaleta() {
   cerrarMenus();
   const d = ($('dlg-buscar') as HTMLDialogElement);
   if (d.open) return;
-  inp('pc-entrada').value = '';
+  state.paletaVez++;
   d.showModal();
-  filtrarPaleta();
 }
 
 function candidatosPaleta() {
@@ -2608,83 +2556,8 @@ function candidatosPaleta() {
   return out;
 }
 
-/** Puntaje simple: todas las palabras tienen que aparecer; gana la que empieza antes. */
-function puntaje(titulo, palabras) {
-  const t = titulo.toLowerCase();
-  let total = 0;
-  for (const w of palabras) {
-    const i = t.indexOf(w);
-    if (i < 0) return -1;
-    total += i === 0 ? 0 : /[\s·\-_./]/.test(t[i - 1]) ? 1 : 3;
-  }
-  return total;
-}
+registrarPaleta({ candidatos: () => candidatosPaleta() });
 
-function filtrarPaleta() {
-  const q = inp('pc-entrada').value.trim().toLowerCase();
-  const palabras = q.split(/\s+/).filter(Boolean);
-  const todos = candidatosPaleta();
-  paleta.items = palabras.length
-    ? todos
-        .map((c, i) => ({ c, p: puntaje(c.titulo, palabras), i }))
-        .filter((x) => x.p >= 0)
-        .sort((a, b) => a.p - b.p || a.i - b.i)
-        .map((x) => x.c)
-        .slice(0, 80)
-    : todos.slice(0, 80);
-  paleta.sel = 0;
-  pintarPaleta(palabras);
-}
-
-function pintarPaleta(palabras = []) {
-  const ul = $('pc-lista');
-  if (!paleta.items.length) {
-    ul.innerHTML = '<li class="pc-vacio">Nada coincide.</li>';
-    return;
-  }
-  const marcar = (t) => {
-    let html = escapar(t);
-    for (const w of palabras) {
-      const re = new RegExp(escapar(w).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
-      html = html.replace(re, (m) => `<mark>${m}</mark>`);
-    }
-    return html;
-  };
-  ul.innerHTML = paleta.items
-    .map((it, i) => `<li role="option" data-i="${i}" class="${i === paleta.sel ? 'sel' : ''}"><span class="pc-tipo">${it.tipo}</span><span class="pc-titulo">${marcar(it.titulo)}</span>${it.atajo ? `<span class="atajo">${escapar(it.atajo)}</span>` : ''}</li>`)
-    .join('');
-}
-
-function moverSeleccionPaleta(delta) {
-  if (!paleta.items.length) return;
-  paleta.sel = (paleta.sel + delta + paleta.items.length) % paleta.items.length;
-  const ul = $('pc-lista');
-  ul.querySelector<HTMLElement>('.sel')?.classList.remove('sel');
-  const li = ul.querySelector<HTMLElement>(`[data-i="${paleta.sel}"]`);
-  li?.classList.add('sel');
-  li?.scrollIntoView({ block: 'nearest' });
-}
-
-function ejecutarPaleta(i) {
-  const it = paleta.items[i];
-  ($('dlg-buscar') as HTMLDialogElement).close();
-  it?.hacer();
-}
-
-inp('pc-entrada').addEventListener('input', filtrarPaleta);
-inp('pc-entrada').addEventListener('keydown', (e) => {
-  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-    e.preventDefault();
-    moverSeleccionPaleta(e.key === 'ArrowDown' ? 1 : -1);
-  } else if (e.key === 'Enter') {
-    e.preventDefault();
-    ejecutarPaleta(paleta.sel);
-  }
-});
-$('pc-lista').addEventListener('click', (e) => {
-  const li = (e.target as HTMLElement).closest('li[data-i]');
-  if (li) ejecutarPaleta(Number((li as HTMLElement).dataset.i));
-});
 $('dlg-buscar').addEventListener('click', (e) => {
   if (e.target === e.currentTarget) ($('dlg-buscar') as HTMLDialogElement).close(); // click en el fondo
 });
