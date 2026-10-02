@@ -330,3 +330,57 @@ describe('módulos con código (modelo eléctrico)', () => {
     expect(readdirSync(dir)).toEqual([]);
   });
 });
+
+describe('módulos con sus propias pruebas (tests.json)', () => {
+  // Un zumbador inventado: 5 V, 30 mA (≈167 Ω), con el máximo de su hoja de datos como regla.
+  const MODELO = `module.exports = { circuito(ctx) { ctx.resistencia(ctx.pin('VCC'), ctx.pin('GND'), 167, 'bobina'); } };`;
+  const zumbador = (pruebas: unknown[], extra: Record<string, unknown> = {}) => ({
+    'z/module.json': JSON.stringify({
+      type: 'zumbador-inventado', name: 'Zumbador', category: 'Salidas', width: 40, height: 40, model: 'model.js',
+      pins: [{ name: 'VCC', x: 10, y: 40, kind: 'power' }, { name: 'GND', x: 30, y: 40, kind: 'ground' }],
+      reglas: [{ tipo: 'tensionMax', entre: ['VCC', 'GND'], max: 6, mensaje: 'VCC en {v} V: es de 5 V.' }],
+      ...extra,
+    }),
+    'z/module.svg': SVG_OK,
+    'z/model.js': MODELO,
+    'z/tests.json': JSON.stringify(pruebas),
+  });
+  const caso = (ma: [number, number]) => ({
+    nombre: 'con 5 V toma ~30 mA', banco: { VCC: { fuente: 5 }, GND: 'tierra' }, espera: { corrienteMa: { bobina: ma }, sinAvisos: true },
+  });
+
+  it('si sus pruebas pasan, se instala con su tests.json', async () => {
+    const dir = dirTemporal();
+    const r = await importar({ fuente: 'archivos', archivos: zumbador([caso([29, 31])]) }, new ModuleInstaller(dir));
+    expect(r.errores).toEqual([]);
+    expect(JSON.parse(readFileSync(path.join(dir, 'zumbador-inventado', 'tests.json'), 'utf8'))[0].nombre).toBe('con 5 V toma ~30 mA');
+  });
+
+  it('si una prueba falla, no se instala y dice qué se midió', async () => {
+    const dir = dirTemporal();
+    const r = await importar({ fuente: 'archivos', archivos: zumbador([caso([50, 60])]) }, new ModuleInstaller(dir));
+    expect(r.importados).toEqual([]);
+    expect(r.errores[0]!.mensajes.join(' ')).toMatch(/con 5 V toma ~30 mA" falló: corriente de bobina = 29,9\d* mA, se esperaba entre 50 y 60 mA/);
+    expect(readdirSync(dir)).toEqual([]);
+  });
+
+  it('una regla que nombra un pin que no existe, o un esquemático incompleto, no se instala', async () => {
+    const dir = dirTemporal();
+    const r = await importar({
+      fuente: 'archivos',
+      archivos: zumbador([caso([29, 31])], {
+        reglas: [{ tipo: 'tensionMax', entre: ['VDD', 'GND'], max: 6 }],
+        esquematico: { simbolo: 'Device:Buzzer', pines: { VCC: '1' } },
+      }),
+    }, new ModuleInstaller(dir));
+    expect(r.importados).toEqual([]);
+    const msj = r.errores[0]!.mensajes.join(' ');
+    expect(msj).toMatch(/no tiene el pin "VDD"/);
+    expect(msj).toMatch(/falta el pin "GND"/);
+  });
+
+  it('un tests.json que no cumple el formato se rechaza con el campo', async () => {
+    const r = await importar({ fuente: 'archivos', archivos: zumbador([{ nombre: 'x', banco: { VCC: { fuente: 'cinco' } }, espera: {} }]) }, new ModuleInstaller(dirTemporal()), { soloValidar: true });
+    expect(r.errores[0]!.mensajes.join(' ')).toMatch(/tests\.json: 0\.banco\.VCC/);
+  });
+});

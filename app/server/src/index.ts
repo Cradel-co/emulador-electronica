@@ -24,6 +24,7 @@ import { buscarPlaca, listarPlacas, nivelDeclarado, validarPlaca, type Placa } f
 import { esquemaJsonPlaca } from './boardSchema.js';
 import { certificar, leerCertificacion, type ReporteCertificacion } from './certificacion.js';
 import { invalidarCatalogo, loadCatalog, type ModuloCatalogo } from './catalog.js';
+import { esquematicoEfectivo, nivelModulo, probarModulo } from './sim/pruebasModulo.js';
 import { ImportError, ModuleInstaller, importar, type OpcionesImportacion, type SolicitudImportacion } from './moduleImporter.js';
 import { crearServidorMcp, type McpContexto } from './mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
@@ -406,7 +407,17 @@ async function registerRoutes(): Promise<void> {
     reply.send({ enCurso: Boolean(enCurso), ultimo: await leerCertificacion(id) });
   });
 
-  app.get('/api/modules', async () => ({ modules: await loadCatalog() }));
+  app.get('/api/modules', async () => ({ modules: (await loadCatalog()).map((m) => ({ ...m, nivel: nivelModulo(m) })) }));
+
+  // El banco de pruebas de un módulo (su tests.json, sus reglas y su esquemático), con el motor real.
+  app.post('/api/modules/:type/probar', async (req, reply) => {
+    const { type } = req.params as { type: string };
+    const cat = await loadCatalog();
+    const def = cat.find((m) => m.type === type);
+    if (!def) return reply.code(404).send({ error: `No hay un módulo "${type}" en el catálogo.` });
+    const informe = await probarModulo(def, (t) => cat.find((m) => m.type === t));
+    reply.send({ ...informe, esquematico: esquematicoEfectivo(def) });
+  });
 
   registrarRutasChips(app, depsChips, fail);
 
