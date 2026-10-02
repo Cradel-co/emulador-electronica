@@ -14,6 +14,28 @@ let ctx: Ctx | null = null;
 let est: Record<string, any> | null = null;
 let alEntregar: ((l: Lienzo) => void) | null = null;
 
+/**
+ * Acciones de `app.ts` que los componentes necesitan disparar (agregar un módulo, quitarlo del
+ * catálogo...). Van por acá y no importándolas, para no crear un ciclo: `app.ts` las registra al
+ * arrancar y los componentes las piden cuando el usuario hace algo.
+ */
+export interface Acciones {
+  agregarModulo: (type: string) => void;
+  quitarDelCatalogo: (m: { type: string; name: string }) => void;
+  filtrarModulos: (texto: string) => void;
+}
+
+let acc: Acciones | null = null;
+
+export function registrarAcciones(a: Acciones): void {
+  acc = a;
+}
+
+export function acciones(): Acciones {
+  if (!acc) throw new Error('un componente pidió una acción antes de que app.ts las registrara');
+  return acc;
+}
+
 /** `app.ts`: su objeto de estado (ya envuelto en `observable`), para que lo lean los componentes. */
 export function registrarEstado(e: Record<string, any>): void {
   est = e;

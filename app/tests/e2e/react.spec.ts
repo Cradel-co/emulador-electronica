@@ -71,3 +71,27 @@ test('los avisos del dibujo los rinde React: se listan, se despliegan y se cierr
   await page.reload();
   await expect(page.locator('#avisos-dibujo')).not.toHaveClass(/abiertos/);
 });
+
+test('el catálogo lo rinde React y cada tarjeta dibuja su miniatura', async ({ page, request }) => {
+  await abrirProyectoNuevo(page, request);
+  // Sin fijar el número: los specs del importador agregan módulos al catálogo, que es compartido.
+  await expect(page.locator('.modulo-card').first()).toBeVisible();
+  expect(await page.locator('.modulo-card').count()).toBeGreaterThanOrEqual(15);
+
+  // La miniatura la construye `miniatura()` nodo por nodo y React la inserta con un ref: si eso
+  // se rompiera, las tarjetas quedarían sin dibujo y ningún otro test lo notaría.
+  const sinDibujo = await page.evaluate(() => {
+    const malas: string[] = [];
+    for (const card of document.querySelectorAll('.modulo-card')) {
+      const svg = card.querySelector('svg.miniatura');
+      if (!svg || svg.querySelectorAll('*').length === 0) malas.push(card.getAttribute('data-type') ?? '?');
+    }
+    return malas;
+  });
+  expect(sinDibujo, 'tarjetas sin miniatura dibujada').toEqual([]);
+
+  // El LED de la miniatura se dibuja encendido (así se ve de qué color es).
+  const led = page.locator('.modulo-card[data-type="led"] svg.miniatura');
+  await expect(led).toBeAttached();
+  expect(await led.locator('[data-si="on"]').count()).toBeGreaterThan(0);
+});
