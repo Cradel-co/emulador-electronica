@@ -11,7 +11,76 @@ type Ctx = Record<string, unknown>;
 type Lienzo = Record<string, unknown>;
 
 let ctx: Ctx | null = null;
+let est: Record<string, any> | null = null;
 let alEntregar: ((l: Lienzo) => void) | null = null;
+
+/**
+ * Acciones de `app.ts` que los componentes necesitan disparar (agregar un módulo, quitarlo del
+ * catálogo...). Van por acá y no importándolas, para no crear un ciclo: `app.ts` las registra al
+ * arrancar y los componentes las piden cuando el usuario hace algo.
+ */
+export interface Acciones {
+  agregarModulo: (type: string) => void;
+  quitarDelCatalogo: (m: { type: string; name: string }) => void;
+  filtrarModulos: (texto: string) => void;
+  abrirProyecto: (nombre: string) => void;
+  eliminarProyecto: (nombre: string) => void;
+  // Panel derecho
+  eliminarModulo: (id: string) => void;
+  eliminarCable: (indice: number) => void;
+  desconectar: (indice: number) => void;
+  girar: (inst: any, grados: number, fin: boolean) => void;
+  cambiarProp: (inst: any, clave: string, valor: unknown) => void;
+  controlModulo: (inst: any, control: string, indice: number) => void;
+  presionarMomentario: (inst: any) => void;
+  reemplazarQuemado: (id: string) => void;
+  moverEntorno: (id: string, valores: Record<string, number>) => void;
+  agregarPlaca: () => void;
+}
+
+/**
+ * Consultas que dependen del estado global de `app.ts` y son de presentación: cómo se llama la
+ * placa, si el proyecto tiene una, qué decir mientras la simulación arranca. No son puras (las
+ * puras están en `consultas.ts`), así que van por el puente como todo lo demás.
+ */
+export interface Vistas {
+  nombrePlaca: () => string;
+  sinPlaca: () => boolean;
+  textoEsperaSimulacion: () => string;
+}
+
+let vis: Vistas | null = null;
+
+export function registrarVistas(v: Vistas): void {
+  vis = v;
+}
+
+export function vistas(): Vistas {
+  if (!vis) throw new Error('un componente pidió una vista antes de que app.ts las registrara');
+  return vis;
+}
+
+let acc: Acciones | null = null;
+
+export function registrarAcciones(a: Acciones): void {
+  acc = a;
+}
+
+export function acciones(): Acciones {
+  if (!acc) throw new Error('un componente pidió una acción antes de que app.ts las registrara');
+  return acc;
+}
+
+/** `app.ts`: su objeto de estado (ya envuelto en `observable`), para que lo lean los componentes. */
+export function registrarEstado(e: Record<string, any>): void {
+  est = e;
+}
+
+/** El estado de la app. Los componentes lo leen con `useEstado(() => estado().campo)`. */
+export function estado(): Record<string, any> {
+  if (!est) throw new Error('un componente leyó el estado antes de que app.ts lo registrara');
+  return est;
+}
 
 /** `app.ts`: el contexto que `crearLienzo` necesita (diagrama, catálogo, callbacks de edición). */
 export function registrarCtx(c: Ctx): void {

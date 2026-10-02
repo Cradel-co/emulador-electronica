@@ -1,18 +1,45 @@
 import { createRoot } from 'react-dom/client';
-import { createElement } from 'react';
+import { createElement, type FunctionComponent } from 'react';
 import { flushSync } from 'react-dom';
-import { App } from './App.js';
+import { Lienzo } from './Lienzo.js';
+import { Avisos } from './Avisos.js';
+import { Catalogo } from './Catalogo.js';
+import { Proyectos } from './Proyectos.js';
+import { PanelDerecho } from './PanelDerecho.js';
 
 /**
- * Monta React donde estaba el `<svg>` del lienzo.
+ * Monta las islas de React sobre la UI de `app.ts` (#9).
  *
- * Con `flushSync` el montaje es sincrónico: al volver de esta función el lienzo ya existe y
- * `app.ts` puede seguir con su arranque como siempre. Sin eso, React agenda el render para
- * después y el primer dibujo de la app se haría sin lienzo.
+ * Son raíces separadas, una por pedazo migrado, en vez de un árbol único: así cada panel se puede
+ * mover cuando le toque, sin reordenar el `index.html` ni envolver lo que todavía es imperativo.
+ * A medida que avance la migración, las islas se van juntando.
+ *
+ * El montaje es sincrónico (`flushSync` + `useLayoutEffect` en `<Lienzo>`): al volver de acá el
+ * lienzo ya existe y `app.ts` puede seguir con su arranque como siempre.
  */
+const ISLAS: [string, FunctionComponent, boolean][] = [
+  // [id del nodo, componente, si es obligatorio]
+  //
+  // Las islas se montan **sobre los nodos que ya existían**, no sobre un div nuevo adentro:
+  // `createRoot` conserva el contenedor y solo maneja sus hijos. Eso importa porque el CSS cuenta
+  // con la jerarquía: `.lista-modulos` es un `flex: 1` con `overflow: auto` que tiene que ser hijo
+  // directo de su panel. Un div envoltorio en el medio le saca la altura y la lista deja de
+  // scrollear (ver el comentario de este arreglo).
+  ['react-lienzo', Lienzo, true],
+  ['avisos-dibujo', Avisos, false],
+  ['lista-modulos', Catalogo, false],
+  ['lista-proyectos', Proyectos, false],
+  ['panel-modulo', PanelDerecho, false],
+];
+
 export function montarReact(): void {
-  const nodo = document.getElementById('react-lienzo');
-  if (!nodo) throw new Error('falta #react-lienzo en index.html: el canvas no tiene dónde montarse');
-  const root = createRoot(nodo);
-  flushSync(() => root.render(createElement(App)));
+  for (const [id, Componente, obligatorio] of ISLAS) {
+    const nodo = document.getElementById(id);
+    if (!nodo) {
+      if (obligatorio) throw new Error(`falta #${id} en index.html: el canvas no tiene dónde montarse`);
+      continue;
+    }
+    const root = createRoot(nodo);
+    flushSync(() => root.render(createElement(Componente)));
+  }
 }

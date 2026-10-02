@@ -19,7 +19,9 @@ export default defineConfig({
   define: { 'process.env.NODE_ENV': '"production"' },
   build: {
     outDir: 'dist',
-    emptyOutDir: false,
+    // Limpiar: con el build anterior (tsc) cada módulo era un archivo suelto en dist/, y si no se
+    // borran quedan ahí para siempre, servidos y descargados por el navegador aunque ya no se usen.
+    emptyOutDir: true,
     // Minificado con el sourcemap al lado: el bundle pesa ~5 veces menos y el navegador sigue
     // mostrando el código original al depurar. Sin minificar son 1,7 MB, casi todo react-dom.
     sourcemap: true,

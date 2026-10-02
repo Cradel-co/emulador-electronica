@@ -3,7 +3,12 @@ import { miniatura, ponerImagenPantalla } from './modulos.js';
 import { lenguajeDeArchivo, NOMBRE_LENGUAJE, resaltar } from './editor.js';
 import { crearDepuracion } from './depuracion.js';
 import { montarReact } from './react/montar.js';
-import { alLienzoListo, registrarCtx } from './react/puente.js';
+import { alLienzoListo, registrarAcciones, registrarCtx, registrarEstado, registrarVistas } from './react/puente.js';
+import { notificar, observable } from './react/estado.js';
+import {
+  cablesDe as cablesDePuro, esPinSinAlimentar as esPinSinAlimentarPuro, NOMBRE_KIND,
+  nombreRef as nombreRefPuro, pinesSinAlimentar as pinesSinAlimentarPuro,
+} from './consultas.js';
 
 /**
  * Id de esta pestaña: el server lo devuelve en los eventos para no recargar los cambios propios.
@@ -50,7 +55,12 @@ const PINES_ADVERTENCIA_S3 = new Map([
 /** Orden de las categorías en el catálogo. */
 const ORDEN_CATEGORIAS = ['Placas', 'Entradas', 'Salidas', 'Pasivos', 'Radio 433 MHz', 'Inalámbricos'];
 
-const state = {
+/**
+ * Estado de la UI. Envuelto en `observable` para que los componentes de React se enteren cuando
+ * algo cambia (#9): escribirle un campo acá avisa solo, sin que haya que tocar nada más.
+ * Las mutaciones de adentro de un Map o un array no se ven: para esas está `notificar()`.
+ */
+const state = observable({
   proyectos: [],
   proyecto: null,
   archivos: [],
@@ -62,6 +72,13 @@ const state = {
   /** Lo último que publicó cada chip en la corrida (evento chip.salida): id de instancia → salida. */
   salidasChips: new Map<string, Record<string, unknown>>(),
   filtroModulos: '',
+  /** Texto del buscador de la pantalla de inicio. Lo lee <Proyectos>. */
+  filtroProyectos: '',
+  /** Módulo cuyo pulsador del panel está apretado ahora (lo pinta <Controles>). */
+  panelPresionado: (null as any),
+  /** Se incrementan para avisarle a React de cambios dentro de un Map (ver react/estado.ts). */
+  controlesVersion: 0,
+  quemadosVersion: 0,
   /** Herramienta "mover" activa (barra de iconos): no deja empezar cables al tocar un pin, para
    * poder reacomodar módulos sobre un circuito ya cableado sin arrancar un cable por accidente. */
   modoMover: false,
@@ -126,7 +143,49 @@ const state = {
      */
     cortos: new Map(),
   },
-};
+});
+registrarEstado(state);
+// Lo que los componentes de React necesitan disparar (#9). Van por el puente y no importándose,
+// para no armar un ciclo entre app.ts y los componentes.
+registrarAcciones({
+  agregarModulo: (type) => agregarModulo(type),
+  quitarDelCatalogo: (m) => void quitarDelCatalogo(m),
+  filtrarModulos: (texto) => { state.filtroModulos = texto; },
+  abrirProyecto: (nombre) => void cambiarDeProyecto(nombre),
+  eliminarProyecto: (nombre) => void eliminarProyecto(nombre),
+  eliminarModulo: (id) => eliminarModulo(id),
+  eliminarCable: (indice) => eliminarCable(indice),
+  desconectar: (indice) => {
+    state.diagrama.wires.splice(indice, 1);
+    notificar();
+    guardarDiagrama();
+    lienzo.render();
+  },
+  girar: (inst, grados, fin) => fijarRotacion(inst, grados, fin),
+  cambiarProp: (inst, clave, valor) => {
+    inst.props = { ...inst.props, [clave]: valor };
+    notificar();
+    guardarDiagrama();
+    lienzo.render();
+  },
+  controlModulo: (inst, control, indice) => controlModulo(inst, control, indice, 'down'),
+  presionarMomentario: (inst) => {
+    state.panelPresionado = inst;
+    controlModulo(inst, 'momentary', 0, 'down');
+  },
+  reemplazarQuemado: (id) => reemplazarQuemado(id),
+  moverEntorno: (id, valores) => {
+    void api(`/api/projects/${state.proyecto.name}/modules/${encodeURIComponent(id)}/entorno`, {
+      method: 'PUT', body: JSON.stringify({ valores }),
+    }).catch((err) => nota(`No se pudo mover el entorno: ${(err as Error).message}`));
+  },
+  agregarPlaca: () => abrirAgregarPlaca(state.placaPorDefecto || state.placas[0]?.id),
+});
+registrarVistas({
+  nombrePlaca: () => nombrePlaca(),
+  sinPlaca: () => sinPlaca(),
+  textoEsperaSimulacion: () => textoEsperaSimulacion(),
+});
 
 // --- Íconos -------------------------------------------------------------
 
@@ -345,8 +404,9 @@ function conectarWS() {
         if (msg.project === state.proyecto?.name) {
           const inst = state.diagrama.modules.find((m) => m.id === msg.id);
           if (inst) inst.entorno = { ...inst.entorno, ...msg.entorno };
-          // No repintar el panel mientras se arrastra el control (se perdería el foco).
-          if (state.seleccion?.tipo === 'modulo' && state.seleccion.id === msg.id && !document.activeElement?.matches('[data-entorno]')) pintarPanelDerecho();
+          // El panel es de React (#9): alcanza con avisar. Antes había que esquivar el repintado
+          // para no perder el foco del control; ahora el valor es estado del componente.
+          notificar();
         }
         break;
       case 'chip.salida':
@@ -716,9 +776,8 @@ function nombrePinGpio(g) {
 }
 
 /** Cables que tocan un pin "id.PIN". */
-function cablesDe(ref) {
-  return state.diagrama.wires.filter((w) => w.from === ref || w.to === ref);
-}
+/** Los cables que llegan a una punta. El cálculo está en consultas.ts (puro y probado). */
+const cablesDe = (ref) => cablesDePuro(ref, state.diagrama.wires);
 
 /**
  * GPIO del ESP32 al que está cableado un pin de un módulo, o null.
@@ -749,29 +808,15 @@ function gpioDe(id, pin, visitados = new Set()) {
 }
 
 /** Nombre legible de una punta de cable: "ESP32 · GPIO6" / "Pulsador btn1 · OUT". */
-function nombreRef(ref) {
-  const [id, pin] = [ref.slice(0, ref.indexOf('.')), ref.slice(ref.indexOf('.') + 1)];
-  const inst = state.diagrama.modules.find((m) => m.id === id);
-  const def = inst && state.catalogo.get(inst.type);
-  const limpio = pin.replace(/_\d+$/, '');
-  if (id === BOARD_ID) return `${nombrePlaca()} · ${limpio}`;
-  return `${def?.name ?? id} ${id} · ${limpio}`;
-}
+const nombreRef = (ref) =>
+  nombreRefPuro(ref, state.diagrama.modules, (t) => state.catalogo.get(t), nombrePlaca());
 
 /**
  * Pines de alimentación (GND/VCC) de un módulo que no están cableados a nada.
  * Como en la vida real: sin tierra (y sin VCC si lo necesita) el módulo no funciona,
  * aunque su pin de señal sí esté conectado.
  */
-function pinesSinAlimentar(inst, def) {
-  // Igual que en el server (diagramOps.pinesSinAlimentar): todas las tierras, y al menos una
-  // alimentación (3VO de una placa con regulador es una salida: no hace falta cablearla).
-  const sinCable = (p) => cablesDe(`${inst.id}.${p.name}`).length === 0;
-  const tierras = def.pins.filter((p) => p.kind === 'ground' && sinCable(p)).map((p) => p.name);
-  const alimentaciones = def.pins.filter((p) => p.kind === 'power');
-  const falta = alimentaciones.length > 0 && alimentaciones.every(sinCable);
-  return def.pins.filter((p) => tierras.includes(p.name) || (falta && p.kind === 'power')).map((p) => p.name);
-}
+const pinesSinAlimentar = (inst, def) => pinesSinAlimentarPuro(inst, def, state.diagrama.wires);
 
 /** Módulos de un rol, cableados a un GPIO y alimentados (p. ej. el receptor RF listo para recibir). */
 function cableadosConRol(rol) {
@@ -786,6 +831,9 @@ function cableadosConRol(rol) {
 // --- Dibujo: cambios --------------------------------------------------------
 
 function guardarDiagrama() {
+  // Todos los cambios del dibujo pasan por acá: es el lugar para avisarle a React, que no ve
+  // las mutaciones de adentro de `wires`/`modules` (ver react/estado.ts).
+  notificar();
   clearTimeout(state.timerDiagrama);
   const proyecto = state.proyecto?.name;
   if (!proyecto) return;
@@ -1106,12 +1154,11 @@ function controlModulo(inst, control, indice, evento) {
 }
 
 /** Control "momentary" apretado desde el panel (no desde el dibujo): para soltarlo aunque el mouse se vaya del botón. */
-let panelPresionado = null;
 function soltarPanelPresionado() {
-  if (!panelPresionado) return;
-  controlModulo(panelPresionado, 'momentary', 0, 'up');
-  panelPresionado = null;
-  pintarPanelDerecho();
+  const inst = state.panelPresionado;
+  if (!inst) return;
+  controlModulo(inst, 'momentary', 0, 'up');
+  state.panelPresionado = null;
 }
 window.addEventListener('mouseup', soltarPanelPresionado);
 window.addEventListener('touchend', soltarPanelPresionado);
@@ -1384,15 +1431,8 @@ function cortoExplotando(ref) {
 }
 
 /** ¿Este pin de un módulo (no de la placa) es de alimentación y le falta cablear? */
-function esPinSinAlimentar(ref) {
-  const punto = ref.indexOf('.');
-  const id = ref.slice(0, punto);
-  if (id === BOARD_ID || cablesDe(ref).length > 0) return false;
-  const inst = state.diagrama.modules.find((m) => m.id === id);
-  const def = inst && state.catalogo.get(inst.type);
-  const pin = def?.pins.find((p) => p.name === ref.slice(punto + 1));
-  return pin?.kind === 'ground' || pin?.kind === 'power';
-}
+const esPinSinAlimentar = (ref) =>
+  esPinSinAlimentarPuro(ref, state.diagrama.modules, (t) => state.catalogo.get(t), state.diagrama.wires);
 
 /** Texto extra del tooltip de un pin (por qué está reservado, conviene evitarlo, o hace falta cablearlo). */
 function descripcionPin(ref) {
@@ -1506,310 +1546,26 @@ function seleccionar(s) {
 }
 
 /** El panel derecho muestra el código si se eligió el ESP32 (o nada); si no, el módulo o el cable. */
+/**
+ * Qué se ve a la derecha: el editor de código o el panel del módulo. El contenido del panel lo
+ * rinde <PanelDerecho> (#9); acá solo queda decidir cuál de los dos se muestra, porque es `app.ts`
+ * el que sabe del editor.
+ */
 function pintarPanelDerecho() {
   const s = state.seleccion;
   const inst = s?.tipo === 'modulo' ? state.diagrama.modules.find((m) => m.id === s.id) : null;
   const def = inst ? state.catalogo.get(inst.type) : null;
   const muestraCodigo = !s || (s.tipo === 'modulo' && (!inst || def?.programmable));
-  const panel = $('panel-modulo');
-  // Sin placa no hay código: en su lugar, qué es este proyecto y cómo sumarle una placa.
-  if (muestraCodigo && sinPlaca()) {
-    $('panel-codigo').hidden = true;
-    panel.hidden = false;
-    return pintarPanelSinPlaca(panel);
-  }
-  $('panel-codigo').hidden = !muestraCodigo;
-  panel.hidden = muestraCodigo;
-  if (muestraCodigo) return;
-  if (s.tipo === 'cable') return pintarPanelCable(panel, s.indice);
-  if (!def) return pintarPanelDesconocido(panel, inst);
-  pintarPanelModulo(panel, inst, def);
-}
-
-function pintarPanelSinPlaca(panel: HTMLElement) {
-  const on = state.energizado;
-  panel.innerHTML = `
-    <h2 class="panel-header">${ICONOS.modulo} Circuito sin placa</h2>
-    <div class="insp">
-      <p class="insp-desc">Un circuito como en una protoboard: fuentes regulables y componentes, sin microcontrolador ni código.
-      Cerrá cada camino contra el <b>GND de la fuente</b>.</p>
-      <div class="insp-badge ${on ? '' : 'advertencia'}">${on
-        ? '<b>Energizado</b> — las fuentes entregan tensión: usá los pulsadores e interruptores. ⏹ lo apaga.'
-        : '<b>Apagado</b> — las fuentes no entregan nada. ▶ energiza el circuito.'}</div>
-      <h3>Placa</h3>
-      <p class="hint">Si querés programar algo, agregá una placa (o arrastrala desde el catálogo): elegís en qué lenguaje y aparece su código.</p>
-      <button type="button" id="sp-agregar-placa" class="primario">Agregar placa</button>
-    </div>`;
-  $('sp-agregar-placa').onclick = () => abrirAgregarPlaca(state.placaPorDefecto || state.placas[0]?.id);
-}
-
-function pintarPanelCable(panel, indice) {
-  const w = state.diagrama.wires[indice];
-  if (!w) {
-    seleccionar(null);
-    return;
-  }
-  panel.innerHTML = `
-    <h2 class="panel-header">${ICONOS.cable} Cable</h2>
-    <div class="insp">
-      <p class="insp-conexion"><b>${escapar(nombreRef(w.from))}</b><span>↔</span><b>${escapar(nombreRef(w.to))}</b></p>
-      <button class="peligro" id="insp-borrar-cable">Eliminar cable</button>
-      <p class="hint">También podés seleccionarlo y apretar Supr.</p>
-    </div>`;
-  $('insp-borrar-cable').onclick = () => eliminarCable(indice);
-}
-
-function pintarPanelDesconocido(panel, inst) {
-  panel.innerHTML = `
-    <h2 class="panel-header">${ICONOS.modulo} Módulo desconocido <span class="sub">· ${escapar(inst.id)}</span></h2>
-    <div class="insp">
-      <div class="insp-badge aire">El tipo <b>${escapar(inst.type)}</b> no está en el catálogo (¿se quitó?).
-      Podés volver a importarlo o eliminarlo del circuito.</div>
-      <button class="peligro" id="insp-eliminar">Eliminar módulo</button>
-    </div>`;
-  $('insp-eliminar').onclick = () => eliminarModulo(inst.id);
-}
-
-const NOMBRE_KIND = {
-  'digital-in': 'entrada', 'digital-out': 'salida', 'digital-io': 'E/S',
-  power: 'alimentación', ground: 'tierra', 'analog-in': 'analógica', other: '—',
-};
-
-/**
- * Controles de simulación para el panel: la forma fácil de "apretar" un módulo,
- * sin tener que encontrar el dibujo chico en el circuito.
- */
-function controlesPanel(inst, def) {
-  const kind = def.controls?.[0]?.kind;
-  if (def.bridge?.role === 'input' && kind === 'momentary') {
-    return '<button type="button" class="btn-accionar" data-accion="momentary">Mantener presionado</button>';
-  }
-  if (def.bridge?.role === 'input' && kind === 'toggle') {
-    const on = Boolean(state.sim.controles.get(inst.id));
-    return `<button type="button" class="btn-accionar ${on ? 'activo' : ''}" data-accion="toggle">${on ? 'Apagar' : 'Encender'}</button>`;
-  }
-  if (def.type === 'remote-433') {
-    return `<div class="botonera-remoto">${['A', 'B', 'C', 'D'].map((l, i) =>
-      `<button type="button" class="btn-accionar" data-accion="boton" data-indice="${i}">${l}</button>`).join('')}</div>`;
-  }
-  if (def.type === 'door-sensor-433') {
-    const abierta = Boolean(state.sim.controles.get(inst.id));
-    return `<button type="button" class="btn-accionar ${abierta ? 'activo' : ''}" data-accion="toggle">${abierta ? 'Cerrar puerta' : 'Abrir puerta'}</button>`;
-  }
-  return '';
-}
-
-function pintarPanelModulo(panel: HTMLElement, inst, def) {
-  const esAire = def.bridge?.role === 'air';
-  const controles = controlesPanel(inst, def);
-  const filasPines = def.pins.map((p) => {
-    const ref = `${inst.id}.${p.name}`;
-    const conexiones = cablesDe(ref).map((w) => {
-      const otro = w.from === ref ? w.to : w.from;
-      const i = state.diagrama.wires.indexOf(w);
-      return `<span class="conexion">→ ${escapar(nombreRef(otro))}<button class="quitar" data-cable="${i}" title="Desconectar">×</button></span>`;
-    });
-    return `<tr>
-      <td class="pin-nombre ${p.kind}">${escapar(p.name)}</td>
-      <td class="pin-kind">${NOMBRE_KIND[p.kind] ?? p.kind}</td>
-      <td>${conexiones.join('') || '<span class="sin">sin conectar</span>'}</td>
-    </tr>`;
-  }).join('');
-
-  const propsHtml = Object.entries(def.props ?? {}).map(([k, p]) => {
-    const pd = (p as any);
-    const valor = inst.props?.[k] ?? pd.default ?? '';
-    const etiqueta = escapar(pd.label ?? k);
-    if (pd.enum) {
-      const opciones = pd.enum.map((o) => `<option ${o === valor ? 'selected' : ''}>${escapar(o)}</option>`).join('');
-      return `<label>${etiqueta}<select data-prop="${k}">${opciones}</select></label>`;
-    }
-    if (pd.type === 'boolean') {
-      return `<label class="check"><input type="checkbox" data-prop="${k}" ${valor ? 'checked' : ''}/> ${etiqueta}</label>`;
-    }
-    const tipo = pd.type === 'number' ? 'number' : 'text';
-    return `<label>${etiqueta}<input type="${tipo}" data-prop="${k}" value="${escapar(valor)}"/></label>`;
-  }).join('');
-
-  panel.innerHTML = `
-    <h2 class="panel-header">${ICONOS.modulo} ${escapar(def.name)} <span class="sub">· ${escapar(inst.id)}</span></h2>
-    <div class="insp">
-      <div class="insp-mini"></div>
-      <p class="insp-desc">${escapar(def.description ?? '')}</p>
-      <div class="insp-badge ${esAire ? 'aire' : ''}">
-        ${esAire
-          ? `<b>Inalámbrico</b> — no se programa ni lleva cables: se comunica por radio 433 MHz con el receptor o transmisor conectado a la ${escapar(nombrePlaca())}.`
-          : chipsDe(def).length
-            ? `<b>Con chip</b> — adentro tiene ${chipsDe(def).map((c) => `un ${escapar(c.nombre)}`).join(' y ')} que habla${chipsDe(def).length > 1 ? 'n' : ''} por su bus con el código de la ${escapar(nombrePlaca())}: se emula su lógica, no solo su consumo.`
-          : sinPlaca()
-            ? '<b>Sin código</b> — se cablea al circuito; con ▶ se energiza y funciona por la corriente que le llega.'
-            : `<b>Sin código</b> — este módulo no se programa: se conecta a la ${escapar(nombrePlaca())} con cables y el código de la placa lo controla.`}
-      </div>
-      ${state.sim.quemados.has(inst.id) ? `
-        <div class="insp-badge quemado"><b>Quemado</b>: le pasaron ~${Math.round(state.sim.quemados.get(inst.id)?.mA ?? 0)} mA. Ya no enciende aunque arregles el circuito, igual que un LED real.
-        <button type="button" id="insp-reemplazar" class="btn-accionar">Reemplazar LED</button></div>` : ''}
-      ${pinesSinAlimentar(inst, def).length > 0 ? `
-        <div class="insp-badge advertencia">⚠ <b>Sin alimentación</b> — conectá también ${escapar(pinesSinAlimentar(inst, def).join(' y '))}: sin eso no funciona en la simulación, como en la vida real.</div>` : ''}
-      ${controles ? `
-        <h3>Simulación</h3>
-        <div class="insp-control ${state.sim.listo ? '' : 'deshabilitado'}">${controles}</div>
-        <p class="hint">${state.sim.listo ? 'También podés tocar el dibujo del módulo en el circuito.' : textoEsperaSimulacion()}</p>` : ''}
-      ${def.pins.length ? `
-        <h3>Pines</h3>
-        <table class="insp-pines"><tbody>${filasPines}</tbody></table>
-        <p class="hint">Para cablear: click en un pin del módulo en el circuito y después en ${sinPlaca() ? 'otro pin (cerrá los caminos contra el GND de la fuente)' : `un pin de la ${escapar(nombrePlaca())}`}.</p>` : ''}
-      <h3>Rotación</h3>
-      <div class="insp-rotacion">
-        <button type="button" data-girar="-90" title="Girar 90° a la izquierda (Shift+R)" aria-label="Girar a la izquierda">⟲</button>
-        <input type="range" min="0" max="359" step="1" value="${inst.rotation ?? 0}" data-rotacion-rango aria-label="Ángulo" />
-        <label class="grados"><input type="number" min="0" max="359" value="${inst.rotation ?? 0}" data-rotacion aria-label="Grados" />°</label>
-        <button type="button" data-girar="90" title="Girar 90° a la derecha (R)" aria-label="Girar a la derecha">⟳</button>
-      </div>
-      ${seccionChip(inst, def)}
-      ${propsHtml ? `<h3>Propiedades</h3><div class="insp-props">${propsHtml}</div>` : ''}
-      <button class="peligro" id="insp-eliminar">Eliminar módulo</button>
-    </div>`;
-  panel.querySelector<HTMLElement>('.insp-mini').append(miniatura(def));
-  $('insp-eliminar').onclick = () => eliminarModulo(inst.id);
-  conectarControlesChip(panel, inst);
-  const reemplazar = $('insp-reemplazar');
-  if (reemplazar) reemplazar.onclick = () => reemplazarQuemado(inst.id);
-  for (const b of panel.querySelectorAll('[data-girar]')) {
-    (b as HTMLElement).onclick = () => fijarRotacion(inst, (inst.rotation ?? 0) + Number((b as HTMLElement).dataset.girar), true);
-  }
-  const rango = (panel.querySelector<HTMLElement>('[data-rotacion-rango]') as HTMLInputElement);
-  const numero = (panel.querySelector<HTMLElement>('[data-rotacion]') as HTMLInputElement);
-  rango.addEventListener('input', () => {
-    numero.value = rango.value;
-    fijarRotacion(inst, Number(rango.value), false);
-  });
-  rango.addEventListener('change', () => fijarRotacion(inst, Number(rango.value), true));
-  numero.addEventListener('change', () => {
-    fijarRotacion(inst, Number(numero.value) || 0, true);
-    rango.value = String(inst.rotation ?? 0);
-  });
-  for (const b of panel.querySelectorAll('button.quitar')) {
-    (b as HTMLElement).onclick = () => {
-      state.diagrama.wires.splice(Number((b as HTMLElement).dataset.cable), 1);
-      guardarDiagrama();
-      pintarPanelDerecho();
-      lienzo.render();
-    };
-  }
-  for (const campo of panel.querySelectorAll('[data-prop]')) {
-    const c = (campo as HTMLInputElement);
-    c.addEventListener('change', () => {
-      const k = c.dataset.prop;
-      const pd = def.props[k];
-      inst.props = { ...inst.props, [k]: pd.type === 'number' ? Number(c.value) : pd.type === 'boolean' ? c.checked : c.value };
-      guardarDiagrama();
-      lienzo.render();
-    });
-  }
-  for (const b of panel.querySelectorAll('.btn-accionar')) {
-    const el = (b as HTMLButtonElement);
-    const accion = el.dataset.accion;
-    if (accion === 'momentary') {
-      const abajo = (/** @type {Event} */ e) => {
-        e.preventDefault();
-        panelPresionado = inst;
-        controlModulo(inst, 'momentary', 0, 'down');
-        el.classList.add('activo');
-      };
-      el.addEventListener('mousedown', abajo);
-      el.addEventListener('touchstart', abajo, { passive: false });
-    } else if (accion === 'toggle') {
-      el.onclick = () => {
-        controlModulo(inst, 'toggle', 0, 'down');
-        pintarPanelDerecho(); // refleja el nuevo estado (Encender/Apagar, Abrir/Cerrar puerta)
-      };
-    } else if (accion === 'boton') {
-      el.onclick = () => controlModulo(inst, 'boton', Number(el.dataset.indice), 'down');
-    }
-  }
+  // Sin placa no hay código: en su lugar, el panel cuenta qué es un proyecto sin placa.
+  const codigo = muestraCodigo && !sinPlaca();
+  $('panel-codigo').hidden = !codigo;
+  $('panel-modulo').hidden = codigo;
 }
 
 // --- Catálogo -----------------------------------------------------------------
-
-/**
- * Tarjetas del catálogo ya armadas, por tipo: armar cada miniatura SVG es lo caro, y el
- * buscador repinta la lista en cada tecla. Se vacía cuando cambia el catálogo.
- * @type {Map<string, HTMLElement>}
- */
-const tarjetas = new Map();
-
-function tarjetaModulo(m) {
-  const hecha = tarjetas.get(m.type);
-  if (hecha) return hecha;
-  const b = document.createElement('button');
-  b.className = 'modulo-card';
-  b.draggable = true;
-  b.dataset.type = m.type;
-  b.title = m.description ?? m.name;
-  b.append(miniatura(m));
-  const nombre = document.createElement('span');
-  nombre.textContent = m.name;
-  b.append(nombre);
-  if (m.programmable || !m.builtin) {
-    const etiqueta = document.createElement('small');
-    etiqueta.className = m.programmable ? 'tag-programable' : 'tag-importado';
-    etiqueta.textContent = m.programmable ? 'programable' : 'importado';
-    if (m.origin) etiqueta.title = `Importado desde ${m.origin.from}`;
-    b.append(etiqueta);
-  }
-  b.onclick = () => agregarModulo(m.type);
-  b.addEventListener('dragstart', (e) => {
-    e.dataTransfer?.setData('text/x-modulo', m.type);
-    if (e.dataTransfer) e.dataTransfer.effectAllowed = 'copy';
-  });
-  // La tarjeta es un botón: el "quitar" va al lado (un botón no puede ir dentro de otro).
-  const envoltorio = document.createElement('div');
-  envoltorio.className = 'card-wrap';
-  envoltorio.append(b);
-  if (!m.builtin) {
-    const quitar = document.createElement('button');
-    quitar.className = 'card-quitar';
-    quitar.title = `Quitar "${m.name}" del catálogo`;
-    quitar.setAttribute('aria-label', quitar.title);
-    quitar.textContent = '×';
-    quitar.onclick = () => void quitarDelCatalogo(m);
-    envoltorio.append(quitar);
-  }
-  tarjetas.set(m.type, envoltorio);
-  return envoltorio;
-}
-
-function pintarModulosCatalogo() {
-  const cont = $('lista-modulos');
-  cont.textContent = '';
-  if (state.catalogo.size === 0) {
-    cont.innerHTML = vacioPanel(ICONOS.modulo, 'Sin módulos todavía', 'No se encontró el catálogo (carpeta modules/).');
-    return;
-  }
-  const filtro = state.filtroModulos.toLowerCase();
-  const porCategoria = new Map();
-  for (const m of state.catalogo.values()) {
-    const texto = `${m.name} ${m.category} ${m.type}`.toLowerCase();
-    if (filtro && !texto.includes(filtro)) continue;
-    if (!porCategoria.has(m.category)) porCategoria.set(m.category, []);
-    porCategoria.get(m.category).push(m);
-  }
-  if (porCategoria.size === 0) {
-    cont.innerHTML = '<p class="vacio">Sin resultados.</p>';
-    return;
-  }
-  const orden = (c) => (ORDEN_CATEGORIAS.indexOf(c) + 1 || 99);
-  for (const categoria of [...porCategoria.keys()].sort((a, b) => orden(a) - orden(b))) {
-    const h = document.createElement('div');
-    h.className = 'cat-header';
-    h.textContent = categoria;
-    cont.append(h);
-    const grid = document.createElement('div');
-    grid.className = 'cat-grid';
-    for (const m of porCategoria.get(categoria)) grid.append(tarjetaModulo(m));
-    cont.append(grid);
-  }
-}
+// El catálogo lo rinde <Catalogo> (#9): acá solo queda traerlo del server. Antes había además un
+// cache de tarjetas por tipo, porque armar cada miniatura SVG es lo caro y el buscador repintaba
+// la lista entera en cada tecla; ahora eso lo resuelve el diffing de React.
 
 // --- Chips (sensores con lógica) ----------------------------------------------------
 
@@ -1821,69 +1577,10 @@ async function cargarChips() {
 /** Los chips de un módulo del catálogo (una placa puede traer varios en el mismo bus). */
 const chipsDe = (def): any[] => (def?.chips ?? []).map((u) => state.chips.get(u.id)).filter(Boolean);
 
-/** Sección del panel con los chips y lo que miden: un control por magnitud, que se aplica en vivo. */
-function seccionChip(inst, def): string {
-  const faltan = (def?.chips ?? []).filter((u) => !state.chips.has(u.id));
-  const avisoFalta = faltan.map((u) => `<div class="insp-badge advertencia">⚠ El chip <b>${escapar(u.id)}</b> no está en el catálogo: no va a responder.</div>`).join('');
-  const chips = chipsDe(def);
-  if (chips.length === 0) return avisoFalta;
-  const magnitudes = Object.assign({}, ...chips.map((c) => c.entorno ?? {}));
-  const filas = Object.entries(magnitudes).map(([k, m]: [string, any]) => {
-    const v = Number(inst.entorno?.[k] ?? m.default);
-    const paso = m.paso ?? (m.max - m.min) / 200;
-    return `<label class="insp-entorno">${escapar(m.etiqueta ?? k)}
-      <span class="fila"><input type="range" data-entorno="${k}" min="${m.min}" max="${m.max}" step="${paso}" value="${v}"/>
-      <input type="number" data-entorno-num="${k}" min="${m.min}" max="${m.max}" step="${paso}" value="${v}"/><span class="unidad">${escapar(m.unidad)}</span></span></label>`;
-  }).join('');
-  const descripcion = chips.map((chip) => `<p class="insp-desc"><b>${escapar(chip.nombre)}</b>${chip.fabricante ? ` · ${escapar(chip.fabricante)}` : ''}${chip.i2c ? ' · I2C' : ''}${chip.hojaDeDatos ? `<br><span class="sub">Según ${escapar(chip.hojaDeDatos)}</span>` : ''}</p>`).join('');
-  const limites = chips.flatMap((chip) => (chip.limitaciones ?? []).map((l) => `<li>${chips.length > 1 ? `<b>${escapar(chip.nombre)}:</b> ` : ''}${escapar(l)}</li>`)).join('');
-  return `${avisoFalta}
-    <h3>${chips.length > 1 ? 'Chips' : 'Chip'}</h3>
-    ${descripcion}
-    ${filas ? `<h3>Entorno</h3><div class="insp-props">${filas}</div>
-      <p class="hint">Lo que mide el sensor. Con la simulación corriendo, el programa lo ve en la próxima medición, sin reiniciar.</p>` : ''}
-    ${limites ? `<details class="insp-limites"><summary>Qué no se emula</summary><ul>${limites}</ul></details>` : ''}`;
-}
-
-function conectarControlesChip(panel: HTMLElement, inst) {
-  let timer: ReturnType<typeof setTimeout> | null = null;
-  const pendientes: Record<string, number> = {};
-  const mandar = () => {
-    timer = null;
-    const valores = { ...pendientes };
-    for (const k of Object.keys(pendientes)) delete pendientes[k];
-    inst.entorno = { ...inst.entorno, ...valores };
-    void api(`/api/projects/${state.proyecto.name}/modules/${encodeURIComponent(inst.id)}/entorno`, {
-      method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ valores }),
-    }).catch((err) => nota(`No se pudo mover el entorno: ${(err as Error).message}`));
-  };
-  const poner = (k: string, v: number) => {
-    if (!Number.isFinite(v)) return;
-    pendientes[k] = v;
-    for (const el of panel.querySelectorAll<HTMLInputElement>(`[data-entorno="${k}"], [data-entorno-num="${k}"]`)) if (Number(el.value) !== v) el.value = String(v);
-    // Mientras se arrastra, como mucho un pedido cada 150 ms.
-    timer ??= setTimeout(mandar, 150);
-  };
-  for (const el of panel.querySelectorAll<HTMLInputElement>('[data-entorno]')) el.addEventListener('input', () => poner(el.dataset.entorno!, Number(el.value)));
-  // El número se aplica mientras se tipea (si ya es un valor válido dentro del rango) y al confirmar.
-  for (const el of panel.querySelectorAll<HTMLInputElement>('[data-entorno-num]')) {
-    const aplicar = () => {
-      const v = Number(el.value);
-      if (el.value.trim() !== '' && Number.isFinite(v) && v >= Number(el.min) && v <= Number(el.max)) poner(el.dataset.entornoNum!, v);
-    };
-    el.addEventListener('input', aplicar);
-    el.addEventListener('change', aplicar);
-  }
-}
-
-// --- Cambios desde afuera (MCP u otra pestaña) -------------------------------------
-
 async function recargarCatalogo() {
   const { modules } = await api('/api/modules').catch(() => ({ modules: [] }));
   state.catalogo = new Map(modules.map((m) => [m.type, m]));
   await cargarChips();
-  tarjetas.clear();
-  pintarModulosCatalogo();
   pintarPanelDerecho();
   lienzo.render();
 }
@@ -2067,17 +1764,7 @@ async function refrescarAvisos() {
     actualizarCortos(warnings);
     actualizarCuentaProblemas();
     revisarQuemaduras();
-    const cont = $('avisos-dibujo');
-    cont.textContent = '';
-    for (const w of warnings.slice(0, 6)) {
-      const div = document.createElement('div');
-      div.textContent = w.message;
-      div.dataset.pin = String(w.pin);
-      cont.append(div);
-    }
-    // Compacto por defecto (una línea + "+N más"): el circuito no pierde lugar. Click: despliega.
-    cont.dataset.mas = warnings.length > 1 ? `+${warnings.length - 1} más` : '';
-    if (!warnings.length) cont.classList.remove('abiertos');
+    // Los avisos los rinde <Avisos> (#9): alcanza con haber asignado `state.avisosDibujo`.
     lienzo.render();
   } catch {
     /* el proyecto puede no tener archivos aún */
@@ -2104,7 +1791,6 @@ async function cargarProyectos(seleccionarNombre?: string) {
     o.textContent = `${p.name} (${p.board ? p.language : 'sin placa'})`;
     s.append(o);
   }
-  if (document.body.classList.contains('inicio')) pintarListaProyectos();
   // Mientras llegaba la lista se abrió un proyecto (p. ej. por la URL): no se lo pisa.
   if (aperturas !== apertura && seleccionarNombre === undefined) {
     s.value = state.proyecto?.name ?? '';
@@ -2128,7 +1814,6 @@ function mostrarInicio() {
   history.replaceState(null, '', location.pathname + location.search);
   sel('proyecto').value = '';
   pintarWidgetsProyecto();
-  pintarListaProyectos();
   cerrarMenus();
 }
 
@@ -2189,46 +1874,7 @@ function pintarMiga() {
     : 'Bienvenida';
 }
 
-function pintarListaProyectos() {
-  const cont = $('lista-proyectos');
-  if (state.proyectos.length === 0) {
-    cont.innerHTML = vacioPanel(ICONOS.modulo, 'Todavía no tenés proyectos', 'Creá el primero con "Nuevo proyecto".');
-    return;
-  }
-  const filtro = inp('buscar-proyectos').value.trim().toLowerCase();
-  const lista = state.proyectos.filter((p) => !filtro || `${p.name} ${p.language}`.toLowerCase().includes(filtro));
-  if (lista.length === 0) {
-    cont.innerHTML = '<p class="vacio">Ningún proyecto coincide con la búsqueda.</p>';
-    return;
-  }
-  cont.textContent = '';
-  for (const p of lista) {
-    const card = document.createElement('div');
-    card.className = 'proyecto-card';
-    const abrir = document.createElement('button');
-    abrir.type = 'button';
-    abrir.className = 'proyecto-abrir';
-    const placa = p.board ? (state.catalogo.get(p.board)?.name ?? p.board) : 'sin placa';
-    abrir.innerHTML = `
-      <span class="insignia" style="--color-proyecto:${colorProyecto(p.name)}">${escapar(iniciales(p.name))}</span>
-      <span class="nombre">${escapar(p.name)}</span>
-      <span class="linea2">
-        <span class="lenguaje">${escapar(p.language ?? 'circuito')}</span>
-        <span class="detalle">${p.modules.length} módulo(s) en el circuito${placa ? ` · ${escapar(placa)}` : ''}</span>
-      </span>
-    `;
-    abrir.onclick = () => void cambiarDeProyecto(p.name);
-    const quitar = document.createElement('button');
-    quitar.type = 'button';
-    quitar.className = 'quitar';
-    quitar.title = `Eliminar "${p.name}"`;
-    quitar.setAttribute('aria-label', quitar.title);
-    quitar.textContent = '×';
-    quitar.onclick = () => void eliminarProyecto(p.name);
-    card.append(abrir, quitar);
-    cont.append(card);
-  }
-}
+// La lista de proyectos la rinde <Proyectos> (#9): alcanza con mantener `state.proyectos`.
 
 async function eliminarProyecto(nombre) {
   if (!confirm(`¿Eliminar el proyecto "${nombre}"? No se puede deshacer.`)) return;
@@ -2322,8 +1968,8 @@ ta('editor').addEventListener('keydown', (e) => {
 });
 
 inp('buscar-modulos').addEventListener('input', () => {
+  // <Catalogo> se entera por el estado observable: no hay que repintar nada a mano.
   state.filtroModulos = inp('buscar-modulos').value;
-  pintarModulosCatalogo();
 });
 
 $('importar-modulo').onclick = () => {
@@ -2336,7 +1982,6 @@ for (const b of document.querySelectorAll('.imp-fuentes [data-fuente]')) {
 $('imp-importar').onclick = () => void ejecutarImportacion(false);
 $('imp-validar').onclick = () => void ejecutarImportacion(true);
 
-$('avisos-dibujo').onclick = () => $('avisos-dibujo').classList.toggle('abiertos');
 $('zoom-mas').onclick = () => lienzo.zoom(1.2);
 $('zoom-menos').onclick = () => lienzo.zoom(1 / 1.2);
 $('zoom-ajustar').onclick = () => lienzo.ajustar();
@@ -2672,7 +2317,10 @@ inp('entrada-console').addEventListener('keydown', (e) => {
   log('emu', `> ${data}`);
   enviar({ type: 'console.input', data: data + '\n' });
 });
-inp('buscar-proyectos').addEventListener('input', pintarListaProyectos);
+inp('buscar-proyectos').addEventListener('input', () => {
+  // <Proyectos> se entera por el estado observable.
+  state.filtroProyectos = inp('buscar-proyectos').value;
+});
 
 // --- Notificaciones -------------------------------------------------------------------
 
@@ -3139,7 +2787,6 @@ const depuracion = crearDepuracion({
   const { modules } = await api('/api/modules').catch(() => ({ modules: [] }));
   state.catalogo = new Map(modules.map((m) => [m.type, m]));
   await cargarChips();
-  pintarModulosCatalogo();
   pintarGutter();
   conectarWS();
   await cargarPlacas();
