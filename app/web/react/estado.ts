@@ -16,9 +16,11 @@ import { useSyncExternalStore } from 'react';
  */
 
 const oyentes = new Set<() => void>();
+let version = 0;
 
 /** Avisa a React que el estado cambió. Solo hace falta para mutaciones de adentro de un Map/array. */
 export function notificar(): void {
+  version++;
   for (const oyente of oyentes) oyente();
 }
 
@@ -47,5 +49,22 @@ export function observable<T extends object>(obj: T): T {
  * estado y derivar lo que haga falta dentro del componente.
  */
 export function useEstado<T>(leer: () => T): T {
+  return useSyncExternalStore(suscribir, leer, leer);
+}
+
+/**
+ * Para los componentes que leen estructuras que se mutan en el lugar: `state.diagrama.wires` con
+ * `splice`, los `Map` de `state.sim`, las props de un módulo.
+ *
+ * `useEstado` no sirve en esos casos y el motivo no es obvio: devuelve la misma referencia, y
+ * `useSyncExternalStore` compara el snapshot con `Object.is`, así que React no vuelve a renderizar
+ * aunque se haya llamado a `notificar()`. Acá el snapshot es un contador que sube con cada aviso,
+ * así que siempre cambia.
+ *
+ * Es menos preciso —re-renderiza ante cualquier cambio del estado— pero correcto, y para los
+ * paneles (que se repintan por cada acción del usuario, no 60 veces por segundo) alcanza de sobra.
+ */
+export function useVersion(): number {
+  const leer = () => version;
   return useSyncExternalStore(suscribir, leer, leer);
 }
