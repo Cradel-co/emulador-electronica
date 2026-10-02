@@ -213,4 +213,27 @@ describe('scanPins: el I2C usa SDA/SCL sin nombrarlos', () => {
     expect(scanPins('arduino', 'void setup(){ pinMode(13, OUTPUT); }', uno)).toEqual([13]);
     expect(scanPins('arduino', '// #include <Wire.h>\nvoid setup(){}', uno)).toEqual([]);
   });
+
+  it('los argumentos de un dispositivo I2C no son pines, aunque parezcan', () => {
+    // 39 es la dirección (0x27), 16 y 2 son columnas y filas. Los tres tienen forma de pin, así
+    // que pedir solo eso agregaba A2 y D2 y avisaba de pines sin cablear que nadie usa.
+    expect(scanPins('arduino', '#include <Wire.h>\nLiquidCrystal_I2C lcd(39, 16, 2);', uno)).toEqual([18, 19]);
+    // Lo que descarta la declaración es que 39 no es un pin del Uno: con el bus I2C aparte.
+    expect(scanPins('arduino', 'LiquidCrystal_I2C lcd(39, 16, 2);', uno)).toEqual([]);
+  });
+
+  it('pero sí cuenta los pines cuando todos existen en la placa', () => {
+    // El caso que la heurística quiere atrapar sigue funcionando.
+    expect(scanPins('arduino', 'Adafruit_ST7735 tft(10, 9, 8);', uno)).toEqual([8, 9, 10]);
+  });
+
+  it('un pin del bus nombrado a mano, sin SPI, sigue avisando si no está cableado', () => {
+    const vacio = { wires: [] } as unknown as Parameters<typeof diffDiagramVsCode>[0];
+    // D12 es el MISO del Uno. Sin los otros dos pines del bus, lo nombró el programa: hay aviso.
+    const avisos = diffDiagramVsCode(vacio, [12], uno);
+    expect(avisos.map((a) => a.kind)).toContain('code-pin-unwired');
+    // Y con los tres juntos (la firma de `SPI.h`) se exime, que es lo que se quería.
+    const conBus = { wires: [13, 11].map((d) => ({ from: 'x.X', to: `board.D${d}` })) } as unknown as Parameters<typeof diffDiagramVsCode>[0];
+    expect(diffDiagramVsCode(conBus, [11, 12, 13], uno).filter((a) => a.pin === 12)).toEqual([]);
+  });
 });
