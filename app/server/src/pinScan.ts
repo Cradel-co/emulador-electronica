@@ -78,9 +78,11 @@ export function scanPins(language: Language, content: string, desc?: BoardDescri
   const texto = sinComentarios(language, content);
   // Con descriptor, solo los pines que la placa tiene; sin él, el rango del ESP32-S3.
   const validos = desc ? new Set(Object.values(desc.pins).map((p) => p.gpio)) : null;
+  /** ¿La placa tiene ese pin? (sin descriptor, el rango del ESP32-S3, como siempre). */
+  const esValido = (n: number): boolean => (validos ? validos.has(n) : n <= 48);
   const agregar = (n: number | null): void => {
     if (n === null || !Number.isInteger(n) || n < 0) return;
-    if (validos ? validos.has(n) : n <= 48) found.add(n);
+    if (esValido(n)) found.add(n);
   };
   // Números de pin estilo Arduino AVR (A0 = 14, LED_BUILTIN = 13): la placa usa arduino-cli.
   const avr = desc?.languages.arduino?.toolchain === 'arduino-cli';
@@ -101,12 +103,20 @@ export function scanPins(language: Language, content: string, desc?: BoardDescri
       if (usadas.has(nombre)) agregar(valorPinAvr(m[3]!));
     }
     // Pines que se le pasan a una librería al crear el objeto: `Adafruit_ST7735 tft(10, 9, 8);`,
-    // `LiquidCrystal lcd(12, 11, 5, 4, 3, 2);`. Solo si todos los argumentos son números de pin
-    // (así `Adafruit_SSD1306 oled(128, 64, &Wire, -1)` no cuenta).
+    // `LiquidCrystal lcd(12, 11, 5, 4, 3, 2);`.
+    //
+    // Solo si **todos** los argumentos son pines que la placa tiene de verdad. Alcanzaba con pedir
+    // que tuvieran forma de número corto, pero eso inventa pines: en `LiquidCrystal_I2C lcd(39,
+    // 16, 2);` los tres la tienen, y en realidad son una dirección I2C, columnas y filas. Pedir
+    // que sean pines válidos descarta la declaración entera por el 39, que en el Uno no existe.
+    //
+    // Queda un caso que no se cubre: un dispositivo I2C cuya dirección caiga en el rango de los
+    // pines (`lcd(8, 16, 2)`). Para eso haría falta saber qué recibe cada clase, que es justo lo
+    // que esta heurística evita.
     for (const m of texto.matchAll(/^\s*[A-Z]\w*\s+[A-Za-z_]\w*\s*\(([^()]*)\)\s*;/gm)) {
       const args = m[1]!.split(',').map((a) => a.trim());
       const pines = args.map((a) => (/^(?:A\d|\d{1,2})$/.test(a) ? valorPinAvr(a) : null));
-      if (args.length > 0 && pines.every((g) => g !== null)) pines.forEach(agregar);
+      if (args.length > 0 && pines.every((g) => g !== null && esValido(g))) pines.forEach(agregar);
     }
   }
   // El I2C usa sus pines sin que el código los nombre: Wire (y las librerías de sensores, que
@@ -287,8 +297,18 @@ export function diffDiagramVsCode(project: Project, codePins: number[], desc?: B
       if (pin !== null) diagramPins.add(pin);
     }
   }
-  // MISO del bus SPI: el programa lo usa si incluye SPI.h, pero una pantalla (solo escritura) no lo cablea.
-  const miso = new Set((desc?.buses?.spi ?? []).map((b) => b.miso));
+  // MISO del bus SPI: el programa lo usa si incluye SPI.h, pero una pantalla (solo escritura) no lo
+  // cablea, así que no se avisa de él.
+  //
+  // La exención vale solo cuando los tres pines del bus están en el código, que es la firma de que
+  // los puso `scanPins` al ver `SPI.h`. Si está el MISO solo, lo nombró el programa a mano y ahí el
+  // aviso sí corresponde: antes se eximía siempre y un sketch que maneja D12 sin SPI de por medio
+  // se quedaba sin él.
+  const miso = new Set(
+    (desc?.buses?.spi ?? [])
+      .filter((b) => codePins.includes(b.sck) && codePins.includes(b.mosi) && codePins.includes(b.miso))
+      .map((b) => b.miso),
+  );
   for (const pin of codePins) {
     if (!diagramPins.has(pin) && !miso.has(pin)) {
       warnings.push({
