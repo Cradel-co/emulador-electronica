@@ -35,6 +35,7 @@ export interface Acciones {
   presionarMomentario: (inst: any) => void;
   reemplazarQuemado: (id: string) => void;
   moverEntorno: (id: string, valores: Record<string, number>) => void;
+  abrirArchivo: (ruta: string) => void;
   agregarPlaca: () => void;
 }
 
