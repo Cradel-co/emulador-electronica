@@ -95,3 +95,32 @@ test('el catálogo lo rinde React y cada tarjeta dibuja su miniatura', async ({ 
   await expect(led).toBeAttached();
   expect(await led.locator('[data-si="on"]').count()).toBeGreaterThan(0);
 });
+
+test('el buscador de proyectos filtra la lista (el filtro pasó del DOM al estado)', async ({ page, request }) => {
+  const a = `busca-alfa-${Date.now().toString(36)}`;
+  const b = `busca-beta-${Date.now().toString(36)}`;
+  await request.post('/api/projects', { data: { name: a, language: 'esphome' } });
+  await request.post('/api/projects', { data: { name: b, language: 'micropython' } });
+  await page.goto('/');
+
+  const tarjetas = page.locator('#lista-proyectos .proyecto-card');
+  await expect(page.locator(`#lista-proyectos .nombre`, { hasText: a })).toBeVisible();
+  await expect(page.locator(`#lista-proyectos .nombre`, { hasText: b })).toBeVisible();
+
+  // Por nombre.
+  await page.locator('#buscar-proyectos').fill('alfa');
+  await expect(page.locator('#lista-proyectos .nombre', { hasText: a })).toBeVisible();
+  await expect(page.locator('#lista-proyectos .nombre', { hasText: b })).toHaveCount(0);
+
+  // Por lenguaje (el filtro mira nombre y lenguaje).
+  await page.locator('#buscar-proyectos').fill('micropython');
+  await expect(page.locator('#lista-proyectos .nombre', { hasText: b })).toBeVisible();
+
+  // Sin resultados.
+  await page.locator('#buscar-proyectos').fill('zzzz-nada');
+  await expect(page.locator('#lista-proyectos')).toContainText('Ningún proyecto coincide');
+
+  // Y al limpiar vuelven.
+  await page.locator('#buscar-proyectos').fill('');
+  expect(await tarjetas.count()).toBeGreaterThanOrEqual(2);
+});

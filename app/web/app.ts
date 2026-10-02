@@ -64,6 +64,8 @@ const state = observable({
   /** @type {Map<string, any>} */
   catalogo: new Map(),
   filtroModulos: '',
+  /** Texto del buscador de la pantalla de inicio. Lo lee <Proyectos>. */
+  filtroProyectos: '',
   /** Herramienta "mover" activa (barra de iconos): no deja empezar cables al tocar un pin, para
    * poder reacomodar módulos sobre un circuito ya cableado sin arrancar un cable por accidente. */
   modoMover: false,
@@ -136,6 +138,8 @@ registrarAcciones({
   agregarModulo: (type) => agregarModulo(type),
   quitarDelCatalogo: (m) => void quitarDelCatalogo(m),
   filtrarModulos: (texto) => { state.filtroModulos = texto; },
+  abrirProyecto: (nombre) => void cambiarDeProyecto(nombre),
+  eliminarProyecto: (nombre) => void eliminarProyecto(nombre),
 });
 
 // --- Íconos -------------------------------------------------------------
@@ -1927,7 +1931,6 @@ async function cargarProyectos(seleccionarNombre?: string) {
     o.textContent = `${p.name} (${p.board ? p.language : 'sin placa'})`;
     s.append(o);
   }
-  if (document.body.classList.contains('inicio')) pintarListaProyectos();
   // Mientras llegaba la lista se abrió un proyecto (p. ej. por la URL): no se lo pisa.
   if (aperturas !== apertura && seleccionarNombre === undefined) {
     s.value = state.proyecto?.name ?? '';
@@ -1951,7 +1954,6 @@ function mostrarInicio() {
   history.replaceState(null, '', location.pathname + location.search);
   sel('proyecto').value = '';
   pintarWidgetsProyecto();
-  pintarListaProyectos();
   cerrarMenus();
 }
 
@@ -2012,46 +2014,7 @@ function pintarMiga() {
     : 'Bienvenida';
 }
 
-function pintarListaProyectos() {
-  const cont = $('lista-proyectos');
-  if (state.proyectos.length === 0) {
-    cont.innerHTML = vacioPanel(ICONOS.modulo, 'Todavía no tenés proyectos', 'Creá el primero con "Nuevo proyecto".');
-    return;
-  }
-  const filtro = inp('buscar-proyectos').value.trim().toLowerCase();
-  const lista = state.proyectos.filter((p) => !filtro || `${p.name} ${p.language}`.toLowerCase().includes(filtro));
-  if (lista.length === 0) {
-    cont.innerHTML = '<p class="vacio">Ningún proyecto coincide con la búsqueda.</p>';
-    return;
-  }
-  cont.textContent = '';
-  for (const p of lista) {
-    const card = document.createElement('div');
-    card.className = 'proyecto-card';
-    const abrir = document.createElement('button');
-    abrir.type = 'button';
-    abrir.className = 'proyecto-abrir';
-    const placa = p.board ? (state.catalogo.get(p.board)?.name ?? p.board) : 'sin placa';
-    abrir.innerHTML = `
-      <span class="insignia" style="--color-proyecto:${colorProyecto(p.name)}">${escapar(iniciales(p.name))}</span>
-      <span class="nombre">${escapar(p.name)}</span>
-      <span class="linea2">
-        <span class="lenguaje">${escapar(p.language ?? 'circuito')}</span>
-        <span class="detalle">${p.modules.length} módulo(s) en el circuito${placa ? ` · ${escapar(placa)}` : ''}</span>
-      </span>
-    `;
-    abrir.onclick = () => void cambiarDeProyecto(p.name);
-    const quitar = document.createElement('button');
-    quitar.type = 'button';
-    quitar.className = 'quitar';
-    quitar.title = `Eliminar "${p.name}"`;
-    quitar.setAttribute('aria-label', quitar.title);
-    quitar.textContent = '×';
-    quitar.onclick = () => void eliminarProyecto(p.name);
-    card.append(abrir, quitar);
-    cont.append(card);
-  }
-}
+// La lista de proyectos la rinde <Proyectos> (#9): alcanza con mantener `state.proyectos`.
 
 async function eliminarProyecto(nombre) {
   if (!confirm(`¿Eliminar el proyecto "${nombre}"? No se puede deshacer.`)) return;
@@ -2494,7 +2457,10 @@ inp('entrada-console').addEventListener('keydown', (e) => {
   log('emu', `> ${data}`);
   enviar({ type: 'console.input', data: data + '\n' });
 });
-inp('buscar-proyectos').addEventListener('input', pintarListaProyectos);
+inp('buscar-proyectos').addEventListener('input', () => {
+  // <Proyectos> se entera por el estado observable.
+  state.filtroProyectos = inp('buscar-proyectos').value;
+});
 
 // --- Notificaciones -------------------------------------------------------------------
 
