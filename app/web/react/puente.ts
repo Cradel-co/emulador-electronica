@@ -25,6 +25,38 @@ export interface Acciones {
   filtrarModulos: (texto: string) => void;
   abrirProyecto: (nombre: string) => void;
   eliminarProyecto: (nombre: string) => void;
+  // Panel derecho
+  eliminarModulo: (id: string) => void;
+  eliminarCable: (indice: number) => void;
+  desconectar: (indice: number) => void;
+  girar: (inst: any, grados: number, fin: boolean) => void;
+  cambiarProp: (inst: any, clave: string, valor: unknown) => void;
+  controlModulo: (inst: any, control: string, indice: number) => void;
+  presionarMomentario: (inst: any) => void;
+  reemplazarQuemado: (id: string) => void;
+  agregarPlaca: () => void;
+}
+
+/**
+ * Consultas que dependen del estado global de `app.ts` y son de presentación: cómo se llama la
+ * placa, si el proyecto tiene una, qué decir mientras la simulación arranca. No son puras (las
+ * puras están en `consultas.ts`), así que van por el puente como todo lo demás.
+ */
+export interface Vistas {
+  nombrePlaca: () => string;
+  sinPlaca: () => boolean;
+  textoEsperaSimulacion: () => string;
+}
+
+let vis: Vistas | null = null;
+
+export function registrarVistas(v: Vistas): void {
+  vis = v;
+}
+
+export function vistas(): Vistas {
+  if (!vis) throw new Error('un componente pidió una vista antes de que app.ts las registrara');
+  return vis;
 }
 
 let acc: Acciones | null = null;
