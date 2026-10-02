@@ -1,6 +1,6 @@
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import path from 'node:path';
-import { ModuleDefSchema, type ModuleDef } from '@emu/shared';
+import { ModuleDefSchema, PruebasModuloSchema, type ModuleDef, type PruebaModulo } from '@emu/shared';
 import { PATHS } from './paths.js';
 
 /** Módulo del catálogo tal como lo recibe la UI: con su SVG adentro. */
@@ -11,6 +11,8 @@ export type ModuloCatalogo = ModuleDef & {
   modeloCodigo?: string;
   /** De fábrica (sin `origin`): no se puede quitar ni reemplazar. */
   builtin: boolean;
+  /** Sus pruebas (`tests.json` de la carpeta): el módulo contra su hoja de datos. */
+  pruebas?: PruebaModulo[];
 };
 
 let cache: ModuloCatalogo[] | null = null;
@@ -40,6 +42,9 @@ export async function loadCatalog(): Promise<ModuloCatalogo[]> {
             ? readFileSync(path.join(dir, entry.name, def.model), 'utf8')
             : undefined,
           builtin: !def.origin,
+          pruebas: existsSync(path.join(dir, entry.name, 'tests.json'))
+            ? PruebasModuloSchema.parse(JSON.parse(readFileSync(path.join(dir, entry.name, 'tests.json'), 'utf8')))
+            : undefined,
         });
       } catch (err) {
         // Un módulo roto no debe tumbar la app.

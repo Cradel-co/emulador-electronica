@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { BoardDescriptorSchema } from './board.js';
 import { UsoChipSchema } from './chip.js';
+import { EsquematicoSchema, ParteSchema, ReglaSchema } from './fabricacion.js';
 
 export const BRIDGE_ROLES = ['input', 'output', 'rf-rx', 'rf-tx', 'air'] as const;
 export type BridgeRole = (typeof BRIDGE_ROLES)[number];
@@ -168,6 +169,12 @@ export const ModuleDefSchema = z.object({
     .object({ arduino: z.object({ librerias: z.array(z.string().regex(LIBRERIA_ARDUINO_RE, 'nombre@versión del gestor de librerías')).max(20) }).strict().optional() })
     .strict()
     .optional(),
+  /** Qué es en la vida real (fabricante, número de parte, hoja de datos, dónde comprarlo): para la BOM. */
+  parte: ParteSchema.optional(),
+  /** Símbolo, huella, numeración de pines y despiece: para exportar el esquemático y fabricar. */
+  esquematico: EsquematicoSchema.optional(),
+  /** Límites de la hoja de datos (tensión, corriente, potencia, pines que tienen que ir cableados). */
+  reglas: z.array(ReglaSchema).max(30).default([]),
 });
 
 export type ModuleDef = z.infer<typeof ModuleDefSchema>;
