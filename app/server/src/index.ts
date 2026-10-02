@@ -928,7 +928,7 @@ async function runProject(
   const enBus = chipsDelProyecto(full, buscarDef, placa.desc, undefined, (id) => electrico?.modulos[id]?.ui?.on);
   for (const aviso of enBus.avisos) logBuild(`[chips] ${aviso}`);
   for (const c of enBus.chips) c.guardado = await leerMemoria(store.projectDir(full.name), c.id);
-  if (enBus.chips.length) logBuild(`[chips] en el bus I2C: ${enBus.chips.map((c) => c.nombre).join(', ')}`);
+  if (enBus.chips.length) logBuild(`[chips] en el bus: ${enBus.chips.map((c) => `${c.nombre} (${c.spi ? 'SPI' : 'I2C'})`).join(', ')}`);
   await emulator.start(full.name, artifacts, {
     ...motor!.opcionesArranque(placa.desc, artifacts),
     chips: enBus.chips,

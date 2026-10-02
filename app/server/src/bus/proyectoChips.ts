@@ -32,8 +32,10 @@ export interface ChipEnBus {
   diferirEscrituras?: boolean;
   /** Memoria no volátil de la ejecución anterior (la pone el server al arrancar). */
   guardado?: unknown;
-  /** Si quedó en el bus SPI: su CS y DC (gpio) y lo que acepta. */
-  spi?: { csGpio: number; dcGpio?: number; modos: number[]; lsbPrimero: boolean; soloEscritura: boolean; maxHz?: number };
+  /** Si quedó en el bus SPI: su CS y DC (gpio) y lo que acepta; y los pines del bus (placas con matriz). */
+  spi?: { csGpio: number; dcGpio?: number; modos: number[]; lsbPrimero: boolean; soloEscritura: boolean; maxHz?: number; sck?: number; mosi?: number; miso?: number };
+  /** En una placa con matriz GPIO (ESP32 + MicroPython): a qué par de pines va su I2C. */
+  i2cGpio?: { sda: number; scl: number };
   /** Pines del micro que el chip lee (gpio → pin del chip): RST... */
   entradas?: Record<number, string>;
 }
@@ -84,8 +86,9 @@ export function chipsDelProyecto(
         return pm === undefined ? null : gpioDe(project, inst.id, pm, buscar);
       };
       // Un chip con dos buses (el BME280 habla I2C o SPI) queda en el que esté cableado.
-      const i2c = enlaceI2c(chip, desc, gpioChip, delModulo, quien);
-      const spi = i2c.estado === 'ok' ? { estado: 'no' as const } : enlaceSpi(chip, desc, gpioChip, quien);
+      const matriz = !!project.language && (desc?.buses?.matriz ?? []).includes(project.language);
+      const i2c = enlaceI2c(chip, desc, gpioChip, delModulo, quien, matriz, project.language);
+      const spi = i2c.estado === 'ok' ? { estado: 'no' as const } : enlaceSpi(chip, desc, gpioChip, quien, matriz);
       if (i2c.estado !== 'ok' && spi.estado !== 'ok') {
         for (const r of [i2c, spi]) if (r.estado === 'mal') avisos.push(r.aviso);
         continue;
@@ -111,6 +114,7 @@ export function chipsDelProyecto(
         pullUps: uso.pullUps,
         diferirEscrituras: i2c.estado === 'ok' ? chip.i2c?.diferirEscrituras : undefined,
         spi: spi.estado === 'ok' ? spi.config : undefined,
+        i2cGpio: i2c.estado === 'ok' && matriz ? { sda: gpioChip(chip.i2c?.sda)!, scl: gpioChip(chip.i2c?.scl)! } : undefined,
         entradas: Object.fromEntries(chip.entradas.flatMap((pc) => { const g = gpioChip(pc); return g === null ? [] : [[g, pc]]; })),
       });
       if (spi.estado === 'ok' && spi.aviso) avisos.push(spi.aviso);
@@ -168,7 +172,7 @@ type Enlace = { estado: 'ok' } | { estado: 'no' } | { estado: 'mal'; aviso: stri
 /** ¿El chip quedó en el bus I2C de la placa? SDA y SCL tienen que ir a los pines del bus. */
 function enlaceI2c(
   chip: ChipCatalogo, desc: BoardDescriptor | undefined, gpioChip: (p: string | undefined) => number | null,
-  delModulo: (p: string) => string | undefined, quien: string,
+  delModulo: (p: string) => string | undefined, quien: string, matriz = false, lenguaje: string | null = null,
 ): Enlace {
   if (!chip.i2c) return { estado: 'no' };
   const pSda = delModulo(chip.i2c.sda);
@@ -178,6 +182,15 @@ function enlaceI2c(
   const gScl = gpioChip(chip.i2c.scl);
   if (gSda === null && gScl === null) return { estado: 'no' }; // sin cablear todavía
   if (desc?.buses?.i2c.some((b) => b.sda === gSda && b.scl === gScl)) return { estado: 'ok' };
+  // Matriz GPIO: I2C en cualquier par de pines (el programa dice cuáles: I2C(0, sda=..., scl=...)).
+  // Si el chip también habla SPI y su CS va a un pin del micro, es SPI (en la placa, CS sin cablear
+  // queda con su pull-up y el chip arranca en I2C).
+  if (matriz && chip.spi && gpioChip(chip.spi.cs) !== null) return { estado: 'no' };
+  if (matriz && gSda !== null && gScl !== null) return { estado: 'ok' };
+  if (matriz) return { estado: 'mal', aviso: `${quien}: falta cablear ${gSda === null ? pSda : pScl} a un pin de la placa: el ${chip.nombre} no va a responder.` };
+  if (desc?.buses?.matriz.length && !desc.buses.i2c.length) {
+    return { estado: 'mal', aviso: `${quien}: en esta placa los chips se emulan con ${desc.buses.matriz.join(', ')}${lenguaje ? ` (el proyecto es ${lenguaje})` : ''}; el ${chip.nombre} no va a responder.` };
+  }
   const cruzado = desc?.buses?.i2c.some((b) => b.sda === gScl && b.scl === gSda);
   return {
     estado: 'mal',
@@ -191,17 +204,22 @@ function enlaceI2c(
 
 /** ¿El chip quedó en el bus SPI? SCK/MOSI/MISO a los del bus y CS a cualquier pin del micro. */
 function enlaceSpi(
-  chip: ChipCatalogo, desc: BoardDescriptor | undefined, gpioChip: (p: string | undefined) => number | null, quien: string,
+  chip: ChipCatalogo, desc: BoardDescriptor | undefined, gpioChip: (p: string | undefined) => number | null, quien: string, matriz = false,
 ): { estado: 'ok'; config: NonNullable<ChipEnBus['spi']>; aviso?: string } | { estado: 'no' } | { estado: 'mal'; aviso: string } {
   const s = chip.spi;
   if (!s) return { estado: 'no' };
   const sck = gpioChip(s.sck), mosi = gpioChip(s.mosi), miso = gpioChip(s.miso), cs = gpioChip(s.cs), dc = gpioChip(s.dc);
   if (sck === null && mosi === null) return { estado: 'no' };
-  const bus = desc?.buses?.spi.find((b) => b.sck === sck && b.mosi === mosi);
+  // Matriz GPIO: el bus es el de los pines cableados (el programa dice cuáles: SPI(1, sck=..., mosi=...)).
+  const bus = matriz && sck !== null && mosi !== null ? { sck, mosi, miso: miso ?? -1 } : desc?.buses?.spi.find((b) => b.sck === sck && b.mosi === mosi);
   if (!bus) {
     return {
       estado: 'mal',
-      aviso: !desc?.buses?.spi.length
+      aviso: matriz
+        ? `${quien}: falta cablear ${sck === null ? s.sck : s.mosi} a un pin de la placa: el ${chip.nombre} no va a responder.`
+        : desc?.buses?.matriz.length
+        ? `${quien}: en esta placa los chips se emulan con ${desc.buses.matriz.join(', ')}; el ${chip.nombre} no va a responder.`
+        : !desc?.buses?.spi.length
         ? `${quien}: esta placa no emula el bus SPI hacia los módulos; el ${chip.nombre} no va a responder.`
         : `${quien}: ${s.sck} y ${s.mosi} del ${chip.nombre} tienen que ir a SCK y MOSI del bus SPI de la placa (en el Uno, D13 y D11).`,
     };
@@ -209,11 +227,16 @@ function enlaceSpi(
   if (cs === null) return { estado: 'mal', aviso: `${quien}: ${s.cs} (selección) no está cableado a un pin de la placa: el ${chip.nombre} nunca queda seleccionado.` };
   if (s.dc && dc === null) return { estado: 'mal', aviso: `${quien}: ${s.dc} (dato/comando) no está cableado a un pin de la placa.` };
   const aviso = s.miso && !s.soloEscritura && miso !== bus.miso
-    ? `${quien}: ${s.miso} del ${chip.nombre} no va a MISO del bus (en el Uno, D12): lo que lea el programa va a ser 0xFF.`
+    ? matriz
+      ? `${quien}: ${s.miso} del ${chip.nombre} no está cableado: lo que lea el programa va a ser 0xFF.`
+      : `${quien}: ${s.miso} del ${chip.nombre} no va a MISO del bus (en el Uno, D12): lo que lea el programa va a ser 0xFF.`
     : undefined;
   return {
     estado: 'ok',
-    config: { csGpio: cs, dcGpio: dc ?? undefined, modos: s.modos, lsbPrimero: s.lsbPrimero, soloEscritura: s.soloEscritura || miso !== bus.miso, maxHz: s.maxHz },
+    config: {
+      csGpio: cs, dcGpio: dc ?? undefined, modos: s.modos, lsbPrimero: s.lsbPrimero, soloEscritura: s.soloEscritura || miso !== bus.miso, maxHz: s.maxHz,
+      ...(matriz ? { sck: bus.sck, mosi: bus.mosi, miso: miso ?? undefined } : {}),
+    },
     aviso,
   };
 }

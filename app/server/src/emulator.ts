@@ -1,6 +1,8 @@
 import net from 'node:net';
 import { promises as fs } from 'node:fs';
-import type { EmulatorState, FirmwareMessage } from '@emu/shared';
+import type { EmulatorState, FirmwareMessage, SalidaChip } from '@emu/shared';
+import { PuenteChips } from './bus/puenteChips.js';
+import type { ChipEnBus } from './bus/proyectoChips.js';
 import { BridgeClient } from './bridgeClient.js';
 import { lineIterator, which } from './dockerRunner.js';
 import { detectState, extractIp, HANG_TIMEOUT_MS, HangWatchdog, stripAnsi } from './logParser.js';
@@ -55,6 +57,14 @@ export class EmulatorManager implements Emulador {
   private subiendoRepl = false;
   /** Puerto del stub GDB (`--gdb`) de la corrida actual, para el modo debug. */
   private gdbPort: number | null = null;
+  /** Chips del dibujo (MicroPython: machine.I2C/SPI por el puente). Ver bus/puenteChips.ts. */
+  private chips: PuenteChips | null = null;
+  private readonly salidasChips = new Map<string, SalidaChip>();
+  private readonly entornos = new Map<string, Record<string, number>>();
+  /** Lo que publica un chip (una pantalla) va a la UI. Lo conecta index.ts. */
+  oyenteChips: ((id: string, salida: SalidaChip) => void) | null = null;
+  /** Memoria no volátil de un chip (EEPROM, la hora con pila): index.ts la guarda en el proyecto. */
+  oyenteGuardado: ((id: string, datos: unknown) => void) | null = null;
 
   constructor(private readonly events: EmulatorEvents) {}
 
@@ -166,12 +176,62 @@ export class EmulatorManager implements Emulador {
       onRawLine: (line) => this.events.onLog(`[bridge] ${line}`),
     });
     this.bridge.connect();
+    if (artifacts.needsRepl) this.armarChips(opts.chips ?? []);
 
     // MicroPython (y cualquier --uart-tcp): la consola del chip deja de salir por stdout y
     // pasa a este puerto — sin conectarnos acá, no llega ni una línea (y el watchdog lo marca "colgado" solo).
     if (artifacts.needsRepl) this.conectarRepl(child, ports.web, 0);
 
     return this.getStatus();
+  }
+
+  /**
+   * MicroPython: el puente reemplaza machine.I2C/SPI y cada transacción llega acá. Se arma aunque
+   * el dibujo no tenga chips, para que el programa reciba un NACK (como en una placa sin nada
+   * cableado) en vez de esperar una respuesta que no llega.
+   */
+  private armarChips(chips: ChipEnBus[]): void {
+    const bridge = this.bridge;
+    if (!bridge) return;
+    this.salidasChips.clear();
+    this.entornos.clear();
+    for (const c of chips) this.entornos.set(c.id, { ...c.entorno });
+    const puente = new PuenteChips(chips, {
+      enviar: (l) => bridge.enviarLinea(l),
+      alSalida: (id, s) => { this.salidasChips.set(id, s); this.oyenteChips?.(id, s); },
+      alLog: (l) => this.events.onLog(l),
+      alGuardar: (id, d) => this.oyenteGuardado?.(id, d),
+      // INT, SQW...: entran al programa como las entradas del dibujo (@IN). Soltada, vale su pull-up.
+      alPin: (id, pin, nivel) => {
+        const c = chips.find((x) => x.id === id);
+        const g = c?.pinesGpio[pin];
+        if (c && g !== undefined) bridge.setInput(g, nivel ?? (c.pullUps.includes(pin) ? 1 : 0));
+      },
+    });
+    this.chips = puente;
+    bridge.escucharLineas((l) => { if (this.chips === puente) puente.recibir(l); });
+  }
+
+  chipsEnCorrida(): { id: string; instancia: string; chip: string; nombre: string; alimentado: boolean; entorno: Record<string, number>; salida?: SalidaChip }[] {
+    return (this.chips?.chips ?? []).map((c) => ({
+      id: c.id, instancia: c.instancia, chip: c.chip, nombre: c.nombre, alimentado: c.alimentado,
+      entorno: { ...this.entornos.get(c.id) }, salida: this.salidasChips.get(c.id),
+    }));
+  }
+
+  /** El usuario movió el entorno de una instancia: cada chip de esa placa toma lo que mide. */
+  ponerEntorno(instancia: string, valores: Record<string, number>): boolean {
+    let alguno = false;
+    for (const c of this.chips?.chips ?? []) {
+      if (c.instancia !== instancia) continue;
+      alguno = true;
+      const actual = this.entornos.get(c.id)!;
+      const suyos = Object.fromEntries(Object.entries(valores).filter(([k]) => k in actual));
+      if (Object.keys(suyos).length === 0) continue;
+      Object.assign(actual, suyos);
+      this.chips?.ponerEntorno(c.id, suyos);
+    }
+    return alguno;
   }
 
   /** Se conecta al UART redirigido por --uart-tcp (REPL/Serial); reintenta hasta que esp-emu abra el puerto. */
@@ -475,6 +535,8 @@ export class EmulatorManager implements Emulador {
       this.teardown('parado');
       return;
     }
+    // Antes de cortar: los chips guardan lo último (la hora del RTC, lo grabado en la EEPROM).
+    this.chips?.apagar();
     this.events.onLog('[emu] detenido por la app (SIGTERM)');
     child.kill('SIGTERM');
     // `child.killed` solo dice que la señal se *envió*: vivo = todavía sin código ni señal de salida.
@@ -501,6 +563,8 @@ export class EmulatorManager implements Emulador {
   }
 
   private teardown(exitInfo: string): void {
+    this.chips?.apagar();
+    this.chips = null;
     this.bridge?.close();
     this.bridge = null;
     this.replSocket?.destroy();

@@ -102,11 +102,25 @@ describe('módulo BME280 de Adafruit en el bus del Uno', () => {
     expect(r.avisos.join()).toMatch(/sin alimentación/);
   });
 
-  it('en un ESP32 (esp-emu no emula dispositivos I2C) se avisa en vez de fallar callado', () => {
+  it('en un ESP32 con Arduino (esp-emu no acepta dispositivos I2C propios) se avisa en vez de fallar callado', () => {
     const p = proyecto('esp32-s3-devkitc-1', [w('bme.VIN', 'board.3V3'), w('bme.GND', 'board.GND'), w('bme.SCK', 'board.GPIO9'), w('bme.SDI', 'board.GPIO8')]);
     const r = chipsDelProyecto(p, b, descriptorDe(p, b));
     expect(r.chips).toHaveLength(0);
-    expect(r.avisos.join()).toMatch(/no emula el bus I2C/);
+    expect(r.avisos.join()).toMatch(/se emulan con micropython \(el proyecto es arduino\)/);
+  });
+
+  it('en un ESP32 con MicroPython queda en el bus de los pines cableados (cualquier par: la matriz GPIO)', () => {
+    const p = { ...proyecto('esp32-s3-devkitc-1', [w('bme.VIN', 'board.3V3'), w('bme.GND', 'board.GND'), w('bme.SCK', 'board.GPIO5'), w('bme.SDI', 'board.GPIO4')]), language: 'micropython' as const };
+    const r = chipsDelProyecto(p, b, descriptorDe(p, b));
+    expect(r.avisos).toEqual([]);
+    expect(r.chips[0]!.i2cGpio).toEqual({ sda: 4, scl: 5 });
+  });
+
+  it('en un ESP32 con MicroPython también por SPI, con los pines del bus en la config', () => {
+    const p = { ...proyecto('esp32-s3-devkitc-1', [w('bme.VIN', 'board.3V3'), w('bme.GND', 'board.GND'), w('bme.SCK', 'board.GPIO12'), w('bme.SDI', 'board.GPIO11'), w('bme.SDO', 'board.GPIO13'), w('bme.CS', 'board.GPIO10')]), language: 'micropython' as const };
+    const r = chipsDelProyecto(p, b, descriptorDe(p, b));
+    expect(r.avisos).toEqual([]);
+    expect(r.chips[0]!.spi).toMatchObject({ csGpio: 10, sck: 12, mosi: 11, miso: 13, soloEscritura: false });
   });
 });
 

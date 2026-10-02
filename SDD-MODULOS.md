@@ -864,8 +864,9 @@ probados contra su hoja de datos y con el firmware que usa la gente. Guía para 
 | Memoria no volátil de los chips (`ctx.guardar` / `ctx.guardado`): la EEPROM y la hora con pila siguen entre ejecuciones, en `projects/<p>/.chips/` | `bus/memoriaChips.ts`, `avrWorker.ts` |
 | Bus SPI del Uno (`AVRSPI`): CS, DC, modos, orden de bits, `entradas` (RESX); el BME280 también por SPI | `bus/busChips.ts`, `avrSim.ts` |
 | Chip ST7735 y módulo `tft-st7735-128x160` (pantalla a color, imagen RGB565 en el circuito) | `chips/sitronix-st7735/`, `modules/` |
+| Chips en ESP32 con MicroPython: el puente reemplaza `machine.I2C`/`SoftI2C`/`SPI`/`SoftSPI`; cualquier par de pines (`board.buses.matriz`) | `templates/micropythonBridge.ts`, `bus/puenteChips.ts`, `emulator.ts` |
 
-Pruebas: de 418 a 606 tests unitarios (los de chips: maestro virtual + firmware real compilado con
+Pruebas: de 418 a 610 tests unitarios (los de chips: maestro virtual + firmware real compilado con
 las librerías de verdad), y e2e con Playwright para el panel, la compilación con librerías y la
 pantalla en el circuito.
 
@@ -921,8 +922,8 @@ pantalla en el circuito.
 - Secciones 1 a 4: `parte`, `esquematico` (exportar), `reglas` declarativas y `tests.json` por
   módulo. Los chips de esta sección tienen sus tests en `app/server/src/bus/`, no en su carpeta.
 - Importar chips (hoy los chips solo vienen de fábrica, en `chips/`) y la corrección 1 del importador.
-- I2C y SPI hacia los chips en los ESP32 (MicroPython reemplazando `machine.I2C`/`SPI` por el puente;
-  ESPHome se va a quitar del proyecto).
+- Chips en ESP32 con Arduino o ESP-IDF (esp-emu no los acepta; ESPHome se va a quitar del proyecto).
+  En MicroPython ya andan; falta que el tiempo de cada transacción sea el del bus real.
 - El consumo de un chip según su modo (el modelo eléctrico del módulo no conoce el estado del chip),
   y el brillo de una pantalla según la corriente de su retroiluminación.
 - Tarjeta SD por SPI (con una imagen FAT guardada con `ctx.guardar`, o un archivo aparte si pasa de 64 KB).

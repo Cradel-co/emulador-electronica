@@ -212,3 +212,126 @@ test('pantalla TFT ST7735 por SPI: el dibujo muestra los colores que pinta el pr
   await page.locator('#parar').click();
   await expect(page.locator('#estado')).toHaveAttribute('data-s', 'stopped', { timeout: 15_000 });
 });
+
+const MAIN_PY_BME = `from machine import I2C, Pin
+import utime
+i2c = I2C(0, scl=Pin(5), sda=Pin(4), freq=400000)
+print('scan', [hex(a) for a in i2c.scan()])
+print('id', hex(i2c.readfrom_mem(0x77, 0xD0, 1)[0]))
+c = i2c.readfrom_mem(0x77, 0x88, 6)
+T1 = c[0] | c[1] << 8
+T2 = c[2] | c[3] << 8
+T3 = c[4] | c[5] << 8
+T2 = T2 - 65536 if T2 > 32767 else T2
+T3 = T3 - 65536 if T3 > 32767 else T3
+while True:
+    i2c.writeto_mem(0x77, 0xF4, bytes([0x21]))  # temperatura x1, forzado
+    utime.sleep_ms(10)
+    d = i2c.readfrom_mem(0x77, 0xFA, 3)
+    adc = (d[0] << 12) | (d[1] << 4) | (d[2] >> 4)
+    v1 = (((adc >> 3) - (T1 << 1)) * T2) >> 11
+    v2 = (((((adc >> 4) - T1) * ((adc >> 4) - T1)) >> 12) * T3) >> 14
+    print('T=%.2f' % ((((v1 + v2) * 5 + 128) >> 8) / 100))
+    utime.sleep_ms(300)
+`;
+
+test('ESP32 con MicroPython: machine.I2C le habla al BME280 del dibujo (cualquier par de pines) y sigue el entorno', async ({ page, request }) => {
+  test.skip(!process.env.E2E_EMU, 'necesita esp-emu: correr con E2E_EMU=1');
+  test.setTimeout(10 * 60_000);
+  const name = `e2e-mpy-bme-${Date.now().toString(36)}`;
+  expect((await request.post('/api/projects', { data: { name, language: 'micropython', board: 'esp32-s3-devkitc-1' } })).ok()).toBeTruthy();
+  const { project } = await (await request.get(`/api/projects/${name}`)).json();
+  const placa = project.modules.find((m: { id: string }) => m.id === 'board');
+  const modules = [{ ...placa, props: { ...placa.props, usb: true } }, { id: 'bme1', type: 'bme280-adafruit', x: 760, y: 120, props: {} }];
+  const wires = [
+    { from: 'bme1.VIN', to: 'board.3V3' }, { from: 'bme1.GND', to: 'board.GND' },
+    { from: 'bme1.SCK', to: 'board.GPIO5' }, { from: 'bme1.SDI', to: 'board.GPIO4' },
+  ];
+  expect((await request.put(`/api/projects/${name}/diagram`, { data: { modules, wires } })).ok()).toBeTruthy();
+  expect((await request.put(`/api/projects/${name}/files/main.py`, { data: { content: MAIN_PY_BME } })).ok()).toBeTruthy();
+  await page.goto(`/#${name}`);
+  await expect(modulo(page, 'bme1')).toBeVisible();
+  await page.locator('#ejecutar').click();
+  await expect(page.locator('#estado')).toHaveAttribute('data-s', 'bridge', { timeout: 9 * 60_000 });
+  await page.locator('.consola-tabs [data-tab="emu"]').click();
+  const consola = page.locator('#consola');
+  await expect(consola).toContainText("scan ['0x77']", { timeout: 60_000 });
+  await expect(consola).toContainText('id 0x60');
+  await expect(consola).toContainText('T=22.0', { timeout: 30_000 });
+
+  await seleccionarModulo(page, 'bme1');
+  const num = page.locator('#panel-modulo [data-entorno-num="temperatura"]');
+  await num.fill('31.5');
+  await num.press('Enter');
+  await expect(consola).toContainText('T=31.5', { timeout: 30_000 });
+  await page.screenshot({ path: 'test-results/mpy-bme-corriendo.png' });
+  await page.locator('#parar').click();
+  await expect(page.locator('#estado')).toHaveAttribute('data-s', 'stopped', { timeout: 15_000 });
+});
+
+const MAIN_PY_TFT = `from machine import SPI, Pin
+import utime
+spi = SPI(1, baudrate=10000000, polarity=0, phase=0, sck=Pin(12), mosi=Pin(11))
+cs = Pin(10, Pin.OUT, value=1)
+dc = Pin(9, Pin.OUT, value=0)
+rst = Pin(8, Pin.OUT, value=1)
+def cmd(c, datos=b''):
+    cs.off()
+    dc.off()
+    spi.write(bytes([c]))
+    if datos:
+        dc.on()
+        spi.write(datos)
+    cs.on()
+rst(0); utime.sleep_ms(10); rst(1); utime.sleep_ms(120)
+cmd(0x11); utime.sleep_ms(120)
+cmd(0x3A, b'\\x05'); cmd(0x36, b'\\xC0'); cmd(0x29)
+def franja(y0, y1, color):
+    cmd(0x2A, bytes([0, 0, 0, 127])); cmd(0x2B, bytes([0, y0, 0, y1]))
+    cmd(0x2C, bytes([color >> 8, color & 0xFF]) * (128 * (y1 - y0 + 1)))
+t = utime.ticks_ms()
+franja(0, 52, 0xF800); franja(53, 105, 0x07E0); franja(106, 159, 0x001F)
+print('pintado en', utime.ticks_diff(utime.ticks_ms(), t), 'ms')
+`;
+
+test('ESP32 con MicroPython: machine.SPI + Pin para CS/DC/RST manejan la TFT ST7735 del dibujo', async ({ page, request }) => {
+  test.skip(!process.env.E2E_EMU, 'necesita esp-emu: correr con E2E_EMU=1');
+  test.setTimeout(10 * 60_000);
+  const name = `e2e-mpy-tft-${Date.now().toString(36)}`;
+  expect((await request.post('/api/projects', { data: { name, language: 'micropython', board: 'esp32-s3-devkitc-1' } })).ok()).toBeTruthy();
+  const { project } = await (await request.get(`/api/projects/${name}`)).json();
+  const placa = project.modules.find((m: { id: string }) => m.id === 'board');
+  const modules = [{ ...placa, props: { ...placa.props, usb: true } }, { id: 'tft1', type: 'tft-st7735-128x160', x: 760, y: 60, props: {} }];
+  const wires = [
+    { from: 'tft1.VCC', to: 'board.3V3' }, { from: 'tft1.GND', to: 'board.GND' }, { from: 'tft1.LED', to: 'board.3V3' },
+    { from: 'tft1.SCK', to: 'board.GPIO12' }, { from: 'tft1.SDA', to: 'board.GPIO11' },
+    { from: 'tft1.CS', to: 'board.GPIO10' }, { from: 'tft1.A0', to: 'board.GPIO9' }, { from: 'tft1.RESET', to: 'board.GPIO8' },
+  ];
+  expect((await request.put(`/api/projects/${name}/diagram`, { data: { modules, wires } })).ok()).toBeTruthy();
+  expect((await request.put(`/api/projects/${name}/files/main.py`, { data: { content: MAIN_PY_TFT } })).ok()).toBeTruthy();
+  await page.goto(`/#${name}`);
+  await page.locator('#ejecutar').click();
+  await expect(page.locator('#estado')).toHaveAttribute('data-s', 'bridge', { timeout: 9 * 60_000 });
+  await page.locator('.consola-tabs [data-tab="emu"]').click();
+  await expect(page.locator('#consola')).toContainText('pintado en', { timeout: 120_000 });
+  const img = modulo(page, 'tft1').locator('image.pantalla-chip');
+  const leer = () => img.evaluate(async (el) => {
+    const im = new Image();
+    im.src = el.getAttribute('href') ?? '';
+    await im.decode();
+    const c = document.createElement('canvas');
+    c.width = im.width; c.height = im.height;
+    const g = c.getContext('2d')!;
+    g.drawImage(im, 0, 0);
+    const px = (x: number, y: number) => Array.from(g.getImageData(x, y, 1, 1).data.slice(0, 3));
+    return { rojo: px(64, 20), verde: px(64, 80), azul: px(64, 140) };
+  }).catch(() => null);
+  await expect.poll(async () => (await leer())?.azul[2] ?? 0, { timeout: 15_000 }).toBeGreaterThan(200);
+  const c = (await leer())!;
+  expect(c.rojo[0]).toBeGreaterThan(200);
+  expect(c.verde[1]).toBeGreaterThan(200);
+  await modulo(page, 'tft1').scrollIntoViewIfNeeded();
+  await page.screenshot({ path: 'test-results/mpy-tft-corriendo.png' });
+  console.log((await page.locator('#consola').innerText()).split('\n').filter((l) => /pintado|chips|spi/.test(l)).join('\n'));
+  await page.locator('#parar').click();
+});

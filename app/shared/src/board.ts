@@ -168,6 +168,12 @@ export const BoardDescriptorSchema = z.object({
       i2c: z.array(z.object({ sda: z.number().int().nonnegative(), scl: z.number().int().nonnegative() }).strict()).max(4).default([]),
       /** SPI (maestro): SCK, MOSI y MISO por gpio. El CS de cada chip es cualquier pin del micro. */
       spi: z.array(z.object({ sck: z.number().int().nonnegative(), mosi: z.number().int().nonnegative(), miso: z.number().int().nonnegative() }).strict()).max(4).default([]),
+      /**
+       * Lenguajes en los que I2C y SPI van por CUALQUIER par de pines (la matriz GPIO del ESP32):
+       * el puente reemplaza el driver (machine.I2C/SPI de MicroPython) y manda cada transacción a
+       * los chips del dibujo. En los demás lenguajes de la placa, los chips no se emulan.
+       */
+      matriz: z.array(z.string().max(20)).max(8).default([]),
     })
     .strict()
     .optional(),

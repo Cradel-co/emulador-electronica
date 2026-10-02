@@ -8,9 +8,13 @@ usan el mismo `chips/bosch-bme280/`.
 
 Hoy hay dos buses emulados en el **Arduino Uno** (avr8js): el **I2C** (el TWI del ATmega328P, A4/A5)
 y el **SPI** (D13 SCK, D11 MOSI, D12 MISO; CS, DC y RESET en cualquier pin). El firmware real (Wire,
-SPI, las librerías de Adafruit, RTClib) le habla al chip ciclo a ciclo, con los tiempos del bus real. En los ESP32 no se puede todavía: esp-emu no acepta dispositivos I2C propios (ver
-[`../SDD-MODULOS.md`](../SDD-MODULOS.md), sección 6).
+SPI, las librerías de Adafruit, RTClib) le habla al chip ciclo a ciclo, con los tiempos del bus real.
 
+En los **ESP32 con MicroPython** los mismos chips andan por cualquier par de pines (la matriz GPIO):
+esp-emu no acepta dispositivos I2C/SPI propios, así que el puente reemplaza `machine.I2C`, `SoftI2C`,
+`SPI` y `SoftSPI` y manda cada llamada a la app (`app/server/src/bus/puenteChips.ts`, protocolo en
+su cabecera). El reloj de los chips es el `ticks_us` del ESP32. Los pines del programa tienen que ser
+los del dibujo. Con Arduino o ESP-IDF en ESP32 los chips no se emulan (se avisa). 
 | Chip | Qué emula | Probado con |
 |---|---|---|
 | [`bosch-bme280`](bosch-bme280/) | Temperatura, humedad y presión: modos, t_measure, filtro IIR, resolución, ruido, compensación de Bosch invertida; por I2C o por SPI (modos 0 y 3) | Adafruit_BME280 2.3.0 (I2C y SPI) |
@@ -136,6 +140,11 @@ En SPI:
    con 400 ms de esperas, SWRESET 150 ms, SLPOUT 500 ms, DISPON 100 ms): un test que mira la
    pantalla antes no ve nada. Y en la consola, buscar el texto exacto del programa (`/^listo$/m`):
    "puente listo" también dice "listo".
+10. **Donde el motor no deja, se reemplaza el driver.** esp-emu no tiene API para dispositivos I2C/SPI;
+    MicroPython sí deja reemplazar `machine.I2C`/`SPI` antes de `main.py`. Una transacción entera
+    (writeto, readfrom_mem) es una sola línea de ida y vuelta; las escrituras SPI no esperan respuesta
+    (una pantalla) y los `Pin` que vigilan los chips (CS, DC) se avisan en orden con ellas. Límite: el
+    tiempo de una transacción en el ESP32 no es el del bus real (pintar 40 KB tarda ~130 ms en vez de ~35).
 
 ## Rendimiento (medido el 2026-10-01, PC sin otra carga)
 
