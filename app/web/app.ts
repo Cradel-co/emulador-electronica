@@ -3,7 +3,7 @@ import { miniatura } from './modulos.js';
 import { lenguajeDeArchivo, NOMBRE_LENGUAJE, resaltar } from './editor.js';
 import { crearDepuracion } from './depuracion.js';
 import { montarReact } from './react/montar.js';
-import { alLienzoListo, registrarCtx, registrarEstado } from './react/puente.js';
+import { alLienzoListo, registrarAcciones, registrarCtx, registrarEstado } from './react/puente.js';
 import { notificar, observable } from './react/estado.js';
 
 /**
@@ -130,6 +130,13 @@ const state = observable({
   },
 });
 registrarEstado(state);
+// Lo que los componentes de React necesitan disparar (#9). Van por el puente y no importándose,
+// para no armar un ciclo entre app.ts y los componentes.
+registrarAcciones({
+  agregarModulo: (type) => agregarModulo(type),
+  quitarDelCatalogo: (m) => void quitarDelCatalogo(m),
+  filtrarModulos: (texto) => { state.filtroModulos = texto; },
+});
 
 // --- Íconos -------------------------------------------------------------
 
@@ -1703,94 +1710,13 @@ function pintarPanelModulo(panel: HTMLElement, inst, def) {
 }
 
 // --- Catálogo -----------------------------------------------------------------
-
-/**
- * Tarjetas del catálogo ya armadas, por tipo: armar cada miniatura SVG es lo caro, y el
- * buscador repinta la lista en cada tecla. Se vacía cuando cambia el catálogo.
- * @type {Map<string, HTMLElement>}
- */
-const tarjetas = new Map();
-
-function tarjetaModulo(m) {
-  const hecha = tarjetas.get(m.type);
-  if (hecha) return hecha;
-  const b = document.createElement('button');
-  b.className = 'modulo-card';
-  b.draggable = true;
-  b.dataset.type = m.type;
-  b.title = m.description ?? m.name;
-  b.append(miniatura(m));
-  const nombre = document.createElement('span');
-  nombre.textContent = m.name;
-  b.append(nombre);
-  if (m.programmable || !m.builtin) {
-    const etiqueta = document.createElement('small');
-    etiqueta.className = m.programmable ? 'tag-programable' : 'tag-importado';
-    etiqueta.textContent = m.programmable ? 'programable' : 'importado';
-    if (m.origin) etiqueta.title = `Importado desde ${m.origin.from}`;
-    b.append(etiqueta);
-  }
-  b.onclick = () => agregarModulo(m.type);
-  b.addEventListener('dragstart', (e) => {
-    e.dataTransfer?.setData('text/x-modulo', m.type);
-    if (e.dataTransfer) e.dataTransfer.effectAllowed = 'copy';
-  });
-  // La tarjeta es un botón: el "quitar" va al lado (un botón no puede ir dentro de otro).
-  const envoltorio = document.createElement('div');
-  envoltorio.className = 'card-wrap';
-  envoltorio.append(b);
-  if (!m.builtin) {
-    const quitar = document.createElement('button');
-    quitar.className = 'card-quitar';
-    quitar.title = `Quitar "${m.name}" del catálogo`;
-    quitar.setAttribute('aria-label', quitar.title);
-    quitar.textContent = '×';
-    quitar.onclick = () => void quitarDelCatalogo(m);
-    envoltorio.append(quitar);
-  }
-  tarjetas.set(m.type, envoltorio);
-  return envoltorio;
-}
-
-function pintarModulosCatalogo() {
-  const cont = $('lista-modulos');
-  cont.textContent = '';
-  if (state.catalogo.size === 0) {
-    cont.innerHTML = vacioPanel(ICONOS.modulo, 'Sin módulos todavía', 'No se encontró el catálogo (carpeta modules/).');
-    return;
-  }
-  const filtro = state.filtroModulos.toLowerCase();
-  const porCategoria = new Map();
-  for (const m of state.catalogo.values()) {
-    const texto = `${m.name} ${m.category} ${m.type}`.toLowerCase();
-    if (filtro && !texto.includes(filtro)) continue;
-    if (!porCategoria.has(m.category)) porCategoria.set(m.category, []);
-    porCategoria.get(m.category).push(m);
-  }
-  if (porCategoria.size === 0) {
-    cont.innerHTML = '<p class="vacio">Sin resultados.</p>';
-    return;
-  }
-  const orden = (c) => (ORDEN_CATEGORIAS.indexOf(c) + 1 || 99);
-  for (const categoria of [...porCategoria.keys()].sort((a, b) => orden(a) - orden(b))) {
-    const h = document.createElement('div');
-    h.className = 'cat-header';
-    h.textContent = categoria;
-    cont.append(h);
-    const grid = document.createElement('div');
-    grid.className = 'cat-grid';
-    for (const m of porCategoria.get(categoria)) grid.append(tarjetaModulo(m));
-    cont.append(grid);
-  }
-}
-
-// --- Cambios desde afuera (MCP u otra pestaña) -------------------------------------
+// El catálogo lo rinde <Catalogo> (#9): acá solo queda traerlo del server. Antes había además un
+// cache de tarjetas por tipo, porque armar cada miniatura SVG es lo caro y el buscador repintaba
+// la lista entera en cada tecla; ahora eso lo resuelve el diffing de React.
 
 async function recargarCatalogo() {
   const { modules } = await api('/api/modules').catch(() => ({ modules: [] }));
   state.catalogo = new Map(modules.map((m) => [m.type, m]));
-  tarjetas.clear();
-  pintarModulosCatalogo();
   pintarPanelDerecho();
   lienzo.render();
 }
@@ -2219,8 +2145,8 @@ ta('editor').addEventListener('keydown', (e) => {
 });
 
 inp('buscar-modulos').addEventListener('input', () => {
+  // <Catalogo> se entera por el estado observable: no hay que repintar nada a mano.
   state.filtroModulos = inp('buscar-modulos').value;
-  pintarModulosCatalogo();
 });
 
 $('importar-modulo').onclick = () => {
@@ -3034,7 +2960,6 @@ const depuracion = crearDepuracion({
   restaurarVentanas();
   const { modules } = await api('/api/modules').catch(() => ({ modules: [] }));
   state.catalogo = new Map(modules.map((m) => [m.type, m]));
-  pintarModulosCatalogo();
   pintarGutter();
   conectarWS();
   await cargarPlacas();
