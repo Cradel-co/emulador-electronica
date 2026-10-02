@@ -9,6 +9,7 @@ import {
   cablesDe as cablesDePuro, esPinSinAlimentar as esPinSinAlimentarPuro, NOMBRE_KIND,
   nombreRef as nombreRefPuro, pinesSinAlimentar as pinesSinAlimentarPuro,
 } from './consultas.js';
+import { fmtMa, fmtV } from './formato.js';
 
 /**
  * Id de esta pestaña: el server lo devuelve en los eventos para no recargar los cambios propios.
@@ -74,6 +75,8 @@ const state = observable({
   filtroModulos: '',
   /** Texto del buscador de la pantalla de inicio. Lo lee <Proyectos>. */
   filtroProyectos: '',
+  /** La última importación de módulos (lo muestra <ResultadoImportacion>): cargando, error o resultado. */
+  importacion: (null as any),
   /** Sube cada vez que se abre la paleta de comandos: <Paleta> arranca de cero. */
   paletaVez: 0,
   /** El menú principal está abierto (lo mira <Menu> para reevaluar qué acciones están disponibles). */
@@ -179,6 +182,7 @@ registrarAcciones({
   },
   reemplazarQuemado: (id) => reemplazarQuemado(id),
   abrirArchivo: (ruta) => void abrirArchivo(ruta),
+  irALinea: (archivo, linea) => irALinea(archivo, linea),
   moverEntorno: (id, valores) => {
     void api(`/api/projects/${state.proyecto.name}/modules/${encodeURIComponent(id)}/entorno`, {
       method: 'PUT', body: JSON.stringify({ valores }),
@@ -282,7 +286,7 @@ function pintarConsola() {
   $('problemas').hidden = !problemas;
   $('debug').hidden = !debug;
   $('entrada-console').closest('label').hidden = problemas || debug;
-  if (problemas) return pintarProblemas();
+  if (problemas) return; // la pestaña la rinde <Problemas>
   if (debug) return depuracion?.alMostrar();
   const pre = $('consola');
   const tab = state.tab;
@@ -302,28 +306,6 @@ function pintarConsola() {
 }
 
 /** Pestaña "Problemas": errores de compilación + avisos del circuito, clickeables. */
-function pintarProblemas() {
-  const cont = $('problemas');
-  const items = [
-    ...state.errores.map((e) => ({ error: true, texto: e.message, donde: e.file ? `${e.file}:${e.line ?? '?'}` : '', e })),
-    ...state.avisosDibujo.map((w) => ({ error: false, texto: w.message, donde: w.pin != null ? `GPIO${w.pin}` : 'circuito', e: null })),
-  ];
-  if (!items.length) {
-    cont.innerHTML = '<p class="vacio">Sin problemas. El circuito y el código coinciden.</p>';
-    return;
-  }
-  cont.textContent = '';
-  for (const it of items) {
-    const b = document.createElement('button');
-    b.type = 'button';
-    b.className = `problema${it.error ? ' error' : ''}`;
-    b.innerHTML = `<span class="ico">${it.error ? '✕' : '⚠'}</span><span>${escapar(it.texto)}</span><span class="donde">${escapar(it.donde)}</span>`;
-    b.onclick = () => {
-      if (it.e?.line) irALinea(it.e.file, it.e.line);
-    };
-    cont.append(b);
-  }
-}
 
 /** Contadores de problemas (pestaña y franja izquierda). */
 function actualizarCuentaProblemas() {
@@ -332,7 +314,6 @@ function actualizarCuentaProblemas() {
   const punto = $('cuenta-problemas');
   punto.hidden = state.errores.length === 0;
   punto.textContent = String(state.errores.length);
-  if (state.tab === 'problemas') pintarProblemas();
 }
 
 // --- WebSocket --------------------------------------------------------------
@@ -628,16 +609,9 @@ function pintarMarcas() {
 
 function mostrarErrores(errores) {
   limpiarMarcas();
+  // La lista de debajo del editor y la pestaña Problemas las rinde React (#9) a partir de esto.
   state.errores = errores;
-  const avisos = $('avisos');
-  avisos.textContent = '';
-  for (const e of errores) {
-    const div = document.createElement('div');
-    div.className = 'error';
-    div.textContent = e.file ? `${e.file}:${e.line ?? '?'} — ${e.message}` : e.message;
-    avisos.append(div);
-    if (e.line) state.marcas.set(e.line, e.message);
-  }
+  for (const e of errores) if (e.line) state.marcas.set(e.line, e.message);
   pintarMarcas();
   actualizarCuentaProblemas();
 }
@@ -1308,8 +1282,6 @@ function alternarUsb() {
   guardarDiagrama();
 }
 
-const fmtV = (v: number) => `${v.toFixed(2)} V`;
-const fmtMa = (ma: number | null) => (ma === null ? '—' : `${ma.toFixed(ma < 10 ? 1 : 0)} mA`);
 
 /** Botón USB de la barra + píldora de alimentación del circuito + columna de la ventana Debug. */
 function pintarAlimentacion() {
@@ -1343,35 +1315,8 @@ function pintarAlimentacion() {
     pildora.title = a.quemada ? `${a.mensaje}\nClick para reemplazar la placa.` : a.mensaje;
     pildora.disabled = !a.quemada;
   }
-  pintarDebugAlimentacion();
 }
 
-function pintarDebugAlimentacion() {
-  const cont = $('dbg-alimentacion');
-  const a = state.alimentacion;
-  const estadoPlaca = sinPlaca()
-    ? [state.energizado ? 'ok' : 'sin', state.energizado ? 'Sin placa · circuito energizado' : 'Sin placa · circuito apagado (▶ lo energiza)']
-    : !a
-    ? ['', '—']
-    : a.quemada
-      ? ['quemada', 'Quemada']
-      : a.estado === 'ok'
-        ? ['ok', a.via === 'usb' ? 'Por USB' : a.via === 'fuente' ? `Por ${a.fuenteId} (${a.pin})${a.consumoMa ? ` · consume ~${a.consumoMa} mA` : ''}` : 'Alimentada']
-        : ['sin', a.estado === 'baja' ? 'Tensión insuficiente' : 'Sin alimentación'];
-  const filas = state.fuentes.map((f) => `<tr>
-      <td>${escapar(f.id)}</td>
-      <td>${fmtV(f.vAjuste)} · ≤${f.limiteMa ?? '—'} mA</td>
-      <td>${fmtV(f.vSalida)}</td>
-      <td><b>${fmtMa(f.mA)}</b></td>
-      <td>${f.potenciaW.toFixed(2)} W</td>
-      <td><span class="modo-fuente ${f.modo}" title="${f.modo === 'CC' ? `Limitando corriente: la carga pediría ~${fmtMa(f.demandaMa)}` : f.modo === 'corto' ? 'Salida en cortocircuito' : f.modo === 'apagada' ? 'Salida apagada: ▶ energiza el circuito' : 'Voltaje constante'}">${f.modo}</span></td>
-    </tr>`).join('');
-  cont.innerHTML = `
-    <p class="dbg-alim-placa ${estadoPlaca[0]}" title="${escapar(a?.mensaje ?? '')}"><b>${escapar(sinPlaca() ? 'Circuito' : nombrePlaca())}</b> ${escapar(estadoPlaca[1])}</p>
-    ${filas
-      ? `<table class="dbg-fuentes"><thead><tr><th>Fuente</th><th>Ajuste</th><th>Salida</th><th>Consumo</th><th>Potencia</th><th>Modo</th></tr></thead><tbody>${filas}</tbody></table>`
-      : '<p class="dbg-vacio">Sin fuentes regulables en el circuito.</p>'}`;
-}
 
 // --- Cortocircuitos -----------------------------------------------------------------
 // El motor eléctrico del server manda, con cada aviso de cortocircuito, las refs "id.PIN"
@@ -1658,25 +1603,15 @@ async function solicitudImportacion() {
   }
 }
 
-function mostrarResultadoImportacion(r) {
-  const cont = $('imp-resultado');
-  const filas = [
-    ...r.importados.map((m) => `<li class="ok">✓ <b>${escapar(m.name)}</b> <code>${escapar(m.type)}</code></li>`),
-    ...r.errores.map((e) => `<li class="error">✗ <code>${escapar(e.origen)}</code><ul>${e.mensajes.map((x) => `<li>${escapar(x)}</li>`).join('')}</ul></li>`),
-    ...r.avisos.map((a) => `<li class="aviso">⚠ <code>${escapar(a.origen)}</code><ul>${a.mensajes.map((x) => `<li>${escapar(x)}</li>`).join('')}</ul></li>`),
-  ];
-  cont.innerHTML = filas.length ? `<ul>${filas.join('')}</ul>` : '';
-}
 
 async function ejecutarImportacion(soloValidar) {
-  const cont = $('imp-resultado');
   const botones = [btn('imp-importar'), btn('imp-validar')];
   try {
     const solicitud = await solicitudImportacion();
     const rol = sel('imp-rol').value;
     const categoria = inp('imp-categoria').value.trim();
     botones.forEach((b) => (b.disabled = true));
-    cont.innerHTML = `<p class="hint">${soloValidar ? 'Validando' : 'Importando'}…</p>`;
+    state.importacion = { tipo: 'cargando', soloValidar };
     const res = await fetch('/api/modules/import', {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-cliente': CLIENTE },
@@ -1689,13 +1624,13 @@ async function ejecutarImportacion(soloValidar) {
     });
     const datos = await res.json();
     if (datos.error) throw new Error(datos.error);
-    mostrarResultadoImportacion(datos);
+    state.importacion = { tipo: 'resultado', datos };
     if (datos.importados.length && !soloValidar) {
       await recargarCatalogo();
       nota(`Importado(s): ${datos.importados.map((m) => m.name).join(', ')}`);
     }
   } catch (e: any) {
-    cont.innerHTML = `<ul><li class="error">✗ ${escapar(String((e as Error)?.message ?? e))}</li></ul>`;
+    state.importacion = { tipo: 'error', mensaje: String((e as Error)?.message ?? e) };
   } finally {
     botones.forEach((b) => (b.disabled = false));
   }
@@ -1709,7 +1644,7 @@ function elegirFuente(fuente) {
   for (const p of document.querySelectorAll('#dlg-importar [data-panel]')) {
     (p as HTMLElement).hidden = (p as HTMLElement).dataset.panel !== fuente;
   }
-  $('imp-resultado').textContent = '';
+  state.importacion = null;
 }
 
 async function quitarDelCatalogo(m) {
@@ -1947,7 +1882,7 @@ inp('buscar-modulos').addEventListener('input', () => {
 });
 
 $('importar-modulo').onclick = () => {
-  $('imp-resultado').textContent = '';
+  state.importacion = null;
   ($('dlg-importar') as HTMLDialogElement).showModal();
 };
 for (const b of document.querySelectorAll('.imp-fuentes [data-fuente]')) {
@@ -2312,7 +2247,7 @@ const hayProyecto = () => Boolean(state.proyecto);
 
 function abrirImportador() {
   cerrarMenus();
-  $('imp-resultado').textContent = '';
+  state.importacion = null;
   ($('dlg-importar') as HTMLDialogElement).showModal();
 }
 
