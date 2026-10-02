@@ -112,7 +112,7 @@ describe('AvrEmulator: lo que guardan los chips llega a la app (modo worker)', {
     await new Promise((r) => setTimeout(r, 1500));
     const antes = guardados.length;
     await emu.stop();
-    expect(guardados.length).toBe(antes + 1);
+    expect(guardados.length).toBe(antes + 1); // leer la hora (puntero + lectura) no guarda: solo apagar
     expect(guardados.at(-1)!.seg).toBeGreaterThan(0);
   });
 });

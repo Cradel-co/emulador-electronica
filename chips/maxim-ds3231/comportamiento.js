@@ -274,7 +274,8 @@ module.exports = {
     }
     if (s.control & 0x20 && !s.convManual) s.control &= ~0x20;
     avanzar(ctx.t);
-    guardar(ctx.t);
+    // Solo el puntero (lo que antecede a cada lectura) no cambia nada que conserve la pila: no se guarda.
+    if (bytes.length > 1) guardar(ctx.t);
   },
   // Lectura: la hora se copia a un búfer en cada START [Address Map], así que una ráfaga es una foto.
   leer: function (ctx, n) {
