@@ -178,6 +178,7 @@ registrarAcciones({
     controlModulo(inst, 'momentary', 0, 'down');
   },
   reemplazarQuemado: (id) => reemplazarQuemado(id),
+  abrirArchivo: (ruta) => void abrirArchivo(ruta),
   moverEntorno: (id, valores) => {
     void api(`/api/projects/${state.proyecto.name}/modules/${encodeURIComponent(id)}/entorno`, {
       method: 'PUT', body: JSON.stringify({ valores }),
@@ -220,18 +221,11 @@ function nota(texto) {
   state.timerNota = setTimeout(() => ($('nota').textContent = ''), 7000);
   state.notificaciones.unshift({ texto, hora: new Date() });
   state.notificaciones.length = Math.min(state.notificaciones.length, 30);
+  // <Notificaciones> la muestra (#9); como el array se cambia en el lugar, hay que avisar.
+  notificar();
   if ($('lista-notificaciones').hidden) $('punto-notificaciones').hidden = false;
-  else pintarNotificaciones();
 }
 
-function pintarNotificaciones() {
-  const cont = $('lista-notificaciones');
-  cont.innerHTML = `<h4>Notificaciones</h4>${
-    state.notificaciones.length
-      ? state.notificaciones.map((n) => `<div class="notif"><time>${n.hora.toLocaleTimeString()}</time>${escapar(n.texto)}</div>`).join('')
-      : '<p class="vacio">Sin notificaciones.</p>'
-  }`;
-}
 
 // --- API --------------------------------------------------------------------
 
@@ -700,19 +694,6 @@ async function guardar(silencioso = false) {
   }
 }
 
-function pintarTabs() {
-  const cont = $('tabs-archivos');
-  cont.textContent = '';
-  for (const f of state.archivos) {
-    const b = document.createElement('button');
-    b.textContent = f.path;
-    b.dataset.tipo = lenguajeDeArchivo(f.path);
-    b.title = f.path;
-    if (f.path === state.activo) b.classList.add('activa');
-    b.onclick = () => abrirArchivo(f.path);
-    cont.append(b);
-  }
-}
 
 async function abrirArchivo(ruta) {
   if (!state.proyecto) return;
@@ -726,8 +707,6 @@ async function abrirArchivo(ruta) {
   editor.lenguaje = lenguajeDeArchivo(ruta);
   $('lenguaje-status').textContent = NOMBRE_LENGUAJE[editor.lenguaje];
   editarContenido(content);
-  pintarTabs();
-  pintarMiga();
   depuracion?.alCambiarArchivo();
 }
 
@@ -1622,7 +1601,6 @@ async function aplicarCambioExterno(msg) {
     nota(msg.origin === 'mcp' ? 'Circuito actualizado por MCP.' : 'Circuito actualizado desde otra pestaña.');
   } else {
     state.archivos = files.filter((f) => !/(^|\/)(secrets\.yaml|project\.json)$/.test(f.path));
-    pintarTabs();
     if (msg.file === state.activo) {
       if (state.editorSucio) {
         nota(`${msg.file} cambió afuera, pero tenés cambios sin guardar: se mantienen los tuyos.`);
@@ -1867,16 +1845,9 @@ function pintarWidgetsProyecto() {
     $('lenguaje-status').textContent = '';
     document.title = 'Emulador de electrónica';
   }
-  pintarMiga();
 }
 
 /** Migas de pan de la barra de estado: proyecto › archivo. */
-function pintarMiga() {
-  const p = state.proyecto;
-  $('miga').innerHTML = p
-    ? `${escapar(p.name)}${state.activo ? `<span class="sep">›</span>${escapar(state.activo)}` : ''}`
-    : 'Bienvenida';
-}
 
 // La lista de proyectos la rinde <Proyectos> (#9): alcanza con mantener `state.proyectos`.
 
@@ -1929,7 +1900,6 @@ async function abrirProyecto(nombre) {
   state.activo = null;
   const main = state.archivos.find((f) => /main\.(yaml|c|cpp|py)$|sketch\.cpp$/.test(f.path));
   if (main) await abrirArchivo(main.path);
-  else pintarTabs();
   if (mia !== aperturas) return;
   pintarPanelDerecho();
   pintarWidgetsProyecto();
@@ -2333,10 +2303,7 @@ $('tw-notificaciones').onclick = () => {
   const c = $('lista-notificaciones');
   c.hidden = !c.hidden;
   $('tw-notificaciones').classList.toggle('activa', !c.hidden);
-  if (!c.hidden) {
-    pintarNotificaciones();
-    $('punto-notificaciones').hidden = true;
-  }
+  if (!c.hidden) $('punto-notificaciones').hidden = true;
 };
 
 // --- Acciones: una sola lista para el menú, la paleta de comandos y los atajos ---------
