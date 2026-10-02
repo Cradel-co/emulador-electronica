@@ -4,6 +4,7 @@ import { flushSync } from 'react-dom';
 import { Lienzo } from './Lienzo.js';
 import { Avisos } from './Avisos.js';
 import { Catalogo } from './Catalogo.js';
+import { Proyectos } from './Proyectos.js';
 
 /**
  * Monta las islas de React sobre la UI de `app.ts` (#9).
@@ -20,6 +21,7 @@ const ISLAS: [string, FunctionComponent, boolean][] = [
   ['react-lienzo', Lienzo, true],
   ['react-avisos', Avisos, false],
   ['react-catalogo', Catalogo, false],
+  ['react-proyectos', Proyectos, false],
 ];
 
 export function montarReact(): void {

@@ -23,6 +23,8 @@ export interface Acciones {
   agregarModulo: (type: string) => void;
   quitarDelCatalogo: (m: { type: string; name: string }) => void;
   filtrarModulos: (texto: string) => void;
+  abrirProyecto: (nombre: string) => void;
+  eliminarProyecto: (nombre: string) => void;
 }
 
 let acc: Acciones | null = null;
