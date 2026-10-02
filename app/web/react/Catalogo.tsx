@@ -1,3 +1,4 @@
+import { Fragment } from 'react';
 import { Miniatura } from './Miniatura.js';
 import { useEstado } from './estado.js';
 import { acciones, estado } from './puente.js';
@@ -20,11 +21,9 @@ export function Catalogo() {
 
   if (!catalogo || catalogo.size === 0) {
     return (
-      <div id="lista-modulos" className="lista-modulos">
-        <div className="vacio-panel">
-          <p>Sin módulos todavía</p>
-          <span>No se encontró el catálogo (carpeta modules/).</span>
-        </div>
+      <div className="vacio-panel">
+        <p>Sin módulos todavía</p>
+        <span>No se encontró el catálogo (carpeta modules/).</span>
       </div>
     );
   }
@@ -37,23 +36,23 @@ export function Catalogo() {
     porCategoria.get(m.category)!.push(m);
   }
 
-  if (porCategoria.size === 0) {
-    return <div id="lista-modulos" className="lista-modulos"><p className="vacio">Sin resultados.</p></div>;
-  }
+  if (porCategoria.size === 0) return <p className="vacio">Sin resultados.</p>;
 
   const categorias = [...porCategoria.keys()].sort((a, b) => pesoDe(a) - pesoDe(b) || a.localeCompare(b));
 
+  // Cabecera y grilla van como hermanos, hijos directos de `#lista-modulos`: así los tenía el
+  // código imperativo y así los espera el CSS. Un div por categoría rompía el scroll.
   return (
-    <div id="lista-modulos" className="lista-modulos">
+    <>
       {categorias.map((categoria) => (
-        <div key={categoria} className="cat-contenedor">
+        <Fragment key={categoria}>
           <div className="cat-header">{categoria}</div>
           <div className="cat-grid">
             {porCategoria.get(categoria)!.map((m) => <Tarjeta key={m.type} def={m} />)}
           </div>
-        </div>
+        </Fragment>
       ))}
-    </div>
+    </>
   );
 }
 

@@ -29,11 +29,9 @@ export function Proyectos() {
 
   if (!proyectos || proyectos.length === 0) {
     return (
-      <div id="lista-proyectos" className="lista-proyectos">
-        <div className="vacio-panel">
-          <p>Todavía no tenés proyectos</p>
-          <span>Creá el primero con "Nuevo proyecto".</span>
-        </div>
+      <div className="vacio-panel">
+        <p>Todavía no tenés proyectos</p>
+        <span>Creá el primero con "Nuevo proyecto".</span>
       </div>
     );
   }
@@ -41,16 +39,10 @@ export function Proyectos() {
   const buscado = (filtro ?? '').trim().toLowerCase();
   const lista = proyectos.filter((p) => !buscado || `${p.name} ${p.language}`.toLowerCase().includes(buscado));
 
-  if (lista.length === 0) {
-    return (
-      <div id="lista-proyectos" className="lista-proyectos">
-        <p className="vacio">Ningún proyecto coincide con la búsqueda.</p>
-      </div>
-    );
-  }
+  if (lista.length === 0) return <p className="vacio">Ningún proyecto coincide con la búsqueda.</p>;
 
   return (
-    <div id="lista-proyectos" className="lista-proyectos">
+    <>
       {lista.map((p) => {
         const placa = p.board ? (catalogo?.get(p.board)?.name ?? p.board) : 'sin placa';
         return (
@@ -79,6 +71,6 @@ export function Proyectos() {
           </div>
         );
       })}
-    </div>
+    </>
   );
 }

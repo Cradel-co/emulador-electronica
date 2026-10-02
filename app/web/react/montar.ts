@@ -19,13 +19,16 @@ import { PanelDerecho } from './PanelDerecho.js';
  */
 const ISLAS: [string, FunctionComponent, boolean][] = [
   // [id del nodo, componente, si es obligatorio]
+  //
+  // Las islas se montan **sobre los nodos que ya existían**, no sobre un div nuevo adentro:
+  // `createRoot` conserva el contenedor y solo maneja sus hijos. Eso importa porque el CSS cuenta
+  // con la jerarquía: `.lista-modulos` es un `flex: 1` con `overflow: auto` que tiene que ser hijo
+  // directo de su panel. Un div envoltorio en el medio le saca la altura y la lista deja de
+  // scrollear (ver el comentario de este arreglo).
   ['react-lienzo', Lienzo, true],
-  ['react-avisos', Avisos, false],
-  ['react-catalogo', Catalogo, false],
-  ['react-proyectos', Proyectos, false],
-  // Acá la isla es el nodo que ya existía: `createRoot` conserva el contenedor y maneja sus hijos,
-  // así `app.ts` sigue decidiendo cuándo se muestra (`hidden`) y el id que esperan el CSS y los e2e
-  // no cambia.
+  ['avisos-dibujo', Avisos, false],
+  ['lista-modulos', Catalogo, false],
+  ['lista-proyectos', Proyectos, false],
   ['panel-modulo', PanelDerecho, false],
 ];
 

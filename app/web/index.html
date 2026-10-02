@@ -123,8 +123,8 @@
           </label>
           <button id="nuevo-inicio" class="primario" title="Crear proyecto">Nuevo proyecto</button>
         </div>
-          <!-- La lista de proyectos la rinde React (issue #9). -->
-          <div id="react-proyectos"></div>
+          <!-- El contenido lo rinde React (issue #9), montado sobre este mismo nodo. -->
+          <div id="lista-proyectos" class="lista-proyectos"></div>
       </div>
     </section>
 
@@ -145,8 +145,8 @@
             <input id="buscar-modulos" placeholder="Buscar módulo…" />
           </label>
           <p class="ayuda-paleta">Arrastrá un módulo al circuito, o hacé click para agregarlo.</p>
-          <!-- El catálogo de módulos lo rinde React (issue #9). -->
-          <div id="react-catalogo"></div>
+          <!-- El contenido lo rinde React (issue #9), montado sobre este mismo nodo. -->
+          <div id="lista-modulos" class="lista-modulos"></div>
         </aside>
 
         <div class="resizer-v" data-resize="izq" title="Arrastrar para redimensionar"></div>
@@ -171,8 +171,8 @@
               <button id="zoom-mas" title="Acercar (Ctrl+=)" aria-label="Acercar">+</button>
             </div>
           </div>
-          <!-- Los avisos del dibujo los rinde React (issue #9). -->
-          <div id="react-avisos"></div>
+          <!-- El contenido lo rinde React (issue #9), montado sobre este mismo nodo. -->
+          <div id="avisos-dibujo" class="avisos"></div>
         </section>
 
         <div class="resizer-v" data-resize="der" title="Arrastrar para redimensionar"></div>

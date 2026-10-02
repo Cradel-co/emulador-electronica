@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useEstado } from './estado.js';
 import { estado } from './puente.js';
 
@@ -20,16 +20,23 @@ export function Avisos() {
   // Sin avisos no hay nada que desplegar: como antes, el panel se cierra solo.
   const desplegado = abiertos && lista.length > 0;
 
+  // El contenedor es el `#avisos-dibujo` de siempre, sobre el que React monta: su clase, su
+  // `data-mas` y su click se manejan desde acá con un efecto, porque el nodo no es nuestro.
+  useEffect(() => {
+    const nodo = document.getElementById('avisos-dibujo');
+    if (!nodo) return;
+    nodo.classList.toggle('abiertos', desplegado);
+    nodo.dataset.mas = lista.length > 1 ? `+${lista.length - 1} más` : '';
+    const alClick = () => setAbiertos((a) => !a);
+    nodo.addEventListener('click', alClick);
+    return () => nodo.removeEventListener('click', alClick);
+  }, [desplegado, lista.length]);
+
   return (
-    <div
-      id="avisos-dibujo"
-      className={`avisos${desplegado ? ' abiertos' : ''}`}
-      data-mas={lista.length > 1 ? `+${lista.length - 1} más` : ''}
-      onClick={() => setAbiertos((a) => !a)}
-    >
+    <>
       {lista.slice(0, TOPE).map((w, i) => (
         <div key={`${w.pin}-${i}-${w.message}`} data-pin={String(w.pin)}>{w.message}</div>
       ))}
-    </div>
+    </>
   );
 }

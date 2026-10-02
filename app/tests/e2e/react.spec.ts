@@ -163,3 +163,35 @@ test('el panel derecho lo rinde React: pines, propiedades y el pulsador que se s
   await page.mouse.up();
   await expect(boton, 'al soltar, aunque sea afuera, se desmarca').not.toHaveClass(/activo/);
 });
+
+/**
+ * Las islas de React se montan sobre los nodos que ya existían, no sobre un div nuevo adentro.
+ * Suena a detalle y no lo es: el CSS cuenta con la jerarquía. `.lista-modulos` es un `flex: 1`
+ * con `overflow: auto` que tiene que ser hijo directo de su panel; con un envoltorio en el medio
+ * pierde la altura y el catálogo deja de scrollear (se reportó usándolo, y ningún test lo vio).
+ */
+test('los paneles migrados conservan la jerarquía del DOM y el catálogo scrollea', async ({ page, request }) => {
+  await abrirProyectoNuevo(page, request);
+
+  // Los nodos que el CSS y los e2e esperan sigue habiéndolos, y sin envoltorios nuevos.
+  for (const id of ['lista-modulos', 'avisos-dibujo', 'panel-modulo']) {
+    await expect(page.locator(`#${id}`)).toHaveCount(1);
+  }
+  // La cabecera y la grilla son hijas directas de la lista, como en el código imperativo.
+  await expect(page.locator('#lista-modulos > .cat-header').first()).toBeAttached();
+  await expect(page.locator('#lista-modulos > .cat-grid').first()).toBeAttached();
+
+  // Y lo que importa: con 15 módulos la lista no cabe, así que tiene que poder scrollear.
+  const scroll = await page.locator('#lista-modulos').evaluate((el) => ({
+    overflowY: getComputedStyle(el).overflowY,
+    alto: el.clientHeight,
+    contenido: el.scrollHeight,
+  }));
+  expect(scroll.overflowY, 'la lista tiene que poder scrollear').toBe('auto');
+  expect(scroll.alto, 'la lista no puede crecer sin límite: su alto lo da el panel').toBeLessThan(1000);
+  expect(scroll.contenido, 'el contenido tiene que exceder el alto, si no no hay nada que probar').toBeGreaterThan(scroll.alto);
+
+  // Scrollear de verdad y comprobar que se movió.
+  await page.locator('#lista-modulos').evaluate((el) => { el.scrollTop = 200; });
+  expect(await page.locator('#lista-modulos').evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
+});
