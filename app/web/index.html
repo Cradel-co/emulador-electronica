@@ -6,11 +6,8 @@
     <title>Emulador de electrónica</title>
     <link rel="icon" href="data:," />
     <link rel="stylesheet" href="/style.css" />
+    <!-- Un solo bundle: Vite junta app.ts y todo lo que importa en dist/app.js (issue #9). -->
     <link rel="modulepreload" href="/dist/app.js" />
-    <link rel="modulepreload" href="/dist/canvas.js" />
-    <link rel="modulepreload" href="/dist/modulos.js" />
-    <link rel="modulepreload" href="/dist/editor.js" />
-    <link rel="modulepreload" href="/dist/depuracion.js" />
   </head>
   <body class="inicio">
     <!-- Barra de título, como la del "New UI" de Android Studio / IntelliJ -->
@@ -172,7 +169,8 @@
               <button id="zoom-mas" title="Acercar (Ctrl+=)" aria-label="Acercar">+</button>
             </div>
           </div>
-          <div id="avisos-dibujo" class="avisos"></div>
+          <!-- Los avisos del dibujo los rinde React (issue #9). -->
+          <div id="react-avisos"></div>
         </section>
 
         <div class="resizer-v" data-resize="der" title="Arrastrar para redimensionar"></div>
