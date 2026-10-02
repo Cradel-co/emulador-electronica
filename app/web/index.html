@@ -287,14 +287,8 @@
     </div>
 
     <!-- Buscar en todo / paleta de comandos -->
-    <dialog id="dlg-buscar" class="paleta-comandos">
-      <div class="pc-cabecera">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-        <input id="pc-entrada" placeholder="Escribí una acción, un proyecto, un módulo o un archivo" autocomplete="off" />
-      </div>
-      <ul id="pc-lista" class="pc-lista" role="listbox"></ul>
-      <div class="pc-pie"><kbd>↑</kbd><kbd>↓</kbd> elegir · <kbd>Enter</kbd> ejecutar · <kbd>Esc</kbd> cerrar</div>
-    </dialog>
+    <!-- El contenido lo rinde React (issue #9). Abrirlo y cerrarlo lo maneja app.ts. -->
+    <dialog id="dlg-buscar" class="paleta-comandos"></dialog>
 
     <dialog id="dlg-acerca">
       <form method="dialog">

@@ -6,6 +6,8 @@ import { Avisos } from './Avisos.js';
 import { Catalogo } from './Catalogo.js';
 import { Proyectos } from './Proyectos.js';
 import { PanelDerecho } from './PanelDerecho.js';
+import { Menu } from './Menu.js';
+import { Paleta } from './Paleta.js';
 
 /**
  * Monta las islas de React sobre la UI de `app.ts` (#9).
@@ -30,6 +32,8 @@ const ISLAS: [string, FunctionComponent, boolean][] = [
   ['lista-modulos', Catalogo, false],
   ['lista-proyectos', Proyectos, false],
   ['panel-modulo', PanelDerecho, false],
+  ['menu', Menu, false],
+  ['dlg-buscar', Paleta, false],
 ];
 
 export function montarReact(): void {

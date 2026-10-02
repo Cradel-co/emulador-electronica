@@ -71,6 +71,49 @@ export function acciones(): Acciones {
   return acc;
 }
 
+/** Una acción del registro único de `app.ts` (menú, paleta de comandos y atajos). */
+export interface Accion {
+  id: string;
+  titulo: string;
+  menu?: string;
+  atajo?: string;
+  hacer: () => void;
+  habilitada?: () => boolean;
+}
+
+export interface Menu {
+  grupos: string[];
+  acciones: Accion[];
+  cerrar: () => void;
+}
+
+let men: Menu | null = null;
+
+export function registrarMenu(m: Menu): void {
+  men = m;
+}
+
+export function menu(): Menu {
+  if (!men) throw new Error('el menú se pintó antes de que app.ts lo registrara');
+  return men;
+}
+
+export interface Paleta {
+  /** Todo lo que se puede buscar ahora: acciones disponibles, proyectos, archivos, módulos. */
+  candidatos: () => import('../paleta.js').Candidato[];
+}
+
+let pal: Paleta | null = null;
+
+export function registrarPaleta(p: Paleta): void {
+  pal = p;
+}
+
+export function paleta(): Paleta {
+  if (!pal) throw new Error('la paleta se pintó antes de que app.ts la registrara');
+  return pal;
+}
+
 /** `app.ts`: su objeto de estado (ya envuelto en `observable`), para que lo lean los componentes. */
 export function registrarEstado(e: Record<string, any>): void {
   est = e;
