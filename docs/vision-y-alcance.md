@@ -85,7 +85,7 @@ estén, una placa de otra familia se puede cargar igual y queda en "solo dibujo"
   se puede reemplazando `machine.I2C` por el puente (ver `SDD-MODULOS.md`, sección 6).
 - SPI hacia los chips del dibujo en el Uno (avr8js trae `AVRSPI`): pantallas TFT, e-paper, SD.
 - Catálogo con más partes reales (motores, buzzers, más sensores) — cada una con su
-  `model.js`, ver [`modulos-y-su-codigo.md`](modulos-y-su-codigo.md).
+  `model.ts`, ver [`modulos-y-su-codigo.md`](modulos-y-su-codigo.md).
 - **Motor eléctrico, siguiente fase:** análisis transitorio (capacitores que se cargan,
   PWM, el clic del relé), que lo que el firmware lee (entradas, ADC) salga del motor, y
   modelos térmicos (ver los límites en [`motor-electrico.md`](motor-electrico.md)).

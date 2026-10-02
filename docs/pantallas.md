@@ -62,7 +62,7 @@ Del lado del firmware hay que interceptar el bus, y el costo depende del lenguaj
 
 ### B3 — El modelo de un módulo describe circuitos, no lógica digital
 
-`model.js` declara elementos físicos (resistencias, diodos, interruptores, fuentes,
+`model.ts` declara elementos físicos (resistencias, diodos, interruptores, fuentes,
 capacitores) y los resuelve [ngspice](motor-electrico.md). Un controlador de display es otra
 cosa: una máquina de estados que interpreta comandos. Ver
 [modulos-y-su-codigo.md](modulos-y-su-codigo.md).

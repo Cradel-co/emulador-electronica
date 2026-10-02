@@ -56,7 +56,7 @@ proyecto (módulos + cables)
         ▼
  sim/analisis.ts  ── une los cables (union-find) → nodos; decide la tierra
         │
-        ├── por cada módulo: sim/modelos.ts → su model.js en el sandbox (sim/sandbox.ts)
+        ├── por cada módulo: sim/modelos.ts → su model.ts en el sandbox (sim/sandbox.ts)
         │                                     o el modelo armado con sus flags
         │      └─ devuelve elementos físicos (R, C, L, D, V, I, S, SV)
         ├── la placa: sim/placa.ts (USB, reguladores, chip, GPIO, diodos de protección)
@@ -76,8 +76,8 @@ proyecto (módulos + cables)
 |---|---|
 | `spice.ts` | Corre ngspice (WASM, en el mismo proceso). Cola de a uno, 5 s de tiempo máximo (si ngspice no converge, se descarta la instancia y se crea otra). Arranca en ~0,7 s; cada cálculo tarda ~2–4 ms. |
 | `netlist.ts` | Convierte elementos a SPICE. Cada elemento que no es una resistencia lleva un amperímetro en serie (fuente de 0 V) para medir su corriente. Convención: la corriente de un elemento es la que **entra por su terminal `a`**; la potencia es (Va − Vb)·I (positiva = disipa, negativa = entrega). |
-| `sandbox.ts` | Corre el `model.js` de cada módulo aislado (ver [módulos y su código](modulos-y-su-codigo.md)). |
-| `modelos.ts` | Elige el modelo de cada tipo: su `model.js` o, si no tiene, uno armado con los flags del module.json (`source`, `passthrough`, `diode`, `switch`). Si el `model.js` está roto, usa el de los flags y avisa. |
+| `sandbox.ts` | Corre el `model.ts` de cada módulo aislado (ver [módulos y su código](modulos-y-su-codigo.md)). |
+| `modelos.ts` | Elige el modelo de cada tipo: su `model.ts` o, si no tiene, uno armado con los flags del module.json (`source`, `passthrough`, `diode`, `switch`). Si el `model.ts` está roto, usa el de los flags y avisa. |
 | `placa.ts` | Modelo eléctrico de la placa armado desde su descriptor (`board.power`, `logicVoltage`, `pinOutputOhm`): código del server, de confianza. |
 | `analisis.ts` | Orquesta todo: nodos, rieles, tierra, pasadas, brownout, lecturas, avisos. |
 | `tipos.ts` | Tipos de lo que devuelve (LEDs, fuentes, alimentación, avisos). |

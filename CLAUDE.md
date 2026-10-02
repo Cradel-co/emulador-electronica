@@ -39,6 +39,9 @@ cd /home/marcos/marcos/emulador-electronica/app && npx playwright test
 #   npx playwright install chromium        # baja el Chromium de Playwright, sin sudo
 #   EMU_E2E_CHANNEL=chromium npx playwright test
 
+# Tipos del código de los módulos (modules/*/model.ts, modo estricto)
+cd /home/marcos/marcos/emulador-electronica/app && npm run typecheck:modulos
+
 # Typecheck por workspace (el CI no perdona un any implícito)
 cd /home/marcos/marcos/emulador-electronica/app/server && npx tsc -p tsconfig.json --noEmit
 
@@ -82,7 +85,7 @@ curl -s localhost:5180/api/projects/<proyecto>/pins | python3 -m json.tool | gre
 - [SDD-MODULOS.md](./SDD-MODULOS.md) — diseño de módulos completos (esquemático exportable, reglas y tests
   propios, comportamiento digital, entorno y salidas); la sección 8 dice qué ya está hecho y qué se aprendió.
 - [modules/README.md](./modules/README.md) — **cómo tiene que ser un módulo**: formato, `parte`, `esquematico`, `reglas`,
-  `tests.json` y niveles. Los de fábrica tienen que ser "fabricables" (`sim/catalogoModulos.test.ts`); un símbolo o
+  `tests.json` y niveles. El código de cada módulo es TypeScript (`model.ts`). Los de fábrica tienen que ser "fabricables" (`sim/catalogoModulos.test.ts`); un símbolo o
   huella de KiCad nuevo se verifica contra las librerías oficiales y se suma a `fixtures/kicad-verificados.txt`.
 - [chips/README.md](./chips/README.md) — chips con lógica (I2C y SPI en el Uno, ESP32 con MicroPython): cómo se escriben y se prueban.
   Los sketches de prueba se compilan con `sh app/server/src/fixtures/chips/compilar.sh` (Docker) y los
