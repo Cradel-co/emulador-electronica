@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react';
+import { flushSync } from 'react-dom';
 
 /**
  * Hace observable el estado de `app.ts` para que React pueda leerlo, **sin tocar las ~3000
@@ -67,4 +68,16 @@ export function useEstado<T>(leer: () => T): T {
 export function useVersion(): number {
   const leer = () => version;
   return useSyncExternalStore(suscribir, leer, leer);
+}
+
+/**
+ * Aplica un cambio de estado y deja a React pintado **antes de volver**.
+ *
+ * Hace falta cuando `app.ts` cambia algo y en la línea siguiente lee o escribe el DOM que React
+ * rinde a partir de eso. El caso típico es un `<select>`: llenar las opciones y fijar su `value`
+ * en el mismo instante. Sin esto React pinta las opciones después, y el `value` se fija sobre
+ * opciones que todavía no existen — el navegador lo ignora en silencio.
+ */
+export function ahora(cambio: () => void): void {
+  flushSync(cambio);
 }
