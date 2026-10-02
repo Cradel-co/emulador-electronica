@@ -5,6 +5,7 @@ import { Lienzo } from './Lienzo.js';
 import { Avisos } from './Avisos.js';
 import { Catalogo } from './Catalogo.js';
 import { Proyectos } from './Proyectos.js';
+import { PanelDerecho } from './PanelDerecho.js';
 
 /**
  * Monta las islas de React sobre la UI de `app.ts` (#9).
@@ -22,6 +23,10 @@ const ISLAS: [string, FunctionComponent, boolean][] = [
   ['react-avisos', Avisos, false],
   ['react-catalogo', Catalogo, false],
   ['react-proyectos', Proyectos, false],
+  // Acá la isla es el nodo que ya existía: `createRoot` conserva el contenedor y maneja sus hijos,
+  // así `app.ts` sigue decidiendo cuándo se muestra (`hidden`) y el id que esperan el CSS y los e2e
+  // no cambia.
+  ['panel-modulo', PanelDerecho, false],
 ];
 
 export function montarReact(): void {

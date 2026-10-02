@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { abrirProyectoNuevo, modulo, pin, caja } from './helpers.js';
+import { abrirProyectoNuevo, modulo, pin, caja, mitadDeCable } from './helpers.js';
 
 /**
  * Migración a React (#9). Paso 1: la cadena Vite → React → navegador. Paso 2: el canvas lo monta
@@ -123,4 +123,43 @@ test('el buscador de proyectos filtra la lista (el filtro pasó del DOM al estad
   // Y al limpiar vuelven.
   await page.locator('#buscar-proyectos').fill('');
   expect(await tarjetas.count()).toBeGreaterThanOrEqual(2);
+});
+
+test('el panel derecho lo rinde React: pines, propiedades y el pulsador que se suelta solo', async ({ page, request }) => {
+  await abrirProyectoNuevo(page, request);
+  const panel = page.locator('#panel-modulo');
+
+  // --- Tabla de pines: tipo de cada uno y a dónde va ---
+  await modulo(page, 'led1').locator('.etiqueta-modulo').click();
+  await expect(panel.locator('.insp-pines')).toContainText('entrada');
+  await expect(panel.locator('.insp-pines')).toContainText('tierra');
+  await expect(panel.locator('.conexion').first()).toContainText('→');
+
+  // --- Propiedades: el select del color ---
+  const color = panel.locator('select[data-prop="color"]');
+  await expect(color).toBeVisible();
+
+  // --- Cable seleccionado: otra variante del mismo panel ---
+  // Un cable es una curva delgada: el centro de su caja cae fuera del trazo, de ahí el helper.
+  const p = await mitadDeCable(page, 'btn1.OUT', 'board.GPIO6');
+  await page.mouse.click(p.x, p.y);
+  await expect(panel).toContainText('Cable');
+  await expect(panel.locator('.insp-conexion')).toContainText('↔');
+  await expect(panel.locator('#insp-borrar-cable')).toBeVisible();
+
+  // --- El pulsador del panel: se marca al apretarlo y se suelta aunque el mouse se vaya ---
+  await modulo(page, 'btn1').locator('.etiqueta-modulo').click();
+  const boton = panel.locator('.btn-accionar[data-accion="momentary"]');
+  await expect(boton).toHaveText('Mantener presionado');
+  await expect(boton).not.toHaveClass(/activo/);
+
+  const caja = await boton.boundingBox();
+  await page.mouse.move(caja!.x + caja!.width / 2, caja!.y + caja!.height / 2);
+  await page.mouse.down();
+  await expect(boton, 'al apretarlo se marca').toHaveClass(/activo/);
+
+  // Se suelta lejos del botón: el mouseup es de la ventana, no del botón.
+  await page.mouse.move(10, 10);
+  await page.mouse.up();
+  await expect(boton, 'al soltar, aunque sea afuera, se desmarca').not.toHaveClass(/activo/);
 });

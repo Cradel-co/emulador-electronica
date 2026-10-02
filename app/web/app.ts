@@ -3,7 +3,7 @@ import { miniatura } from './modulos.js';
 import { lenguajeDeArchivo, NOMBRE_LENGUAJE, resaltar } from './editor.js';
 import { crearDepuracion } from './depuracion.js';
 import { montarReact } from './react/montar.js';
-import { alLienzoListo, registrarAcciones, registrarCtx, registrarEstado } from './react/puente.js';
+import { alLienzoListo, registrarAcciones, registrarCtx, registrarEstado, registrarVistas } from './react/puente.js';
 import { notificar, observable } from './react/estado.js';
 import {
   cablesDe as cablesDePuro, esPinSinAlimentar as esPinSinAlimentarPuro, NOMBRE_KIND,
@@ -70,6 +70,11 @@ const state = observable({
   filtroModulos: '',
   /** Texto del buscador de la pantalla de inicio. Lo lee <Proyectos>. */
   filtroProyectos: '',
+  /** Módulo cuyo pulsador del panel está apretado ahora (lo pinta <Controles>). */
+  panelPresionado: (null as any),
+  /** Se incrementan para avisarle a React de cambios dentro de un Map (ver react/estado.ts). */
+  controlesVersion: 0,
+  quemadosVersion: 0,
   /** Herramienta "mover" activa (barra de iconos): no deja empezar cables al tocar un pin, para
    * poder reacomodar módulos sobre un circuito ya cableado sin arrancar un cable por accidente. */
   modoMover: false,
@@ -144,6 +149,33 @@ registrarAcciones({
   filtrarModulos: (texto) => { state.filtroModulos = texto; },
   abrirProyecto: (nombre) => void cambiarDeProyecto(nombre),
   eliminarProyecto: (nombre) => void eliminarProyecto(nombre),
+  eliminarModulo: (id) => eliminarModulo(id),
+  eliminarCable: (indice) => eliminarCable(indice),
+  desconectar: (indice) => {
+    state.diagrama.wires.splice(indice, 1);
+    notificar();
+    guardarDiagrama();
+    lienzo.render();
+  },
+  girar: (inst, grados, fin) => fijarRotacion(inst, grados, fin),
+  cambiarProp: (inst, clave, valor) => {
+    inst.props = { ...inst.props, [clave]: valor };
+    notificar();
+    guardarDiagrama();
+    lienzo.render();
+  },
+  controlModulo: (inst, control, indice) => controlModulo(inst, control, indice, 'down'),
+  presionarMomentario: (inst) => {
+    state.panelPresionado = inst;
+    controlModulo(inst, 'momentary', 0, 'down');
+  },
+  reemplazarQuemado: (id) => reemplazarQuemado(id),
+  agregarPlaca: () => abrirAgregarPlaca(state.placaPorDefecto || state.placas[0]?.id),
+});
+registrarVistas({
+  nombrePlaca: () => nombrePlaca(),
+  sinPlaca: () => sinPlaca(),
+  textoEsperaSimulacion: () => textoEsperaSimulacion(),
 });
 
 // --- Íconos -------------------------------------------------------------
@@ -768,6 +800,9 @@ function cableadosConRol(rol) {
 // --- Dibujo: cambios --------------------------------------------------------
 
 function guardarDiagrama() {
+  // Todos los cambios del dibujo pasan por acá: es el lugar para avisarle a React, que no ve
+  // las mutaciones de adentro de `wires`/`modules` (ver react/estado.ts).
+  notificar();
   clearTimeout(state.timerDiagrama);
   const proyecto = state.proyecto?.name;
   if (!proyecto) return;
@@ -1088,12 +1123,11 @@ function controlModulo(inst, control, indice, evento) {
 }
 
 /** Control "momentary" apretado desde el panel (no desde el dibujo): para soltarlo aunque el mouse se vaya del botón. */
-let panelPresionado = null;
 function soltarPanelPresionado() {
-  if (!panelPresionado) return;
-  controlModulo(panelPresionado, 'momentary', 0, 'up');
-  panelPresionado = null;
-  pintarPanelDerecho();
+  const inst = state.panelPresionado;
+  if (!inst) return;
+  controlModulo(inst, 'momentary', 0, 'up');
+  state.panelPresionado = null;
 }
 window.addEventListener('mouseup', soltarPanelPresionado);
 window.addEventListener('touchend', soltarPanelPresionado);
@@ -1479,219 +1513,20 @@ function seleccionar(s) {
 }
 
 /** El panel derecho muestra el código si se eligió el ESP32 (o nada); si no, el módulo o el cable. */
+/**
+ * Qué se ve a la derecha: el editor de código o el panel del módulo. El contenido del panel lo
+ * rinde <PanelDerecho> (#9); acá solo queda decidir cuál de los dos se muestra, porque es `app.ts`
+ * el que sabe del editor.
+ */
 function pintarPanelDerecho() {
   const s = state.seleccion;
   const inst = s?.tipo === 'modulo' ? state.diagrama.modules.find((m) => m.id === s.id) : null;
   const def = inst ? state.catalogo.get(inst.type) : null;
   const muestraCodigo = !s || (s.tipo === 'modulo' && (!inst || def?.programmable));
-  const panel = $('panel-modulo');
-  // Sin placa no hay código: en su lugar, qué es este proyecto y cómo sumarle una placa.
-  if (muestraCodigo && sinPlaca()) {
-    $('panel-codigo').hidden = true;
-    panel.hidden = false;
-    return pintarPanelSinPlaca(panel);
-  }
-  $('panel-codigo').hidden = !muestraCodigo;
-  panel.hidden = muestraCodigo;
-  if (muestraCodigo) return;
-  if (s.tipo === 'cable') return pintarPanelCable(panel, s.indice);
-  if (!def) return pintarPanelDesconocido(panel, inst);
-  pintarPanelModulo(panel, inst, def);
-}
-
-function pintarPanelSinPlaca(panel: HTMLElement) {
-  const on = state.energizado;
-  panel.innerHTML = `
-    <h2 class="panel-header">${ICONOS.modulo} Circuito sin placa</h2>
-    <div class="insp">
-      <p class="insp-desc">Un circuito como en una protoboard: fuentes regulables y componentes, sin microcontrolador ni código.
-      Cerrá cada camino contra el <b>GND de la fuente</b>.</p>
-      <div class="insp-badge ${on ? '' : 'advertencia'}">${on
-        ? '<b>Energizado</b> — las fuentes entregan tensión: usá los pulsadores e interruptores. ⏹ lo apaga.'
-        : '<b>Apagado</b> — las fuentes no entregan nada. ▶ energiza el circuito.'}</div>
-      <h3>Placa</h3>
-      <p class="hint">Si querés programar algo, agregá una placa (o arrastrala desde el catálogo): elegís en qué lenguaje y aparece su código.</p>
-      <button type="button" id="sp-agregar-placa" class="primario">Agregar placa</button>
-    </div>`;
-  $('sp-agregar-placa').onclick = () => abrirAgregarPlaca(state.placaPorDefecto || state.placas[0]?.id);
-}
-
-function pintarPanelCable(panel, indice) {
-  const w = state.diagrama.wires[indice];
-  if (!w) {
-    seleccionar(null);
-    return;
-  }
-  panel.innerHTML = `
-    <h2 class="panel-header">${ICONOS.cable} Cable</h2>
-    <div class="insp">
-      <p class="insp-conexion"><b>${escapar(nombreRef(w.from))}</b><span>↔</span><b>${escapar(nombreRef(w.to))}</b></p>
-      <button class="peligro" id="insp-borrar-cable">Eliminar cable</button>
-      <p class="hint">También podés seleccionarlo y apretar Supr.</p>
-    </div>`;
-  $('insp-borrar-cable').onclick = () => eliminarCable(indice);
-}
-
-function pintarPanelDesconocido(panel, inst) {
-  panel.innerHTML = `
-    <h2 class="panel-header">${ICONOS.modulo} Módulo desconocido <span class="sub">· ${escapar(inst.id)}</span></h2>
-    <div class="insp">
-      <div class="insp-badge aire">El tipo <b>${escapar(inst.type)}</b> no está en el catálogo (¿se quitó?).
-      Podés volver a importarlo o eliminarlo del circuito.</div>
-      <button class="peligro" id="insp-eliminar">Eliminar módulo</button>
-    </div>`;
-  $('insp-eliminar').onclick = () => eliminarModulo(inst.id);
-}
-
-
-/**
- * Controles de simulación para el panel: la forma fácil de "apretar" un módulo,
- * sin tener que encontrar el dibujo chico en el circuito.
- */
-function controlesPanel(inst, def) {
-  const kind = def.controls?.[0]?.kind;
-  if (def.bridge?.role === 'input' && kind === 'momentary') {
-    return '<button type="button" class="btn-accionar" data-accion="momentary">Mantener presionado</button>';
-  }
-  if (def.bridge?.role === 'input' && kind === 'toggle') {
-    const on = Boolean(state.sim.controles.get(inst.id));
-    return `<button type="button" class="btn-accionar ${on ? 'activo' : ''}" data-accion="toggle">${on ? 'Apagar' : 'Encender'}</button>`;
-  }
-  if (def.type === 'remote-433') {
-    return `<div class="botonera-remoto">${['A', 'B', 'C', 'D'].map((l, i) =>
-      `<button type="button" class="btn-accionar" data-accion="boton" data-indice="${i}">${l}</button>`).join('')}</div>`;
-  }
-  if (def.type === 'door-sensor-433') {
-    const abierta = Boolean(state.sim.controles.get(inst.id));
-    return `<button type="button" class="btn-accionar ${abierta ? 'activo' : ''}" data-accion="toggle">${abierta ? 'Cerrar puerta' : 'Abrir puerta'}</button>`;
-  }
-  return '';
-}
-
-function pintarPanelModulo(panel: HTMLElement, inst, def) {
-  const esAire = def.bridge?.role === 'air';
-  const controles = controlesPanel(inst, def);
-  const filasPines = def.pins.map((p) => {
-    const ref = `${inst.id}.${p.name}`;
-    const conexiones = cablesDe(ref).map((w) => {
-      const otro = w.from === ref ? w.to : w.from;
-      const i = state.diagrama.wires.indexOf(w);
-      return `<span class="conexion">→ ${escapar(nombreRef(otro))}<button class="quitar" data-cable="${i}" title="Desconectar">×</button></span>`;
-    });
-    return `<tr>
-      <td class="pin-nombre ${p.kind}">${escapar(p.name)}</td>
-      <td class="pin-kind">${NOMBRE_KIND[p.kind] ?? p.kind}</td>
-      <td>${conexiones.join('') || '<span class="sin">sin conectar</span>'}</td>
-    </tr>`;
-  }).join('');
-
-  const propsHtml = Object.entries(def.props ?? {}).map(([k, p]) => {
-    const pd = (p as any);
-    const valor = inst.props?.[k] ?? pd.default ?? '';
-    const etiqueta = escapar(pd.label ?? k);
-    if (pd.enum) {
-      const opciones = pd.enum.map((o) => `<option ${o === valor ? 'selected' : ''}>${escapar(o)}</option>`).join('');
-      return `<label>${etiqueta}<select data-prop="${k}">${opciones}</select></label>`;
-    }
-    if (pd.type === 'boolean') {
-      return `<label class="check"><input type="checkbox" data-prop="${k}" ${valor ? 'checked' : ''}/> ${etiqueta}</label>`;
-    }
-    const tipo = pd.type === 'number' ? 'number' : 'text';
-    return `<label>${etiqueta}<input type="${tipo}" data-prop="${k}" value="${escapar(valor)}"/></label>`;
-  }).join('');
-
-  panel.innerHTML = `
-    <h2 class="panel-header">${ICONOS.modulo} ${escapar(def.name)} <span class="sub">· ${escapar(inst.id)}</span></h2>
-    <div class="insp">
-      <div class="insp-mini"></div>
-      <p class="insp-desc">${escapar(def.description ?? '')}</p>
-      <div class="insp-badge ${esAire ? 'aire' : ''}">
-        ${esAire
-          ? `<b>Inalámbrico</b> — no se programa ni lleva cables: se comunica por radio 433 MHz con el receptor o transmisor conectado a la ${escapar(nombrePlaca())}.`
-          : sinPlaca()
-            ? '<b>Sin código</b> — se cablea al circuito; con ▶ se energiza y funciona por la corriente que le llega.'
-            : `<b>Sin código</b> — este módulo no se programa: se conecta a la ${escapar(nombrePlaca())} con cables y el código de la placa lo controla.`}
-      </div>
-      ${state.sim.quemados.has(inst.id) ? `
-        <div class="insp-badge quemado"><b>Quemado</b>: le pasaron ~${Math.round(state.sim.quemados.get(inst.id)?.mA ?? 0)} mA. Ya no enciende aunque arregles el circuito, igual que un LED real.
-        <button type="button" id="insp-reemplazar" class="btn-accionar">Reemplazar LED</button></div>` : ''}
-      ${pinesSinAlimentar(inst, def).length > 0 ? `
-        <div class="insp-badge advertencia">⚠ <b>Sin alimentación</b> — conectá también ${escapar(pinesSinAlimentar(inst, def).join(' y '))}: sin eso no funciona en la simulación, como en la vida real.</div>` : ''}
-      ${controles ? `
-        <h3>Simulación</h3>
-        <div class="insp-control ${state.sim.listo ? '' : 'deshabilitado'}">${controles}</div>
-        <p class="hint">${state.sim.listo ? 'También podés tocar el dibujo del módulo en el circuito.' : textoEsperaSimulacion()}</p>` : ''}
-      ${def.pins.length ? `
-        <h3>Pines</h3>
-        <table class="insp-pines"><tbody>${filasPines}</tbody></table>
-        <p class="hint">Para cablear: click en un pin del módulo en el circuito y después en ${sinPlaca() ? 'otro pin (cerrá los caminos contra el GND de la fuente)' : `un pin de la ${escapar(nombrePlaca())}`}.</p>` : ''}
-      <h3>Rotación</h3>
-      <div class="insp-rotacion">
-        <button type="button" data-girar="-90" title="Girar 90° a la izquierda (Shift+R)" aria-label="Girar a la izquierda">⟲</button>
-        <input type="range" min="0" max="359" step="1" value="${inst.rotation ?? 0}" data-rotacion-rango aria-label="Ángulo" />
-        <label class="grados"><input type="number" min="0" max="359" value="${inst.rotation ?? 0}" data-rotacion aria-label="Grados" />°</label>
-        <button type="button" data-girar="90" title="Girar 90° a la derecha (R)" aria-label="Girar a la derecha">⟳</button>
-      </div>
-      ${propsHtml ? `<h3>Propiedades</h3><div class="insp-props">${propsHtml}</div>` : ''}
-      <button class="peligro" id="insp-eliminar">Eliminar módulo</button>
-    </div>`;
-  panel.querySelector<HTMLElement>('.insp-mini').append(miniatura(def));
-  $('insp-eliminar').onclick = () => eliminarModulo(inst.id);
-  const reemplazar = $('insp-reemplazar');
-  if (reemplazar) reemplazar.onclick = () => reemplazarQuemado(inst.id);
-  for (const b of panel.querySelectorAll('[data-girar]')) {
-    (b as HTMLElement).onclick = () => fijarRotacion(inst, (inst.rotation ?? 0) + Number((b as HTMLElement).dataset.girar), true);
-  }
-  const rango = (panel.querySelector<HTMLElement>('[data-rotacion-rango]') as HTMLInputElement);
-  const numero = (panel.querySelector<HTMLElement>('[data-rotacion]') as HTMLInputElement);
-  rango.addEventListener('input', () => {
-    numero.value = rango.value;
-    fijarRotacion(inst, Number(rango.value), false);
-  });
-  rango.addEventListener('change', () => fijarRotacion(inst, Number(rango.value), true));
-  numero.addEventListener('change', () => {
-    fijarRotacion(inst, Number(numero.value) || 0, true);
-    rango.value = String(inst.rotation ?? 0);
-  });
-  for (const b of panel.querySelectorAll('button.quitar')) {
-    (b as HTMLElement).onclick = () => {
-      state.diagrama.wires.splice(Number((b as HTMLElement).dataset.cable), 1);
-      guardarDiagrama();
-      pintarPanelDerecho();
-      lienzo.render();
-    };
-  }
-  for (const campo of panel.querySelectorAll('[data-prop]')) {
-    const c = (campo as HTMLInputElement);
-    c.addEventListener('change', () => {
-      const k = c.dataset.prop;
-      const pd = def.props[k];
-      inst.props = { ...inst.props, [k]: pd.type === 'number' ? Number(c.value) : pd.type === 'boolean' ? c.checked : c.value };
-      guardarDiagrama();
-      lienzo.render();
-    });
-  }
-  for (const b of panel.querySelectorAll('.btn-accionar')) {
-    const el = (b as HTMLButtonElement);
-    const accion = el.dataset.accion;
-    if (accion === 'momentary') {
-      const abajo = (/** @type {Event} */ e) => {
-        e.preventDefault();
-        panelPresionado = inst;
-        controlModulo(inst, 'momentary', 0, 'down');
-        el.classList.add('activo');
-      };
-      el.addEventListener('mousedown', abajo);
-      el.addEventListener('touchstart', abajo, { passive: false });
-    } else if (accion === 'toggle') {
-      el.onclick = () => {
-        controlModulo(inst, 'toggle', 0, 'down');
-        pintarPanelDerecho(); // refleja el nuevo estado (Encender/Apagar, Abrir/Cerrar puerta)
-      };
-    } else if (accion === 'boton') {
-      el.onclick = () => controlModulo(inst, 'boton', Number(el.dataset.indice), 'down');
-    }
-  }
+  // Sin placa no hay código: en su lugar, el panel cuenta qué es un proyecto sin placa.
+  const codigo = muestraCodigo && !sinPlaca();
+  $('panel-codigo').hidden = !codigo;
+  $('panel-modulo').hidden = codigo;
 }
 
 // --- Catálogo -----------------------------------------------------------------
