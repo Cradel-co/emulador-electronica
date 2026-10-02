@@ -41,3 +41,33 @@ test('el lienzo se crea una sola vez', async ({ page, request }) => {
   await page.mouse.move(c.x + c.width / 2, c.y + c.height / 2);
   await expect(page.locator('#lienzo .cable-temporal')).toHaveCount(1);
 });
+
+test('los avisos del dibujo los rinde React: se listan, se despliegan y se cierran solos', async ({ page, request }) => {
+  const name = `avisos-${Date.now().toString(36)}`;
+  const creado = await request.post('/api/projects', { data: { name, language: 'esphome' } });
+  const proyecto = (await creado.json()).project;
+  // Se quita el cable del botón: el código usa ese pin y queda sin cablear → aviso del server.
+  const sinBoton = proyecto.wires.filter((w: any) => !w.from.startsWith('btn1.') && !w.to.startsWith('btn1.'));
+  await request.put(`/api/projects/${name}/diagram`, { data: { modules: proyecto.modules, wires: sinBoton } });
+  await page.goto(`/#${name}`);
+
+  const avisos = page.locator('#avisos-dibujo');
+  await expect(avisos).toContainText(/pin/i);
+  await expect(avisos.locator('div')).not.toHaveCount(0);
+  // Cada aviso lleva su pin, como antes.
+  await expect(avisos.locator('div').first()).toHaveAttribute('data-pin', /.+/);
+
+  // Compacto por defecto; al tocarlo se despliega (es el CSS el que usa la clase).
+  await expect(avisos).not.toHaveClass(/abiertos/);
+  await avisos.click();
+  await expect(avisos).toHaveClass(/abiertos/);
+  await avisos.click();
+  await expect(avisos).not.toHaveClass(/abiertos/);
+
+  // Al volver a cablear el botón, los avisos desaparecen y el panel no queda desplegado.
+  await avisos.click();
+  await expect(avisos).toHaveClass(/abiertos/);
+  await request.put(`/api/projects/${name}/diagram`, { data: { modules: proyecto.modules, wires: proyecto.wires } });
+  await page.reload();
+  await expect(page.locator('#avisos-dibujo')).not.toHaveClass(/abiertos/);
+});

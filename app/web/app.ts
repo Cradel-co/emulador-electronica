@@ -3,7 +3,8 @@ import { miniatura } from './modulos.js';
 import { lenguajeDeArchivo, NOMBRE_LENGUAJE, resaltar } from './editor.js';
 import { crearDepuracion } from './depuracion.js';
 import { montarReact } from './react/montar.js';
-import { alLienzoListo, registrarCtx } from './react/puente.js';
+import { alLienzoListo, registrarCtx, registrarEstado } from './react/puente.js';
+import { notificar, observable } from './react/estado.js';
 
 /**
  * Id de esta pestaña: el server lo devuelve en los eventos para no recargar los cambios propios.
@@ -50,7 +51,12 @@ const PINES_ADVERTENCIA_S3 = new Map([
 /** Orden de las categorías en el catálogo. */
 const ORDEN_CATEGORIAS = ['Placas', 'Entradas', 'Salidas', 'Pasivos', 'Radio 433 MHz', 'Inalámbricos'];
 
-const state = {
+/**
+ * Estado de la UI. Envuelto en `observable` para que los componentes de React se enteren cuando
+ * algo cambia (#9): escribirle un campo acá avisa solo, sin que haya que tocar nada más.
+ * Las mutaciones de adentro de un Map o un array no se ven: para esas está `notificar()`.
+ */
+const state = observable({
   proyectos: [],
   proyecto: null,
   archivos: [],
@@ -122,7 +128,8 @@ const state = {
      */
     cortos: new Map(),
   },
-};
+});
+registrarEstado(state);
 
 // --- Íconos -------------------------------------------------------------
 
@@ -1967,17 +1974,7 @@ async function refrescarAvisos() {
     actualizarCortos(warnings);
     actualizarCuentaProblemas();
     revisarQuemaduras();
-    const cont = $('avisos-dibujo');
-    cont.textContent = '';
-    for (const w of warnings.slice(0, 6)) {
-      const div = document.createElement('div');
-      div.textContent = w.message;
-      div.dataset.pin = String(w.pin);
-      cont.append(div);
-    }
-    // Compacto por defecto (una línea + "+N más"): el circuito no pierde lugar. Click: despliega.
-    cont.dataset.mas = warnings.length > 1 ? `+${warnings.length - 1} más` : '';
-    if (!warnings.length) cont.classList.remove('abiertos');
+    // Los avisos los rinde <Avisos> (#9): alcanza con haber asignado `state.avisosDibujo`.
     lienzo.render();
   } catch {
     /* el proyecto puede no tener archivos aún */
@@ -2236,7 +2233,6 @@ for (const b of document.querySelectorAll('.imp-fuentes [data-fuente]')) {
 $('imp-importar').onclick = () => void ejecutarImportacion(false);
 $('imp-validar').onclick = () => void ejecutarImportacion(true);
 
-$('avisos-dibujo').onclick = () => $('avisos-dibujo').classList.toggle('abiertos');
 $('zoom-mas').onclick = () => lienzo.zoom(1.2);
 $('zoom-menos').onclick = () => lienzo.zoom(1 / 1.2);
 $('zoom-ajustar').onclick = () => lienzo.ajustar();

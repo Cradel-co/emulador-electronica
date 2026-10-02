@@ -11,7 +11,19 @@ type Ctx = Record<string, unknown>;
 type Lienzo = Record<string, unknown>;
 
 let ctx: Ctx | null = null;
+let est: Record<string, any> | null = null;
 let alEntregar: ((l: Lienzo) => void) | null = null;
+
+/** `app.ts`: su objeto de estado (ya envuelto en `observable`), para que lo lean los componentes. */
+export function registrarEstado(e: Record<string, any>): void {
+  est = e;
+}
+
+/** El estado de la app. Los componentes lo leen con `useEstado(() => estado().campo)`. */
+export function estado(): Record<string, any> {
+  if (!est) throw new Error('un componente leyó el estado antes de que app.ts lo registrara');
+  return est;
+}
 
 /** `app.ts`: el contexto que `crearLienzo` necesita (diagrama, catálogo, callbacks de edición). */
 export function registrarCtx(c: Ctx): void {
