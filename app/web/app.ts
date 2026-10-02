@@ -5,6 +5,10 @@ import { crearDepuracion } from './depuracion.js';
 import { montarReact } from './react/montar.js';
 import { alLienzoListo, registrarAcciones, registrarCtx, registrarEstado } from './react/puente.js';
 import { notificar, observable } from './react/estado.js';
+import {
+  cablesDe as cablesDePuro, esPinSinAlimentar as esPinSinAlimentarPuro, NOMBRE_KIND,
+  nombreRef as nombreRefPuro, pinesSinAlimentar as pinesSinAlimentarPuro,
+} from './consultas.js';
 
 /**
  * Id de esta pestaña: el server lo devuelve en los eventos para no recargar los cambios propios.
@@ -709,9 +713,8 @@ function nombrePinGpio(g) {
 }
 
 /** Cables que tocan un pin "id.PIN". */
-function cablesDe(ref) {
-  return state.diagrama.wires.filter((w) => w.from === ref || w.to === ref);
-}
+/** Los cables que llegan a una punta. El cálculo está en consultas.ts (puro y probado). */
+const cablesDe = (ref) => cablesDePuro(ref, state.diagrama.wires);
 
 /**
  * GPIO del ESP32 al que está cableado un pin de un módulo, o null.
@@ -742,26 +745,15 @@ function gpioDe(id, pin, visitados = new Set()) {
 }
 
 /** Nombre legible de una punta de cable: "ESP32 · GPIO6" / "Pulsador btn1 · OUT". */
-function nombreRef(ref) {
-  const [id, pin] = [ref.slice(0, ref.indexOf('.')), ref.slice(ref.indexOf('.') + 1)];
-  const inst = state.diagrama.modules.find((m) => m.id === id);
-  const def = inst && state.catalogo.get(inst.type);
-  const limpio = pin.replace(/_\d+$/, '');
-  if (id === BOARD_ID) return `${nombrePlaca()} · ${limpio}`;
-  return `${def?.name ?? id} ${id} · ${limpio}`;
-}
+const nombreRef = (ref) =>
+  nombreRefPuro(ref, state.diagrama.modules, (t) => state.catalogo.get(t), nombrePlaca());
 
 /**
  * Pines de alimentación (GND/VCC) de un módulo que no están cableados a nada.
  * Como en la vida real: sin tierra (y sin VCC si lo necesita) el módulo no funciona,
  * aunque su pin de señal sí esté conectado.
  */
-function pinesSinAlimentar(inst, def) {
-  return def.pins
-    .filter((p) => p.kind === 'ground' || p.kind === 'power')
-    .filter((p) => cablesDe(`${inst.id}.${p.name}`).length === 0)
-    .map((p) => p.name);
-}
+const pinesSinAlimentar = (inst, def) => pinesSinAlimentarPuro(inst, def, state.diagrama.wires);
 
 /** Módulos de un rol, cableados a un GPIO y alimentados (p. ej. el receptor RF listo para recibir). */
 function cableadosConRol(rol) {
@@ -1372,15 +1364,8 @@ function cortoExplotando(ref) {
 }
 
 /** ¿Este pin de un módulo (no de la placa) es de alimentación y le falta cablear? */
-function esPinSinAlimentar(ref) {
-  const punto = ref.indexOf('.');
-  const id = ref.slice(0, punto);
-  if (id === BOARD_ID || cablesDe(ref).length > 0) return false;
-  const inst = state.diagrama.modules.find((m) => m.id === id);
-  const def = inst && state.catalogo.get(inst.type);
-  const pin = def?.pins.find((p) => p.name === ref.slice(punto + 1));
-  return pin?.kind === 'ground' || pin?.kind === 'power';
-}
+const esPinSinAlimentar = (ref) =>
+  esPinSinAlimentarPuro(ref, state.diagrama.modules, (t) => state.catalogo.get(t), state.diagrama.wires);
 
 /** Texto extra del tooltip de un pin (por qué está reservado, conviene evitarlo, o hace falta cablearlo). */
 function descripcionPin(ref) {
@@ -1558,10 +1543,6 @@ function pintarPanelDesconocido(panel, inst) {
   $('insp-eliminar').onclick = () => eliminarModulo(inst.id);
 }
 
-const NOMBRE_KIND = {
-  'digital-in': 'entrada', 'digital-out': 'salida', 'digital-io': 'E/S',
-  power: 'alimentación', ground: 'tierra', 'analog-in': 'analógica', other: '—',
-};
 
 /**
  * Controles de simulación para el panel: la forma fácil de "apretar" un módulo,
