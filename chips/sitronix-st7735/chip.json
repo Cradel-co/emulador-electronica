@@ -1,0 +1,17 @@
+{
+  "id": "sitronix-st7735",
+  "nombre": "ST7735R",
+  "fabricante": "Sitronix",
+  "descripcion": "Controlador de pantallas TFT a color de 128 × 160 por SPI (solo escritura en los módulos comunes: no tienen MISO). Prop 'pestana' = 'negra' | 'roja' | 'verde': la variante del panel del módulo (como INITR_BLACKTAB/REDTAB/GREENTAB de Adafruit). Negra y roja: memoria de 128 × 160 (GM), filtro RGB y BGR. Verde: memoria de 132 × 162 con el panel corrido (columna 2, fila 1), BGR.",
+  "hojaDeDatos": "ST7735R V0.2 (Sitronix, 2009-08-05)",
+  "pines": ["VDD", "GND", "SCL", "SDA", "CSX", "D/CX", "RESX"],
+  "spi": { "sck": "SCL", "mosi": "SDA", "cs": "CSX", "dc": "D/CX", "modos": [0, 3], "maxHz": 15000000, "soloEscritura": true },
+  "entradas": ["RESX"],
+  "comportamiento": "comportamiento.js",
+  "limitaciones": [
+    "Las esperas de 120 ms que pide la hoja después de SWRESET y SLPOUT no se exigen: un programa que no las respeta funciona igual que si las respetara.",
+    "Los comandos de lectura (RDDID, RAMRD...) no se emulan: los módulos comunes no tienen MISO.",
+    "Pantalla parcial (PTLON/PTLAR), scroll vertical (VSCRDEF/VSCRSADD), modo idle (8 colores) y la gamma (GMCTRP1/N1) no cambian lo que se ve.",
+    "La retroiluminación se toma siempre encendida cuando el módulo tiene alimentación; apagada o en sleep, la pantalla se ve blanca (un TN normalmente blanco)."
+  ]
+}

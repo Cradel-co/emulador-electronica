@@ -3,7 +3,13 @@ import { Miniatura } from './Miniatura.js';
 import { useEstado } from './estado.js';
 import { acciones, estado } from './puente.js';
 
-/** Las categorías van en este orden; las que no estén en la lista, al final y alfabéticas. */
+/**
+ * Las categorías van en este orden; las que no estén en la lista, al final.
+ *
+ * Entre esas últimas **no se ordena**: queda el orden en que aparecieron los módulos del catálogo,
+ * que es el que tenía el código imperativo (un `sort` estable con empates). Agregarles un
+ * desempate alfabético cambia el orden visible y rompe el test del catálogo.
+ */
 const ORDEN = ['Placas', 'Entradas', 'Salidas', 'Pasivos', 'Radio 433 MHz', 'Inalámbricos'];
 const pesoDe = (c: string) => (ORDEN.indexOf(c) + 1 || 99);
 
@@ -38,7 +44,7 @@ export function Catalogo() {
 
   if (porCategoria.size === 0) return <p className="vacio">Sin resultados.</p>;
 
-  const categorias = [...porCategoria.keys()].sort((a, b) => pesoDe(a) - pesoDe(b) || a.localeCompare(b));
+  const categorias = [...porCategoria.keys()].sort((a, b) => pesoDe(a) - pesoDe(b));
 
   // Cabecera y grilla van como hermanos, hijos directos de `#lista-modulos`: así los tenía el
   // código imperativo y así los espera el CSS. Un div por categoría rompía el scroll.

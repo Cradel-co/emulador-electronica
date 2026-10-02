@@ -86,9 +86,17 @@ class Pin:
     def __init__(self, id, *args, **kw):
         self._p = _Pin(id, *args, **kw)
         self._n = id
+        if kw.get('value') is not None:
+            _avisar(id, kw['value'])
+
+    def init(self, *args, **kw):
+        if kw.get('value') is not None:
+            _avisar(self._n, kw['value'])
+        return self._p.init(*args, **kw)
 
     def value(self, *args):
         if args:
+            _avisar(self._n, args[0])
             return self._p.value(*args)
         if self._n in _input_levels:
             return _input_levels[self._n]
@@ -96,6 +104,12 @@ class Pin:
 
     def __call__(self, *args):
         return self.value(*args)
+
+    def on(self):
+        self.value(1)
+
+    def off(self):
+        self.value(0)
 
     def irq(self, handler=None, trigger=None, *args, **kw):
         if trigger is None:
@@ -118,10 +132,15 @@ for _k in dir(_Pin):
         setattr(Pin, _k, getattr(_Pin, _k))  # Pin.IN, Pin.OUT, Pin.PULL_UP, Pin.IRQ_FALLING…
 
 
+_REEMPLAZOS = {}
+
+
 def _instalar_pin():
-    """Hace que main.py use este Pin: \`from machine import Pin\` y \`machine.Pin(...)\`."""
+    """Hace que main.py use este Pin (y los buses de los chips): \`from machine import Pin\`, \`machine.I2C(...)\`."""
+    _REEMPLAZOS.update({'Pin': Pin, 'I2C': I2C, 'SoftI2C': SoftI2C, 'SPI': SPI, 'SoftSPI': SoftSPI})
     try:
-        machine.Pin = Pin
+        for k in _REEMPLAZOS:
+            setattr(machine, k, _REEMPLAZOS[k])
         return 'machine.Pin'
     except Exception:
         pass
@@ -132,7 +151,8 @@ def _instalar_pin():
             return getattr(machine, nombre)
 
     m = _Machine()
-    m.Pin = Pin
+    for k in _REEMPLAZOS:
+        setattr(m, k, _REEMPLAZOS[k])
     sys.modules['machine'] = m
     return 'sys.modules'
 
@@ -143,11 +163,216 @@ def _read_out(n):
     return (machine.mem32[_GPIO_OUT1_REG] >> (n - 32)) & 1
 
 
+_tx_lock = _thread.allocate_lock()
+
+
 def _send(line):
+    # El hilo del puente y el programa (los buses de los chips) escriben a la vez: una línea entera por vez.
+    _tx_lock.acquire()
     try:
         _uart.write(line + '\\n')
     except Exception:
         pass
+    _tx_lock.release()
+
+
+# --- Chips del dibujo (server/src/bus/puenteChips.ts) --------------------------------
+# esp-emu no acepta dispositivos I2C/SPI propios: machine.I2C, SoftI2C, SPI y SoftSPI se
+# reemplazan por estas clases, que mandan cada llamada por el puente y esperan la respuesta
+# de los chips emulados en la app. Los pines tienen que ser los del dibujo (la matriz GPIO
+# deja cualquiera, como en la placa real). Los pines que vigilan los chips (CS, DC, RST)
+# se avisan con @P al escribirlos, en orden con las transacciones.
+_chip_pins = set()
+_estado = {'chips': False}
+_rx_lock = _thread.allocate_lock()
+_rx = ['']
+_resp = {}
+_seq = [0]
+
+
+def _avisar(n, v):
+    if n in _chip_pins:
+        _send('@P %d %d %d' % (n, 1 if v else 0, utime.ticks_us()))
+
+
+def _bombear():
+    """Lee lo que llegó por el puente y lo atiende (lo usan el hilo del puente y el que espera una respuesta)."""
+    if not _rx_lock.acquire(0):
+        return
+    try:
+        n = _uart.any()
+        if n:
+            _rx[0] += _uart.read(n).decode('utf-8', 'ignore')
+            while '\\n' in _rx[0]:
+                line, _rx[0] = _rx[0].split('\\n', 1)
+                _handle(line)
+    except Exception:
+        pass
+    _rx_lock.release()
+
+
+def _pedir(tag, resto):
+    _seq[0] += 1
+    rid = _seq[0]
+    _send('@%s %d %s' % (tag, rid, resto))
+    t0 = utime.ticks_ms()
+    while rid not in _resp:
+        _bombear()
+        if rid in _resp:
+            break
+        if utime.ticks_diff(utime.ticks_ms(), t0) > 5000:
+            raise OSError(116)  # ETIMEDOUT: la app no contestó
+        utime.sleep_ms(1)
+    return _resp.pop(rid)
+
+
+def _b64(b):
+    import ubinascii
+    return ubinascii.b2a_base64(bytes(b)).decode().strip()
+
+
+def _de64(s):
+    import ubinascii
+    return ubinascii.a2b_base64(s) if s else b''
+
+
+def _gpio(p):
+    if p is None or isinstance(p, int):
+        return p
+    n = getattr(p, '_n', None)
+    if isinstance(n, int):
+        return n
+    d = ''.join([c for c in str(p) if c.isdigit()])  # Pin(21)
+    return int(d) if d else None
+
+
+class I2C:
+    def __init__(self, id=0, scl=None, sda=None, freq=400000, timeout=50000):
+        self._scl = None
+        self._sda = None
+        self._freq = 400000
+        self.init(scl=scl, sda=sda, freq=freq)
+
+    def init(self, scl=None, sda=None, freq=None, timeout=None):
+        if scl is not None:
+            self._scl = _gpio(scl)
+        if sda is not None:
+            self._sda = _gpio(sda)
+        if freq:
+            self._freq = int(freq)
+        if self._scl is None or self._sda is None:
+            raise ValueError('simulación: indicá los pines del I2C (scl=Pin(..), sda=Pin(..)), los mismos del dibujo')
+
+    def deinit(self):
+        pass
+
+    def _tx(self, ops):
+        r = _pedir('I2C', '%d %d %d %d %s' % (utime.ticks_us(), self._sda, self._scl, self._freq, ';'.join(ops))).split(';')
+        if 'N' in r:
+            raise OSError(19)  # ENODEV: la dirección no contestó (NACK), como en la placa real
+        return r
+
+    def scan(self):
+        r = _pedir('I2CS', '%d %d %d %d' % (utime.ticks_us(), self._sda, self._scl, self._freq))
+        return [int(x, 16) for x in r.split(',') if x]
+
+    def writeto(self, addr, buf, stop=True):
+        return int(self._tx(['W%x:%s' % (addr, _b64(buf))] + (['P'] if stop else []))[0])
+
+    def writevto(self, addr, vector, stop=True):
+        return self.writeto(addr, b''.join([bytes(v) for v in vector]), stop)
+
+    def readfrom(self, addr, nbytes, stop=True):
+        return _de64(self._tx(['R%x:%d' % (addr, nbytes)] + (['P'] if stop else []))[0])
+
+    def readfrom_into(self, addr, buf, stop=True):
+        d = self.readfrom(addr, len(buf), stop)
+        for i in range(len(d)):
+            buf[i] = d[i]
+
+    def _mem(self, memaddr, addrsize):
+        n = addrsize // 8
+        return bytes([(memaddr >> (8 * (n - 1 - i))) & 0xff for i in range(n)])
+
+    def readfrom_mem(self, addr, memaddr, nbytes, addrsize=8):
+        r = self._tx(['W%x:%s' % (addr, _b64(self._mem(memaddr, addrsize))), 'R%x:%d' % (addr, nbytes), 'P'])
+        return _de64(r[1])
+
+    def readfrom_mem_into(self, addr, memaddr, buf, addrsize=8):
+        d = self.readfrom_mem(addr, memaddr, len(buf), addrsize)
+        for i in range(len(d)):
+            buf[i] = d[i]
+
+    def writeto_mem(self, addr, memaddr, buf, addrsize=8):
+        self._tx(['W%x:%s' % (addr, _b64(self._mem(memaddr, addrsize) + bytes(buf))), 'P'])
+
+
+class SoftI2C(I2C):
+    def __init__(self, scl, sda, freq=400000, timeout=50000):
+        I2C.__init__(self, -1, scl=scl, sda=sda, freq=freq)
+
+
+class SPI:
+    MSB = 0
+    LSB = 1
+
+    def __init__(self, id=1, baudrate=1000000, polarity=0, phase=0, bits=8, firstbit=0, sck=None, mosi=None, miso=None):
+        self._sck = None
+        self._mosi = None
+        self._miso = None
+        self._baud = 1000000
+        self._modo = 0
+        self._lsb = 0
+        self.init(baudrate, polarity, phase, bits, firstbit, sck, mosi, miso)
+
+    def init(self, baudrate=None, polarity=None, phase=None, bits=None, firstbit=None, sck=None, mosi=None, miso=None):
+        if baudrate:
+            self._baud = int(baudrate)
+        if polarity is not None or phase is not None:
+            self._modo = (polarity or 0) * 2 + (phase or 0)
+        if firstbit is not None:
+            self._lsb = 1 if firstbit == SPI.LSB else 0
+        if sck is not None:
+            self._sck = _gpio(sck)
+        if mosi is not None:
+            self._mosi = _gpio(mosi)
+        if miso is not None:
+            self._miso = _gpio(miso)
+        if self._sck is None or self._mosi is None:
+            raise ValueError('simulación: indicá los pines del SPI (sck=Pin(..), mosi=Pin(..), miso=Pin(..)), los mismos del dibujo')
+
+    def deinit(self):
+        pass
+
+    def _x(self, datos, espera):
+        cab = '%d %d %d %d %d %d' % (self._sck, self._mosi, -1 if self._miso is None else self._miso, self._baud, self._modo, self._lsb)
+        if not espera:
+            # Solo escribir (una pantalla): no hace falta esperar, el orden con los @P se mantiene.
+            for i in range(0, len(datos), 1536):
+                _send('@SPI 0 %d %s %s 0' % (utime.ticks_us(), cab, _b64(datos[i:i + 1536])))
+            return None
+        return _de64(_pedir('SPI', '%d %s %s 1' % (utime.ticks_us(), cab, _b64(datos))))
+
+    def write(self, buf):
+        self._x(bytes(buf), False)
+
+    def read(self, nbytes, write=0):
+        return self._x(bytes([write]) * nbytes, True)
+
+    def readinto(self, buf, write=0):
+        d = self.read(len(buf), write)
+        for i in range(len(d)):
+            buf[i] = d[i]
+
+    def write_readinto(self, write_buf, read_buf):
+        d = self._x(bytes(write_buf), True)
+        for i in range(len(d)):
+            read_buf[i] = d[i]
+
+
+class SoftSPI(SPI):
+    def __init__(self, baudrate=500000, polarity=0, phase=0, bits=8, firstbit=0, sck=None, mosi=None, miso=None):
+        SPI.__init__(self, -1, baudrate, polarity, phase, bits, firstbit, sck, mosi, miso)
 
 
 # --- Modo debug (server/src/debug/adaptadorMicropython.ts) ---------------------------
@@ -298,6 +523,14 @@ def _handle(line):
             trigger, handler, p = irq
             if (lvl == 0 and trigger & _Pin.IRQ_FALLING) or (lvl == 1 and trigger & _Pin.IRQ_RISING):
                 micropython.schedule(handler, p)
+    elif tag == 'I2CR' or tag == 'SPIR':
+        _resp[int(parts[1])] = parts[2] if len(parts) > 2 else ''
+    elif tag == 'CHIPPINS':
+        _chip_pins.clear()
+        for x in parts[1:]:
+            if x:
+                _chip_pins.add(int(x))
+        _estado['chips'] = True
     elif tag == 'DUMP':
         _responder(parts[1] if len(parts) > 1 else '0', _dump())
     elif tag == 'EVAL':
@@ -306,16 +539,15 @@ def _handle(line):
 
 
 def _loop():
-    buf = ''
     _send('@READY 1 micropython')
+    latido = utime.ticks_ms()
     while True:
         try:
-            n = _uart.any()
-            if n:
-                buf += _uart.read(n).decode('utf-8', 'ignore')
-                while '\\n' in buf:
-                    line, buf = buf.split('\\n', 1)
-                    _handle(line)
+            _bombear()
+            # El reloj del ESP32 para los chips (una conversión, un cuadro): aunque el programa no hable.
+            if _estado['chips'] and utime.ticks_diff(utime.ticks_ms(), latido) >= 50:
+                latido = utime.ticks_ms()
+                _send('@T %d' % utime.ticks_us())
             for n in list(_watched.keys()):
                 lvl = _read_out(n)
                 if _watched[n] != lvl:

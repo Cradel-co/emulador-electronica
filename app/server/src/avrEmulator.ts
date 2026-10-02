@@ -7,6 +7,10 @@ import type { Emulador, OpcionesArranque, PuenteSim } from './emulatorBackend.js
 import { AvrSimulador, PINES_UNO, RelojAvr, type PinMcu } from './avrSim.js';
 import type { MensajeAlWorker, MensajeDelWorker } from './avrWorker.js';
 import { ControlDepuracionAvr, type EventoAvr, type PedidoAvr, type RespuestaAvr } from './debug/avrControl.js';
+import type { SalidaChip } from '@emu/shared';
+import { armarBusChips, LineasCompartidas } from './bus/armarBus.js';
+import type { BusChips } from './bus/busChips.js';
+import type { ChipEnBus } from './bus/proyectoChips.js';
 
 /** Largo máximo de una línea del Serial antes de cortarla (un sketch sin println). */
 const MAX_LINEA = 1024;
@@ -41,6 +45,18 @@ export class AvrEmulator implements Emulador {
   private frecuenciaHz = 16_000_000;
   private pines: PinMcu[] = PINES_UNO;
   private avisoLento = false;
+  private chips: ChipEnBus[] = [];
+  private arranqueMs = 0;
+  /** Último entorno de cada chip (el que movió el usuario) y lo último que publicó cada uno. */
+  private readonly entornos = new Map<string, Record<string, number>>();
+  private readonly salidasChips = new Map<string, SalidaChip>();
+  private busLocal: BusChips | null = null;
+  private lineasLocal: LineasCompartidas | null = null;
+  /** Avisa cuando un chip publica algo (pantalla, valores): lo usa index.ts para la UI. */
+  oyenteChips: ((id: string, salida: SalidaChip) => void) | null = null;
+  /** Un chip guardó su memoria no volátil: index.ts la escribe en el proyecto. */
+  oyenteGuardado: ((id: string, datos: unknown) => void) | null = null;
+  private alDetenerse: (() => void) | null = null;
   private readonly decodificador = new TextDecoder('utf-8');
   // Modo debug (debug/adaptadorAvr.ts): pedidos al control de depuración que vive junto a la CPU.
   private readonly pedidosDepuracion = new Map<number, (r: RespuestaAvr) => void>();
@@ -66,6 +82,33 @@ export class AvrEmulator implements Emulador {
     return this.lineas.slice(-limit);
   }
 
+  /** Chips del dibujo que están en el bus de esta corrida, con su entorno actual y lo último que publicaron. */
+  chipsEnCorrida(): { id: string; instancia: string; chip: string; nombre: string; alimentado: boolean; entorno: Record<string, number>; salida?: SalidaChip }[] {
+    return this.chips.map((c) => ({
+      id: c.id, instancia: c.instancia, chip: c.chip, nombre: c.nombre, alimentado: c.alimentado,
+      entorno: { ...this.entornos.get(c.id) }, salida: this.salidasChips.get(c.id),
+    }));
+  }
+
+  /**
+   * El usuario movió el entorno de una instancia (sin reiniciar nada): cada chip de esa placa
+   * toma las magnitudes que mide. false si la instancia no tiene chips en el bus.
+   */
+  ponerEntorno(instancia: string, valores: Record<string, number>): boolean {
+    let alguno = false;
+    for (const c of this.chips) {
+      if (c.instancia !== instancia) continue;
+      const actual = this.entornos.get(c.id)!;
+      const suyos = Object.fromEntries(Object.entries(valores).filter(([k]) => k in actual));
+      alguno = true;
+      if (Object.keys(suyos).length === 0) continue;
+      Object.assign(actual, suyos);
+      this.busLocal?.ponerEntorno(c.id, suyos);
+      this.mandar({ t: 'entorno', id: c.id, valores: suyos });
+    }
+    return alguno;
+  }
+
   getBridge(): PuenteSim | null {
     return this.puente;
   }
@@ -79,6 +122,11 @@ export class AvrEmulator implements Emulador {
     this.hex = await fs.readFile(artifacts.firmware, 'utf8');
     this.frecuenciaHz = opts.frecuenciaHz ?? 16_000_000;
     this.pines = opts.pinesMcu ?? PINES_UNO;
+    this.chips = opts.chips ?? [];
+    this.arranqueMs = opts.arranqueMs ?? 0;
+    this.entornos.clear();
+    this.salidasChips.clear();
+    for (const c of this.chips) this.entornos.set(c.id, { ...c.entorno });
     this.lineas = [];
     this.linea = '';
     this.avisoLento = false;
@@ -121,7 +169,7 @@ export class AvrEmulator implements Emulador {
       this.log(`[emu] el emulador terminó (code=${code})`);
       this.teardown(`terminó con código ${code}`);
     });
-    worker.postMessage({ t: 'iniciar', hex: this.hex, frecuenciaHz: this.frecuenciaHz, pines: this.pines } satisfies MensajeAlWorker);
+    worker.postMessage({ t: 'iniciar', hex: this.hex, frecuenciaHz: this.frecuenciaHz, pines: this.pines, chips: this.chips, arranqueMs: this.arranqueMs } satisfies MensajeAlWorker);
   }
 
   private arrancarLocal(): void {
@@ -130,6 +178,21 @@ export class AvrEmulator implements Emulador {
         onSerial: (b) => this.serial([b]),
         onPin: (pin, nivel) => this.recibir({ t: 'pin', pin, nivel }),
       }, this.frecuenciaHz, this.pines);
+      // En modo local el bus se arma de nuevo en cada arranque (un reset rearma todo).
+      this.lineasLocal = new LineasCompartidas((gpio, nivel) => sim.ponerEntrada(gpio, nivel));
+      const lineas = this.lineasLocal;
+      this.busLocal = armarBusChips(this.chips, this.arranqueMs, {
+        ahoraUs: () => sim.micros,
+        alLog: (linea) => this.recibir({ t: 'log', linea }),
+        alSalida: (id, salida) => this.recibir({ t: 'chip', id, salida }),
+        alGuardar: (id, datos) => this.recibir({ t: 'guardado', id, datos }),
+        alPin: (id, pin, nivel) => {
+          const c = this.chips.find((x) => x.id === id);
+          if (c) lineas.desdeChip(c, pin, nivel);
+        },
+        programar: (tUs, fn) => sim.cpu.addClockEvent(fn, Math.max(1, Math.round(((tUs - sim.micros) / 1e6) * this.frecuenciaHz))),
+      });
+      if (this.busLocal) sim.conectarChips(this.busLocal);
       this.controlLocal ??= new ControlDepuracionAvr(
         { sim: () => this.local?.sim ?? null, reloj: () => this.local?.reloj ?? null },
         (evento) => this.recibir({ t: 'depurar-evento', evento }),
@@ -157,7 +220,8 @@ export class AvrEmulator implements Emulador {
     if (!l) return;
     switch (m.t) {
       case 'entrada':
-        l.sim.ponerEntrada(m.pin, m.nivel);
+        if (this.lineasLocal) this.lineasLocal.desdeApp(m.pin, m.nivel);
+        else l.sim.ponerEntrada(m.pin, m.nivel);
         break;
       case 'vigilar':
         l.sim.vigilar(m.pin);
@@ -197,6 +261,19 @@ export class AvrEmulator implements Emulador {
         break;
       case 'error':
         this.log(`[avr] error: ${m.mensaje}`);
+        break;
+      case 'chip':
+        this.salidasChips.set(m.id, m.salida);
+        this.oyenteChips?.(m.id, m.salida);
+        break;
+      case 'log':
+        this.log(m.linea);
+        break;
+      case 'guardado':
+        this.oyenteGuardado?.(m.id, m.datos);
+        break;
+      case 'detenido':
+        this.alDetenerse?.();
         break;
       case 'depurar':
         this.pedidosDepuracion.get(m.id)?.(m.respuesta);
@@ -299,8 +376,20 @@ export class AvrEmulator implements Emulador {
     const worker = this.worker;
     this.worker = null;
     if (worker) {
+      // Se espera a que los chips se apaguen y manden lo que guardan antes de cortar el hilo. Lo normal
+      // es que conteste en milisegundos; el tope es holgado porque con la máquina cargada (o un chip
+      // lento) cortar antes pierde la hora del RTC o lo último grabado en la EEPROM.
+      const detenido = new Promise<void>((r) => {
+        this.alDetenerse = r;
+        setTimeout(r, 3000);
+      });
+      worker.on('message', (m: MensajeDelWorker) => this.recibir(m));
       worker.postMessage({ t: 'parar' } satisfies MensajeAlWorker);
+      await detenido;
+      this.alDetenerse = null;
       await worker.terminate().catch(() => undefined);
+    } else {
+      this.busLocal?.apagar();
     }
     this.teardown('parado');
   }

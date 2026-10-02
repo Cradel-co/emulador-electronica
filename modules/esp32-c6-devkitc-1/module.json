@@ -439,6 +439,7 @@
       "rx": 17,
       "baud": 115200
     },
+    "buses": { "matriz": ["micropython"] },
     "features": [],
     "languages": {
       "esphome": {

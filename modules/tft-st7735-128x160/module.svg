@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 104 166">
+  <line x1="10" y1="152" x2="10" y2="166" stroke="#aab4be" stroke-width="2"/>
+  <line x1="22" y1="152" x2="22" y2="166" stroke="#aab4be" stroke-width="2"/>
+  <line x1="34" y1="152" x2="34" y2="166" stroke="#aab4be" stroke-width="2"/>
+  <line x1="46" y1="152" x2="46" y2="166" stroke="#aab4be" stroke-width="2"/>
+  <line x1="58" y1="152" x2="58" y2="166" stroke="#aab4be" stroke-width="2"/>
+  <line x1="70" y1="152" x2="70" y2="166" stroke="#aab4be" stroke-width="2"/>
+  <line x1="82" y1="152" x2="82" y2="166" stroke="#aab4be" stroke-width="2"/>
+  <line x1="94" y1="152" x2="94" y2="166" stroke="#aab4be" stroke-width="2"/>
+  <rect x="0" y="0" width="104" height="152" rx="3" fill="#a3262a" stroke="#6e1518"/>
+  <circle cx="6" cy="6" r="3" fill="#5a1214" stroke="#c9a23f" stroke-width="1"/>
+  <circle cx="98" cy="6" r="3" fill="#5a1214" stroke="#c9a23f" stroke-width="1"/>
+  <rect x="7" y="10" width="90" height="120" rx="1.5" fill="#101418" stroke="#2a2e33"/>
+  <rect data-pantalla="0" x="12" y="15" width="80" height="100" fill="#d8dde3"/>
+  <text x="52" y="142" class="txt-mini claro" text-anchor="middle">1.8 TFT SPI 128x160</text>
+</svg>

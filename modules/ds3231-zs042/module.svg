@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 80">
+  <line x1="15" y1="66" x2="15" y2="80" stroke="#aab4be" stroke-width="2"/>
+  <line x1="33" y1="66" x2="33" y2="80" stroke="#aab4be" stroke-width="2"/>
+  <line x1="51" y1="66" x2="51" y2="80" stroke="#aab4be" stroke-width="2"/>
+  <line x1="69" y1="66" x2="69" y2="80" stroke="#aab4be" stroke-width="2"/>
+  <line x1="87" y1="66" x2="87" y2="80" stroke="#aab4be" stroke-width="2"/>
+  <line x1="105" y1="66" x2="105" y2="80" stroke="#aab4be" stroke-width="2"/>
+  <rect x="0" y="0" width="120" height="66" rx="3" fill="#1d4f9a" stroke="#123468"/>
+  <circle cx="7" cy="7" r="3.5" fill="#0e2647" stroke="#c9a23f" stroke-width="1.2"/>
+  <circle cx="113" cy="7" r="3.5" fill="#0e2647" stroke="#c9a23f" stroke-width="1.2"/>
+  <rect x="20" y="12" width="34" height="22" rx="1.5" fill="#1b1b1b"/>
+  <text x="37" y="26" class="txt-mini claro" text-anchor="middle">DS3231</text>
+  <rect x="64" y="14" width="16" height="12" rx="1" fill="#1b1b1b"/>
+  <text x="72" y="22.5" class="txt-mini claro" text-anchor="middle" font-size="4.5">24C32</text>
+  <circle cx="97" cy="24" r="12" fill="none" stroke="#9fb3c8" stroke-width="1.2" stroke-dasharray="3 2"/>
+  <text x="97" y="27" class="txt-mini claro" text-anchor="middle" font-size="5">{{props.pila}}</text>
+  <text x="37" y="48" class="txt-chico claro" text-anchor="middle">ZS-042</text>
+  <text x="37" y="58" class="txt-mini claro" text-anchor="middle">RTC 0x68 · EE {{props.direccion}}</text>
+  <circle data-si="on" cx="88" cy="50" r="2.5" fill="#ff4d3d" class="brilla"/>
+  <circle data-si="!on" cx="88" cy="50" r="2.5" fill="#5a1f1a"/>
+</svg>

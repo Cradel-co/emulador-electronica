@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { BoardDescriptorSchema } from './board.js';
+import { UsoChipSchema } from './chip.js';
 
 export const BRIDGE_ROLES = ['input', 'output', 'rf-rx', 'rf-tx', 'air'] as const;
 export type BridgeRole = (typeof BRIDGE_ROLES)[number];
@@ -41,6 +42,9 @@ export const PropDefSchema = z.object({
   min: z.number().optional(),
   max: z.number().optional(),
 });
+
+/** Una librería del gestor de arduino-cli, con versión opcional: "Adafruit BME280 Library@2.3.0". */
+export const LIBRERIA_ARDUINO_RE = /^[A-Za-z0-9][A-Za-z0-9 _.+-]{0,79}(@\d+(\.\d+){0,3})?$/;
 
 /** Definición de un módulo del catálogo (sección 6.2 de la guía). */
 /** Tipos de módulo: mismo formato que los nombres de proyecto (se usan como carpeta). */
@@ -148,6 +152,22 @@ export const ModuleDefSchema = z.object({
    * uno a partir de los flags (`passthrough`, `diode`, `switch`, `source`).
    */
   model: z.string().regex(/^[\w.-]+\.js$/, 'un archivo .js de la carpeta del módulo').optional(),
+  /**
+   * Chips con lógica digital que lleva la placa (`chips/<id>/`): sensor, reloj, pantalla, EEPROM...
+   * Una placa puede tener varios en el mismo bus (la ZS-042: un DS3231 y una AT24C32). `pines`
+   * dice qué pin del módulo es qué pin del chip (SDA del módulo → SDI del BME280). Las props de
+   * la instancia le llegan al comportamiento de cada chip (dirección I2C, etc.).
+   */
+  chips: z.array(UsoChipSchema).max(8).default([]),
+  /**
+   * Librerías que usa el código para manejar este módulo, por lenguaje. Para Arduino: nombres del
+   * gestor de librerías de arduino-cli, con versión fija ("Adafruit BME280 Library@2.3.0"). Se
+   * instalan solas al compilar un proyecto que tenga el módulo (ver toolchains/arduinoCli.ts).
+   */
+  drivers: z
+    .object({ arduino: z.object({ librerias: z.array(z.string().regex(LIBRERIA_ARDUINO_RE, 'nombre@versión del gestor de librerías')).max(20) }).strict().optional() })
+    .strict()
+    .optional(),
 });
 
 export type ModuleDef = z.infer<typeof ModuleDefSchema>;

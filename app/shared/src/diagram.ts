@@ -9,6 +9,11 @@ export const ModuleInstanceSchema = z.object({
   /** Grados, sentido horario, alrededor del centro del dibujo. Sin campo = 0 (proyectos viejos). */
   rotation: z.number().min(0).lt(360).optional(),
   props: z.record(z.union([z.string(), z.number(), z.boolean()])).default({}),
+  /**
+   * Lo que mide del mundo un módulo con chip (temperatura, humedad...), si el usuario lo movió.
+   * Lo que falte toma el `default` del chip (chips/<id>/chip.json).
+   */
+  entorno: z.record(z.string(), z.number()).optional(),
 });
 
 export type ModuleInstance = z.infer<typeof ModuleInstanceSchema>;

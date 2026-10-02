@@ -79,3 +79,8 @@ curl -s localhost:5180/api/projects/<proyecto>/pins | python3 -m json.tool | gre
 - [README.md](./README.md) — puesta en marcha paso a paso y requisitos.
 - [docs/](./docs/) — alcance, placas, módulos, fuentes de alimentación, troubleshooting.
 - [SDD-CIRCUITO-LIBRE.md](./SDD-CIRCUITO-LIBRE.md) — diseño del solver de circuito libre y su plan de tests.
+- [SDD-MODULOS.md](./SDD-MODULOS.md) — diseño de módulos completos (esquemático exportable, reglas y tests
+  propios, comportamiento digital, entorno y salidas); la sección 8 dice qué ya está hecho y qué se aprendió.
+- [chips/README.md](./chips/README.md) — chips con lógica (I2C en el Uno): cómo se escriben y se prueban.
+  Los sketches de prueba se compilan con `sh app/server/src/fixtures/chips/compilar.sh` (Docker) y los
+  `.hex` se versionan: los tests corren sin Docker.

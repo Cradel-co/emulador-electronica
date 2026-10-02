@@ -89,7 +89,7 @@ export class Netlist {
   }
 
   /** Un elemento físico entre dos nodos SPICE ya resueltos. */
-  agregar(dueno: string, p: Primitiva & { a: string; b: string; cp?: string; cn?: string }): ElementoArmado {
+  agregar(dueno: string, p: Primitiva & { a: string; b: string; cp?: string; cn?: string; tierra?: string }): ElementoArmado {
     const n = this.nombre(dueno, p.nombre);
     const el: ElementoArmado = { id: `${dueno}.${p.nombre}`, dueno, local: p.nombre, tipo: p.tipo, a: p.a, b: p.b };
     // Amperímetro en serie para todo lo que no sea una resistencia.
@@ -140,6 +140,9 @@ export class Netlist {
         this.fuente(n, x, p.b, p.voltios, p);
         break;
       }
+      case 'REG':
+        this.regulador(n, el, dueno, p);
+        break;
     }
     this.elementos.push(el);
     return el;
@@ -171,6 +174,36 @@ export class Netlist {
       this.lineas.push(`ilim_${n} ${salida} ${neg} DC ${limite}`);
       this.lineas.push(`drec_${n} ${r} ${salida} ${recorte}`);
       if (o.soloEntrega) this.lineas.push(`dblq_${n} ${pos} ${salida} ${recorte}`);
+    }
+  }
+
+  /**
+   * Regulador lineal de un módulo. Mismo circuito que el de la placa (sim/placa.ts), pero
+   * referido a la tierra del módulo y no al 0 de SPICE: referencia Vout = min(V, Vin − caída),
+   * límite de corriente, diodo de bloqueo (solo entrega) y una fuente controlada que toma de
+   * la entrada lo mismo que entrega la salida. Para leerlo, el cuerpo es un elemento de la
+   * entrada a la salida: lleva la corriente que entrega y disipa (Vin − Vout)·I, así Kirchhoff
+   * y la energía cierran en cada nodo. El consumo propio (`iq`) es otro elemento, entrada→tierra.
+   */
+  private regulador(n: string, el: ElementoArmado, dueno: string, p: Extract<Primitiva, { tipo: 'REG' }> & { a: string; b: string }): void {
+    const t = p.tierra;
+    const v = (nodo: string): string => (nodo === '0' ? '0' : `V(${nodo})`);
+    const vin = t === '0' ? v(p.a) : `(${v(p.a)}-${v(t)})`;
+    const m = this.modelo(MODELO_RECORTE);
+    el.medidor = `vam_${n}`;
+    this.lineas.push(
+      `b${n}_ref ${n}_r ${t} V=max(0,min(${p.voltios},${vin}-${p.caida}))`,
+      `i${n}_lim ${t} ${n}_q DC ${p.limiteA}`,
+      `d${n}_rec ${n}_q ${n}_r ${m}`,
+      `d${n}_blq ${n}_q ${n}_x ${m}`,
+      `${el.medidor} ${n}_x ${p.b} DC 0`,
+      `b${n}_in ${p.a} ${t} I=max(0,i(${el.medidor}))`,
+    );
+    if (p.iq !== undefined && p.iq > 0) {
+      // Consumo propio: arranca con la entrada (rampa hasta 1 V) para no tirar de un nodo sin tensión.
+      const med = `vam_${n}_iq`;
+      this.lineas.push(`${med} ${p.a} ${n}_y DC 0`, `b${n}_iq ${n}_y ${t} I=${p.iq}*min(1,max(0,${vin}))`);
+      this.elementos.push({ id: `${dueno}.${p.nombre}_iq`, dueno, local: `${p.nombre}_iq`, tipo: 'REG', a: p.a, b: t, medidor: med });
     }
   }
 

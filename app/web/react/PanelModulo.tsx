@@ -1,4 +1,5 @@
 import { Miniatura } from './Miniatura.js';
+import { SeccionChip } from './SeccionChip.js';
 import { useEstado, useVersion } from './estado.js';
 import { acciones, estado, vistas } from './puente.js';
 import { cablesDe, NOMBRE_KIND, nombreRef, pinesSinAlimentar } from '../consultas.js';
@@ -20,6 +21,10 @@ export function PanelModulo({ inst, def }: { inst: any; def: any }) {
   const diagrama = estado().diagrama;
   const esAire = def.bridge?.role === 'air';
   const sinPlaca = vistas().sinPlaca();
+  // Chips del módulo que están en el catálogo (#24): si tiene, el badge lo cuenta.
+  const chips = ((def?.chips ?? []) as { id: string }[])
+    .map((u) => (estado().chips as Map<string, any>).get(u.id))
+    .filter(Boolean);
   const quemado = estado().sim.quemados.get(inst.id);
   const faltan = pinesSinAlimentar(inst, def, diagrama.wires);
   const control = controlDe(def);
@@ -33,9 +38,11 @@ export function PanelModulo({ inst, def }: { inst: any; def: any }) {
         <div className={`insp-badge${esAire ? ' aire' : ''}`}>
           {esAire
             ? <><b>Inalámbrico</b> — no se programa ni lleva cables: se comunica por radio 433 MHz con el receptor o transmisor conectado a la {vistas().nombrePlaca()}.</>
-            : sinPlaca
-              ? <><b>Sin código</b> — se cablea al circuito; con ▶ se energiza y funciona por la corriente que le llega.</>
-              : <><b>Sin código</b> — este módulo no se programa: se conecta a la {vistas().nombrePlaca()} con cables y el código de la placa lo controla.</>}
+            : chips.length > 0
+              ? <><b>Con chip</b> — adentro tiene {chips.map((c) => `un ${c.nombre}`).join(' y ')} que habla{chips.length > 1 ? 'n' : ''} por su bus con el código de la {vistas().nombrePlaca()}: se emula su lógica, no solo su consumo.</>
+              : sinPlaca
+                ? <><b>Sin código</b> — se cablea al circuito; con ▶ se energiza y funciona por la corriente que le llega.</>
+                : <><b>Sin código</b> — este módulo no se programa: se conecta a la {vistas().nombrePlaca()} con cables y el código de la placa lo controla.</>}
         </div>
 
         {quemado && (
@@ -52,6 +59,8 @@ export function PanelModulo({ inst, def }: { inst: any; def: any }) {
             ⚠ <b>Sin alimentación</b> — conectá también {faltan.join(' y ')}: sin eso no funciona en la simulación, como en la vida real.
           </div>
         )}
+
+        <SeccionChip inst={inst} def={def} />
 
         {control && <Controles inst={inst} def={def} control={control} />}
 

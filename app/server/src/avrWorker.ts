@@ -1,5 +1,9 @@
 import type { MessagePort } from 'node:worker_threads';
+import type { SalidaChip } from '@emu/shared';
 import { AvrSimulador, RelojAvr, type PinMcu } from './avrSim.js';
+import type { BusChips } from './bus/busChips.js';
+import { armarBusChips, LineasCompartidas } from './bus/armarBus.js';
+import type { ChipEnBus } from './bus/proyectoChips.js';
 import { ControlDepuracionAvr, type EventoAvr, type PedidoAvr, type RespuestaAvr } from './debug/avrControl.js';
 
 /**
@@ -10,7 +14,9 @@ import { ControlDepuracionAvr, type EventoAvr, type PedidoAvr, type RespuestaAvr
  */
 
 export type MensajeAlWorker =
-  | { t: 'iniciar'; hex: string; frecuenciaHz: number; pines: PinMcu[] }
+  | { t: 'iniciar'; hex: string; frecuenciaHz: number; pines: PinMcu[]; chips?: ChipEnBus[]; arranqueMs?: number }
+  /** El usuario movió el entorno de un chip (temperatura...). */
+  | { t: 'entorno'; id: string; valores: Record<string, number> }
   | { t: 'entrada'; pin: number; nivel: 0 | 1 | null }
   | { t: 'vigilar'; pin: number }
   | { t: 'serial'; datos: number[] }
@@ -26,6 +32,14 @@ export type MensajeDelWorker =
   | { t: 'flush' }
   | { t: 'pin'; pin: number; nivel: 0 | 1 }
   | { t: 'velocidad'; valor: number }
+  /** Lo que publicó un chip para mostrar (pantalla, valores). */
+  | { t: 'chip'; id: string; salida: SalidaChip }
+  /** Avisos del bus y de los chips ("[i2c] ..."), para la consola. */
+  | { t: 'log'; linea: string }
+  /** Un chip guardó su memoria no volátil (EEPROM, la hora con pila). */
+  | { t: 'guardado'; id: string; datos: unknown }
+  /** Respuesta a 'parar': los chips ya se apagaron y mandaron lo que guardan. */
+  | { t: 'detenido' }
   | { t: 'error'; mensaje: string }
   | { t: 'depurar'; id: number; respuesta: RespuestaAvr }
   | { t: 'depurar-evento'; evento: EventoAvr };
@@ -37,20 +51,63 @@ export function atenderWorker(puerto: MessagePort): void {
   let frecuenciaHz = 16_000_000;
   let pines: PinMcu[] = [];
   let serial: number[] = [];
-  const entradas = new Map<number, 0 | 1 | null>();
+  // Entradas del micro: las manejan la app (botones, motor eléctrico) y los chips (INT, SQW).
+  const lineas = new LineasCompartidas((gpio, nivel) => sim?.ponerEntrada(gpio, nivel));
   let ultimoAvisoVelocidad = 0;
 
   const enviar = (m: MensajeDelWorker): void => puerto.postMessage(m);
   const control = new ControlDepuracionAvr({ sim: () => sim, reloj: () => reloj }, (evento) => enviar({ t: 'depurar-evento', evento }));
 
+  // Chips del dibujo en el bus I2C. Viven más que la CPU: un reset del micro no apaga el sensor,
+  // así que el bus se arma una vez por corrida y el tiempo sigue corriendo entre resets.
+  let chips: ChipEnBus[] = [];
+  let arranqueMs = 0;
+  let bus: BusChips | null = null;
+  let tiempoAntesUs = 0; // µs simulados de las CPU anteriores (resets)
+  const salidas = new Map<string, SalidaChip>();
+  let salidaTimer: NodeJS.Timeout | null = null;
+  const mandarSalidas = (): void => {
+    salidaTimer = null;
+    for (const [id, salida] of salidas) enviar({ t: 'chip', id, salida });
+    salidas.clear();
+  };
+  const armarBus = (): void => {
+    tiempoAntesUs = 0;
+    const ahora = (): number => tiempoAntesUs + (sim?.micros ?? 0);
+    bus = armarBusChips(chips, arranqueMs, {
+      ahoraUs: ahora,
+      alLog: (linea) => enviar({ t: 'log', linea }),
+      alGuardar: (id, datos) => enviar({ t: 'guardado', id, datos }),
+      alPin: (id, pin, nivel) => {
+        const c = chips.find((x) => x.id === id);
+        if (c) lineas.desdeChip(c, pin, nivel);
+      },
+      // El despertador de un chip (el cambio de segundo de un reloj) se agenda en el reloj de la CPU.
+      programar: (tUs, fn) => {
+        if (!sim) return;
+        sim.cpu.addClockEvent(fn, Math.max(1, Math.round(((tUs - ahora()) / 1e6) * frecuenciaHz)));
+      },
+      // Una pantalla puede publicar cientos de veces por segundo: se manda como mucho cada 50 ms.
+      alSalida: (id, salida) => {
+        salidas.set(id, salida);
+        salidaTimer ??= setTimeout(mandarSalidas, 50);
+      },
+    });
+  };
+
   const crear = (): void => {
     reloj?.parar();
+    if (sim) tiempoAntesUs += sim.micros;
     sim = new AvrSimulador(hex, {
       onSerial: (b) => serial.push(b),
       onPin: (pin, nivel) => enviar({ t: 'pin', pin, nivel }),
     }, frecuenciaHz, pines);
-    // Tras un reset, los módulos siguen manejando sus entradas como antes.
-    for (const [pin, nivel] of entradas) sim.ponerEntrada(pin, nivel);
+    if (bus) {
+      sim.conectarChips(bus);
+      bus.reengancharHost(); // despertadores y pines de los chips, en la CPU nueva
+    }
+    // Tras un reset, los módulos y los chips siguen manejando sus entradas como antes.
+    lineas.reaplicar();
     control.alCrearSim(sim);
     reloj = new RelojAvr(sim, () => {
       if (serial.length > 0) {
@@ -75,13 +132,18 @@ export function atenderWorker(puerto: MessagePort): void {
           hex = m.hex;
           frecuenciaHz = m.frecuenciaHz;
           pines = m.pines;
+          chips = m.chips ?? [];
+          arranqueMs = m.arranqueMs ?? 0;
+          sim = null;
+          armarBus();
           crear();
           enviar({ t: 'listo' });
           break;
         case 'entrada':
-          if (m.nivel === null) entradas.delete(m.pin);
-          else entradas.set(m.pin, m.nivel);
-          sim?.ponerEntrada(m.pin, m.nivel);
+          lineas.desdeApp(m.pin, m.nivel);
+          break;
+        case 'entorno':
+          bus?.ponerEntorno(m.id, m.valores);
           break;
         case 'vigilar':
           sim?.vigilar(m.pin);
@@ -94,6 +156,9 @@ export function atenderWorker(puerto: MessagePort): void {
           break;
         case 'parar':
           reloj?.parar();
+          if (salidaTimer) clearTimeout(salidaTimer);
+          bus?.apagar(); // los chips guardan lo último (EEPROM, la hora) antes de cortar
+          enviar({ t: 'detenido' });
           puerto.close();
           break;
         case 'depurar':

@@ -1,0 +1,27 @@
+{
+  "id": "invensense-mpu6050",
+  "nombre": "MPU-6050",
+  "fabricante": "InvenSense (TDK)",
+  "descripcion": "Acelerómetro y giróscopo de 3 ejes con sensor de temperatura, por I2C en 0x68 (AD0 a GND) o 0x69. Props: 'ad0' = 'bajo' | 'alto'; 'errores' = 'tipicos' (errores de cero y de escala dentro de la hoja, fijos por 'semilla') | 'ninguno'.",
+  "hojaDeDatos": "RM-MPU-6000A-00 rev. 4.0 (mapa de registros) y PS-MPU-6000A-00 rev. 3.1 (especificación)",
+  "pines": ["VDD", "VLOGIC", "GND", "SCL", "SDA", "AD0", "INT", "XDA", "XCL", "FSYNC"],
+  "i2c": { "sda": "SDA", "scl": "SCL", "maxHz": 400000 },
+  "entorno": {
+    "aceleracionX": { "unidad": "g", "min": -16, "max": 16, "default": 0, "paso": 0.01, "etiqueta": "Aceleración X" },
+    "aceleracionY": { "unidad": "g", "min": -16, "max": 16, "default": 0, "paso": 0.01, "etiqueta": "Aceleración Y" },
+    "aceleracionZ": { "unidad": "g", "min": -16, "max": 16, "default": 1, "paso": 0.01, "etiqueta": "Aceleración Z (quieto = 1 g)" },
+    "giroX": { "unidad": "°/s", "min": -2000, "max": 2000, "default": 0, "paso": 1, "etiqueta": "Giro X" },
+    "giroY": { "unidad": "°/s", "min": -2000, "max": 2000, "default": 0, "paso": 1, "etiqueta": "Giro Y" },
+    "giroZ": { "unidad": "°/s", "min": -2000, "max": 2000, "default": 0, "paso": 1, "etiqueta": "Giro Z" },
+    "temperatura": { "unidad": "°C", "min": -40, "max": 85, "default": 25, "paso": 0.1, "etiqueta": "Temperatura" }
+  },
+  "comportamiento": "comportamiento.js",
+  "limitaciones": [
+    "No se emulan el DMP (procesador de movimiento), la FIFO, la detección de movimiento (MOT), el maestro I2C auxiliar (XDA/XCL) ni FSYNC: las librerías que usan el DMP (como MPU6050_6Axis_MotionApps de jrowberg) no van a andar.",
+    "El autotest (XA_ST... ZG_ST) no corre el desplazamiento de autotest, y los registros de recorte de fábrica (0Dh-10h) leen 0.",
+    "El modo ciclo (CYCLE) se toma como despierto, midiendo siempre.",
+    "La interrupción de dato listo por el pin INT se emula hasta 1 kHz de muestreo; más rápido, se avisa y el pin no pulsa (el flag sí se prende).",
+    "Los errores 'tipicos' son fijos por semilla (no derivan con la temperatura) y el ruido sigue la densidad espectral de la hoja con el ancho de banda del filtro elegido.",
+    "El arranque del giróscopo (30 ms para asentarse) no se emula."
+  ]
+}

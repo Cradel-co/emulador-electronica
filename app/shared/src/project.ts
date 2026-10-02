@@ -167,7 +167,8 @@ export const ALLOWED_FILE_NAMES: Record<Language, string[]> = {
   esphome: [],
   'idf-c': C_FILE_NAMES,
   'idf-cpp': C_FILE_NAMES,
-  arduino: C_FILE_NAMES,
+  // librerias.txt: librerías extra del gestor de arduino-cli, una por línea (toolchains/arduinoCli.ts).
+  arduino: [...C_FILE_NAMES, 'librerias.txt'],
   micropython: [],
 };
 

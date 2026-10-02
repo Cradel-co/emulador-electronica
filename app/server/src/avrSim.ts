@@ -4,6 +4,8 @@ import {
   AVREEPROM,
   AVRIOPort,
   AVRTimer,
+  AVRSPI,
+  AVRTWI,
   AVRUSART,
   AVRWatchdog,
   CPU,
@@ -19,9 +21,12 @@ import {
   timer0Config,
   timer1Config,
   timer2Config,
+  spiConfig,
+  twiConfig,
   usart0Config,
   watchdogConfig,
 } from 'avr8js';
+import type { BusChips } from './bus/busChips.js';
 
 /**
  * Núcleo del emulador AVR (Arduino Uno / ATmega328P) sobre avr8js, el emulador
@@ -105,6 +110,10 @@ export class AvrSimulador {
   readonly frecuenciaHz: number;
   private readonly puertos: Record<'B' | 'C' | 'D', AVRIOPort>;
   private readonly usart: AVRUSART;
+  /** El I2C (TWI) del ATmega328P: lo atiende un bus de chips si hay alguno conectado. */
+  readonly twi: AVRTWI;
+  /** El SPI del ATmega328P (SCK D13, MOSI D11, MISO D12). */
+  readonly spi: AVRSPI;
   /** Entradas que maneja "algo de afuera" (un módulo del dibujo): pin → nivel. Las demás quedan libres. */
   private readonly manejadas = new Map<number, 0 | 1>();
   /** Último nivel de salida reportado por pin. */
@@ -160,6 +169,9 @@ export class AvrSimulador {
       puerto.addListener(() => this.aplicarPullUps());
     }
 
+    this.twi = new AVRTWI(this.cpu, twiConfig, frecuenciaHz);
+    this.spi = new AVRSPI(this.cpu, spiConfig, frecuenciaHz);
+
     this.usart = new AVRUSART(this.cpu, usart0Config, frecuenciaHz);
     this.usart.onByteTransmit = (b) => {
       // Línea sin terminar: desde qué ciclo (para saber cuándo mostrarla igual, ver lineaVencida).
@@ -213,6 +225,79 @@ export class AvrSimulador {
     }
     if (this.colaRx.length > 0 && !this.usart.rxBusy) this.alimentarRx();
     this.reportarSalidas();
+  }
+
+  /** µs simulados desde el arranque. */
+  get micros(): number {
+    return (this.cpu.cycles / this.frecuenciaHz) * 1e6;
+  }
+
+  /**
+   * Conecta el I2C (TWI) del micro a un bus de chips. Cada evento se completa después de lo
+   * que tarda en el bus real a la velocidad de SCL que configuró el firmware (TWBR y el
+   * prescaler): 9 períodos por byte (8 bits + ACK) y ~1 período por START/STOP. Así el sketch
+   * ve los mismos tiempos que con el chip de verdad.
+   */
+  conectarI2c(bus: BusChips): void {
+    const twi = this.twi;
+    const cpu = this.cpu;
+    const periodo = (): number => Math.max(1, Math.round(this.frecuenciaHz / twi.sclFrequency));
+    let hzAvisado = 0;
+    twi.eventHandler = {
+      start: () => {
+        const hz = twi.sclFrequency;
+        if (hz !== hzAvisado) { hzAvisado = hz; bus.velocidad(hz); }
+        bus.inicio();
+        cpu.addClockEvent(() => twi.completeStart(), periodo());
+      },
+      stop: () => {
+        bus.parada();
+        cpu.addClockEvent(() => twi.completeStop(), periodo());
+      },
+      connectToSlave: (dir, escritura) => {
+        const ack = bus.conectar(dir, escritura);
+        cpu.addClockEvent(() => twi.completeConnect(ack), 9 * periodo());
+      },
+      writeByte: (v) => {
+        const ack = bus.escribirByte(v);
+        cpu.addClockEvent(() => twi.completeWrite(ack), 9 * periodo());
+      },
+      readByte: (ack) => {
+        const v = bus.leerByte(ack);
+        cpu.addClockEvent(() => twi.completeRead(v), 9 * periodo());
+      },
+    };
+  }
+
+  /**
+   * Conecta todo lo que el bus de chips necesita del micro: el I2C, el SPI y los pines que
+   * vigila (CS, DC, RST), avisando cada cambio en el instante en que el programa lo escribe.
+   */
+  conectarChips(bus: BusChips): void {
+    this.conectarI2c(bus);
+    this.conectarSpi(bus);
+    const vigilados = bus.gpiosVigilados();
+    if (vigilados.length === 0) return;
+    const avisar = (): void => {
+      for (const g of vigilados) {
+        const u = this.mapa.get(g);
+        if (!u) continue;
+        const st = this.puertos[u.puerto].pinState(u.bit);
+        // Un pin que no maneja como salida (o con pull-up) queda en alto: CS sin elegir, RST suelto.
+        bus.pinMcu(g, st === PinState.Low ? 0 : 1);
+      }
+    };
+    for (const puerto of Object.values(this.puertos)) puerto.addListener(avisar);
+    avisar();
+  }
+
+  /** SPI: cada byte tarda lo que dice el divisor de reloj que configuró el firmware (8 períodos de SCK). */
+  conectarSpi(bus: BusChips): void {
+    const spi = this.spi;
+    spi.onByte = (v) => {
+      const miso = bus.spiByte(v, { modo: spi.spiMode, lsbPrimero: spi.dataOrder === 'lsbFirst', hz: spi.spiFrequency });
+      this.cpu.addClockEvent(() => spi.completeTransfer(miso), spi.transferCycles);
+    };
   }
 
   get ciclos(): number {

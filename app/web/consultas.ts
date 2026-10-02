@@ -37,11 +37,20 @@ export function cablesDe(ref: string, wires: readonly Cable[]): Cable[] {
 /**
  * Los pines de alimentación o masa del módulo que quedaron al aire. Sin ellos no funciona en la
  * simulación, igual que en la mesa: es el aviso de "conectá también GND".
+ *
+ * No es "todos los que falten": se reclaman **todas las tierras** sin cablear, pero de las
+ * alimentaciones solo si **ninguna** está conectada. Un módulo puede tener varias (VCC y 3V3) y
+ * alcanza con una; el 3VO de una placa con regulador es una salida, no hace falta cablearlo.
+ * Mismo criterio que `diagramOps.pinesSinAlimentar` en el server.
  */
 export function pinesSinAlimentar(inst: Instancia, def: Def, wires: readonly Cable[]): string[] {
-  return (def.pins ?? [])
-    .filter((p) => p.kind === 'ground' || p.kind === 'power')
-    .filter((p) => cablesDe(`${inst.id}.${p.name}`, wires).length === 0)
+  const pins = def.pins ?? [];
+  const sinCable = (p: Pin) => cablesDe(`${inst.id}.${p.name}`, wires).length === 0;
+  const tierras = pins.filter((p) => p.kind === 'ground' && sinCable(p)).map((p) => p.name);
+  const alimentaciones = pins.filter((p) => p.kind === 'power');
+  const faltaAlimentacion = alimentaciones.length > 0 && alimentaciones.every(sinCable);
+  return pins
+    .filter((p) => tierras.includes(p.name) || (faltaAlimentacion && p.kind === 'power'))
     .map((p) => p.name);
 }
 

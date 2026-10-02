@@ -658,6 +658,7 @@
       "rx": 44,
       "baud": 115200
     },
+    "buses": { "matriz": ["micropython"] },
     "features": [
       "rf433"
     ],

@@ -1,0 +1,25 @@
+{
+  "type": "oled-ssd1306-128x64",
+  "name": "Pantalla OLED 0,96\" 128×64 (SSD1306, I2C)",
+  "category": "Pantallas",
+  "description": "La pantalla OLED más usada: 128 × 64 píxeles con controlador SSD1306 por I2C (0x3C; con el puente del dorso, 0x3D). Módulo genérico de 4 pines con regulador de 3,3 V: anda con 3,3 o 5 V.",
+  "width": 112,
+  "height": 112,
+  "pins": [
+    { "name": "GND", "x": 29, "y": 112, "kind": "ground" },
+    { "name": "VCC", "x": 47, "y": 112, "kind": "power" },
+    { "name": "SCL", "x": 65, "y": 112, "kind": "digital-in" },
+    { "name": "SDA", "x": 83, "y": 112, "kind": "digital-io" }
+  ],
+  "controls": [],
+  "props": {
+    "color": { "type": "string", "default": "blanco", "enum": ["blanco", "azul", "amarillo-azul"], "label": "Color de la pantalla" },
+    "sa0": { "type": "string", "default": "bajo", "enum": ["bajo", "alto"], "label": "Dirección (bajo = 0x3C, alto = 0x3D)" }
+  },
+  "chips": [
+    { "id": "solomon-ssd1306", "pines": { "SCL": "SCL", "SDA": "SDA", "VCC": "VBAT", "GND": "VSS" } }
+  ],
+  "drivers": { "arduino": { "librerias": ["Adafruit SSD1306@2.5.17", "Adafruit GFX Library@1.12.6", "Adafruit BusIO@1.17.4"] } },
+  "svg": "module.svg",
+  "model": "model.js"
+}

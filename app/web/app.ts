@@ -1,5 +1,5 @@
 // Frontend sin bundler: ES modules nativos contra la API local (sección 11).
-import { miniatura } from './modulos.js';
+import { miniatura, ponerImagenPantalla } from './modulos.js';
 import { lenguajeDeArchivo, NOMBRE_LENGUAJE, resaltar } from './editor.js';
 import { crearDepuracion } from './depuracion.js';
 import { montarReact } from './react/montar.js';
@@ -67,6 +67,10 @@ const state = observable({
   activo: null,
   /** @type {Map<string, any>} */
   catalogo: new Map(),
+  /** Chips con lógica (GET /api/chips): id → nombre, entorno que miden, hoja de datos, límites. */
+  chips: new Map<string, any>(),
+  /** Lo último que publicó cada chip en la corrida (evento chip.salida): id de instancia → salida. */
+  salidasChips: new Map<string, Record<string, unknown>>(),
   filtroModulos: '',
   /** Texto del buscador de la pantalla de inicio. Lo lee <Proyectos>. */
   filtroProyectos: '',
@@ -170,6 +174,11 @@ registrarAcciones({
     controlModulo(inst, 'momentary', 0, 'down');
   },
   reemplazarQuemado: (id) => reemplazarQuemado(id),
+  moverEntorno: (id, valores) => {
+    void api(`/api/projects/${state.proyecto.name}/modules/${encodeURIComponent(id)}/entorno`, {
+      method: 'PUT', body: JSON.stringify({ valores }),
+    }).catch((err) => nota(`No se pudo mover el entorno: ${(err as Error).message}`));
+  },
   agregarPlaca: () => abrirAgregarPlaca(state.placaPorDefecto || state.placas[0]?.id),
 });
 registrarVistas({
@@ -391,6 +400,26 @@ function conectarWS() {
       case 'catalog.changed':
         void recargarCatalogo();
         break;
+      case 'chip.entorno':
+        if (msg.project === state.proyecto?.name) {
+          const inst = state.diagrama.modules.find((m) => m.id === msg.id);
+          if (inst) inst.entorno = { ...inst.entorno, ...msg.entorno };
+          // El panel es de React (#9): alcanza con avisar. Antes había que esquivar el repintado
+          // para no perder el foco del control; ahora el valor es estado del componente.
+          notificar();
+        }
+        break;
+      case 'chip.salida':
+        if (msg.project === state.proyecto?.name) {
+          state.salidasChips.set(msg.id, msg.salida);
+          // Una pantalla refresca seguido: se cambia solo su imagen, sin redibujar todo el circuito.
+          const imgs = document.querySelectorAll(`#lienzo image[data-pantalla-de="${CSS.escape(msg.id)}"]`);
+          const inst = state.diagrama.modules.find((m) => m.id === msg.id);
+          const color = String(inst?.props?.color ?? state.catalogo.get(inst?.type)?.props?.color?.default ?? 'blanco');
+          if (imgs.length) for (const img of imgs) ponerImagenPantalla(img, state.sim.listo ? msg.salida : undefined, color);
+          else if (msg.salida?.tipo === 'pantalla') lienzo.render();
+        }
+        break;
       case 'debug.stopped':
       case 'debug.continued':
       case 'debug.trace':
@@ -513,6 +542,8 @@ function marcarSimulacion(listo) {
   } else {
     state.sim.niveles.clear();
     state.sim.controles.clear();
+    // Sin alimentación las pantallas se apagan (la RAM del controlador se pierde).
+    state.salidasChips.clear();
     // Al parar se sueltan los interruptores (el server también): hay que recalcular la corriente.
     void refrescarAvisos();
   }
@@ -1196,6 +1227,8 @@ function vivoDe(inst) {
     on: false,
     quemado: false,
     explotando: false,
+    /** Lo último que mostró la pantalla del chip del módulo (si tiene una). */
+    pantalla: state.sim.listo ? state.salidasChips.get(inst.id) : undefined,
   };
   if (def?.bridge?.role === 'output') {
     const gpio = gpioDe(inst.id, def.bridge.pin);
@@ -1534,9 +1567,20 @@ function pintarPanelDerecho() {
 // cache de tarjetas por tipo, porque armar cada miniatura SVG es lo caro y el buscador repintaba
 // la lista entera en cada tecla; ahora eso lo resuelve el diffing de React.
 
+// --- Chips (sensores con lógica) ----------------------------------------------------
+
+async function cargarChips() {
+  const { chips } = await api('/api/chips').catch(() => ({ chips: [] }));
+  state.chips = new Map(chips.map((c) => [c.id, c]));
+}
+
+/** Los chips de un módulo del catálogo (una placa puede traer varios en el mismo bus). */
+const chipsDe = (def): any[] => (def?.chips ?? []).map((u) => state.chips.get(u.id)).filter(Boolean);
+
 async function recargarCatalogo() {
   const { modules } = await api('/api/modules').catch(() => ({ modules: [] }));
   state.catalogo = new Map(modules.map((m) => [m.type, m]));
+  await cargarChips();
   pintarPanelDerecho();
   lienzo.render();
 }
@@ -2742,6 +2786,7 @@ const depuracion = crearDepuracion({
   restaurarVentanas();
   const { modules } = await api('/api/modules').catch(() => ({ modules: [] }));
   state.catalogo = new Map(modules.map((m) => [m.type, m]));
+  await cargarChips();
   pintarGutter();
   conectarWS();
   await cargarPlacas();

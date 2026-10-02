@@ -143,7 +143,7 @@ export class BridgeClient {
       this.restoCrudo = this.restoCrudo.slice(i + 1);
       for (const o of this.oyentesCrudos) o(linea);
     }
-    if (this.restoCrudo.length > 4096) this.restoCrudo = '';
+    if (this.restoCrudo.length > 65536) this.restoCrudo = ''; // las transacciones de los chips traen datos (base64)
   }
 
   /** Cada línea que manda el firmware (todas, también las que el parser ignora). Devuelve cómo dejar de escuchar. */

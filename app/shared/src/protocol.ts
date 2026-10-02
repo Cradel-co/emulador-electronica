@@ -219,6 +219,10 @@ export const ServerEventSchema = z.discriminatedUnion('type', [
     type: z.literal('diagnostics'),
     problems: z.array(z.object({ severity: z.enum(['info', 'warning', 'error']), message: z.string(), line: z.number().int().optional() })),
   }),
+  /** Un chip del dibujo publicó algo para mostrar (pantalla, valores): `id` de la instancia. */
+  z.object({ type: z.literal('chip.salida'), project: z.string(), id: z.string(), salida: z.record(z.string(), z.unknown()) }),
+  /** Se movió el entorno de un chip (temperatura...): valores ya aplicados. */
+  z.object({ type: z.literal('chip.entorno'), project: z.string(), id: z.string(), entorno: z.record(z.string(), z.number()) }),
   // --- Modo debug (server/src/debug, docs/depuracion.md). Formas de DAP: se dejan pasar los campos. ---
   /** El depurador frenó el programa: reason, description, pc, function, source {name,path}, line, hitBreakpointIds. */
   z.object({ type: z.literal('debug.stopped'), reason: z.string().optional(), threadId: z.number().int().optional() }).passthrough(),

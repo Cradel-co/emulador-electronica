@@ -1,5 +1,6 @@
 import type { BuildArtifacts } from './buildService.js';
 import type { EmulatorStatus } from './emulator.js';
+import type { ChipEnBus } from './bus/proyectoChips.js';
 
 /**
  * Lo que la app necesita de un motor de emulación, sea cual sea el chip:
@@ -27,6 +28,10 @@ export interface OpcionesArranque {
   frecuenciaHz?: number;
   /** Pines del MCU: número lógico → puerto/bit (solo motores nativos como avr8js). */
   pinesMcu?: { gpio: number; port: string; bit: number }[];
+  /** Chips del dibujo conectados a un bus I2C del micro (solo motores con `board.buses`). */
+  chips?: ChipEnBus[];
+  /** ms entre la alimentación y la primera instrucción del micro (`board.arranqueMs`). */
+  arranqueMs?: number;
 }
 
 export interface Emulador {

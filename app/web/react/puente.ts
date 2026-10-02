@@ -34,6 +34,7 @@ export interface Acciones {
   controlModulo: (inst: any, control: string, indice: number) => void;
   presionarMomentario: (inst: any) => void;
   reemplazarQuemado: (id: string) => void;
+  moverEntorno: (id: string, valores: Record<string, number>) => void;
   agregarPlaca: () => void;
 }
 

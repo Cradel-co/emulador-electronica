@@ -282,13 +282,16 @@ export function gpioDe(project: Project, id: string, pin: string, buscar?: Busca
  * aunque su pin de señal sí esté conectado.
  */
 export function pinesSinAlimentar(project: Project, instId: string, def: ModuleDef): string[] {
-  return def.pins
-    .filter((p) => p.kind === 'ground' || p.kind === 'power')
-    .filter((p) => {
-      const ref = `${instId}.${p.name}`;
-      return !project.wires.some((w) => w.from === ref || w.to === ref);
-    })
-    .map((p) => p.name);
+  const sinCable = (p: { name: string }) => {
+    const ref = `${instId}.${p.name}`;
+    return !project.wires.some((w) => w.from === ref || w.to === ref);
+  };
+  // Todas las tierras tienen que ir; de las alimentaciones alcanza con una: una placa con
+  // regulador tiene VIN (entrada) y 3VO (SALIDA del regulador), y 3VO no hace falta cablearlo.
+  const tierras = def.pins.filter((p) => p.kind === 'ground' && sinCable(p)).map((p) => p.name);
+  const alimentaciones = def.pins.filter((p) => p.kind === 'power');
+  const faltaAlimentacion = alimentaciones.length > 0 && alimentaciones.every(sinCable);
+  return def.pins.filter((p) => tierras.includes(p.name) || (faltaAlimentacion && p.kind === 'power')).map((p) => p.name);
 }
 
 /** Módulos de un rol del puente, cableados a un GPIO y alimentados (p. ej. el receptor RF listo para recibir). */

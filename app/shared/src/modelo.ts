@@ -62,6 +62,26 @@ export interface CtxCircuito {
    * (sale por `hacia` hacia el circuito y vuelve por `desde`).
    */
   fuenteCorriente(desde: Nodo, hacia: Nodo, amperios: number, nombre?: string): void;
+  /**
+   * Regulador lineal (LDO, 7805, AMS1117...): mantiene `voltios` entre `salida` y `tierra`
+   * mientras la entrada alcance (si no, entrega la entrada menos `caida`), hasta `limiteA`.
+   * Lo que entrega lo SACA de la entrada y disipa (Vin − Vout)·I: conserva la energía. Solo
+   * entrega (no devuelve corriente a su entrada). `iq`: su consumo propio (A).
+   * Usá esto y no `fuenteTension` para el regulador de una placa: una fuente de tensión
+   * dentro de un módulo crea energía de la nada.
+   */
+  regulador(
+    entrada: Nodo, salida: Nodo, tierra: Nodo,
+    opciones: { voltios: number; caida: number; limiteA: number; iq?: number },
+    nombre?: string,
+  ): void;
+  /**
+   * Pila o batería (CR2032, LIR2032, 18650...): una fuente de `voltios` con su resistencia interna.
+   * Es energía legítima (no da el aviso de fuenteTension). `lectura.i` es positiva cuando la
+   * corriente entra por el + y la atraviesa (la está CARGANDO) y negativa cuando entrega: el modelo
+   * puede avisar si carga una pila que no es recargable.
+   */
+  bateria(pos: Nodo, neg: Nodo, voltios: number, opciones?: { rInterna?: number }, nombre?: string): void;
   /** Interruptor mecánico (pulsador, llave, contacto de relé). */
   interruptor(a: Nodo, b: Nodo, cerrado: boolean, opciones?: { ron?: number; roff?: number }, nombre?: string): void;
   /**
@@ -115,10 +135,12 @@ export type Primitiva =
   | { tipo: 'C'; nombre: string; a: Nodo; b: Nodo; faradios: number; v0?: number }
   | { tipo: 'L'; nombre: string; a: Nodo; b: Nodo; henrios: number; i0?: number }
   | { tipo: 'D'; nombre: string; a: Nodo; b: Nodo; modelo: ModeloDiodo }
-  | { tipo: 'V'; nombre: string; a: Nodo; b: Nodo; voltios: number; rSerie?: number; limiteA?: number; soloEntrega?: boolean }
+  | { tipo: 'V'; nombre: string; a: Nodo; b: Nodo; voltios: number; rSerie?: number; limiteA?: number; soloEntrega?: boolean; bateria?: boolean }
   | { tipo: 'I'; nombre: string; a: Nodo; b: Nodo; amperios: number }
   | { tipo: 'S'; nombre: string; a: Nodo; b: Nodo; cerrado: boolean; ron?: number; roff?: number }
   | {
       tipo: 'SV'; nombre: string; a: Nodo; b: Nodo; cp: Nodo; cn: Nodo;
       umbral: number; histeresis?: number; ron?: number; roff?: number;
-    };
+    }
+  /** Regulador lineal: `a` = entrada, `b` = salida, `tierra` = su referencia. */
+  | { tipo: 'REG'; nombre: string; a: Nodo; b: Nodo; tierra: Nodo; voltios: number; caida: number; limiteA: number; iq?: number };

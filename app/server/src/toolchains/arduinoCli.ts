@@ -4,6 +4,8 @@ import { PATHS } from '../paths.js';
 import { run, runDockerBuild, containerNameFor } from '../dockerRunner.js';
 import { exists, FIRST_BUILD_TIMEOUT_MS, type BuildCallbacks, type BuildError, type BuildResult } from '../buildService.js';
 import { arduinoSketchAvr } from '../templates/languages.js';
+import { loadCatalog } from '../catalog.js';
+import { LIBRERIA_ARDUINO_RE, type Project } from '@emu/shared';
 import { fallo, pinesDemo, texto, type ContextoBuild, type Toolchain } from './tipos.js';
 
 /**
@@ -60,6 +62,55 @@ export function extractArduinoErrors(lines: string[]): BuildError[] {
     if (/^Error during build:/.test(line) && errores.length === 0) errores.push({ file: null, line: null, message: line });
   }
   return errores;
+}
+
+/**
+ * Librerías que necesita un proyecto: las de sus módulos (`drivers.arduino.librerias`) más las
+ * que el usuario pida en `librerias.txt` (una por línea, "Nombre@versión"; # comenta). Las líneas
+ * inválidas vuelven en `errores` (no se instala nada raro: los nombres van como argumentos).
+ */
+export async function libreriasDelProyecto(project: Project, projectDir: string): Promise<{ librerias: string[]; errores: string[] }> {
+  const set = new Set<string>();
+  const errores: string[] = [];
+  const catalogo = await loadCatalog();
+  for (const m of project.modules) for (const l of catalogo.find((c) => c.type === m.type)?.drivers?.arduino?.librerias ?? []) set.add(l);
+  const txt = await fs.readFile(path.join(projectDir, 'librerias.txt'), 'utf8').catch(() => '');
+  txt.split(/\r?\n/).forEach((cruda, i) => {
+    const l = cruda.replace(/#.*$/, '').trim();
+    if (!l) return;
+    if (LIBRERIA_ARDUINO_RE.test(l)) set.add(l);
+    else errores.push(`librerias.txt:${i + 1}: "${l.slice(0, 80)}" no es un nombre de librería válido (Nombre@versión)`);
+  });
+  return { librerias: [...set].sort(), errores };
+}
+
+/** Caché de librerías instaladas (se monta en el contenedor): una vez bajada, no se vuelve a bajar. */
+const CACHE_LIBRERIAS = () => path.join(PATHS.cache, 'arduino-librerias');
+
+/**
+ * Instala las librerías que falten en la caché. Corre como root en un contenedor aparte (el
+ * índice de arduino-cli vive en la imagen) y después le devuelve los archivos al usuario.
+ * Necesita red la primera vez. Devuelve un error legible, o null si quedó todo.
+ */
+export async function asegurarLibrerias(librerias: string[], cb: BuildCallbacks): Promise<string | null> {
+  if (librerias.length === 0) return null;
+  const dir = CACHE_LIBRERIAS();
+  await fs.mkdir(dir, { recursive: true });
+  const marca = path.join(dir, 'instaladas.json');
+  const hechas = new Set<string>(JSON.parse(await fs.readFile(marca, 'utf8').catch(() => '[]')) as string[]);
+  const faltan = librerias.filter((l) => !hechas.has(l));
+  if (faltan.length === 0) return null;
+  cb.onLine(`Instalando librerías de Arduino: ${faltan.join(', ')} (una sola vez)...`);
+  const uid = `${process.getuid?.() ?? 1000}:${process.getgid?.() ?? 1000}`;
+  const res = await run('docker', [
+    'run', '--rm', '-v', `${dir}:/ardu`, '-e', 'ARDUINO_DIRECTORIES_USER=/ardu', '-e', `DUENO=${uid}`, ARDUINO_AVR_IMAGE,
+    // Los nombres van como parámetros ("$@"), nunca pegados al comando.
+    'sh', '-c', 'arduino-cli lib update-index >/dev/null && arduino-cli lib install "$@"; r=$?; chown -R "$DUENO" /ardu; exit $r', 'sh', ...faltan,
+  ], (l) => cb.onLine(l), { timeoutMs: FIRST_BUILD_TIMEOUT_MS });
+  if (res.code !== 0) return `No se pudieron instalar las librerías (${faltan.join(', ')}). ¿Hay red? ¿Existen con esa versión en el gestor de librerías de Arduino?`;
+  for (const l of faltan) hechas.add(l);
+  await fs.writeFile(marca, JSON.stringify([...hechas].sort(), null, 1));
+  return null;
 }
 
 let imagenLista = false;
@@ -125,6 +176,11 @@ export const arduinoCli: Toolchain = {
       return fallo(started, `No se pudo preparar la imagen ${ARDUINO_AVR_IMAGE} (docker build docker/arduino-avr).`);
     }
 
+    const { librerias, errores: erroresLib } = await libreriasDelProyecto(ctx.project, projectDir);
+    if (erroresLib.length) return { ...fallo(started, erroresLib[0]!), errors: erroresLib.map((message) => ({ file: 'librerias.txt', line: null, message })) };
+    const errorLib = await asegurarLibrerias(librerias, cb);
+    if (errorLib) return fallo(started, errorLib);
+
     const container = containerNameFor(outDir);
     const args = [
       'run', '--rm',
@@ -132,9 +188,11 @@ export const arduinoCli: Toolchain = {
       '-u', `${process.getuid?.() ?? 1000}:${process.getgid?.() ?? 1000}`,
       '-e', 'HOME=/tmp',
       '-v', `${outDir}:/build`,
+      ...(librerias.length ? ['-v', `${CACHE_LIBRERIAS()}:/ardu:ro`] : []),
       ARDUINO_AVR_IMAGE,
       'arduino-cli', 'compile',
       '--fqbn', fqbn,
+      ...(librerias.length ? ['--libraries', '/ardu/libraries'] : []),
       // La carpeta de objetos queda entre compilaciones: la segunda vez no recompila el core.
       '--build-path', '/build/obj',
       '--output-dir', '/build/out',

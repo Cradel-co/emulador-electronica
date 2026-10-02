@@ -1,0 +1,33 @@
+{
+  "type": "mpu6050-gy521",
+  "name": "Acelerómetro y giróscopo MPU-6050 (GY-521)",
+  "category": "Sensores",
+  "description": "La placa GY-521 con el MPU-6050: aceleración y giro en 3 ejes por I2C (0x68; AD0 a VCC = 0x69). Regulador de 3,3 V y pull-ups de 4,7 kΩ a 3,3 V en SCL y SDA; AD0 con pull-down. INT es la salida de interrupción (dato listo).",
+  "width": 128,
+  "height": 76,
+  "pins": [
+    { "name": "VCC", "x": 8, "y": 76, "kind": "power" },
+    { "name": "GND", "x": 24, "y": 76, "kind": "ground" },
+    { "name": "SCL", "x": 40, "y": 76, "kind": "digital-in" },
+    { "name": "SDA", "x": 56, "y": 76, "kind": "digital-io" },
+    { "name": "XDA", "x": 72, "y": 76, "kind": "other" },
+    { "name": "XCL", "x": 88, "y": 76, "kind": "other" },
+    { "name": "AD0", "x": 104, "y": 76, "kind": "digital-in" },
+    { "name": "INT", "x": 120, "y": 76, "kind": "digital-out" }
+  ],
+  "controls": [],
+  "props": {
+    "ad0": { "type": "string", "default": "bajo", "enum": ["bajo", "alto"], "label": "AD0 sin cablear (pull-down de la placa)" },
+    "errores": { "type": "string", "default": "tipicos", "enum": ["tipicos", "ninguno"], "label": "Errores de fábrica (cero y escala)" }
+  },
+  "chips": [
+    {
+      "id": "invensense-mpu6050",
+      "pines": { "SCL": "SCL", "SDA": "SDA", "INT": "INT", "AD0": "AD0", "XDA": "XDA", "XCL": "XCL", "GND": "GND" },
+      "porCableado": { "ad0": { "pin": "AD0", "aTierra": "bajo", "aAlimentacion": "alto" } }
+    }
+  ],
+  "drivers": { "arduino": { "librerias": ["Adafruit MPU6050@2.2.9", "Adafruit Unified Sensor@1.1.15", "Adafruit BusIO@1.17.4"] } },
+  "svg": "module.svg",
+  "model": "model.js"
+}

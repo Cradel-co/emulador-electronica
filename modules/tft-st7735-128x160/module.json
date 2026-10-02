@@ -1,0 +1,28 @@
+{
+  "type": "tft-st7735-128x160",
+  "name": "Pantalla TFT 1,8\" 128×160 (ST7735, SPI)",
+  "category": "Pantallas",
+  "description": "Pantalla a color de 1,8\" con controlador ST7735 por SPI (el módulo rojo genérico de 8 pines). SCK a D13, SDA (MOSI) a D11; CS, A0 (dato/comando) y RESET a cualquier pin. LED es la retroiluminación. La variante del panel (pestaña negra, roja o verde del film protector) cambia cómo hay que inicializarla.",
+  "width": 104,
+  "height": 166,
+  "pins": [
+    { "name": "VCC", "x": 10, "y": 166, "kind": "power" },
+    { "name": "GND", "x": 22, "y": 166, "kind": "ground" },
+    { "name": "CS", "x": 34, "y": 166, "kind": "digital-in" },
+    { "name": "RESET", "x": 46, "y": 166, "kind": "digital-in" },
+    { "name": "A0", "x": 58, "y": 166, "kind": "digital-in" },
+    { "name": "SDA", "x": 70, "y": 166, "kind": "digital-in" },
+    { "name": "SCK", "x": 82, "y": 166, "kind": "digital-in" },
+    { "name": "LED", "x": 94, "y": 166, "kind": "other" }
+  ],
+  "controls": [],
+  "props": {
+    "pestana": { "type": "string", "default": "negra", "enum": ["negra", "roja", "verde"], "label": "Variante del panel (pestaña)" }
+  },
+  "chips": [
+    { "id": "sitronix-st7735", "pines": { "SCK": "SCL", "SDA": "SDA", "CS": "CSX", "A0": "D/CX", "RESET": "RESX", "GND": "GND" } }
+  ],
+  "drivers": { "arduino": { "librerias": ["Adafruit ST7735 and ST7789 Library@1.11.0", "Adafruit GFX Library@1.12.6", "Adafruit BusIO@1.17.4"] } },
+  "svg": "module.svg",
+  "model": "model.js"
+}
