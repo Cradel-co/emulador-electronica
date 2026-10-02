@@ -9,6 +9,7 @@ import { PanelDerecho } from './PanelDerecho.js';
 import { Menu } from './Menu.js';
 import { Paleta } from './Paleta.js';
 import { Miga, Notificaciones, Pestanas } from './Barra.js';
+import { DebugAlimentacion, ErroresCompilacion, Problemas, ResultadoImportacion } from './Problemas.js';
 
 /**
  * Monta las islas de React sobre la UI de `app.ts` (#9).
@@ -38,6 +39,10 @@ const ISLAS: [string, FunctionComponent, boolean][] = [
   ['tabs-archivos', Pestanas, false],
   ['miga', Miga, false],
   ['lista-notificaciones', Notificaciones, false],
+  ['problemas', Problemas, false],
+  ['avisos', ErroresCompilacion, false],
+  ['dbg-alimentacion', DebugAlimentacion, false],
+  ['imp-resultado', ResultadoImportacion, false],
 ];
 
 export function montarReact(): void {

@@ -36,6 +36,7 @@ export interface Acciones {
   reemplazarQuemado: (id: string) => void;
   moverEntorno: (id: string, valores: Record<string, number>) => void;
   abrirArchivo: (ruta: string) => void;
+  irALinea: (archivo: string | null, linea: number) => void;
   agregarPlaca: () => void;
 }
 
