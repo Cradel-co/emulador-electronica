@@ -186,11 +186,20 @@ El proyecto quedó levantado mediante `pnpm run dev` en `http://127.0.0.1:5180`.
 
 ## Archivos y ejecución por placa — 2026-10-03
 
-El explorador se muestra exclusivamente en el lateral izquierdo. La placa cuyo código se
-edita se elige haciendo click sobre ella en el circuito. El árbol de archivos y las pestañas
-pertenecen a esa placa. El botón `+` solicita un nombre y crea un `.py` junto al archivo activo,
-añadiendo la extensión si falta; no sobrescribe archivos existentes. El historial de edición,
-el cursor y el scroll se conservan por proyecto, instancia de placa y ruta.
+El explorador es una ventana independiente, inicialmente lateral, y muestra todas las placas
+como raíces dentro del proyecto. Solo una raíz queda desplegada a la vez. Seleccionar una placa
+en el circuito despliega su árbol y cambia el contexto de Código; desplegar otra desde el
+explorador permite examinarla sin cambiar el editor. Abrir uno de sus archivos cambia la placa
+activa y la pestaña de Código. Las instancias del mismo modelo se distinguen por su id.
+
+Los controles junto al proyecto son iconos de nuevo archivo, nueva carpeta, actualizar y plegar.
+Los dos primeros solicitan el nombre y crean dentro de la carpeta seleccionada, incluso si pertenece a una placa
+inactiva; un archivo nuevo se abre en Código. Admiten rutas anidadas, añaden la extensión del
+lenguaje cuando falta y conservan carpetas vacías. La creación es exclusiva: un nombre duplicado
+no sobrescribe contenido y el formulario muestra el error para corregirlo. Actualizar el árbol
+no reinicia el editor, el circuito ni la simulación. El historial, cursor y scroll se conservan
+por proyecto, instancia de placa y ruta. El botón `+` del editor mantiene el acceso a crear un
+archivo hermano del activo.
 
 La interfaz usa componentes reutilizables: `FileTreeView` recibe rutas, archivo activo y callback,
 `FileExplorer` conecta ese árbol con el estado de la aplicación y `FileNameForm` presenta el
@@ -209,10 +218,14 @@ separados. Ejecutar inicia todas las placas dentro de un mismo circuito eléctri
 una placa cambia el contexto de edición. Los GPIO, puentes y depuradores pertenecen a cada
 instancia. El motor eléctrico resuelve el circuito completo con rieles independientes y entrega
 las entradas según los voltajes y umbrales de cada placa. MicroPython sube todos los `.py` de
-su instancia, incluyendo módulos importables en subcarpetas.
+su instancia, incluyendo módulos y paquetes importables en subcarpetas. Conserva las rutas y
+los `__init__.py`: no concatena el código, porque el intérprete debe resolver los imports. El
+manifiesto se valida antes de buscar firmware; excluye otras placas, cachés y archivos generados,
+rechaza enlaces simbólicos y limita cantidad y tamaño. Una prueba optativa de QEMU verifica
+imports entre archivos, imports relativos de paquetes y el resultado real del programa.
 
-Las pruebas de interfaz están en `app/tests/e2e/multiplaca-explorer.spec.ts`. Las pruebas de
-física en `app/server/src/sim/multiplaca.test.ts` verifican comunicación entre placas, niveles y
+Las pruebas de interfaz están en `app/tests/e2e/multiplaca-explorer.spec.ts` y
+`explorer-files.spec.ts`. Las pruebas de física en `app/server/src/sim/multiplaca.test.ts` verifican comunicación entre placas, niveles y
 alimentación independientes y mediciones referidas a la tierra de cada placa. Las pruebas se
 ejecutan en serie, con un worker y memoria limitada, conservando `pnpm run dev` en el puerto 5180.
 
@@ -275,3 +288,12 @@ y build web aprobados. La regresión completa de Playwright aprobó **103 casos*
 ventanas, persistencia por proyecto, predeterminado configurable, historial del editor y
 selección del circuito. Las pruebas se ejecutaron con un único worker y navegador.
 El servidor sigue activo con `pnpm run dev` en el puerto 5180.
+
+### Validación integrada del editor, ventanas y explorador multiplaca
+
+Antes de actualizar el PR #40 se integró `origin/main` y se ejecutaron las suites completas:
+**828 pruebas Vitest aprobadas** y una integración optativa de QEMU omitida por defecto;
+**109 pruebas Playwright aprobadas** y 11 optativas de firmware omitidas. Los typechecks de
+web y server y el build web pasaron. La integración de imports entre módulos y paquetes se
+verificó por separado con firmware MicroPython cacheado. Las suites se ejecutaron en serie,
+con un worker y memoria limitada; el servidor se mantiene con `pnpm run dev` en el puerto 5180.
