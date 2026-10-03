@@ -7,7 +7,7 @@ No es un emulador de Home Assistant ni está atado a ESPHome. La idea es: **ante
 - **Chips emulados de verdad:** ESP32-S3 / C3 / C6 (motor `esp-emu` de Espressif) y ATmega328P (motor `avr8js`). No hay intérprete: corre el firmware compilado de verdad.
 - **Lenguajes:** ESPHome (YAML), ESP-IDF (C y C++), Arduino y MicroPython.
 - **Las placas son datos:** cada placa es un `module.json` con su bloque `board`. Una placa nueva con un chip que ya tiene motor se agrega **sin tocar código**.
-- **Agente de IA:** expone un server **MCP** con 29 herramientas para controlar todo (crear proyectos, editar código, cablear, compilar, ejecutar, accionar módulos, debuggear). Lo que hace el agente se ve en vivo en la UI.
+- **Agente de IA:** expone un server **MCP** con herramientas para controlar todo (crear proyectos, editar código, cablear, compilar, ejecutar, accionar módulos, debuggear). Lo que hace el agente se ve en vivo en la UI.
 
 Alcance completo y límites honestos: [`docs/vision-y-alcance.md`](docs/vision-y-alcance.md).
 
@@ -17,7 +17,7 @@ Alcance completo y límites honestos: [`docs/vision-y-alcance.md`](docs/vision-y
 
 | Herramienta | Para qué | Obligatoria |
 |---|---|---|
-| **Node.js ≥ 20** | la app | ✅ sí |
+| **Node.js 24** | la app | ✅ sí |
 | **Docker** | compilar ESPHome, ESP-IDF y Arduino | ✅ sí (salvo que solo uses MicroPython) |
 | **[`esp-emu`](https://github.com/espressif/esp-emulator)** (Espressif, beta, gratis, no open source) | emular ESP32-S3/C3/C6 | para las placas ESP32 |
 | **[`wokwi-cli`](https://github.com/wokwi/wokwi-cli)** + cuenta Wokwi | alternativa en la nube, chips custom, diagrama visual | opcional |
@@ -29,7 +29,7 @@ Alcance completo y límites honestos: [`docs/vision-y-alcance.md`](docs/vision-y
 
 Son cinco pasos, en orden. El 1 y el 3 se saltean fácil y son la causa más común de que después no arranque nada.
 
-### 1. Node.js ≥ 20
+### 1. Node.js 24
 
 ```bash
 node -v && npm -v        # ambos tienen que imprimir un número
@@ -39,7 +39,7 @@ Si `node: orden no encontrada`, no tenés Node. Con [nvm](https://github.com/nvm
 
 ```bash
 curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.8/install.sh | bash
-nvm install 22 && nvm use 22
+nvm install 24 && nvm use 24
 ```
 
 > **Ojo con esto**: nvm es una función de shell, no un ejecutable. Si instalaste
@@ -95,7 +95,7 @@ cd app && npm run build:web && npx tsx server/src/index.ts
 
 Abrí **http://127.0.0.1:5180**. Listo.
 
-> **Un solo proceso.** No hay que levantar la UI por separado: el server sirve los estáticos. `npm run dev` corre `dev:server` y `dev:web` juntos. La UI es TypeScript y se compila a `web/dist/` con `tsc`, así que en el modo sin watch hay que compilar una vez con `npm run build:web`. Si se olvida, el server igual levanta y avisa por consola.
+> **Un solo proceso.** No hay que levantar la UI por separado: el server sirve los estáticos. `npm run dev` corre `dev:server` y `dev:web` juntos. La UI es TypeScript y se compila a `web/dist/` con Vite (React + TypeScript), así que en el modo sin watch hay que compilar una vez con `npm run build:web`. Si se olvida, el server igual levanta y avisa por consola.
 
 ### La primera compilación de Arduino tarda
 
@@ -143,14 +143,19 @@ En la UI: **Nuevo proyecto** → elegís **placa** y **lenguaje** → la app gen
 
 En el catálogo de la izquierda agregás módulos y los conectás con cables. Cada módulo viene con sus pines, y el editor te avisa si un cable no coincide con un pin, si un pin queda al aire o si el circuito **no puede** funcionar (cortocircuito, fuente sobre demandada — ver la Ley de Ohm real en [`modules/README.md`](modules/README.md)).
 
-Módulos disponibles de fábrica: `arduino-uno`, `esp32-s3-devkitc-1`, `esp32-c3-devkitm-1`, `esp32-c6-devkitc-1`, `button`, `switch`, `led`, `relay`, `resistor`, `fuente-regulable`, `rxb6`, `stx882`, `remote-433`, `door-sensor-433`, `siren-433`, y con chip (I2C, en el Uno): `bme280-adafruit`, `ds3231-zs042`, `oled-ssd1306-128x64`, `mpu6050-gy521`.
+Módulos disponibles de fábrica: `arduino-uno`, `esp32-s3-devkitc-1`, `esp32-c3-devkitm-1`, `esp32-c6-devkitc-1`, `button`, `switch`, `led`, `relay`, `resistor`, `fuente-regulable`, `rxb6`, `stx882`, `remote-433`, `door-sensor-433`, `siren-433`, y con chip (I2C/SPI): `bme280-adafruit`, `ds3231-zs042`, `oled-ssd1306-128x64`, `mpu6050-gy521`, `tft-st7735-128x160`.
 
-**Chips por I2C en el Arduino Uno**: el firmware real (Wire, las librerías de Adafruit, RTClib)
-habla ciclo a ciclo con chips emulados según su hoja de datos: sensor BME280, reloj DS3231 con
-EEPROM AT24C32, pantalla OLED SSD1306 (la imagen se ve en el circuito) y acelerómetro MPU-6050.
-Las librerías de cada módulo se instalan solas al compilar. Lo que mide cada sensor se mueve en
-vivo desde el panel del módulo. Ver [`chips/README.md`](chips/README.md). En los ESP32 todavía
-no: esp-emu no acepta dispositivos I2C propios. Otras pantallas (LCD, 7 segmentos, e-paper):
+**Chips por I2C y SPI en el Arduino Uno**: el firmware real (Wire, SPI, las librerías de
+Adafruit, RTClib) habla ciclo a ciclo con los chips emulados: BME280 (I2C o SPI), DS3231
+con EEPROM AT24C32, OLED SSD1306, MPU-6050 y TFT ST7735. Las imágenes de las pantallas se
+ven en el circuito y las librerías se instalan al compilar.
+
+**ESP32 con MicroPython**: los mismos chips se conectan por el puente que reemplaza
+`machine.I2C`, `SoftI2C`, `SPI` y `SoftSPI`. Los pines del programa deben coincidir con
+los del dibujo. Las transacciones pasan por UART y no reproducen los tiempos del bus
+real. ESPHome, ESP-IDF y Arduino en ESP32 todavía no tienen este soporte de chips.
+El entorno de los sensores se cambia en vivo desde el panel del módulo. Detalles y
+límites: [`chips/README.md`](chips/README.md). Pantallas disponibles y opciones pendientes:
 [`docs/pantallas.md`](docs/pantallas.md).
 
 ### 3. Escribir el código
@@ -192,12 +197,12 @@ Pestaña **Debug** (Alt+5): breakpoints, paso a paso, variables, pila de llamada
 
 ## Placas soportadas
 
-| Placa | Chip / motor | Qué anda de punta a ponta | Límites honestos |
+| Placa | Chip / motor | Qué anda de punta a punta | Límites honestos |
 |---|---|---|---|
-| **ESP32-S3 DevKitC-1** | ESP32-S3 (Xtensa LX7) / `esp-emu` | ESPHome y MicroPython: botón → LED en vivo. RF 433. Certificada "emula". | Las entradas llegan por el puente UART, no por el pad (límite de `esp-emu`). ESP-IDF/Arduino sin verificar en esta PC. |
+| **ESP32-S3 DevKitC-1** | ESP32-S3 (Xtensa LX7) / `esp-emu` | ESPHome y MicroPython: botón → LED en vivo. RF 433. Certificada "emula". | MicroPython tiene I2C/SPI por el puente. Las entradas llegan por UART, no por el pad (límite de `esp-emu`). ESP-IDF/Arduino sin verificar en esta PC. |
 | **ESP32-C3 DevKitM-1** | ESP32-C3 (RISC-V) / `esp-emu` | ídem S3 | Puente en UART1 = GPIO0/1 (reservados). Sin RF 433. |
 | **ESP32-C6 DevKitC-1** | ESP32-C6 (RISC-V) / `esp-emu` | ídem S3 | ídem C3, sin RF. |
-| **Arduino Uno R3** | ATmega328P 16 MHz / `avr8js` | Compila en ~3 s, corre ciclo a ciclo, D2 → D13 en vivo, entradas al **pad real** (pull-ups, interrupciones). Lógica de 5 V. | I2C hacia los chips del dibujo (BME280, DS3231, AT24C32, SSD1306, MPU-6050). Sin SPI hacia el dibujo, sin RF, ADC siempre en 0 V. |
+| **Arduino Uno R3** | ATmega328P 16 MHz / `avr8js` | Compila en ~3 s, corre ciclo a ciclo, D2 → D13 en vivo, entradas al **pad real** (pull-ups, interrupciones). Lógica de 5 V. | I2C y SPI hacia los chips del dibujo (incluida la TFT ST7735). Sin RF, ADC siempre en 0 V; una TFT redibujada entera puede correr más lento que el tiempo real. |
 
 El **ESP32 clásico (LX6)** no se puede emular: `esp-emu` no lo soporta. Para otras familias (RP2040, STM32, nRF52) hace falta un motor nuevo — la interfaz está preparada (`renode` + `platformio` están planificados pero sin implementar), así que esas placas se pueden cargar igual y quedan en "solo dibujo".
 
@@ -219,7 +224,7 @@ claude mcp add --transport http emulador-esp32 http://127.0.0.1:5180/mcp
 
 O abrí Claude Code en esta carpeta: toma [`.mcp.json`](.mcp.json) automáticamente. Solo acepta clientes locales — las páginas de otro origen reciben 403.
 
-29 herramientas: `estado`, `listar_proyectos`, `crear_proyecto`, `ver_proyecto`, `leer_archivo`, `escribir_archivo`, `placas`, `esquema_placa`, `validar_placa`, `certificar_placa`, `catalogo`, `importar_modulo`, `quitar_modulo_catalogo`, `agregar_modulo`, `quitar_modulo`, `mover_modulo`, `configurar_modulo`, `conectar`, `desconectar`, `compilar`, `ejecutar`, `parar`, `resetear`, `accionar_modulo`, `poner_pin`, `enviar_rf`, `leer_pines`, `leer_log`, `esperar_log`. Más las 7 de debug cuando el depurador está activo.
+Herramientas: `estado`, `listar_proyectos`, `crear_proyecto`, `ver_proyecto`, `leer_archivo`, `escribir_archivo`, `placas`, `esquema_placa`, `validar_placa`, `certificar_placa`, `catalogo`, `importar_modulo`, `quitar_modulo_catalogo`, `agregar_modulo`, `quitar_modulo`, `mover_modulo`, `configurar_modulo`, `conectar`, `desconectar`, `compilar`, `ejecutar`, `parar`, `resetear`, `accionar_modulo`, `poner_pin`, `enviar_rf`, `leer_pines`, `leer_log`, `esperar_log`, `chips`, `mover_entorno`. Más las 7 de debug cuando el depurador está activo.
 
 ## Tests
 
@@ -229,7 +234,7 @@ npm test               # unitarios (Vitest)
 npx playwright test    # e2e, con server y catálogo aislados
 E2E_EMU=1 npx playwright test simulacion   # e2e con Docker y emulador reales
 npx tsc --noEmit -p server      # typecheck del server (no hay script `typecheck` en package.json)
-npm run build:web               # compila la UI: web/*.ts -> web/dist/*.js
+npm run build:web               # compila la UI: React + TypeScript -> web/dist/app.js (Vite)
 npx tsc --noEmit -p web         # typecheck de la UI
 ```
 
@@ -250,7 +255,7 @@ emulador-electronica/
 │   │   ├── debug/        # depurador GDB/RSP + DAP
 │   │   └── fixtures/     # binarios y fuentes de prueba
 │   ├── shared/src/       # tipos y schemas compartidos con la UI
-│   └── web/              # UI (TypeScript -> web/dist/ con tsc; index.html y style.css en la raíz)
+│   └── web/              # UI (React + TypeScript -> web/dist/ con Vite; index.html y style.css en la raíz)
 ├── modules/              # catálogo: <tipo>/module.json + module.svg
 ├── projects/             # un subdirectorio por simulación (no versionado) + _template/ (plantillas)
 ├── firmware/components/  # sim_bridge: el puente dentro del firmware

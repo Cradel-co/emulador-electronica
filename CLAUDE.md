@@ -107,6 +107,6 @@ No hay límite de líneas por archivo: se separa por responsabilidad.
   componentes de React, y las reglas de modularización con el error que originó cada una.
 - [SDD-MODULOS.md](./SDD-MODULOS.md) — diseño de módulos completos (esquemático exportable, reglas y tests
   propios, comportamiento digital, entorno y salidas); la sección 8 dice qué ya está hecho y qué se aprendió.
-- [chips/README.md](./chips/README.md) — chips con lógica (I2C en el Uno): cómo se escriben y se prueban.
+- [chips/README.md](./chips/README.md) — chips con lógica (I2C/SPI en el Uno y puente MicroPython en ESP32): cómo se escriben y se prueban.
   Los sketches de prueba se compilan con `sh app/server/src/fixtures/chips/compilar.sh` (Docker) y los
   `.hex` se versionan: los tests corren sin Docker.
