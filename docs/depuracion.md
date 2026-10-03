@@ -22,6 +22,57 @@ No hay que prender nada. Cada vez que se ejecuta un proyecto, el server:
 
 Código: `app/server/src/debug/` (ver "Archivos" al final).
 
+## Analizador lógico: niveles digitales, no corriente
+
+El gráfico **Pines · últimos 10 s** funciona como un analizador lógico digital simplificado.
+Traza los cambios de nivel que reporta la simulación: cada canal indica el GPIO, si está
+configurado como entrada o salida, y su nivel lógico `0` o `1`. No es un analizador físico
+independiente, ni una gráfica de corriente o una escala de voltaje; por eso `1` no significa
+“circula corriente” y `0` no significa “no circula corriente”.
+
+Los niveles lógicos representan rangos de tensión. La tensión de entrada por debajo del
+umbral bajo (`VIL`) se interpreta como `0`; por encima del umbral alto (`VIH`), como `1`.
+Entre ambos umbrales el nivel es indefinido. Los umbrales dependen de la placa; están
+detallados en [motor-electrico.md](motor-electrico.md#quien-maneja-cada-pin-y-que-lee-el-programa-aportes-del-pr-5).
+
+Voltaje y corriente se consultan como magnitudes eléctricas separadas: la ventana Debug
+muestra la tensión de cada pin respecto a GND y, en las mediciones de componentes, la
+caída de tensión, corriente, resistencia y potencia. El motor calcula esos valores según
+el circuito; no son lecturas de un instrumento físico. Para ver una tensión variable en
+el tiempo hace falta una vista de forma de onda de voltaje (como un osciloscopio), que es
+distinta del analizador lógico.
+
+### Ejemplo: GPIO6 para el pulsador y GPIO7 para el LED
+
+En el circuito de ejemplo, el pulsador tiene un pull-up y conecta GPIO6 a GND mientras
+está presionado. Por eso es **activo en bajo**:
+
+| Acción | GPIO6 (entrada) | GPIO7 (salida) |
+|---|---|---|
+| Botón suelto | El pull-up mantiene el pin alto; se lee `1`. | El programa apaga el LED; se escribe `0`. |
+| Botón presionado | El contacto lo lleva a GND; se lee `0`. | El programa detecta ese `0` y escribe `1` para encender el LED. |
+
+Son dos ramas distintas. Cuando se presiona el botón, GPIO6 lleva una corriente pequeña
+por el pull-up interno (el modelo usa 45 kΩ; a 3,3 V son aproximadamente 73 µA). GPIO7,
+como salida alta, alimenta la rama del LED, cuya corriente depende del LED, de cualquier
+resistencia en serie y del modelo de la placa. El nivel `0` de GPIO6 no niega que por su
+rama pase esa pequeña corriente.
+
+En el proyecto local `mi-proyecto`, `btn1.OUT` va a `GPIO6` y `led1.IN` a `GPIO7`; ambos
+componentes comparten GND. El código lee `boton.value() == 0` y, mientras el botón está
+presionado, escribe `1` en la salida del LED. En ese circuito el LED está conectado
+directamente a GPIO7: la simulación avisa si la corriente supera el límite recomendado;
+en un montaje físico debe añadirse una resistencia en serie adecuada. Los proyectos de
+usuario son locales y no se versionan; por eso este ejemplo queda descrito aquí y no
+enlaza sus archivos.
+
+Esta separación también se enseña en laboratorios universitarios: el analizador lógico
+muestra estados digitales `0/1`, mientras que el osciloscopio y el multímetro se usan para
+observar tensión y corriente. Véanse la
+[guía del analizador lógico de Auburn](https://eng.auburn.edu/~nelson/courses/elec3040_3050/LabWriteups/ELEC30x0%20Lab3.pdf),
+el [laboratorio de instrumentación de Michigan](https://www.eecs.umich.edu/courses/eecs373.test/labs/lab1/lab1_files/basic-lab-instrument-operation.html)
+y el [laboratorio de mediciones de Colorado Boulder](https://physicslabs.colorado.edu/courses/phys-3330/lab-guides/lab1/).
+
 ## Qué se puede en cada motor (honesto)
 
 | | Arduino Uno (avr8js) | ESP32 C/C++/ESPHome/Arduino-IDF (esp-emu + stub GDB) | MicroPython (esp-emu + puente) |
