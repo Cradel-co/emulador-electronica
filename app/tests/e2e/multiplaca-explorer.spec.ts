@@ -18,6 +18,34 @@ async function abrir(page: Page, name: string) {
   await expect(page.locator('#tabs-archivos button.activa')).toHaveText('main.py');
 }
 
+test('el icono del explorador permite recuperar el lateral oculto y conserva su estado', async ({ page, request }) => {
+  await page.setViewportSize({ width: 1161, height: 819 });
+  await page.addInitScript(() => {
+    if (!localStorage.getItem('explorer-test-initialized')) {
+      localStorage.setItem('ventana-izq', '0');
+      localStorage.setItem('explorer-test-initialized', '1');
+    }
+  });
+  const name = await crearProyecto(request);
+  await abrir(page, name);
+  const icon = page.getByRole('button', { name: 'Explorador de archivos', exact: true });
+  const explorer = page.locator('#explorador-archivos');
+  await expect(icon).toBeInViewport();
+  await expect(icon).toHaveAttribute('aria-expanded', 'false');
+  await expect(explorer).toBeHidden();
+  await icon.click();
+  await expect(icon).toHaveAttribute('aria-expanded', 'true');
+  await expect(explorer.getByRole('button', { name: 'main.py', exact: true })).toBeVisible();
+  await page.reload();
+  await expect(icon).toHaveAttribute('aria-expanded', 'true');
+  await icon.click();
+  await expect(explorer).toBeHidden();
+  await expect(icon).toHaveAttribute('aria-expanded', 'false');
+  await icon.click();
+  await expect(explorer).toBeVisible();
+  await page.screenshot({ path: '/tmp/explorador-icono.png' });
+});
+
 test('explorador lateral jerárquico crea un archivo Python hermano con extensión automática', async ({ page, request }) => {
   const name = await crearProyecto(request);
   expect((await request.put(`/api/projects/${name}/files/lib/sensores/temperatura.py`, { data: { content: 'temperatura = 24\n' } })).ok()).toBeTruthy();

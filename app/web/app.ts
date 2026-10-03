@@ -2285,6 +2285,8 @@ function mostrarVentana(cual, visible?: boolean) {
 function sincronizarFranjas() {
   const b = document.body.classList;
   $('tw-catalogo').classList.toggle('activa', !b.contains('sin-izq'));
+  $('tw-explorador').classList.toggle('activa', !b.contains('sin-izq'));
+  $('tw-explorador').setAttribute('aria-expanded', String(!b.contains('sin-izq')));
   $('act-codigo').classList.toggle('activa', !b.contains('sin-der'));
   const abajo = !b.contains('sin-abajo');
   for (const id of ['tw-build', 'tw-emu', 'tw-debug', 'tw-problemas']) {
@@ -2317,6 +2319,10 @@ for (const b of document.querySelectorAll('[data-ocultar]')) {
   (b as HTMLElement).onclick = () => mostrarVentana(((b as HTMLElement).dataset.ocultar as any), false);
 }
 $('tw-catalogo').onclick = () => mostrarVentana('izq');
+$('tw-explorador').onclick = () => {
+  mostrarVentana('izq');
+  if (!document.body.classList.contains('sin-izq')) $('explorador-archivos').scrollIntoView({ block: 'nearest' });
+};
 $('act-codigo').onclick = () => {
   // Oculto: se abre. Abierto con un módulo elegido: vuelve al código. Abierto con el código: se oculta.
   if (document.body.classList.contains('sin-der')) mostrarVentana('der', true);
