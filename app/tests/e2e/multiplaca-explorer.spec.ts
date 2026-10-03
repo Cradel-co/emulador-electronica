@@ -98,7 +98,7 @@ test('cada placa mantiene contenido e historial propios al seleccionarla en el c
   await escribir(page, 'primera = 7\n');
   await seleccionarModulo(page, secondId);
   await expect(page.locator('#editor')).toHaveValue('segunda = 2\n');
-  await expect(explorer.locator('h3 span')).toHaveText(secondId);
+  await expect(explorer.locator('.file-explorer-tree')).toHaveAttribute('data-board-id', secondId);
   expect((await (await request.get(`/api/projects/${name}/files/main.py`)).json()).content).toBe('primera = 7\n');
   await escribir(page, 'segunda = 8\n');
   await seleccionarModulo(page, 'board');
@@ -112,7 +112,7 @@ test('cada placa mantiene contenido e historial propios al seleccionarla en el c
   await page.locator('.cm-content').click();
   await page.keyboard.press('Control+z');
   await expect(page.locator('#editor')).toHaveValue('segunda = 2\n');
-  await expect(explorer.locator('h3 span')).toHaveText(secondId);
+  await expect(explorer.locator('.file-explorer-tree')).toHaveAttribute('data-board-id', secondId);
   const bpRequest = page.waitForResponse(r => r.url().includes('/api/debug/breakpoints') && r.url().includes(`boardId=${secondId}`) && r.request().method() === 'PUT');
   const line = await page.locator('.cm-lineNumbers .cm-gutterElement', { hasText: /^1$/ }).boundingBox();
   const gutter = await page.locator('.cm-breakpointGutter').boundingBox();
@@ -146,12 +146,12 @@ test('agrega una segunda placa desde catálogo y quita únicamente la elegida', 
   }).toBe(2);
   await expect(modulo(page, secondId)).toBeVisible();
   await seleccionarModulo(page, secondId);
-  await expect(page.locator('#explorador-archivos h3 span')).toHaveText(secondId);
+  await expect(page.locator('#explorador-archivos .file-explorer-tree')).toHaveAttribute('data-board-id', secondId);
   page.once('dialog', dialog => dialog.accept());
   await page.getByRole('button', { name: 'Quitar la placa', exact: true }).click();
   await expect(modulo(page, secondId)).toHaveCount(0);
   await expect(modulo(page, 'board')).toBeVisible();
-  await expect(page.locator('#explorador-archivos h3 span')).toHaveText('board');
+  await expect(page.locator('#explorador-archivos .file-explorer-tree')).toHaveAttribute('data-board-id', 'board');
   const { project } = await (await request.get(`/api/projects/${name}`)).json();
   expect(project.boards.map((b: { id: string }) => b.id)).toEqual(['board']);
   expect((await (await request.get(`/api/projects/${name}/files/main.py`)).json()).content).toBe('primera = 1\n');
@@ -170,7 +170,7 @@ test('eliminar la placa principal conserva la segunda y no inventa una placa fan
   await expect(modulo(page, 'board')).toHaveCount(0);
   await expect(modulo(page, secondId)).toBeVisible();
   await expect(page.locator('#editor')).toHaveValue('sobrevive = True\n');
-  await expect(page.locator('#explorador-archivos h3 span')).toHaveText(secondId);
+  await expect(page.locator('#explorador-archivos .file-explorer-tree')).toHaveAttribute('data-board-id', secondId);
   const { project } = await (await request.get(`/api/projects/${name}`)).json();
   expect(project.boards.map((b: { id: string }) => b.id)).toEqual([secondId]);
   expect(project.modules.filter((m: { id: string }) => m.id === 'board')).toHaveLength(0);

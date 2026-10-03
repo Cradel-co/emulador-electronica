@@ -8,6 +8,7 @@
  */
 
 import type { DockLayout } from '../docking-layout.js';
+import type { EntryKind } from '../file-tree.js';
 type Ctx = Record<string, unknown>;
 type Lienzo = Record<string, unknown>;
 
@@ -39,7 +40,9 @@ export interface Acciones {
   abrirArchivo: (ruta: string) => void;
   irALinea: (archivo: string | null, linea: number) => void;
   agregarPlaca: () => void;
-  nuevoArchivo: () => void;
+  nuevoArchivo: (parent?: string) => void;
+  nuevaCarpeta: (parent?: string) => void;
+  crearEntrada: (name: string, kind: EntryKind) => Promise<void>;
   importarModulos: () => void;
   mostrarHerramienta: (id: 'explorador' | 'componentes', visible?: boolean) => void;
   aplicarDistribucion: (layout: DockLayout) => void;

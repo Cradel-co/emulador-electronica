@@ -6,6 +6,7 @@ import { crearEditorMicroPython } from './editor-micropython.js';
 import { editorPreferences, subscribeEditorPreferences } from './editor-preferences.js';
 import { destinoGpio, gpioEnPlaca } from './gpio-destination.js';
 import { placasDelProyecto } from './project-boards.js';
+import { carpetaDeArchivo, rutaNuevaEntrada, type EntryCreationContext, type EntryKind } from './file-tree.js';
 import { defaultDockLayout, normalizeDockLayout, setDockWindowOpen, type DockNode, type DockLayout, type WindowId } from './docking-layout.js';
 import { projectDockLayout, saveProjectDockLayout, defaultSavedDockLayout, saveDefaultDockLayout, resetDefaultDockLayout, projectDockFilter, saveProjectDockFilter, clearProjectDockLayout } from './docking-storage.js';
 import { formatMicroPython } from './micropython-format.js';
@@ -74,6 +75,8 @@ const state = observable({
   proyectos: [],
   proyecto: null,
   archivos: [],
+  carpetas: [] as string[],
+  creacionEntrada: null as EntryCreationContext | null,
   activo: null,
   placaActivaId: (null as string | null),
   distribucion: defaultDockLayout(),
@@ -209,6 +212,8 @@ registrarAcciones({
   reemplazarQuemado: (id) => reemplazarQuemado(id),
   abrirArchivo: (ruta) => { seleccionar(null); void abrirArchivo(ruta); },
   nuevoArchivo: abrirNuevoArchivo,
+  nuevaCarpeta: parent => abrirCreacionEntrada('directory', parent),
+  crearEntrada,
   importarModulos: abrirImportador,
   mostrarHerramienta,
   aplicarDistribucion: layout => actualizarDistribucion(normalizeDockLayout(layout)),
@@ -854,6 +859,7 @@ async function seleccionarPlaca(boardId: string) {
     state.placaActivaId = boardId;
     depuracion?.alCambiarContexto();
     state.placa = resultado.placa ?? null;
+    state.carpetas = resultado.directories ?? [];
     state.archivos = resultado.files.filter(f => !/(^|\/)(secrets\.yaml|project\.json)$/.test(f.path));
     state.activo = null;
     const main = state.archivos.find(f => /(^|\/)main\.py$/.test(f.path)) ?? state.archivos[0];
@@ -867,28 +873,37 @@ async function seleccionarPlaca(boardId: string) {
   } catch (e) { nota(`No se pudo abrir la placa: ${String((e as Error)?.message ?? e)}`); }
 }
 
-function abrirNuevoArchivo() {
-  if (!state.proyecto || !state.placaActivaId) return;
-  inp('nuevo-archivo-nombre').value = '';
-  ($('dlg-nuevo-archivo') as HTMLDialogElement).showModal();
+function abrirNuevoArchivo(parent?: string) {
+  abrirCreacionEntrada('file', parent);
 }
-$('dlg-nuevo-archivo').addEventListener('close', async () => {
-  if (($('dlg-nuevo-archivo') as HTMLDialogElement).returnValue !== 'crear' || !state.proyecto || !state.placaActivaId) return;
-  const nombre = inp('nuevo-archivo-nombre').value.trim();
-  if (!nombre || /[\/\\]/.test(nombre) || nombre === '.' || nombre === '..') { nota('Usá un nombre de archivo sin carpetas.'); return; }
-  const proyecto = state.proyecto.name;
-  const boardId = state.placaActivaId;
-  const carpeta = state.activo?.includes('/') ? state.activo.slice(0, state.activo.lastIndexOf('/') + 1) : '';
-  const path = carpeta + (/\.py$/i.test(nombre) ? nombre : `${nombre}.py`);
-  if (state.archivos.some(f => f.path === path)) { nota('Ese archivo ya existe.'); return; }
-  try {
-    if (!await guardar(true)) return;
-    await api(urlArchivo(proyecto, path, boardId), { method: 'PUT', body: JSON.stringify({ content: '' }) });
-    if (state.proyecto?.name !== proyecto || state.placaActivaId !== boardId) return;
-    state.archivos = [...state.archivos, { path }];
-    seleccionar(null); await abrirArchivo(path);
-  } catch (e) { nota(`No se pudo crear el archivo: ${String((e as Error)?.message ?? e)}`); }
-});
+
+function abrirCreacionEntrada(kind: EntryKind, parent = carpetaDeArchivo(state.activo)) {
+  const board = placaActiva();
+  if (!state.proyecto || !board) return;
+  ahora(() => { state.creacionEntrada = { project: state.proyecto.name, boardId: board.id, parent, kind, language: board.language }; });
+  const dialog = $('dlg-nuevo-archivo') as HTMLDialogElement;
+  dialog.setAttribute('aria-label', kind === 'directory' ? 'Nueva carpeta' : board.language === 'micropython' ? 'Nuevo archivo MicroPython' : 'Nuevo archivo');
+  inp('nuevo-archivo-nombre').value = '';
+  dialog.showModal();
+}
+
+async function crearEntrada(name: string, kind: EntryKind): Promise<void> {
+  const context = state.creacionEntrada;
+  if (!context || context.kind !== kind) throw new Error('No hay una creación pendiente.');
+  const path = rutaNuevaEntrada(context.parent, name, kind, context.language);
+  if (state.proyecto?.name !== context.project || state.placaActivaId !== context.boardId) throw new Error('Cambió la placa seleccionada. Volvé a abrir el formulario.');
+  if (!await guardar(true)) throw new Error('No se pudo guardar el archivo actual.');
+  const endpoint = kind === 'directory'
+    ? `/api/projects/${encodeURIComponent(context.project)}/directories${queryPlaca(context.boardId)}`
+    : urlArchivo(context.project, path, context.boardId);
+  await api(endpoint, { method: 'POST', body: JSON.stringify(kind === 'directory' ? { path } : { content: '' }) });
+  if (state.proyecto?.name !== context.project || state.placaActivaId !== context.boardId) return;
+  const summary = await api(`/api/projects/${encodeURIComponent(context.project)}${queryPlaca(context.boardId)}`);
+  if (state.proyecto?.name !== context.project || state.placaActivaId !== context.boardId) return;
+  state.archivos = summary.files.filter(f => !/(^|\/)(secrets\.yaml|project\.json)$/.test(f.path));
+  state.carpetas = summary.directories ?? [];
+  if (kind === 'file') { seleccionar(null); await abrirArchivo(path); }
+}
 
 // --- Dibujo: consultas ------------------------------------------------------
 
@@ -1692,6 +1707,7 @@ async function aplicarCambioExterno(msg) {
   const resumen = await api(`/api/projects/${nombre}`);
   const project = resumen.project;
   let files = resumen.files;
+  let directories = resumen.directories ?? [];
   if (state.proyecto?.name !== nombre) return;
   // Se agregó o se quitó la placa (otra pestaña, el MCP): cambian el código, la barra y el modo de ▶.
   if (JSON.stringify(placasDelProyecto(project)) !== JSON.stringify(placasDelProyecto(state.proyecto))) {
@@ -1702,6 +1718,7 @@ async function aplicarCambioExterno(msg) {
     const contexto = await api(`/api/projects/${nombre}${queryPlaca()}`);
     if (state.proyecto?.name !== nombre) return;
     files = contexto.files;
+    directories = contexto.directories ?? [];
   }
   if (msg.what === 'diagram') {
     // El cambio de afuera gana: lo pendiente de esta pestaña se descarta.
@@ -1719,6 +1736,7 @@ async function aplicarCambioExterno(msg) {
     lienzo.render();
     nota(msg.origin === 'mcp' ? 'Circuito actualizado por MCP.' : 'Circuito actualizado desde otra pestaña.');
   } else {
+    state.carpetas = directories ?? [];
     state.archivos = files.filter((f) => !/(^|\/)(secrets\.yaml|project\.json)$/.test(f.path));
     if (msg.file === state.activo) {
       if (state.editorSucio) {
@@ -1983,7 +2001,7 @@ let aperturas = 0;
 
 async function abrirProyecto(nombre) {
   const mia = ++aperturas;
-  const { project, files, placa } = await api(`/api/projects/${nombre}`);
+  const { project, files, directories, placa } = await api(`/api/projects/${nombre}`);
   if (mia !== aperturas) return;
   document.body.classList.remove('inicio');
   const cambioProyecto = state.proyecto?.name !== nombre;
@@ -1997,6 +2015,7 @@ async function abrirProyecto(nombre) {
   state.placa = placa ?? null;
   history.replaceState(null, '', `#${encodeURIComponent(nombre)}`);
   // project.json lo edita el canvas; secrets.yaml no se muestra.
+  state.carpetas = directories ?? [];
   state.archivos = files.filter((f) => !/(^|\/)(secrets\.yaml|project\.json)$/.test(f.path));
   sel('proyecto').value = nombre;
   state.diagrama = { modules: [...project.modules], wires: [...project.wires] };

@@ -3,10 +3,12 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { PATHS } from '../paths.js';
 import { run } from '../dockerRunner.js';
-import { exists, type BuildCallbacks, type BuildResult } from '../buildService.js';
+import type { BuildCallbacks, BuildResult } from '../buildService.js';
+import { exists } from '../filesystem.js';
 import { ProjectError } from '../projectStore.js';
 import { micropythonMainPara } from '../templates/languages.js';
 import { microPythonBoot, microPythonSimbridgePara } from '../templates/micropythonBridge.js';
+import { leerFuentesMicroPython, MicroPythonSourceError, type MicroPythonSourceManifest } from '../micropythonSources.js';
 import { fallo, pinesDemo, texto, type ContextoBuild, type Toolchain } from './tipos.js';
 
 /** Versión fijada (sección 16): misma para todos los chips. */
@@ -90,6 +92,13 @@ export const micropython: Toolchain = {
     const file = texto(ctx.opciones, 'firmware');
     if (!file) return fallo(started, `${placa.nombre}: falta options.firmware para MicroPython`);
     if (placa.desc.io.mode !== 'bridge-uart') return fallo(started, `${placa.nombre}: MicroPython necesita io.mode "bridge-uart"`);
+    let sources: MicroPythonSourceManifest;
+    try { sources = await leerFuentesMicroPython(ctx.projectDir); }
+    catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { ...fallo(started, message), errors: [{ line: null, file: error instanceof MicroPythonSourceError ? error.file ?? null : null, message }] };
+    }
+    ctx.cb.onLine(`MicroPython: ${sources.files.length} archivo(s) de la placa, ${sources.totalBytes} bytes; se conservan módulos y paquetes.`);
     const firmware = await ensureMicropythonFirmware(ctx.cb, file, texto(ctx.opciones, 'url'));
     const simbridge = microPythonSimbridgePara({
       chip: placa.desc.chipName ?? placa.desc.chip,
@@ -116,7 +125,7 @@ export const micropython: Toolchain = {
             { path: 'simbridge.py', content: simbridge },
             { path: 'boot.py', content: microPythonBoot },
           ],
-          delProyecto: ['main.py'],
+          delProyecto: sources.files.map(source => source.path),
         },
       },
     };

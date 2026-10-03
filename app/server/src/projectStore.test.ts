@@ -112,3 +112,77 @@ describe('aislamiento de enlaces simbólicos y plantillas', () => {
     await expect(fs.stat(path.join(root, 'copied'))).rejects.toThrow();
   });
 });
+
+describe('crear archivos y carpetas desde el explorador', () => {
+  it('conserva carpetas vacías y padres anidados al volver a abrir el almacén', async () => {
+    expect(await store.createDirectory('multi', 'sensores/temperatura', 'micropython')).toBe('sensores/temperatura');
+    const reopened = new ProjectStore(root);
+    expect(await reopened.listDirectories('multi', 'micropython')).toEqual(['sensores', 'sensores/temperatura']);
+    expect((await reopened.listFiles('multi', 'micropython')).map(file => file.path)).toEqual(['project.json']);
+  });
+
+  it('aísla carpetas y paquetes homónimos de dos placas, sin crear __init__.py automáticamente', async () => {
+    await store.createDirectory('multi', 'sensores', 'micropython');
+    await store.createDirectory('multi', 'sensores', 'micropython', 'board2');
+    await store.createDirectory('multi', 'solo-segunda', 'micropython', 'board2');
+    await store.createFile('multi', 'sensores/temperatura.py', 'micropython', 'value = 1');
+    await store.createFile('multi', 'sensores/temperatura.py', 'micropython', 'value = 2', 'board2');
+    expect(await store.readFile('multi', 'sensores/temperatura.py', 'micropython')).toBe('value = 1');
+    expect(await store.readFile('multi', 'sensores/temperatura.py', 'micropython', 'board2')).toBe('value = 2');
+    expect(await store.listDirectories('multi', 'micropython')).toEqual(['sensores']);
+    expect(await store.listDirectories('multi', 'micropython', 'board2')).toEqual(['sensores', 'solo-segunda']);
+    expect((await store.listFiles('multi', 'micropython', 'board2')).map(file => file.path)).toEqual(['sensores/temperatura.py']);
+    await store.createFile('multi', 'sensores/__init__.py', 'micropython', '', 'board2');
+    expect(await store.readFile('multi', 'sensores/__init__.py', 'micropython', 'board2')).toBe('');
+    expect(await store.listDirectories('multi', null)).toEqual([]);
+  });
+
+  it('rechaza duplicados de archivo o carpeta con 409 y conserva contenido existente', async () => {
+    await store.createFile('multi', 'lib/helper.py', 'micropython', 'original');
+    await expect(store.createFile('multi', 'lib/helper.py', 'micropython', 'replacement')).rejects.toMatchObject({ statusCode: 409 });
+    expect(await store.readFile('multi', 'lib/helper.py', 'micropython')).toBe('original');
+    await expect(store.createDirectory('multi', 'lib', 'micropython')).rejects.toMatchObject({ statusCode: 409 });
+    await expect(store.createDirectory('multi', 'lib/helper.py', 'micropython')).rejects.toMatchObject({ statusCode: 409 });
+    await store.createDirectory('multi', 'folder.py', 'micropython');
+    await expect(store.createFile('multi', 'folder.py', 'micropython', 'content')).rejects.toMatchObject({ statusCode: 409 });
+    await expect(store.createFile('multi', 'lib/helper.py/nested.py', 'micropython', '')).rejects.toMatchObject({ statusCode: 409 });
+  });
+
+  it('una carrera de creación tiene un ganador y nunca sobrescribe su archivo', async () => {
+    const results = await Promise.allSettled([
+      store.createFile('multi', 'simultaneous.py', 'micropython', 'first'),
+      store.createFile('multi', 'simultaneous.py', 'micropython', 'second'),
+    ]);
+    expect(results.filter(result => result.status === 'fulfilled')).toHaveLength(1);
+    const failure = results.find(result => result.status === 'rejected');
+    expect(failure?.status === 'rejected' && failure.reason.statusCode).toBe(409);
+    expect(['first', 'second']).toContain(await store.readFile('multi', 'simultaneous.py', 'micropython'));
+  });
+
+  it.each(['', '../escape', 'safe/../escape', '/absolute', 'safe//child', './folder', 'folder/', 'back\\slash', 'null\0folder'])('rechaza ruta de carpeta no normalizada: %s', async rel => {
+    await expect(store.createDirectory('multi', rel, 'micropython')).rejects.toMatchObject({ statusCode: 400 });
+  });
+
+  it.each(['boards', 'boards/board2/private', '.git', 'safe/.cache', 'safe/.hidden/child', '.privado/hijo'])('bloquea carpeta privada u oculta: %s', async rel => {
+    await expect(store.createDirectory('multi', rel, 'micropython')).rejects.toMatchObject({ statusCode: 403 });
+  });
+
+  it('protege metadata, extensiones y proyectos sin placa al crear archivos', async () => {
+    await expect(store.createFile('multi', 'project.json', 'micropython', '{}')).rejects.toMatchObject({ statusCode: 403 });
+    await expect(store.createFile('multi', 'boards/board2/private.py', 'micropython', '')).rejects.toMatchObject({ statusCode: 403 });
+    await expect(store.createFile('multi', 'code.exe', 'micropython', '')).rejects.toMatchObject({ statusCode: 400 });
+    await expect(store.createFile('multi', 'main.py', null, '')).rejects.toMatchObject({ statusCode: 400 });
+    await expect(store.createDirectory('multi', 'folder', null)).rejects.toMatchObject({ statusCode: 400 });
+  });
+
+  it('no sigue enlaces al crear archivos/carpetas y no los expone en el árbol', async () => {
+    const outside = path.join(root, 'outside');
+    await fs.mkdir(outside);
+    await fs.symlink(outside, path.join(root, 'multi', 'linked'));
+    await expect(store.createDirectory('multi', 'linked/package', 'micropython')).rejects.toMatchObject({ statusCode: 403 });
+    await expect(store.createFile('multi', 'linked/escape.py', 'micropython', '')).rejects.toMatchObject({ statusCode: 403 });
+    expect(await fs.readdir(outside)).toEqual([]);
+    await fs.mkdir(path.join(root, 'multi', '.cache', 'hidden'), { recursive: true });
+    expect(await store.listDirectories('multi', 'micropython')).toEqual([]);
+  });
+});

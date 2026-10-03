@@ -49,8 +49,7 @@ const SUFFIXES: Record<Language, string> = {
 
 /** Archivos que la app escribe y el usuario no debería ver en el editor. */
 function isHiddenFile(rel: string): boolean {
-  const base = rel.split('/').pop() ?? '';
-  return base.startsWith('.') || rel.includes('/.esphome/') || rel.includes('.esphome/');
+  return rel.split('/').some(segment => segment.startsWith('.'));
 }
 
 export class ProjectStore {
@@ -274,6 +273,52 @@ export class ProjectStore {
     return full;
   }
 
+  /** Carpetas de código, con las mismas fronteras que los archivos y sin extensiones obligatorias. */
+  private resolveDirectory(name: string, relPath: string, language: Language | null, boardId: string): string {
+    if (!language) throw new ProjectError('Proyecto sin placa: no tiene código. Agregá una placa para programarla.', 400);
+    if (!relPath || relPath.length > 200 || relPath.includes('\\') || /[\x00-\x1f\x7f]/.test(relPath)) throw new ProjectError('Ruta de carpeta inválida', 400);
+    const segments = relPath.split('/');
+    if (segments.some(segment => !segment || segment === '.' || segment === '..')) throw new ProjectError('Ruta de carpeta inválida', 400);
+    if (isHiddenFile(relPath)) throw new ProjectError('Carpeta oculta o generada', 403);
+    if (segments[0] === 'boards') throw new ProjectError('La carpeta de otras placas es privada', 403);
+    const dir = this.projectCodeDir(name, boardId);
+    const full = path.resolve(dir, relPath);
+    const relative = path.relative(dir, full);
+    if (relative.startsWith('..') || path.isAbsolute(relative)) throw new ProjectError('Ruta fuera del proyecto', 403);
+    return full;
+  }
+
+  /** Crea carpetas físicas: las vacías también sobreviven al reiniciar y volver a listar. */
+  async createDirectory(name: string, relPath: string, language: Language | null, boardId = BOARD_MODULE_ID): Promise<string> {
+    const full = this.resolveDirectory(name, relPath, language, boardId);
+    try {
+      await this.assertSafePath(full);
+      await fs.mkdir(path.dirname(full), { recursive: true });
+      await fs.mkdir(full);
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === 'EEXIST' || code === 'ENOTDIR') throw new ProjectError('Ya existe un archivo o carpeta con ese nombre', 409);
+      throw error;
+    }
+    return path.relative(this.projectCodeDir(name, boardId), full).split(path.sep).join('/');
+  }
+
+  /** Apertura exclusiva: dos solicitudes simultáneas nunca pisan un archivo ya creado. */
+  async createFile(name: string, relPath: string, language: Language | null, content: string, boardId = BOARD_MODULE_ID): Promise<string> {
+    if (relPath === 'project.json') throw new ProjectError('El proyecto es compartido; no es un archivo de placa', 403);
+    const full = this.resolveFile(name, relPath, language, boardId);
+    try {
+      await this.assertSafePath(full);
+      await fs.mkdir(path.dirname(full), { recursive: true });
+      await fs.writeFile(full, content, { encoding: 'utf8', flag: 'wx' });
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === 'EEXIST' || code === 'ENOTDIR') throw new ProjectError('Ya existe un archivo o carpeta con ese nombre', 409);
+      throw error;
+    }
+    return path.relative(this.projectCodeDir(name, boardId), full).split(path.sep).join('/');
+  }
+
   async readFile(name: string, relPath: string, language: Language | null, boardId = BOARD_MODULE_ID): Promise<string> {
     const full = this.resolveFile(name, relPath, language, boardId);
     await this.assertSafePath(full);
@@ -296,33 +341,42 @@ export class ProjectStore {
     await fs.rm(full, { force: true });
   }
 
-  /** Archivos de código. Sin placa, ninguno (si se quitó la placa, su código queda en disco). */
-  async listFiles(name: string, language: Language | null, boardId = BOARD_MODULE_ID): Promise<ProjectFile[]> {
-    if (!language) return [];
+  /** Recorrido compartido: ignora datos privados y enlaces, conserva carpetas sin archivos. */
+  private async listCodeEntries(name: string, language: Language | null, boardId: string): Promise<{ files: ProjectFile[]; directories: string[] }> {
+    const files: ProjectFile[] = [];
+    const directories: string[] = [];
+    if (!language) return { files, directories };
     const dir = this.projectCodeDir(name, boardId);
     await this.assertSafePath(dir);
-    const out: ProjectFile[] = [];
     const walk = async (rel: string): Promise<void> => {
       const abs = path.join(dir, rel);
-      let entries;
-      try {
-        entries = await fs.readdir(abs, { withFileTypes: true });
-      } catch {
-        return;
-      }
-      for (const e of entries) {
-        const childRel = rel ? `${rel}/${e.name}` : e.name;
-        if (e.isSymbolicLink() || isHiddenFile(childRel) || (rel === '' && e.name === 'boards')) continue;
-        if (e.isDirectory()) {
+      const entries = await fs.readdir(abs, { withFileTypes: true }).catch((error: NodeJS.ErrnoException) => {
+        if (error.code === 'ENOENT') return [];
+        throw error;
+      });
+      for (const entry of entries) {
+        const childRel = rel ? `${rel}/${entry.name}` : entry.name;
+        if (entry.isSymbolicLink() || isHiddenFile(childRel) || (rel === '' && entry.name === 'boards')) continue;
+        if (entry.isDirectory()) {
+          directories.push(childRel);
           await walk(childRel);
-        } else {
-          const st = await fs.stat(path.join(dir, childRel));
-          out.push({ path: childRel, size: st.size, modified: st.mtimeMs });
+        } else if (entry.isFile()) {
+          const stat = await fs.stat(path.join(dir, childRel));
+          files.push({ path: childRel, size: stat.size, modified: stat.mtimeMs });
         }
       }
     };
     await walk('');
-    return out.sort((a, b) => a.path.localeCompare(b.path));
+    return { files: files.sort((a, b) => a.path.localeCompare(b.path)), directories: directories.sort((a, b) => a.localeCompare(b)) };
+  }
+
+  /** Archivos de código. Sin placa, ninguno (el código anterior queda conservado en disco). */
+  async listFiles(name: string, language: Language | null, boardId = BOARD_MODULE_ID): Promise<ProjectFile[]> {
+    return (await this.listCodeEntries(name, language, boardId)).files;
+  }
+
+  async listDirectories(name: string, language: Language | null, boardId = BOARD_MODULE_ID): Promise<string[]> {
+    return (await this.listCodeEntries(name, language, boardId)).directories;
   }
 
   /** Sufijo para crear un archivo nuevo desde la UI. */

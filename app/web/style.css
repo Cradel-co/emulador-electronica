@@ -827,15 +827,18 @@ body.depuracion-parada .punto-estado { background: var(--azul); box-shadow: 0 0 
 .tool-window { flex: 1 1 0; min-height: 100px; }
 .tool-window[hidden] { display: none; }
 .tool-window .panel-header { flex-shrink: 0; }
-.explorador-archivos { flex: 1; min-height: 0; overflow: auto; padding: 10px 8px; }
-.explorador-archivos h3 { display: flex; justify-content: space-between; margin: 0 6px 8px; font-size: 12px; }
-.explorador-archivos h3 span { color: var(--tenue); }
+.explorador-archivos { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: auto; padding: 10px 8px; }
 .explorador-archivos ul { list-style: none; margin: 0; padding: 0 0 0 12px; }
-.explorador-archivos > ul { padding-left: 0; }
+.file-explorer-tree > ul { padding-left: 0; }
 .explorador-archivos button { display: block; width: 100%; text-align: left; padding: 4px 8px; border: none; background: transparent; font-size: 12px; border-radius: 4px; }
 .explorador-archivos button.activa { background: var(--seleccion, #264faa); }
 .explorador-archivos summary { padding: 4px; cursor: pointer; font-size: 12px; }
 .explorador-archivos p { font-size: 12px; color: var(--tenue); }
+.file-entry-icon { width: 15px; height: 15px; flex-shrink: 0; vertical-align: middle; margin-right: 5px; }
+.explorador-archivos summary.activa { background: var(--seleccion, #264faa); border-radius: 4px; }
+.explorer-toolbar { display: flex; gap: 4px; justify-content: flex-end; flex-shrink: 0; }
+.explorer-toolbar button { display: inline-flex; width: auto; align-items: center; padding: 4px 6px; }
+.explorer-toolbar .file-entry-icon { margin-right: 0; }
 
 #tabs-archivos > .nuevo-archivo { position: sticky; right: -6px; margin-left: auto; z-index: 4; background: var(--isla); min-width: 38px; justify-content: center; box-shadow: -8px 0 10px var(--isla); }
 #tabs-archivos > .nuevo-archivo::before { display: none; }
@@ -853,3 +856,5 @@ body.depuracion-parada .punto-estado { background: var(--azul); box-shadow: 0 0 
 .layout-settings-actions { display: flex; flex-direction: column; gap: 10px; grid-column: 1 / -1; }
 .layout-settings-actions button { text-align: left; }
 .editor-tabs > .tw-ocultar::before { display: none; }
+
+.file-explorer-tree { flex: 1; min-height: 0; }

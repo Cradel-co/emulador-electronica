@@ -14,6 +14,7 @@ export { ESPHOME_IMAGE } from './toolchains/esphome.js';
 export { IDF_IMAGE } from './toolchains/espIdf.js';
 export { ARDUINO_AVR_IMAGE, extractArduinoErrors } from './toolchains/arduinoCli.js';
 export { MICROPYTHON_FILE, MICROPYTHON_URL, MICROPYTHON_VERSION };
+export { exists } from './filesystem.js';
 
 export const FIRST_BUILD_TIMEOUT_MS = 20 * 60_000;
 export const WARM_BUILD_TIMEOUT_MS = 10 * 60_000;
@@ -171,14 +172,5 @@ export class BuildService {
 
   ensureMicropythonFirmware(cb: BuildCallbacks, file = MICROPYTHON_FILE): Promise<string> {
     return ensureMicropythonFirmware(cb, file);
-  }
-}
-
-export async function exists(p: string): Promise<boolean> {
-  try {
-    await fs.stat(p);
-    return true;
-  } catch {
-    return false;
   }
 }

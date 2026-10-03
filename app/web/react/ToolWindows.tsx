@@ -2,7 +2,6 @@ import { createPortal } from 'react-dom';
 import { ToolWindow } from './ToolWindow.js';
 import { Catalogo } from './Catalogo.js';
 import { FileExplorer } from './FileExplorer.js';
-import { ExplorerIcon } from './ExplorerIcon.js';
 import { acciones, estado } from './puente.js';
 import { useEstado } from './estado.js';
 
@@ -21,15 +20,13 @@ function Componentes() {
 /** Registro de ventanas: cada contenido se inyecta en la misma estructura reutilizable. */
 export function ToolWindows() {
   const views = [
-    { id: 'explorador' as const, title: 'Explorador', icon: <ExplorerIcon />, body: <section id="explorador-archivos" className="explorador-archivos" aria-label="Explorador de archivos"><FileExplorer /></section> },
-    { id: 'componentes' as const, title: 'Componentes', actions: <button id="importar-modulo" className="btn-chico" title="Importar módulos" onClick={() => acciones().importarModulos()}>+ Importar</button>, body: <Componentes /> },
+    { id: 'explorador', content: <FileExplorer /> },
+    { id: 'componentes', content: <ToolWindow id="ventana-componentes" title="Componentes"
+      actions={<button id="importar-modulo" className="btn-chico" title="Importar módulos" onClick={() => acciones().importarModulos()}>+ Importar</button>}
+      onClose={() => acciones().mostrarHerramienta('componentes', false)}><Componentes /></ToolWindow> },
   ];
   return <>{views.map(view => {
     const dock = document.getElementById(`ventana-${view.id}`);
-    if (!dock) return null;
-    return createPortal(<ToolWindow id={`ventana-${view.id}`} title={view.title} icon={view.icon} actions={view.actions}
-      onClose={() => acciones().mostrarHerramienta(view.id, false)}>
-      {view.body}
-    </ToolWindow>, dock, view.id);
+    return dock ? createPortal(view.content, dock, view.id) : null;
   })}</>;
 }

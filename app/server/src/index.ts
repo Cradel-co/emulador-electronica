@@ -1,3 +1,4 @@
+import { leerFuentesMicroPython } from './micropythonSources.js';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import Fastify from 'fastify';
@@ -537,9 +538,12 @@ async function registerRoutes(): Promise<void> {
       const boardId = (req.query as { boardId?: string }).boardId;
       const elegida = placaDelProyecto(project, boardId);
       if (boardId && !elegida) throw new ProjectError('La placa no existe en este proyecto.', 404);
-      const files = await store.listFiles(name, elegida?.language ?? null, elegida?.id);
+      const [files, directories] = await Promise.all([
+        store.listFiles(name, elegida?.language ?? null, elegida?.id),
+        store.listDirectories(name, elegida?.language ?? null, elegida?.id),
+      ]);
       const placa = elegida ? await buscarPlaca(elegida.board) : undefined;
-      reply.send({ project, files, placa: placa ? await placaParaUi(placa) : null });
+      reply.send({ project, files, directories, placa: placa ? await placaParaUi(placa) : null });
     } catch (err) {
       fail(reply, err);
     }
@@ -588,6 +592,38 @@ async function registerRoutes(): Promise<void> {
       const elegida = placaParaArchivo(project, (req.query as { boardId?: string }).boardId);
       const content = await store.readFile(name, file, elegida.language, elegida.id);
       reply.send({ path: file, content });
+    } catch (err) {
+      fail(reply, err);
+    }
+  });
+
+  app.post('/api/projects/:name/directories', async (req, reply) => {
+    const { name } = req.params as { name: string };
+    const body = (req.body ?? {}) as { path?: unknown };
+    try {
+      if (typeof body.path !== 'string') throw new ProjectError('Indicá la ruta de la carpeta.', 400);
+      const project = await requireProject(name);
+      const elegida = placaParaArchivo(project, (req.query as { boardId?: string }).boardId);
+      const directory = await store.createDirectory(name, body.path, elegida.language, elegida.id);
+      broadcast({ type: 'project.changed', project: name, what: 'file', file: directory, boardId: elegida.id, origin: clienteDe(req) });
+      reply.code(201).send({ ok: true, path: directory });
+    } catch (err) {
+      fail(reply, err);
+    }
+  });
+
+  app.post('/api/projects/:name/files/*', async (req, reply) => {
+    const { name } = req.params as { name: string };
+    const file = (req.params as Record<string, string>)['*'] ?? '';
+    const body = (req.body ?? {}) as { content?: unknown };
+    try {
+      if (body.content !== undefined && typeof body.content !== 'string') throw new ProjectError('El contenido debe ser texto.', 400);
+      const project = await requireProject(name);
+      const elegida = placaParaArchivo(project, (req.query as { boardId?: string }).boardId);
+      const created = await store.createFile(name, file, elegida.language, body.content ?? '', elegida.id);
+      broadcast({ type: 'project.changed', project: name, what: 'file', file: created, boardId: elegida.id, origin: clienteDe(req) });
+      agendarAutoReload(project, elegida.id);
+      reply.code(201).send({ ok: true, path: created });
     } catch (err) {
       fail(reply, err);
     }
@@ -867,15 +903,17 @@ async function subirPorRepl(
   const generation = runGeneration;
   if (!artifacts.repl || !(target instanceof EmulatorManager) || !target.getStatus().running || runningProject !== full.name) return false;
   logBuild('Subiendo el código por el REPL…', boardId);
-  const rutas = full.language === 'micropython'
-    ? (await store.listFiles(full.name, full.language, boardId)).map(f => f.path).filter(f => f.endsWith('.py') && !artifacts.repl!.generados.some(g => g.path === f))
-    : artifacts.repl.delProyecto;
-  const delProyecto = await Promise.all(
-    rutas.map(async (ruta: string) => ({
-      path: ruta,
-      content: await store.readFile(full.name, ruta, full.language, boardId).catch(() => ''),
-    })),
-  );
+  let delProyecto: { path: string; content: string }[];
+  try {
+    delProyecto = full.language === 'micropython'
+      ? (await leerFuentesMicroPython(store.projectCodeDir(full.name, boardId))).files
+      : await Promise.all(artifacts.repl.delProyecto.map(async ruta => ({
+        path: ruta, content: await store.readFile(full.name, ruta, full.language, boardId),
+      })));
+  } catch (error) {
+    logBuild(`[error] no se pudo preparar el código: ${(error as Error).message}`, boardId);
+    return false;
+  }
   if (generation !== runGeneration || !target.getStatus().running || corridas.get(boardId) !== target || runningProject !== full.name) return false;
   const subida = await target.uploadMicroPython([...artifacts.repl.generados, ...delProyecto]);
   logBuild(subida.ok ? `Código subido (${subida.output}).` : `[error] no se pudo subir el código: ${subida.output}`, boardId);
