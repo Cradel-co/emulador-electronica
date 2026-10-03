@@ -1,6 +1,7 @@
 import { createRoot } from 'react-dom/client';
 import { createElement, type FunctionComponent } from 'react';
 import { flushSync } from 'react-dom';
+import { EditorPreferences } from './EditorPreferences.js';
 import { Lienzo } from './Lienzo.js';
 import { Avisos } from './Avisos.js';
 import { Catalogo } from './Catalogo.js';
@@ -37,6 +38,7 @@ const ISLAS: [string, FunctionComponent, boolean][] = [
   ['panel-modulo', PanelDerecho, false],
   ['menu', Menu, false],
   ['dlg-buscar', Paleta, false],
+  ['dlg-editor-preferences', EditorPreferences, false],
   ['tabs-archivos', Pestanas, false],
   ['miga', Miga, false],
   ['lista-notificaciones', Notificaciones, false],

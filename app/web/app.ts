@@ -2,6 +2,9 @@
 import { miniatura, ponerImagenPantalla } from './modulos.js';
 import { lenguajeDeArchivo, NOMBRE_LENGUAJE, resaltar } from './editor.js';
 import { crearDepuracion } from './depuracion.js';
+import { crearEditorMicroPython } from './editor-micropython.js';
+import { editorPreferences, subscribeEditorPreferences } from './editor-preferences.js';
+import { formatMicroPython } from './micropython-format.js';
 import { montarReact } from './react/montar.js';
 import { alLienzoListo, registrarAcciones, registrarCtx, registrarEstado, registrarMenu, registrarPaleta, registrarVistas } from './react/puente.js';
 import { ahora, notificar, observable } from './react/estado.js';
@@ -555,6 +558,50 @@ const editor = {
   lenguaje: 'texto',
 };
 
+let microPythonActivo = false;
+let proyectoEditor: string | null = null;
+const microPython = crearEditorMicroPython($('editor-micropython'), {
+  change: (text) => {
+    ta('editor').value = text; // puente para integraciones que leen el textarea legacy
+    state.editorSucio = true;
+    state.marcas.clear();
+    state.errores = [];
+    actualizarCuentaProblemas();
+    guardarAuto();
+  },
+  cursor: (line, column) => { $('pos-cursor').textContent = state.activo ? `${line}:${column}` : ''; },
+  breakpoint: (line) => depuracion?.alternarBreakpointEnCursor(line),
+});
+subscribeEditorPreferences(() => microPython.preferences(editorPreferences()));
+
+let formateandoMicroPython = false;
+async function formatearMicroPython() {
+  if (!microPythonActivo || !state.activo || formateandoMicroPython) return;
+  const proyecto = state.proyecto?.name;
+  const archivo = state.activo;
+  const revision = microPython.version();
+  const fuente = microPython.text();
+  const sangria = editorPreferences().indentWidth;
+  formateandoMicroPython = true;
+  notificar();
+  try {
+    const resultado = await formatMicroPython(fuente, archivo, sangria);
+    if (!microPythonActivo || state.proyecto?.name !== proyecto || state.activo !== archivo || microPython.version() !== revision || editorPreferences().indentWidth !== sangria) {
+      nota('El archivo cambió durante el formateo: se conservaron tus cambios.');
+      return;
+    }
+    microPython.format(resultado);
+  } catch (e) { nota(`No se pudo formatear: ${String((e as Error)?.message ?? e)}`); }
+  finally { formateandoMicroPython = false; notificar(); }
+}
+
+const contenidoEditor = () => microPythonActivo ? microPython.text() : ta('editor').value;
+const scrollEditor = () => microPythonActivo ? microPython.scroll() : ta('editor').scrollTop;
+function ponerScrollEditor(scroll: number) {
+  if (microPythonActivo) microPython.setScroll(scroll);
+  else ta('editor').scrollTop = scroll;
+}
+
 function pintarGutter() {
   const n = ta('editor').value.split('\n').length;
   if (n === editor.lineas) return;
@@ -568,6 +615,7 @@ function pedirEditor() {
 }
 
 function pintarEditor() {
+  if (microPythonActivo) return;
   cancelAnimationFrame(editor.frame);
   editor.frame = 0;
   const t = ta('editor');
@@ -578,6 +626,7 @@ function pintarEditor() {
 }
 
 function sincronizarScroll() {
+  if (microPythonActivo) return;
   const t = ta('editor');
   const r = $('resaltado');
   r.scrollTop = t.scrollTop;
@@ -590,6 +639,7 @@ function sincronizarScroll() {
 
 /** Resalta la línea del cursor y muestra "Ln, Col" en la barra de estado, como el IDE. */
 function pintarCursor() {
+  if (microPythonActivo) return;
   const t = ta('editor');
   const antes = t.value.slice(0, t.selectionStart);
   const linea = antes.split('\n').length;
@@ -601,9 +651,15 @@ function pintarCursor() {
 }
 
 function pintarMarcas() {
+  const erroresArchivo = state.errores.flatMap(e => e.line && (!e.file || e.file === state.activo || e.file.endsWith('/' + state.activo))
+    ? [{ line: e.line, message: e.message }] : []);
+  if (microPythonActivo) {
+    microPython.errors(erroresArchivo);
+    return;
+  }
   const cont = $('marcas');
   cont.textContent = '';
-  for (const [linea, msg] of state.marcas) {
+  for (const { line: linea, message: msg } of erroresArchivo) {
     const div = document.createElement('div');
     div.className = 'marca-error';
     div.style.top = `${(linea - 1) * ALTO_LINEA - ta('editor').scrollTop}px`;
@@ -629,11 +685,19 @@ function limpiarMarcas() {
   actualizarCuentaProblemas();
 }
 
-function editarContenido(contenido) {
+function editarContenido(contenido, preservarErrores = false) {
+  proyectoEditor = state.proyecto?.name ?? null;
+  microPythonActivo = /\.py$/i.test(state.activo ?? '');
+  $('editor-micropython').hidden = !microPythonActivo;
+  $('editor-micropython').parentElement.classList.toggle('con-micropython', microPythonActivo);
+  if (microPythonActivo) microPython.open(`${state.proyecto?.name}/${state.activo}`, contenido);
+  else microPython.hide();
   ta('editor').value = contenido;
   ta('editor').scrollTop = 0;
-  limpiarMarcas();
+  if (preservarErrores) pintarMarcas();
+  else limpiarMarcas();
   pintarEditor();
+  depuracion?.alCambiarArchivo();
 }
 
 /** Abre el archivo (si hace falta) y lleva el cursor a esa línea. */
@@ -642,6 +706,7 @@ async function irALinea(archivo, linea) {
   seleccionar(null);
   const destino = archivo && state.archivos.some((f) => f.path === archivo) ? archivo : state.activo;
   if (destino && destino !== state.activo) await abrirArchivo(destino);
+  if (microPythonActivo) { microPython.go(linea); return; }
   const t = ta('editor');
   const lineas = t.value.split('\n');
   let pos = 0;
@@ -663,7 +728,7 @@ async function guardar(silencioso = false) {
   try {
     await api(`/api/projects/${state.proyecto.name}/files/${state.activo}`, {
       method: 'PUT',
-      body: JSON.stringify({ content: ta('editor').value }),
+      body: JSON.stringify({ content: contenidoEditor() }),
     });
     state.editorSucio = false;
     if (!silencioso) log('build', `guardado ${state.activo}`);
@@ -682,11 +747,11 @@ async function abrirArchivo(ruta) {
   // Si mientras cargaba se cambió de proyecto, este contenido es de otro: no se muestra
   // (si no, el autoguardado lo escribiría en el proyecto equivocado).
   if (state.proyecto?.name !== proyecto) return;
+  const preservarErrores = proyectoEditor === proyecto && Boolean(state.activo) && state.activo !== ruta;
   state.activo = ruta;
   editor.lenguaje = lenguajeDeArchivo(ruta);
   $('lenguaje-status').textContent = NOMBRE_LENGUAJE[editor.lenguaje];
-  editarContenido(content);
-  depuracion?.alCambiarArchivo();
+  editarContenido(content, preservarErrores);
 }
 
 // --- Dibujo: consultas ------------------------------------------------------
@@ -1538,9 +1603,9 @@ async function aplicarCambioExterno(msg) {
         nota(`${msg.file} cambió afuera, pero tenés cambios sin guardar: se mantienen los tuyos.`);
       } else {
         const { content } = await api(`/api/projects/${nombre}/files/${msg.file}`);
-        const scroll = ta('editor').scrollTop;
+        const scroll = scrollEditor();
         editarContenido(content);
-        ta('editor').scrollTop = scroll;
+        ponerScrollEditor(scroll);
         nota(`${msg.file} actualizado ${msg.origin === 'mcp' ? 'por MCP' : 'desde otra pestaña'}.`);
       }
     }
@@ -2237,6 +2302,8 @@ const ACCIONES = [
   { id: 'nuevo', titulo: 'Nuevo proyecto…', menu: 'Archivo', hacer: abrirNuevoProyecto },
   { id: 'abrir', titulo: 'Abrir otro proyecto…', menu: 'Archivo', hacer: () => void irAInicio(), habilitada: hayProyecto },
   { id: 'guardar', titulo: 'Guardar', menu: 'Archivo', atajo: 'Ctrl+S', hacer: () => void guardar(false), habilitada: hayProyecto },
+  { id: 'formatear-micropython', titulo: 'Formatear MicroPython', menu: 'Editar', atajo: 'Ctrl+Shift+I', hacer: () => void formatearMicroPython(), habilitada: () => microPythonActivo && !formateandoMicroPython },
+  { id: 'ajustes-editor', titulo: 'Ajustes del editor…', menu: 'Editar', hacer: () => ($('dlg-editor-preferences') as HTMLDialogElement).showModal() },
   { id: 'importar', titulo: 'Importar módulos…', menu: 'Archivo', hacer: abrirImportador },
   {
     id: 'eliminar-proyecto', titulo: 'Eliminar este proyecto…', menu: 'Archivo',
@@ -2304,7 +2371,7 @@ const ACCIONES = [
     id: 'dbg-breakpoint', titulo: 'Poner / sacar breakpoint en esta línea', menu: 'Depurar', atajo: 'Ctrl+F8',
     hacer: () => {
       const t = ta('editor');
-      depuracion.alternarBreakpointEnCursor(t.value.slice(0, t.selectionStart).split('\n').length);
+      depuracion.alternarBreakpointEnCursor(microPythonActivo ? microPython.line() : t.value.slice(0, t.selectionStart).split('\n').length);
     },
     habilitada: () => Boolean(state.activo),
   },
@@ -2428,7 +2495,7 @@ $('dlg-buscar').addEventListener('click', (e) => {
   if (e.target === e.currentTarget) ($('dlg-buscar') as HTMLDialogElement).close(); // click en el fondo
 });
 $('buscar-todo').onclick = () => abrirPaleta();
-$('act-ajustes').onclick = () => ($('dlg-acerca') as HTMLDialogElement).showModal();
+$('act-ajustes').onclick = () => ($('dlg-editor-preferences') as HTMLDialogElement).showModal();
 $('bienvenida-acerca').onclick = () => ($('dlg-acerca') as HTMLDialogElement).showModal();
 $('bienvenida-importar').onclick = abrirImportador;
 
@@ -2514,7 +2581,8 @@ const depuracion = crearDepuracion({
   nombrePin: nombrePinGpio,
   altoLinea: ALTO_LINEA,
   padEditor: PAD_EDITOR,
-  scrollEditor: () => ta('editor').scrollTop,
+  scrollEditor,
+  pintarEditorDebug: (marks) => { if (!microPythonActivo) return false; microPython.debug(marks); return true; },
 });
 
 (async function main() {
