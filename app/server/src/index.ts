@@ -1126,6 +1126,7 @@ async function avisosDelProyecto(
     placa: EstadoPlaca | null;
     energizado: boolean;
     tensiones: Record<string, number>;
+    mediciones: { modulo: string; moduloNombre: string; elemento: string; tipo: string; tensionV: number; corrienteMa: number; potenciaMw: number; resistenciaOhm: number | null }[];
     /** Estado visible que decidió el modelo de cada módulo (`observar` → ui), con la física en vivo. */
     modulos: Record<string, { on?: boolean; brillo?: number }>;
   };
@@ -1160,6 +1161,20 @@ async function avisosDelProyecto(
     pins,
     electrico: {
       leds, fuentes, placa, energizado: proyectoEnergizado === project.name, tensiones: vivo.tensiones,
+      mediciones: vivo.elementos.map((e) => {
+        const inst = project.modules.find((m) => m.id === e.dueno);
+        const def = inst ? buscar(inst.type) : undefined;
+        return {
+          modulo: e.dueno,
+          moduloNombre: e.dueno === 'board' ? 'Placa' : def?.name ?? e.dueno,
+          elemento: e.local,
+          tipo: e.tipo,
+          tensionV: e.va - e.vb,
+          corrienteMa: e.i * 1000,
+          potenciaMw: e.p * 1000,
+          resistenciaOhm: e.ohms ?? null,
+        };
+      }),
       modulos: Object.fromEntries(Object.entries(vivo.modulos).map(([id, m]) => [id, m.ui ?? {}])),
     },
     warnings: [

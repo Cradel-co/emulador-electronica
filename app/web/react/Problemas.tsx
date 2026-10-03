@@ -1,6 +1,6 @@
 import { useEstado } from './estado.js';
 import { acciones, estado, vistas } from './puente.js';
-import { fmtMa, fmtV } from '../formato.js';
+import { fmtMa, fmtMw, fmtOhm, fmtV } from '../formato.js';
 
 /**
  * Cuatro pedazos que generaban HTML a mano (#9): los problemas (errores de compilación y avisos
@@ -69,6 +69,8 @@ const TITULO_MODO: Record<string, (f: any) => string> = {
 export function DebugAlimentacion() {
   const a = useEstado(() => estado().alimentacion as any);
   const fuentes = useEstado(() => estado().fuentes as any[]);
+  const mediciones = useEstado(() => estado().mediciones as MedicionElectrica[]);
+  const tensiones = useEstado(() => estado().tensiones as Record<string, number>);
   const energizado = useEstado(() => estado().energizado as boolean);
   const sinPlaca = vistas().sinPlaca();
 
@@ -82,36 +84,115 @@ export function DebugAlimentacion() {
           ? ['ok', a.via === 'usb' ? 'Por USB' : a.via === 'fuente' ? `Por ${a.fuenteId} (${a.pin})${a.consumoMa ? ` · consume ~${a.consumoMa} mA` : ''}` : 'Alimentada']
           : ['sin', a.estado === 'baja' ? 'Tensión insuficiente' : 'Sin alimentación'];
 
+  const fuenteActiva = fuentes.find((f) => f.id === a?.fuenteId);
+  const entradaUsb = mediciones.find((m) => m.modulo === 'board' && m.elemento === 'usb');
+  const tensionEntrada = a?.via === 'fuente' && fuenteActiva ? fuenteActiva.vSalida : a?.v ?? null;
+  const consumoMa = a?.via === 'usb'
+    ? (entradaUsb ? Math.abs(entradaUsb.corrienteMa) : null)
+    : a?.via === 'fuente' && fuenteActiva
+      ? fuenteActiva.mA
+      : null;
+  const potenciaMw = a?.via === 'usb'
+    ? (entradaUsb ? Math.abs(entradaUsb.potenciaMw) : null)
+    : a?.via === 'fuente' && fuenteActiva
+      ? fuenteActiva.potenciaW * 1000
+      : null;
+  const medicionesVisibles = mediciones.filter((m) => m.modulo !== 'board');
+  const pines = Object.entries(tensiones).sort(([a], [b]) => a.localeCompare(b, 'es'));
+
   return (
     <>
       <p className={`dbg-alim-placa ${clase}`} title={a?.mensaje ?? ''}>
         <b>{sinPlaca ? 'Circuito' : vistas().nombrePlaca()}</b> {texto}
       </p>
+      {!sinPlaca && a?.estado === 'ok' && (
+        <div className="dbg-alim-resumen" aria-label="Magnitudes de alimentación en vivo">
+          <div><span>Voltaje de entrada</span><b>{tensionEntrada == null ? '—' : fmtV(tensionEntrada)}</b></div>
+          <div><span>{a?.via === 'usb' ? 'Corriente USB' : 'Corriente fuente'}</span><b>{fmtMa(consumoMa)}</b></div>
+          <div><span>Potencia de entrada</span><b>{potenciaMw == null ? '—' : fmtMw(potenciaMw)}</b></div>
+        </div>
+      )}
+      <div className="dbg-medicion-ayuda">
+        <p>Se recalculan al presionar o soltar un control, cambiar una conexión o ajustar una propiedad del componente.</p>
+        <details>
+          <summary>¿Qué significa cada dato?</summary>
+          <ul>
+            <li><b>Voltaje de entrada:</b> tensión que llega desde USB o la fuente.</li>
+            <li><b>Corriente:</b> flujo eléctrico, expresado en mA. Valores muy pequeños se redondean.</li>
+            <li><b>ΔV:</b> diferencia de tensión entre los terminales del elemento.</li>
+            <li><b>Ω:</b> resistencia del elemento; “—” significa que no es una resistencia.</li>
+            <li><b>P:</b> potencia que disipa o entrega el elemento.</li>
+            <li><b>Tensión por pin:</b> voltaje medido respecto a GND.</li>
+          </ul>
+          <p>Son resultados calculados por la simulación, no lecturas de un instrumento físico. Un signo negativo indica sentido opuesto al de referencia del elemento.</p>
+        </details>
+      </div>
       {(fuentes ?? []).length > 0
         ? (
-          <table className="dbg-fuentes">
-            <thead><tr><th>Fuente</th><th>Ajuste</th><th>Salida</th><th>Consumo</th><th>Potencia</th><th>Modo</th></tr></thead>
-            <tbody>
-              {fuentes.map((f) => (
-                <tr key={f.id}>
-                  <td>{f.id}</td>
-                  <td>{fmtV(f.vAjuste)} · ≤{f.limiteMa ?? '—'} mA</td>
-                  <td>{fmtV(f.vSalida)}</td>
-                  <td><b>{fmtMa(f.mA)}</b></td>
-                  <td>{f.potenciaW.toFixed(2)} W</td>
-                  <td>
-                    <span className={`modo-fuente ${f.modo}`} title={(TITULO_MODO[f.modo] ?? (() => 'Voltaje constante'))(f)}>
-                      {f.modo}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <>
+            <h5 className="dbg-subtitulo">Fuentes regulables</h5>
+            <table className="dbg-fuentes">
+              <thead><tr><th>Fuente</th><th>Ajuste</th><th>Salida</th><th>Consumo</th><th>Potencia</th><th>Modo</th></tr></thead>
+              <tbody>
+                {fuentes.map((f) => (
+                  <tr key={f.id}>
+                    <td>{f.id}</td>
+                    <td>{fmtV(f.vAjuste)} · ≤{f.limiteMa ?? '—'} mA</td>
+                    <td>{fmtV(f.vSalida)}</td>
+                    <td><b>{fmtMa(f.mA)}</b></td>
+                    <td>{f.potenciaW.toFixed(2)} W</td>
+                    <td>
+                      <span className={`modo-fuente ${f.modo}`} title={(TITULO_MODO[f.modo] ?? (() => 'Voltaje constante'))(f)}>
+                        {f.modo}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </>
         )
         : <p className="dbg-vacio">Sin fuentes regulables en el circuito.</p>}
+      <details className="dbg-mediciones">
+        <summary>Componentes · {medicionesVisibles.length} mediciones</summary>
+        {medicionesVisibles.length > 0
+          ? (
+            <table>
+              <thead><tr><th>Componente</th><th title="Caída de tensión entre terminales">ΔV</th><th title="Corriente en miliamperios">mA</th><th title="Resistencia en ohmios">Ω</th><th title="Potencia en mW o W">P</th></tr></thead>
+              <tbody>
+                {medicionesVisibles.map((m) => (
+                  <tr key={`${m.modulo}.${m.elemento}`}>
+                    <td title={`${m.tipo} · ${m.modulo}.${m.elemento}`}><b>{m.moduloNombre}</b><small>{m.modulo}.{m.elemento}</small></td>
+                    <td>{fmtV(m.tensionV)}</td>
+                    <td>{fmtMa(m.corrienteMa)}</td>
+                    <td>{fmtOhm(m.resistenciaOhm)}</td>
+                    <td>{fmtMw(m.potenciaMw)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )
+          : <p className="dbg-vacio">Todavía no hay mediciones de componentes.</p>}
+      </details>
+      <details className="dbg-mediciones dbg-tensiones">
+        <summary>Tensión por pin respecto a GND · {pines.length}</summary>
+        {pines.length > 0
+          ? <ul>{pines.map(([pin, v]) => <li key={pin}><span>{pin}</span><b>{fmtV(v)}</b></li>)}</ul>
+          : <p className="dbg-vacio">No hay pines cableados para medir.</p>}
+      </details>
     </>
   );
+}
+
+interface MedicionElectrica {
+  modulo: string;
+  moduloNombre: string;
+  elemento: string;
+  tipo: string;
+  tensionV: number;
+  corrienteMa: number;
+  potenciaMw: number;
+  resistenciaOhm: number | null;
 }
 
 type Importacion =

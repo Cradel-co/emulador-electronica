@@ -125,6 +125,10 @@ const state = observable({
   /** Lo que entrega cada fuente regulable ahora (GET /pins → electrico.fuentes): V, mA, W, modo CV/CC. */
   /** Proyecto sin placa: ¿el circuito está energizado (▶)? (GET /pins → electrico.energizado) */
   energizado: false,
+  /** Mediciones del solver por elemento (GET /pins → electrico.mediciones), actualizadas con el circuito. */
+  mediciones: ([] as { modulo: string; moduloNombre: string; elemento: string; tipo: string; tensionV: number; corrienteMa: number; potenciaMw: number; resistenciaOhm: number | null }[]),
+  /** Voltajes del solver por pin cableado (GET /pins → electrico.tensiones). */
+  tensiones: ({} as Record<string, number>),
   /** Lo que el modelo de cada módulo decidió mostrar (`observar` → ui), según la física en vivo. */
   uiModulos: new Map<string, { on?: boolean; brillo?: number }>(),
   fuentes: ([] as { id: string; vAjuste: number; limiteMa: number | null; demandaMa: number | null; mA: number | null; vSalida: number; potenciaW: number; modo: string }[]),
@@ -1614,6 +1618,8 @@ async function refrescarAvisos() {
     state.avisosDibujo = warnings;
     state.electrico = new Map((respuesta.electrico?.leds ?? []).map((l) => [l.id, l]));
     state.fuentes = respuesta.electrico?.fuentes ?? [];
+    state.mediciones = respuesta.electrico?.mediciones ?? [];
+    state.tensiones = respuesta.electrico?.tensiones ?? {};
     state.uiModulos = new Map(Object.entries(respuesta.electrico?.modulos ?? {}));
     state.alimentacion = respuesta.electrico?.placa ?? null;
     const energizado = Boolean(respuesta.electrico?.energizado);
