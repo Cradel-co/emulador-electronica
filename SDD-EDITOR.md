@@ -239,3 +239,35 @@ registra e inyecta `FileExplorer` y `Catalogo` en esa estructura y los coloca en
 portales; agregar otro contenido no requiere mezclar su interfaz con la de estas herramientas.
 La normalización de preferencias vive en `tool-windows.ts`, separada de los efectos de `app.ts`.
 Las pruebas de movimiento y persistencia están en `app/tests/e2e/tool-window.spec.ts`.
+
+### Acoplamiento por arrastre y distribución por proyecto
+
+Las cinco ventanas —Explorador, Componentes, Circuito, Código/propiedades y Consola— tienen
+un botón de agarre `⠿`. Mantenerlo presionado y arrastrar muestra una vista previa: soltar en
+un borde divide ese grupo, y soltar en el centro agrupa ventanas en pestañas. Escape o soltar
+fuera de un destino válido cancela el movimiento. Los separadores ajustan las proporciones.
+
+`docking-layout.ts` representa la distribución como un árbol de grupos y divisiones, con
+operaciones puras de movimiento, activación, apertura y redimensionamiento. La normalización
+rechaza árboles incompletos, duplicados, profundos o con tamaños inválidos. `DockWorkspace`
+pinta esa estructura y reubica los nodos originales en sus slots; conserva las raíces React,
+el editor CodeMirror, el SVG del circuito y los controles de consola sin reiniciar su estado.
+Los cambios de distribución no llaman al backend de compilación o de ejecución.
+
+`docking-storage.ts` guarda la distribución y el filtro de Componentes en el almacenamiento
+local del navegador, con claves distintas por proyecto. Un proyecto sin distribución propia
+recibe una copia del predeterminado al abrirse. Cambiar el predeterminado no modifica los
+proyectos que ya guardaron su distribución. Borrar un proyecto desde la interfaz limpia esa
+preferencia para que recrear su nombre reciba el predeterminado.
+
+Configuración → Distribución de ventanas permite guardar el diseño actual como predeterminado,
+restaurar el proyecto al predeterminado y restablecer el predeterminado original. El editor
+conserva su entrada separada en Configuración. Las pruebas puras de modelo y almacenamiento
+están en `docking-layout.test.ts` y `docking-storage.test.ts`; las de navegador en `docking.spec.ts`.
+
+Validación de docking: **758 pruebas Vitest** en 55 archivos; typechecks web/server y build web
+aprobados. La pasada general de Playwright aprobó 101 casos, omitió 11 optativos de firmware y
+señaló un selector duplicado por un separador antiguo oculto. Se retiraron los separadores
+obsoletos y ese caso pasó al repetirse. La pasada final de docking aprobó sus 7 casos,
+incluido Escape y soltar fuera, para **103 casos distintos de interfaz verificados**.
+El servidor sigue activo con `pnpm run dev` en el puerto 5180.
