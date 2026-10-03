@@ -1,9 +1,15 @@
 // Copia de las consultas antes de extraerlas: oráculo independiente de equivalencia.
-export function consultasOriginales(state) {
+interface EstadoOriginal {
+  placa: { board: { pins?: Record<string, { gpio?: number }> } } | null;
+  diagrama: { wires: { from: string; to: string }[]; modules: { id: string; type: string }[] };
+  catalogo: Map<string, { passthrough?: boolean; pins: { name: string }[] }>;
+}
+
+export function consultasOriginales(state: EstadoOriginal) {
   const BOARD_ID = 'board';
   const descriptorPlaca = () => state.placa?.board ?? null;
-  const cablesDe = (ref) => state.diagrama.wires.filter(w => w.from === ref || w.to === ref);
-  function gpioDeRef(ref) {
+  const cablesDe = (ref: string) => state.diagrama.wires.filter(w => w.from === ref || w.to === ref);
+  function gpioDeRef(ref: string): number | null {
     if (!ref.startsWith(`${BOARD_ID}.`)) return null;
     const pin = ref.slice(BOARD_ID.length + 1);
     const d = descriptorPlaca();
@@ -14,14 +20,14 @@ export function consultasOriginales(state) {
     const m = /^GPIO(\d{1,2})$/.exec(pin);
     return m ? Number(m[1]) : null;
   }
-  
-  function nombrePinGpio(g) {
+
+  function nombrePinGpio(g: number): string {
     const d = descriptorPlaca();
     const nombre = d?.pins && Object.keys(d.pins).find((k) => d.pins[k]?.gpio === g);
     return nombre ?? `GPIO${g}`;
   }
-  
-  function gpioDe(id, pin, visitados = new Set()) {
+
+  function gpioDe(id: string, pin: string, visitados = new Set<string>()): number | null {
     const ref = `${id}.${pin}`;
     if (visitados.has(ref)) return null; // corta un lazo
     visitados.add(ref);
