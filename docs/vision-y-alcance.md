@@ -12,16 +12,17 @@ Assistant ni algo atado a ESPHome. La idea de uso real:
    acá y ves cómo se comporta y cómo interactúa con el resto del circuito.
 2. Armás un proyecto combinando módulos del catálogo (los de fábrica, o los que
    importaste) más el código que quieras escribir vos.
-3. La app tiene que **emular todo con exactitud** — no solo mostrar un dibujo lindo:
-   el circuito tiene que comportarse eléctricamente como en la vida real (ver
-   [`motor-electrico.md`](motor-electrico.md): ngspice resuelve todo el circuito con
-   Ohm, Kirchhoff y la conservación de la energía, no una aproximación visual) y el
-   código tiene que correr en un emulador real del chip, no en un intérprete inventado.
+3. La meta es que el circuito se comporte eléctricamente como en la vida real y que el
+   código corra en un emulador del chip, no en un intérprete inventado. Cada resultado
+   depende de los componentes y fenómenos que estén modelados: el estado actual y sus
+   límites se documentan abajo y en [`motor-electrico.md`](motor-electrico.md). No se
+   promete exactitud física universal para cualquier circuito o componente.
 4. Al final, la app tiene que poder darte **el esquemático final de todo conectado y
-   andando** — y ese esquemático tiene que llevar todos los valores del circuito
-   (props de cada módulo, cableado completo, corrientes y tensiones calculadas), en
-   un formato que un agente/IA pueda leer y examinar, no solo una imagen para mirar.
-   **Esto todavía no existe** — ver "Pendiente" más abajo.
+   andando**, con propiedades, cableado y mediciones calculadas en un formato legible
+   por una persona o un agente/IA. Ya se pueden consultar mediciones eléctricas en vivo
+   en la aplicación y en la API de pines; falta incorporarlas al resultado de
+   `ver_proyecto` y ofrecer una exportación final del esquemático. Ver "Pendiente" más
+   abajo.
 
 ESPHome es **una de las opciones**, no una dependencia de la arquitectura. Ver
 `shared/src/languages.ts` → `LANGUAGES`: **ESPHome (YAML), ESP-IDF (C), ESP-IDF (C++),
@@ -69,6 +70,28 @@ las transacciones pasan por UART y no conservan los tiempos del bus real. Ver
 
 El ESP32 clásico (Xtensa LX6) sigue sin poder emularse: `esp-emu` no lo soporta.
 
+## Cobertura de electrónica
+
+El producto es hoy un **entorno de prototipado con simulación eléctrica y ejecución de
+firmware**, no un curso interactivo que enseñe estos temas paso a paso. La cobertura
+implementada es la siguiente:
+
+| Tema | Estado actual | Límite o faltante |
+|---|---|---|
+| **Ley de Ohm y leyes de Kirchhoff** | Implementadas por el motor ngspice para redes de CC. Se comprueban circuitos en serie y paralelo, mallas y puentes; las pruebas verifican corrientes de nodo y conservación de energía. | El resultado solo es tan completo como los modelos físicos conectados y el tipo de análisis disponible. |
+| **Resistencias** | Hay una resistencia configurable y se calculan su caída, corriente y potencia. | No se simula temperatura ni cambio de valor por calentamiento. |
+| **Capacitores e inductores** | El SDK de modelos admite primitivas de capacitor e inductor. | No hay módulos de catálogo ni simulación temporal: en el análisis actual se comportan como circuito abierto y cable, respectivamente. No se muestran carga, descarga, filtros ni transitorios. |
+| **Diodos y transistores** | Los LED tienen un modelo no lineal con polaridad y curva de corriente; la placa incluye diodos de protección. El relé modela su bobina y contacto controlado. | No existe un catálogo general de diodos ni transistores discretos (BJT/MOSFET) que el usuario pueda añadir como componentes. |
+| **CC y CA** | Las fuentes regulables simulan tensión continua ajustable, límite de corriente, modo CV/CC y polaridad. | No hay fuentes sinusoidales, análisis de CA/frecuencia ni formas de onda transitorias. |
+| **Analógico y digital** | El firmware de las placas soportadas acciona salidas y lee entradas digitales. El motor calcula tensión de pines y aplica umbrales lógicos de cada placa; el gráfico de pines en Debug traza niveles digitales 0/1 como analizador lógico simplificado. | Las lecturas ADC (`analogRead`, `sensor: adc`) aún no salen de la tensión resuelta por el circuito; no hay un catálogo genérico de compuertas TTL/CMOS. El gráfico lógico no sustituye una forma de onda de voltaje. Ver [cómo leer los niveles de pin](depuracion.md). |
+| **Topologías y prototipado** | El lienzo permite colocar módulos y cablear pines; se resuelven redes con ramas y mallas sin limitarse a un camino fuente-carga. | No existe un modelo físico de breadboard con filas y rieles internos. El lienzo no reemplaza todavía un editor/exportador de esquemáticos eléctricos estándar. |
+| **Potencia, fuentes y consumo** | Se modelan alimentación USB y fuentes regulables con límite, reguladores de placas y consumo de módulos. La UI muestra tensión, corriente, resistencia y potencia calculadas, además de tensión por pin. | Son valores de simulación basados en parámetros/modelos, no mediciones de hardware real. Los modelos térmicos y el daño acumulado están pendientes. |
+
+El detalle de las ecuaciones, modelos y pruebas está en [`motor-electrico.md`](motor-electrico.md).
+La descripción de fuentes, alimentación de placa y lecturas en vivo está en
+[`fuentes-de-alimentacion.md`](fuentes-de-alimentacion.md). El catálogo concreto está en
+[`../modules/README.md`](../modules/README.md).
+
 ## Qué NO es (todavía) — límite real, no de diseño
 
 **No emula cualquier chip.** Cada familia necesita un motor de CPU real: hoy hay dos
@@ -85,11 +108,12 @@ estén, una placa de otra familia se puede cargar igual y queda en "solo dibujo"
   separar las responsabilidades que siguen en `app/web/app.ts`, siguiendo las
   [reglas de arquitectura](arquitectura-web.md).
 
-- **Esquemático final exportable con todos los valores.** Hoy `ver_proyecto` (MCP) ya
-  devuelve el circuito completo en JSON (módulos, props, cableado, avisos) — falta
-  sumarle los valores eléctricos calculados (corriente y tensión por rama, no solo
-  los avisos de peligro) y una exportación visual (PNG/SVG/PDF) del circuito ya
-  armado, pensada para imprimir o adjuntar, no para seguir editando.
+- **Esquemático final exportable con todos los valores.** Hoy la ventana Debug y
+  `GET /api/projects/:nombre/pins` muestran mediciones eléctricas en vivo (tensión,
+  corriente y potencia de la alimentación; mediciones por componente; tensión por pin).
+  `ver_proyecto` (MCP) devuelve el circuito en JSON (módulos, propiedades, cableado y
+  avisos), pero todavía falta incluir allí el detalle completo de las mediciones y crear
+  una exportación visual PNG/SVG/PDF pensada para imprimir o adjuntar.
 - **Más familias de chips** (RP2040, STM32, nRF52...): motor Renode + toolchain PlatformIO
   (preparados, sin implementar). Más placas AVR (Nano, Pro Mini) ya son solo datos.
 - Puente para ESP-IDF/Arduino-ESP32 (hoy en C/C++ las entradas no llegan al código) y
@@ -100,9 +124,14 @@ estén, una placa de otra familia se puede cargar igual y queda en "solo dibujo"
 - Más chips SPI: e-paper y SD. El bus del Uno y la TFT ST7735 ya están implementados.
 - Catálogo con más partes reales (motores, buzzers, más sensores) — cada una con su
   `model.js`, ver [`modulos-y-su-codigo.md`](modulos-y-su-codigo.md).
-- **Motor eléctrico, siguiente fase:** análisis transitorio (capacitores que se cargan,
-  PWM, el clic del relé), que lo que el firmware lee (entradas, ADC) salga del motor, y
-  modelos térmicos (ver los límites en [`motor-electrico.md`](motor-electrico.md)).
+- **Ampliar la simulación eléctrica:** análisis transitorio para capacitores, inductores,
+  PWM y tiempos de conmutación (por ejemplo, el clic del relé); fuentes y análisis de CA;
+  modelos de transistores y otros semiconductores; y lecturas ADC derivadas del voltaje
+  calculado por el motor. Los modelos térmicos también quedan pendientes (ver los
+  límites en [`motor-electrico.md`](motor-electrico.md)).
+- **Prototipado y documentación del circuito:** decidir si el alcance necesita una
+  breadboard con conexiones internas, y completar la exportación de esquemáticos con
+  propiedades, conexiones y mediciones para PNG/SVG/PDF y para `ver_proyecto` (MCP).
 
 ## Documentos relacionados
 
