@@ -42,6 +42,7 @@ export interface Acciones {
   agregarPlaca: () => void;
   nuevoArchivo: (parent?: string) => void;
   nuevaCarpeta: (parent?: string) => void;
+  actualizarExplorador: () => Promise<void>;
   crearEntrada: (name: string, kind: EntryKind) => Promise<void>;
   importarModulos: () => void;
   mostrarHerramienta: (id: 'explorador' | 'componentes', visible?: boolean) => void;

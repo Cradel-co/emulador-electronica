@@ -827,18 +827,25 @@ body.depuracion-parada .punto-estado { background: var(--azul); box-shadow: 0 0 
 .tool-window { flex: 1 1 0; min-height: 100px; }
 .tool-window[hidden] { display: none; }
 .tool-window .panel-header { flex-shrink: 0; }
-.explorador-archivos { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: auto; padding: 10px 8px; }
-.explorador-archivos ul { list-style: none; margin: 0; padding: 0 0 0 12px; }
-.file-explorer-tree > ul { padding-left: 0; }
-.explorador-archivos button { display: block; width: 100%; text-align: left; padding: 4px 8px; border: none; background: transparent; font-size: 12px; border-radius: 4px; }
-.explorador-archivos button.activa { background: var(--seleccion, #264faa); }
-.explorador-archivos summary { padding: 4px; cursor: pointer; font-size: 12px; }
-.explorador-archivos p { font-size: 12px; color: var(--tenue); }
-.file-entry-icon { width: 15px; height: 15px; flex-shrink: 0; vertical-align: middle; margin-right: 5px; }
-.explorador-archivos summary.activa { background: var(--seleccion, #264faa); border-radius: 4px; }
-.explorer-toolbar { display: flex; gap: 4px; justify-content: flex-end; flex-shrink: 0; }
-.explorer-toolbar button { display: inline-flex; width: auto; align-items: center; padding: 4px 6px; }
-.explorer-toolbar .file-entry-icon { margin-right: 0; }
+.explorador-archivos { --explorer-indent: 12px; --explorer-row-height: 22px; display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: auto; padding: 4px 3px; }
+.explorador-archivos ul { list-style: none; margin: 0; padding: 0 0 0 var(--explorer-indent); }
+.explorador-archivos li { margin: 0; padding: 0; }
+.explorador-archivos button { border: 0; background: transparent; border-radius: 3px; font-size: 12px; }
+.explorador-archivos li > button { display: flex; align-items: center; justify-content: flex-start; gap: 6px; width: 100%; height: var(--explorer-row-height); text-align: left; padding: 0 4px 0 18px; }
+.explorador-archivos li > button.activa { background: var(--seleccion, #264faa); }
+.explorador-archivos summary { display: flex; align-items: center; gap: 5px; height: var(--explorer-row-height); padding: 0 4px; cursor: pointer; font-size: 12px; border-radius: 3px; white-space: nowrap; }
+.explorador-archivos summary::marker, .explorador-archivos summary::-webkit-details-marker { display: none; content: ''; }
+.explorador-archivos summary:hover { background: var(--hover); }
+.explorador-archivos summary.activa { background: var(--sel); outline: 1px solid #47768c; outline-offset: -1px; }
+.explorador-archivos p { font-size: 12px; color: var(--tenue); padding: 0 6px; }
+.file-entry-icon { width: 15px; height: 15px; flex-shrink: 0; vertical-align: middle; }
+.tree-chevron { width: 12px; height: 12px; color: var(--tenue); flex: none; }
+.explorador-archivos details[open] > summary > .tree-chevron { transform: rotate(90deg); }
+.explorer-entry-name, .explorer-root-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.explorer-toolbar { display: flex; align-items: center; gap: 3px; flex-shrink: 0; color: var(--tenue); }
+.explorer-toolbar button { display: inline-flex; align-items: center; justify-content: center; width: 19px; height: 19px; padding: 2px; color: inherit; }
+.explorer-toolbar button:hover { background: var(--hover); }
+.explorer-toolbar button:focus-visible, .explorador-archivos summary:focus-visible { outline: 1px solid var(--acento); outline-offset: -1px; }
 
 #tabs-archivos > .nuevo-archivo { position: sticky; right: -6px; margin-left: auto; z-index: 4; background: var(--isla); min-width: 38px; justify-content: center; box-shadow: -8px 0 10px var(--isla); }
 #tabs-archivos > .nuevo-archivo::before { display: none; }
@@ -858,3 +865,9 @@ body.depuracion-parada .punto-estado { background: var(--azul); box-shadow: 0 0 
 .editor-tabs > .tw-ocultar::before { display: none; }
 
 .file-explorer-tree { flex: 1; min-height: 0; }
+.explorer-root-row { display: flex; align-items: center; gap: 4px; flex: 1; min-width: 0; }
+.explorer-root-name { flex: 1; }
+.explorer-project-root > summary .explorer-root-name { font-weight: 600; }
+.explorer-group-children { padding-left: var(--explorer-indent); }
+.explorer-board-root > summary { color: #c5a65b; }
+.explorer-board-root > .explorer-group-children > ul { padding-left: 0; }

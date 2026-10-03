@@ -212,6 +212,7 @@ registrarAcciones({
   reemplazarQuemado: (id) => reemplazarQuemado(id),
   abrirArchivo: (ruta) => { seleccionar(null); void abrirArchivo(ruta); },
   nuevoArchivo: abrirNuevoArchivo,
+  actualizarExplorador,
   nuevaCarpeta: parent => abrirCreacionEntrada('directory', parent),
   crearEntrada,
   importarModulos: abrirImportador,
@@ -1998,6 +1999,20 @@ async function irAInicio() {
 
 /** Cuenta las aperturas: si se pide otro proyecto mientras uno carga, la carga vieja se descarta. */
 let aperturas = 0;
+
+/** Actualiza el árbol de la placa sin reiniciar el editor, el circuito ni la simulación. */
+async function actualizarExplorador(): Promise<void> {
+  const project = state.proyecto?.name;
+  const boardId = state.placaActivaId;
+  if (!project || !boardId) return;
+  await guardar();
+  const result = await api(`/api/projects/${encodeURIComponent(project)}?boardId=${encodeURIComponent(boardId)}`);
+  if (state.proyecto?.name !== project || state.placaActivaId !== boardId) return;
+  ahora(() => {
+    state.archivos = result.files.filter((file: { path: string }) => !/(^|\/)(secrets\.yaml|project\.json)$/.test(file.path));
+    state.carpetas = result.directories ?? [];
+  });
+}
 
 async function abrirProyecto(nombre) {
   const mia = ++aperturas;
