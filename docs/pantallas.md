@@ -4,15 +4,40 @@
 > módulo de pantalla (...) deja documentada cada una de las posibilidades, y sumale la
 > e-paper, independientemente la medida, para evaluarlo más adelante".
 
-> **Actualización (2026-10-01): la opción 3 ya está, en el Arduino Uno.** El módulo
-> `oled-ssd1306-128x64` lleva el chip `chips/solomon-ssd1306`: el firmware real (Adafruit_SSD1306)
-> le habla por I2C y la imagen se dibuja sobre el vidrio del módulo en el circuito (coincide píxel
-> por píxel con el búfer de la librería). Cómo se resolvieron las barreras: B1, el chip publica la
-> imagen (`ctx.publicar`) y la app la pinta sobre `data-pantalla`; B2, en el Uno el I2C del
-> ATmega328P ya llega a los chips (en los ESP32 sigue faltando); B3, la lógica va en un
-> comportamiento de chip, con eventos de bus, no en el modelo eléctrico; B4, la app arma el PNG y
-> cambia solo esa imagen, sin redibujar el circuito. El resto de este documento queda como el
-> análisis original y para las demás opciones (7 segmentos, LCD, e-paper).
+## Estado actual (2026-10-03)
+
+| Pantalla | Arduino Uno | ESP32 con MicroPython | ESP32 con ESPHome / ESP-IDF / Arduino |
+|---|---|---|---|
+| OLED SSD1306 128×64 (`oled-ssd1306-128x64`) | I2C emulado por el TWI del ATmega328P | I2C por el puente de `machine.I2C` / `SoftI2C` | Sin soporte de chips hacia el dibujo |
+| TFT ST7735 128×160 (`tft-st7735-128x160`) | SPI emulado: D13 SCK, D11 MOSI; CS/DC/RESET en GPIO | SPI por el puente de `machine.SPI` / `SoftSPI` | Sin soporte de chips hacia el dibujo |
+| 7 segmentos / matriz LED | Pendiente | Pendiente | Pendiente |
+| LCD HD44780 | Pendiente | Pendiente | Pendiente |
+| E-paper | Pendiente: falta elegir y emular un controlador concreto | Ídem | Además falta soporte del bus hacia el dibujo |
+
+Los controladores viven en `chips/solomon-ssd1306` y `chips/sitronix-st7735`;
+la electrónica de cada placa vive en su `model.js`. Publican el framebuffer con
+`ctx.publicar`, y la app actualiza una imagen sobre `data-pantalla` sin reconstruir
+el circuito. La TFT publica RGB565 y admite las variantes de panel negra/roja/verde.
+Los tests versionados comparan las pantallas del Uno con los búferes de las librerías
+Adafruit. El soporte y sus límites están en [`../chips/README.md`](../chips/README.md).
+
+En MicroPython los pines del programa deben coincidir con los cables del dibujo.
+El puente UART no reproduce los tiempos físicos de una transacción I2C/SPI. En el Uno,
+una TFT que redibuja toda la pantalla puede correr más lento que el tiempo real;
+ver las mediciones en el README de chips.
+
+Para e-paper ya existen SPI, sandbox de chips y publicación de imágenes. El trabajo
+pendiente es el controlador y el módulo concreto, incluyendo BUSY, refresco y persistencia
+de la imagen sin alimentación. Para 7 segmentos sigue pendiente la representación de
+estado por partes; para LCD, el controlador y su representación visual.
+
+## Análisis original (2026-10-01)
+
+**Las barreras, costos y orden sugerido que siguen describen el estado anterior a los
+buses y pantallas implementados.** Se conservan como contexto de diseño; para decidir
+el próximo trabajo, usar el estado actual de arriba. B2 ya se resolvió en el Uno y en
+ESP32 con MicroPython, B3 con los comportamientos de chip y B4 con el render incremental.
+B1 se resolvió para framebuffers mediante la salida del chip, sin ampliar `ui` a partes.
 
 Cuando se escribió, **no había ningún módulo de pantalla** en el catálogo, y no era un olvido: la
 plataforma no tenía las piezas para representar una. Este documento explica cuáles faltaban y
@@ -49,8 +74,8 @@ El protocolo por UART1 es `@IN <pin> <nivel>` / `@OUT <pin> <nivel>`
 de bus.
 
 `PIN_CAPS` incluye `i2c` y `spi`, pero eso es metadata de qué sabe hacer un pin de la placa,
-no un bus emulado. El [README](../README.md) ya declara "Sin I2C/SPI hacia el dibujo" como
-límite conocido del Arduino Uno.
+no un bus emulado. En ese momento el Arduino Uno aún no tenía buses hacia los chips del dibujo;
+actualmente tiene I2C y SPI.
 
 Del lado del firmware hay que interceptar el bus, y el costo depende del lenguaje:
 
