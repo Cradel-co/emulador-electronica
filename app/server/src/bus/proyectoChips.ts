@@ -63,6 +63,7 @@ export function entornoDe(chip: ChipCatalogo, guardado: Record<string, number> =
 export function chipsDelProyecto(
   project: Project, buscar: BuscarDef, desc: BoardDescriptor | undefined, catalogo: ChipCatalogo[] = cargarChips(),
   encendido?: (id: string) => boolean | undefined,
+  boardId = 'board',
 ): ResultadoChips {
   const chips: ChipEnBus[] = [];
   const avisos: string[] = [];
@@ -83,7 +84,7 @@ export function chipsDelProyecto(
       const delModulo = (pinChip: string): string | undefined => Object.entries(uso.pines).find(([, c]) => c === pinChip)?.[0];
       const gpioChip = (pinChip: string | undefined): number | null => {
         const pm = pinChip === undefined ? undefined : delModulo(pinChip);
-        return pm === undefined ? null : gpioDe(project, inst.id, pm, buscar);
+        return pm === undefined ? null : gpioDe(project, inst.id, pm, buscar, boardId);
       };
       // Un chip con dos buses (el BME280 habla I2C o SPI) queda en el que esté cableado.
       const matriz = !!project.language && (desc?.buses?.matriz ?? []).includes(project.language);
@@ -110,7 +111,7 @@ export function chipsDelProyecto(
         entorno: entornoDe(chip, inst.entorno),
         alimentado,
         maxHz: i2c.estado === 'ok' ? chip.i2c?.maxHz : undefined,
-        pinesGpio: pinesAlMicro(project, inst.id, uso, buscar, [chip.i2c?.sda, chip.i2c?.scl, chip.spi?.sck, chip.spi?.mosi, chip.spi?.miso]),
+        pinesGpio: pinesAlMicro(project, inst.id, uso, buscar, [chip.i2c?.sda, chip.i2c?.scl, chip.spi?.sck, chip.spi?.mosi, chip.spi?.miso], boardId),
         pullUps: uso.pullUps,
         diferirEscrituras: i2c.estado === 'ok' ? chip.i2c?.diferirEscrituras : undefined,
         spi: spi.estado === 'ok' ? spi.config : undefined,
@@ -137,11 +138,11 @@ function propsDe(project: Project, id: string, def: ModuleDef, uso: UsoChip, bus
 }
 
 /** Pin del chip → GPIO del micro, para los pines del módulo cableados a la placa (sin contar el bus). */
-function pinesAlMicro(project: Project, id: string, uso: UsoChip, buscar: BuscarDef, delBus: (string | undefined)[]): Record<string, number> {
+function pinesAlMicro(project: Project, id: string, uso: UsoChip, buscar: BuscarDef, delBus: (string | undefined)[], boardId = 'board'): Record<string, number> {
   const out: Record<string, number> = {};
   for (const [pinModulo, pinChip] of Object.entries(uso.pines)) {
     if (delBus.includes(pinChip)) continue; // SDA/SCL los maneja el bus, no el chip por su cuenta
-    const g = gpioDe(project, id, pinModulo, buscar);
+    const g = gpioDe(project, id, pinModulo, buscar, boardId);
     if (g !== null) out[pinChip] = g;
   }
   return out;

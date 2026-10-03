@@ -2,6 +2,8 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import {
   defaultProject,
+  BOARD_MODULE_ID,
+  PROJECT_BOARD_ID_RE,
   proyectoSinPlaca,
   isAllowedFileName,
   isValidProjectName,
@@ -52,7 +54,7 @@ function isHiddenFile(rel: string): boolean {
 }
 
 export class ProjectStore {
-  readonly root = PATHS.projects;
+  constructor(readonly root = PATHS.projects) {}
 
   async init(): Promise<void> {
     await fs.mkdir(this.root, { recursive: true });
@@ -63,6 +65,41 @@ export class ProjectStore {
       throw new ProjectError(`Nombre de proyecto inválido: ${name}`, 400);
     }
     return path.join(this.root, name);
+  }
+
+  /** La placa histórica usa la raíz; las adicionales tienen código independiente. */
+  projectCodeDir(name: string, boardId = BOARD_MODULE_ID): string {
+    if (!PROJECT_BOARD_ID_RE.test(boardId)) throw new ProjectError('Id de placa inválido', 400);
+    const projectDir = this.projectDir(name);
+    return boardId === BOARD_MODULE_ID ? projectDir : path.join(projectDir, 'boards', boardId);
+  }
+
+  /** Rechaza enlaces simbólicos en proyectos/código; la raíz configurada es de confianza. */
+  private async assertSafePath(full: string): Promise<void> {
+    const root = path.resolve(this.root);
+    const relative = path.relative(root, path.resolve(full));
+    if (relative.startsWith('..') || path.isAbsolute(relative)) throw new ProjectError('Ruta fuera de proyectos', 403);
+    let current = root;
+    for (const segment of relative.split(path.sep).filter(Boolean)) {
+      current = path.join(current, segment);
+      const stat = await fs.lstat(current).catch((error: NodeJS.ErrnoException) => {
+        if (error.code === 'ENOENT') return null;
+        throw error;
+      });
+      if (!stat) return;
+      if (stat.isSymbolicLink()) throw new ProjectError('No se permiten enlaces simbólicos en proyectos', 403);
+    }
+  }
+
+  /** Valida toda la plantilla antes de copiar para que un rechazo no deje copias parciales. */
+  private async assertSafeTemplate(dir: string): Promise<void> {
+    await this.assertSafePath(dir);
+    const entries = await fs.readdir(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.name.startsWith('.')) continue;
+      if (entry.isSymbolicLink()) throw new ProjectError('La plantilla contiene enlaces simbólicos', 403);
+      if (entry.isDirectory()) await this.assertSafeTemplate(path.join(dir, entry.name));
+    }
   }
 
   async exists(name: string): Promise<boolean> {
@@ -79,7 +116,7 @@ export class ProjectStore {
     const entries = await fs.readdir(this.root, { withFileTypes: true });
     const out: Project[] = [];
     for (const e of entries) {
-      if (!e.isDirectory()) continue;
+      if (!e.isDirectory() || e.isSymbolicLink()) continue;
       const project = await this.read(e.name).catch(() => null);
       if (project) out.push(project);
     }
@@ -88,6 +125,7 @@ export class ProjectStore {
 
   async read(name: string): Promise<Project> {
     const file = path.join(this.projectDir(name), 'project.json');
+    await this.assertSafePath(file);
     const raw = await fs.readFile(file, 'utf8');
     return ProjectSchema.parse(JSON.parse(raw));
   }
@@ -114,10 +152,12 @@ export class ProjectStore {
     }
     const project = defaultProject(name, language, placa.id, placa.desc);
     const dir = this.projectDir(name);
+    await this.assertSafePath(dir);
     await fs.mkdir(dir, { recursive: true });
     for (const [rel, content] of Object.entries(archivos)) {
       // Mismas reglas que un archivo que escribe el usuario: sin traversal ni extensiones raras.
-      const full = rel === 'secrets.yaml' ? path.join(dir, rel) : this.resolveFile(name, rel, language);
+      const full = this.resolveFile(name, rel, language);
+      await this.assertSafePath(full);
       await fs.mkdir(path.dirname(full), { recursive: true });
       await fs.writeFile(full, content.replaceAll('${name}', name), 'utf8');
     }
@@ -138,10 +178,10 @@ export class ProjectStore {
    * Escribe los archivos iniciales de una placa recién agregada, sin pisar los que ya
    * estén (si la placa se quitó y se vuelve a poner, su código sigue ahí).
    */
-  async escribirSiFalta(name: string, language: Language, archivos: Record<string, string>): Promise<void> {
-    const dir = this.projectDir(name);
+  async escribirSiFalta(name: string, language: Language, archivos: Record<string, string>, boardId = BOARD_MODULE_ID): Promise<void> {
     for (const [rel, content] of Object.entries(archivos)) {
-      const full = rel === 'secrets.yaml' ? path.join(dir, rel) : this.resolveFile(name, rel, language);
+      const full = this.resolveFile(name, rel, language, boardId);
+      await this.assertSafePath(full);
       const existe = await fs.stat(full).then(() => true, () => false);
       if (existe) continue;
       await fs.mkdir(path.dirname(full), { recursive: true });
@@ -165,6 +205,8 @@ export class ProjectStore {
       if (!e.isDirectory() || !isValidProjectName(e.name)) continue;
       const dir = path.join(this.templatesDir, e.name);
       try {
+        await this.assertSafePath(path.join(dir, 'project.json'));
+        await this.assertSafePath(path.join(dir, 'README.md'));
         const p = ProjectSchema.parse(JSON.parse(await fs.readFile(path.join(dir, 'project.json'), 'utf8')));
         const readme = await fs.readFile(path.join(dir, 'README.md'), 'utf8').catch(() => '');
         const nombre = /^#\s+(.+)$/m.exec(readme)?.[1]?.trim() ?? e.name;
@@ -185,10 +227,13 @@ export class ProjectStore {
     if (!isValidProjectName(templateId)) throw new ProjectError(`Plantilla inválida: "${templateId}"`, 400);
     if (await this.exists(name)) throw new ProjectError(`El proyecto "${name}" ya existe`, 409);
     const origen = path.join(this.templatesDir, templateId);
+    await this.assertSafePath(path.join(origen, 'project.json'));
+    await this.assertSafePath(this.projectDir(name));
     const raw = await fs.readFile(path.join(origen, 'project.json'), 'utf8').catch(() => {
       throw new ProjectError(`No hay una plantilla "${templateId}"`, 404);
     });
     const base = ProjectSchema.parse(JSON.parse(raw));
+    await this.assertSafeTemplate(origen);
     // Sin archivos ocultos (caché de compilación, etc.): solo lo que el autor dejó a propósito.
     await fs.cp(origen, this.projectDir(name), {
       recursive: true,
@@ -199,6 +244,7 @@ export class ProjectStore {
 
   async save(project: Project): Promise<Project> {
     const dir = this.projectDir(project.name);
+    await this.assertSafePath(path.join(dir, 'project.json'));
     await fs.mkdir(dir, { recursive: true });
     const parsed = ProjectSchema.parse(project);
     await fs.writeFile(path.join(dir, 'project.json'), JSON.stringify(parsed, null, 2) + '\n', 'utf8');
@@ -210,14 +256,16 @@ export class ProjectStore {
   }
 
   /** Resuelve una ruta relativa dentro del proyecto, sin salir de la carpeta. */
-  resolveFile(name: string, relPath: string, language: Language | null): string {
+  resolveFile(name: string, relPath: string, language: Language | null, boardId = BOARD_MODULE_ID): string {
     if (relPath.includes('\0')) throw new ProjectError('Ruta inválida', 400);
     if (!language) throw new ProjectError('Proyecto sin placa: no tiene código. Agregá una placa para programarla.', 400);
     if (isHiddenFile(relPath)) throw new ProjectError('Archivo oculto o generado', 403);
+    if (relPath.split('/')[0] === 'boards') throw new ProjectError('La carpeta de otras placas es privada', 403);
+    if (boardId !== BOARD_MODULE_ID && relPath === 'project.json') throw new ProjectError('El proyecto es compartido; no es un archivo de placa', 403);
     if (!isAllowedFileName(language, relPath)) {
       throw new ProjectError(`Archivo no permitido para ${language}: ${relPath}`, 400);
     }
-    const dir = this.projectDir(name);
+    const dir = this.projectCodeDir(name, boardId);
     const full = path.resolve(dir, relPath);
     const rel = path.relative(dir, full);
     if (rel.startsWith('..') || path.isAbsolute(rel)) {
@@ -226,27 +274,33 @@ export class ProjectStore {
     return full;
   }
 
-  async readFile(name: string, relPath: string, language: Language | null): Promise<string> {
-    return fs.readFile(this.resolveFile(name, relPath, language), 'utf8');
+  async readFile(name: string, relPath: string, language: Language | null, boardId = BOARD_MODULE_ID): Promise<string> {
+    const full = this.resolveFile(name, relPath, language, boardId);
+    await this.assertSafePath(full);
+    return fs.readFile(full, 'utf8');
   }
 
-  async writeFile(name: string, relPath: string, language: Language | null, content: string): Promise<void> {
-    const full = this.resolveFile(name, relPath, language);
+  async writeFile(name: string, relPath: string, language: Language | null, content: string, boardId = BOARD_MODULE_ID): Promise<void> {
+    const full = this.resolveFile(name, relPath, language, boardId);
+    await this.assertSafePath(full);
     await fs.mkdir(path.dirname(full), { recursive: true });
     await fs.writeFile(full, content, 'utf8');
   }
 
-  async deleteFile(name: string, relPath: string, language: Language | null): Promise<void> {
+  async deleteFile(name: string, relPath: string, language: Language | null, boardId = BOARD_MODULE_ID): Promise<void> {
     if (language && relPath === MAIN_FILE[language]) {
       throw new ProjectError('No se puede borrar el archivo principal', 400);
     }
-    await fs.rm(this.resolveFile(name, relPath, language), { force: true });
+    const full = this.resolveFile(name, relPath, language, boardId);
+    await this.assertSafePath(full);
+    await fs.rm(full, { force: true });
   }
 
   /** Archivos de código. Sin placa, ninguno (si se quitó la placa, su código queda en disco). */
-  async listFiles(name: string, language: Language | null): Promise<ProjectFile[]> {
+  async listFiles(name: string, language: Language | null, boardId = BOARD_MODULE_ID): Promise<ProjectFile[]> {
     if (!language) return [];
-    const dir = this.projectDir(name);
+    const dir = this.projectCodeDir(name, boardId);
+    await this.assertSafePath(dir);
     const out: ProjectFile[] = [];
     const walk = async (rel: string): Promise<void> => {
       const abs = path.join(dir, rel);
@@ -258,7 +312,7 @@ export class ProjectStore {
       }
       for (const e of entries) {
         const childRel = rel ? `${rel}/${e.name}` : e.name;
-        if (isHiddenFile(childRel)) continue;
+        if (e.isSymbolicLink() || isHiddenFile(childRel) || (rel === '' && e.name === 'boards')) continue;
         if (e.isDirectory()) {
           await walk(childRel);
         } else {

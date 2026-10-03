@@ -257,3 +257,24 @@ describe('GET /api/emulator expone el estado en vivo', () => {
     expect(Array.isArray(body.cerrados)).toBe(true);
   });
 });
+
+describe('contexto de archivos multiplaca', () => {
+  it('aísla las rutas y conserva la instancia sobreviviente al quitar la primaria', async () => {
+    const name = 'archivos-multiplaca';
+    await pedir('/api/projects', { method: 'POST', body: { name, language: 'micropython' } });
+    const added = await pedir(`/api/projects/${name}/board`, { method: 'POST', body: { board: 'esp32-c3-devkitm-1', language: 'micropython' } });
+    const secondId = added.body.project.boards[1].id;
+    await pedir(`/api/projects/${name}/files/main.py`, { method: 'PUT', body: { content: 'primary\n' } });
+    await pedir(`/api/projects/${name}/files/main.py?boardId=${secondId}`, { method: 'PUT', body: { content: 'secondary\n' } });
+    expect((await pedir(`/api/projects/${name}?boardId=${secondId}`)).body.files.map((f: any) => f.path)).toEqual(['main.py']);
+    expect((await pedir(`/api/projects/${name}/files/main.py?boardId=missing`)).status).toBe(404);
+    expect((await pedir(`/api/projects/${name}/files/boards/${secondId}/main.py`)).status).toBe(403);
+    for (const modules of [null, 'wrong', [null]]) expect((await pedir(`/api/projects/${name}/diagram`, { method: 'PUT', body: { modules } })).status).toBe(400);
+    expect((await pedir(`/api/projects/${name}`, { method: 'PUT', body: { boards: [], board: added.body.project.board } })).status).toBe(400);
+    await pedir(`/api/projects/${name}/board?boardId=board`, { method: 'DELETE' });
+    const surviving = await pedir(`/api/projects/${name}`);
+    expect(surviving.body.project.boards.map((b: any) => b.id)).toEqual([secondId]);
+    expect(surviving.body.project.modules.some((m: any) => m.id === 'board')).toBe(false);
+    expect((await pedir(`/api/projects/${name}/files/main.py`)).body.content).toBe('secondary\n');
+  });
+});

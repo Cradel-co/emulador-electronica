@@ -2,6 +2,10 @@ import net from 'node:net';
 
 export const DEFAULT_PORT_BASE = 20000;
 export const PORTS_PER_INSTANCE = 4;
+// El bind se cierra antes de que arranque QEMU: conservar la reserva lógica evita
+// que dos placas que arrancan juntas elijan los mismos puertos durante esa ventana.
+const claimed = new Set<number>();
+export function releasePorts(ports: Iterable<number>): void { for (const port of ports) claimed.delete(port); }
 
 /**
  * Reserva N puertos TCP libres a partir de `base`, ligados solo a 127.0.0.1.
@@ -24,8 +28,12 @@ export async function reservePorts(count = PORTS_PER_INSTANCE, base = DEFAULT_PO
         throw new Error('reservePorts: no se pudo obtener el puerto reservado');
       }
       taken.add(addr.port);
+      claimed.add(addr.port);
     }
     return [...taken];
+  } catch (error) {
+    releasePorts(taken);
+    throw error;
   } finally {
     for (const s of servers) {
       await new Promise<void>((resolve) => s.close(() => resolve()));
@@ -36,7 +44,7 @@ export async function reservePorts(count = PORTS_PER_INSTANCE, base = DEFAULT_PO
 async function bindFirstFree(base: number, taken: Set<number>): Promise<net.Server> {
   const LAST = 65535 - PORTS_PER_INSTANCE;
   for (let port = base; port <= LAST; port++) {
-    if (taken.has(port)) continue;
+    if (taken.has(port) || claimed.has(port)) continue;
     const server = net.createServer();
     const ok = await tryListen(server, port);
     if (ok) return server;

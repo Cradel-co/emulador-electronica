@@ -94,3 +94,14 @@ describe('encodeAppMessage', () => {
     expect(encodeAppMessage({ type: 'PING', n: 1 })).toBe('@PING 1\n');
   });
 });
+
+describe('identidad de placa en WebSocket', () => {
+  it('conserva boardId en eventos de código y entradas del emulador', async () => {
+    const { ServerEventSchema, ClientEventSchema } = await import('./protocol.js');
+    expect(ServerEventSchema.parse({ type: 'build.log', line: 'build', boardId: 'board2' })).toMatchObject({ boardId: 'board2' });
+    expect(ServerEventSchema.parse({ type: 'project.changed', project: 'multi', what: 'file', file: 'main.py', boardId: 'board2' })).toMatchObject({ boardId: 'board2' });
+    expect(ClientEventSchema.parse({ type: 'pin.in', pin: 4, level: 1, boardId: 'board2' })).toMatchObject({ boardId: 'board2' });
+    expect(ClientEventSchema.parse({ type: 'console.input', data: 'print(1)', boardId: 'board2' })).toMatchObject({ boardId: 'board2' });
+    expect(ClientEventSchema.safeParse({ type: 'pin.watch', pin: 4, boardId: '../other' }).success).toBe(false);
+  });
+});

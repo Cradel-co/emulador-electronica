@@ -152,3 +152,57 @@ describe('diagramOps', () => {
     expect(normalizarRef('btn1.OUT')).toBe('btn1.OUT');
   });
 });
+
+describe('dibujo con varias placas', () => {
+  async function placaReal() {
+    const { readFile } = await import('node:fs/promises');
+    const { ModuleDefSchema } = await import('@emu/shared');
+    const { PATHS } = await import('./paths.js');
+    return ModuleDefSchema.parse(JSON.parse(await readFile(`${PATHS.modules}/esp32-s3-devkitc-1/module.json`, 'utf8')));
+  }
+
+  it('agrega placas con ids propios y conserva la placa histórica y sus cables', async () => {
+    const { ponerPlaca, conPlaca } = await import('./diagramOps.js');
+    const base = defaultProject('multi', 'micropython');
+    const def = await placaReal();
+    const segundo = ponerPlaca(base, def, 'micropython');
+    const tercero = ponerPlaca(segundo, def, 'micropython');
+    expect(segundo.boards?.map((board) => board.id)).toEqual(['board', 'board2']);
+    expect(tercero.boards?.map((board) => board.id)).toEqual(['board', 'board2', 'board3']);
+    expect(segundo.wires).toEqual(base.wires);
+    expect(segundo.modules.find((module) => module.id === 'board')).toEqual(base.modules[0]);
+    const reparado = conPlaca({ ...tercero, modules: tercero.modules.filter((module) => !module.id.startsWith('board')) });
+    expect(reparado.modules.filter((module) => module.id.startsWith('board')).map((module) => module.id)).toEqual(['board', 'board2', 'board3']);
+    expect(() => ponerPlaca(segundo, def, 'micropython', { id: 'board' })).toThrow('ya hay');
+    expect(() => ponerPlaca(segundo, def, 'micropython', { id: '../escape' })).toThrow('inválido');
+  });
+
+  it('quitar una placa conserva las demás y limpia únicamente sus cables', async () => {
+    const { ponerPlaca, sacarPlaca } = await import('./diagramOps.js');
+    const base = ponerPlaca(defaultProject('multi', 'micropython'), await placaReal(), 'micropython');
+    const conCable = { ...base, wires: [...base.wires, { from: 'board2.GPIO4', to: 'led1.IN' }] };
+    const sinSegunda = quitarModulo(conCable, 'board2');
+    expect(sinSegunda.boards?.map((board) => board.id)).toEqual(['board']);
+    expect(sinSegunda.wires).toEqual(base.wires);
+    const sinPrimera = sacarPlaca(conCable);
+    expect(sinPrimera.boards?.map((board) => board.id)).toEqual(['board2']);
+    expect(sinPrimera.board).toBe(base.board);
+    expect(sinPrimera.modules.some((module) => module.id === 'board')).toBe(false);
+    expect(sinPrimera.wires).toEqual([{ from: 'board2.GPIO4', to: 'led1.IN' }]);
+    const vacio = sacarPlaca(sinPrimera, 'board2');
+    expect(vacio.board).toBeNull();
+    expect(vacio.language).toBeNull();
+    expect(vacio.boards).toEqual([]);
+  });
+
+  it('resuelve GPIO y pines reservados usando la placa seleccionada', async () => {
+    const { ponerPlaca, gpioDeRef } = await import('./diagramOps.js');
+    const def = await placaReal();
+    const buscarReal = (type: string) => type === def.type ? def : buscar(type);
+    const base = ponerPlaca(defaultProject('multi', 'micropython'), def, 'micropython');
+    const connected = conectar(base, 'board2.GPIO4', 'led1.IN', buscarReal).project;
+    expect(gpioDe(connected, 'led1', 'IN', buscarReal, 'board2')).toBe(4);
+    expect(gpioDeRef('board2.GPIO4', def.board, 'board2')).toBe(4);
+    expect(() => conectar(base, 'board2.GPIO17', 'led1.IN', buscarReal)).toThrow('no se puede usar');
+  });
+});

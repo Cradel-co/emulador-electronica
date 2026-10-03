@@ -1,6 +1,6 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { lenguajesDe, tienePlaca, type Project, type ProyectoConPlaca } from '@emu/shared';
+import { lenguajesDe, placasDelProyecto, tienePlaca, type Project, type ProyectoConPlaca } from '@emu/shared';
 import { PATHS } from './paths.js';
 import type { BuildError as BuildErrorLike, LineMap } from './yamlSim.js';
 import { buscarPlaca } from './boardRegistry.js';
@@ -27,6 +27,8 @@ export interface BuildResult {
   lineMap: LineMap | null;
   artifacts: BuildArtifacts | null;
   warnings: string[];
+  /** Artefactos independientes de cada placa cuando se compila el circuito completo. */
+  boardResults?: Record<string, BuildResult>;
 }
 
 export interface BuildArtifacts {
@@ -61,44 +63,62 @@ export class BuildService {
   /** Build en vuelo por proyecto: dos clics no compilan dos veces (8.4). */
   private inflight = new Map<string, Promise<BuildResult>>();
 
-  buildDir(name: string): string {
-    return path.join(PATHS.builds, name);
+  buildDir(name: string, boardId = 'board'): string {
+    return boardId === 'board' ? path.join(PATHS.builds, name) : path.join(PATHS.builds, name, 'boards', boardId);
   }
 
   isBuilding(name: string): boolean {
-    return this.running.has(name);
+    return [...this.inflight.keys()].some(key => key.startsWith(`${name}:`)) || [...this.running.keys()].some(key => key === name || key.startsWith(`${name}:`));
   }
 
   /** Cancela la compilación en curso del proyecto (8.4). */
   cancel(name: string): boolean {
-    const job = this.running.get(name);
-    if (!job) return false;
-    job.kill('SIGKILL');
-    this.running.delete(name);
-    return true;
+    let cancelled = false;
+    for (const [key, job] of this.running) if (key === name || key.startsWith(`${name}:`)) {
+      job.kill('SIGKILL'); this.running.delete(key); cancelled = true;
+    }
+    return cancelled;
   }
 
-  build(project: Project, cb: BuildCallbacks): Promise<BuildResult> {
-    const prev = this.inflight.get(project.name);
+  build(project: Project, cb: BuildCallbacks, boardId?: string): Promise<BuildResult> {
+    const selected = boardId ?? placasDelProyecto(project)[0]?.id ?? 'board';
+    const key = `${project.name}:${selected}`;
+    const prev = this.inflight.get(key);
     if (prev) {
       cb.onLine('Ya había una compilación de este proyecto en curso; se espera a esa.');
       return prev;
     }
-    const job = this.doBuild(project, cb).finally(() => this.inflight.delete(project.name));
-    this.inflight.set(project.name, job);
+    const job = this.doBuild(project, cb, selected).finally(() => this.inflight.delete(key));
+    this.inflight.set(key, job);
     return job;
   }
 
-  private async doBuild(project: Project, cb: BuildCallbacks): Promise<BuildResult> {
+  async buildBoards(project: Project, cb: (boardId: string) => BuildCallbacks): Promise<BuildResult> {
     const started = Date.now();
-    if (!tienePlaca(project)) return fallo(started, 'Proyecto sin placa: no hay código que compilar.');
-    const placa = await buscarPlaca(project.board);
-    if (!placa) return fallo(started, `La placa "${project.board}" no está en el catálogo (¿se quitó el módulo?).`);
-    const r = await this.compilarEn(project, placa, path.join(PATHS.projects, project.name), this.buildDir(project.name), cb, {
-      clave: project.name,
-      timeoutMs: this.everBuilt.has(project.name) ? WARM_BUILD_TIMEOUT_MS : FIRST_BUILD_TIMEOUT_MS,
+    const boards = placasDelProyecto(project);
+    if (!boards.length) return fallo(started, 'Proyecto sin placa: no hay código que compilar.');
+    const results = await Promise.all(boards.map(async board => [board.id, await this.build(project, cb(board.id), board.id)] as const));
+    const boardResults = Object.fromEntries(results);
+    const primary = results[0]![1];
+    return { ...primary, ok: results.every(([, r]) => r.ok), durationMs: Date.now() - started,
+      errors: results.flatMap(([id, r]) => r.errors.map(e => ({ ...e, message: boards.length > 1 ? `[${id}] ${e.message}` : e.message }))),
+      warnings: results.flatMap(([, r]) => r.warnings), boardResults };
+  }
+
+  private async doBuild(project: Project, cb: BuildCallbacks, boardId: string): Promise<BuildResult> {
+    const started = Date.now();
+    const board = placasDelProyecto(project).find(b => b.id === boardId);
+    if (!board) return fallo(started, `No existe la placa "${boardId}" en este proyecto.`);
+    const selected: ProyectoConPlaca = { ...project, board: board.board, language: board.language };
+    const placa = await buscarPlaca(board.board);
+    if (!placa) return fallo(started, `La placa "${board.board}" no está en el catálogo (¿se quitó el módulo?).`);
+    const key = `${project.name}:${boardId}`;
+    const codeDir = boardId === 'board' ? path.join(PATHS.projects, project.name) : path.join(PATHS.projects, project.name, 'boards', boardId);
+    const r = await this.compilarEn(selected, placa, codeDir, this.buildDir(project.name, boardId), cb, {
+      clave: key,
+      timeoutMs: this.everBuilt.has(key) ? WARM_BUILD_TIMEOUT_MS : FIRST_BUILD_TIMEOUT_MS,
     });
-    if (r.ok) this.everBuilt.add(project.name);
+    if (r.ok) this.everBuilt.add(key);
     return r;
   }
 

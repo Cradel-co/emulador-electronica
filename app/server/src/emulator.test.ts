@@ -80,7 +80,7 @@ describe('EmulatorManager: consola redirigida (--uart-tcp, MicroPython)', () => 
  *   PIERDE, como en el UART real. Mandar el código de un saque pierde el Ctrl-D y cuelga.
  * `rawPaste`: si el firmware falso soporta el modo raw-paste (con control de flujo).
  */
-function binarioConReplCrudo(volcado: string, rawPaste = true): string {
+function binarioConReplCrudo(volcado: string, rawPaste = true, runningAtStart = false): string {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'emu-fake-raw-'));
   const bin = path.join(dir, 'esp-emu');
   writeFileSync(
@@ -95,7 +95,7 @@ const VENTANA = 128;
 console.log('ESP-ROM:esp32s3');
 const server = net.createServer((socket) => {
   setTimeout(() => socket.write('MicroPython v1.29.0 on ESP32-S3\\r\\n>>> '), 200);
-  let modo = 'normal'; // normal | crudo | pegando
+  let modo = ${runningAtStart ? "'corriendo'" : "'normal'"}; // corriendo | normal | crudo | pegando
   let codigo = Buffer.alloc(0);
   let enVentana = 0; // bytes de la ventana actual todavía sin pedir más
   let pendiente = false;
@@ -108,6 +108,11 @@ const server = net.createServer((socket) => {
   socket.on('data', (d) => {
     for (let i = 0; i < d.length; i++) {
       const b = d[i];
+      if (modo === 'corriendo') {
+        // El REPL de una placa ejecutando main.py ignora Ctrl-A; Ctrl-C sí interrumpe.
+        if (b === 0x03) { modo = 'normal'; socket.write('KeyboardInterrupt\\r\\n>>> '); }
+        continue;
+      }
       if (modo === 'normal') {
         if (b === 0x01 && !pendiente) {
           pendiente = true;
@@ -160,16 +165,17 @@ describe('EmulatorManager.uploadMicroPython', () => {
   /** Un main.py grande (varios KB, como el puente real): de un saque desbordaría el buffer. */
   const grande = Array.from({ length: 120 }, (_, i) => `print("linea ${i} con bastante texto para ocupar lugar")`).join('\n') + '\n';
 
-  async function subir(rawPaste: boolean) {
+  async function subir(rawPaste: boolean, runningAtStart = false) {
     const dir = mkdtempSync(path.join(os.tmpdir(), 'emu-fake-raw-dump-'));
     const volcado = path.join(dir, 'recibido.py');
-    vi.stubEnv('ESP_EMU_BIN', binarioConReplCrudo(volcado, rawPaste));
+    vi.stubEnv('ESP_EMU_BIN', binarioConReplCrudo(volcado, rawPaste, runningAtStart));
     const { EmulatorManager } = await import('./emulator.js');
     const emu = new EmulatorManager({ onLog: () => {}, onState: () => {}, onBridgeMessage: () => {}, onBridgeState: () => {} });
     await emu.start('p', { firmware: '/dev/null', elf: null, usesWebServer: false, usesApi: false, needsRepl: true });
     const r = await emu.uploadMicroPython([
       { path: 'boot.py', content: 'import simbridge\nsimbridge.start()\n' },
       { path: 'main.py', content: grande },
+      { path: 'lib/helpers.py', content: 'def valor():\n    return 42\n' },
     ]);
     await emu.stop();
     return { r, recibido: r.ok ? readFileSync(volcado, 'utf8') : '' };
@@ -177,6 +183,8 @@ describe('EmulatorManager.uploadMicroPython', () => {
 
   function verificar(recibido: string) {
     expect(recibido).toContain('_w("boot.py"');
+    expect(recibido).toContain('uos.mkdir(d)');
+    expect(recibido).toContain('_w("lib/helpers.py"');
     // Lo que se mandó en base64 tiene que llegar entero y decodificar exactamente al original.
     const m = recibido.match(/_w\("main\.py", b'([^']+)'\)/);
     expect(Buffer.from(m![1]!, 'base64').toString('utf8')).toBe(grande);
@@ -190,6 +198,11 @@ describe('EmulatorManager.uploadMicroPython', () => {
 
   it('sin raw-paste, cae al REPL en crudo clásico en trozos chicos', async () => {
     const { r, recibido } = await subir(false);
+    expect(r).toMatchObject({ ok: true });
+    verificar(recibido);
+  });
+  it('interrumpe main.py antes de recargar sin reiniciar el proceso del emulador', async () => {
+    const { r, recibido } = await subir(true, true);
     expect(r).toMatchObject({ ok: true });
     verificar(recibido);
   });

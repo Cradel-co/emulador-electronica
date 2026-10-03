@@ -20,14 +20,24 @@ export function firmwarePath(name = MICROPYTHON_FILE): string {
 }
 
 /** Descarga el firmware de MicroPython (el de la placa) una sola vez y fija su hash (8.8, 16). */
-export async function ensureMicropythonFirmware(cb: BuildCallbacks, file = MICROPYTHON_FILE, url = micropythonUrl(file)): Promise<string> {
+const firmwareDownloads = new Map<string, Promise<string>>();
+export function ensureMicropythonFirmware(cb: BuildCallbacks, file = MICROPYTHON_FILE, url = micropythonUrl(file)): Promise<string> {
+  const target = firmwarePath(file);
+  const pending = firmwareDownloads.get(target);
+  if (pending) return pending;
+  const job = downloadFirmware(cb, file, url).finally(() => firmwareDownloads.delete(target));
+  firmwareDownloads.set(target, job);
+  return job;
+}
+async function downloadFirmware(cb: BuildCallbacks, file: string, url: string): Promise<string> {
   const target = firmwarePath(file);
   const hashFile = target + '.sha256';
   await fs.mkdir(path.dirname(target), { recursive: true });
   if (await exists(target)) return target;
 
   cb.onLine(`Descargando el firmware de MicroPython ${MICROPYTHON_VERSION} (${file}, ~2 MB)...`);
-  const res = await run('curl', ['-fsSL', '-o', target, url], (line) => cb.onLine(line), { timeoutMs: 120_000 });
+  const temporary = target + '.download';
+  const res = await run('curl', ['-fsSL', '-o', temporary, url], (line) => cb.onLine(line), { timeoutMs: 120_000 });
   if (res.code !== 0) {
     throw new ProjectError(
       `No se pudo descargar el firmware de MicroPython desde ${url}. ` +
@@ -35,6 +45,7 @@ export async function ensureMicropythonFirmware(cb: BuildCallbacks, file = MICRO
       502,
     );
   }
+  await fs.rename(temporary, target);
   // TOFU: se guarda el hash del primer download para detectar que cambie.
   if (!(await exists(hashFile))) {
     const hash = createHash('sha256').update(await fs.readFile(target)).digest('hex');
