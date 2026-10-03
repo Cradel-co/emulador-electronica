@@ -41,7 +41,15 @@ test('el icono del explorador permite recuperar el lateral oculto y conserva su 
   await icon.click();
   await expect(explorer).toBeHidden();
   await expect(icon).toHaveAttribute('aria-expanded', 'false');
+  await page.locator('#menu-principal').click();
+  await page.locator('#menu > .menu-item').filter({ hasText: /^Ver/ }).hover();
+  const item = page.getByRole('menuitem', { name: /Explorador de archivos/ });
+  await expect(item.locator('svg')).toBeVisible();
+  await item.click();
+  await expect(explorer).toBeVisible();
   await icon.click();
+  await expect(explorer).toBeHidden();
+  await page.keyboard.press('Control+Shift+e');
   await expect(explorer).toBeVisible();
   await page.screenshot({ path: '/tmp/explorador-icono.png' });
 });

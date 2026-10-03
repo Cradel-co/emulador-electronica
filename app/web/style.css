@@ -138,6 +138,7 @@ button.widget:hover, label.widget:hover { background: rgba(255, 255, 255, .08); 
 .menu-item:hover:not(:disabled), .menu-item:focus-visible, .menu-item.abierto { background: var(--sel-menu); outline: none; }
 .menu-item .atajo { margin-left: auto; color: var(--tenue); font-size: 12px; }
 .menu-item.sub::after { content: "›"; margin-left: auto; color: var(--tenue); font-size: 15px; line-height: 1; }
+.menu-item > svg { width: 18px; height: 18px; flex-shrink: 0; }
 .submenu { display: none; position: absolute; left: calc(100% + 4px); top: -5px; min-width: 250px; }
 .menu-item.sub:hover > .submenu, .menu-item.sub.abierto > .submenu { display: block; }
 .menu-sep { height: 1px; margin: 4px 8px; background: var(--borde2); }

@@ -2442,6 +2442,10 @@ const ACCIONES = [
   },
   { id: 'buscar-modulo', titulo: 'Buscar un módulo en el catálogo', menu: 'Editar', hacer: buscarModulo, habilitada: hayProyecto },
   { id: 'ver-catalogo', titulo: 'Catálogo', menu: 'Ver', atajo: 'Alt+1', teclas: ['Alt+1', 'Ctrl+B'], hacer: () => mostrarVentana('izq') },
+  { id: 'ver-explorador', titulo: 'Explorador de archivos', menu: 'Ver', atajo: 'Ctrl+Shift+E', hacer: () => {
+    mostrarVentana('izq', true);
+    $('explorador-archivos').scrollIntoView({ block: 'nearest' });
+  } },
   { id: 'ver-codigo', titulo: 'Código / propiedades', menu: 'Ver', atajo: 'Alt+2', hacer: () => mostrarVentana('der') },
   { id: 'ver-consola', titulo: 'Consola', menu: 'Ver', atajo: 'Ctrl+J', teclas: ['Ctrl+J', 'Ctrl+`'], hacer: () => mostrarVentana('abajo') },
   { id: 'ver-build', titulo: 'Compilación', menu: 'Ver', atajo: 'Alt+0', hacer: () => alternarConsola('build') },

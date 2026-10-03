@@ -3,6 +3,7 @@ import { createElement, type FunctionComponent } from 'react';
 import { flushSync } from 'react-dom';
 import { NewFileDialog } from './NewFileDialog.js';
 import { FileExplorer } from './FileExplorer.js';
+import { ExplorerIcon } from './ExplorerIcon.js';
 import { EditorPreferences } from './EditorPreferences.js';
 import { Lienzo } from './Lienzo.js';
 import { Avisos } from './Avisos.js';
@@ -36,6 +37,7 @@ const ISLAS: [string, FunctionComponent, boolean][] = [
   ['react-lienzo', Lienzo, true],
   ['avisos-dibujo', Avisos, false],
   ['explorador-archivos', FileExplorer, false],
+  ['tw-explorador', ExplorerIcon, false],
   ['lista-modulos', Catalogo, false],
   ['lista-proyectos', Proyectos, false],
   ['panel-modulo', PanelDerecho, false],
