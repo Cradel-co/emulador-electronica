@@ -1,3 +1,5 @@
+import type { CameraDescriptor } from '@emu/shared';
+import type { ControladorCamara } from '../camera.js';
 /**
  * Punto de encuentro entre `app.ts` y el componente que monta el canvas, para que ninguno de los
  * dos tenga que importar al otro: así no hay ciclo de importación y `canvas.ts` sigue sin saber
@@ -20,6 +22,7 @@ let alEntregar: ((l: Lienzo) => void) | null = null;
  * arrancar y los componentes las piden cuando el usuario hace algo.
  */
 export interface Acciones {
+  crearCamara: (project: string, instance: string, camera: CameraDescriptor) => ControladorCamara;
   agregarModulo: (type: string) => void;
   quitarDelCatalogo: (m: { type: string; name: string }) => void;
   filtrarModulos: (texto: string) => void;

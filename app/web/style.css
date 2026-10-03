@@ -805,3 +805,8 @@ body.depuracion-parada .punto-estado { background: var(--azul); box-shadow: 0 0 
 .quitar-placa:hover { color: var(--rojo); background: rgba(219, 92, 92, .12); }
 .quitar-placa[hidden] { display: none; }
 .modo-fuente.apagada { background: rgba(134, 138, 145, .18); color: var(--tenue); }
+
+/* Capturas de la webcam y fotografía confirmada por el servidor. */
+.camara-panel { display: grid; gap: 10px; }
+.camara-panel video, .camara-panel img { width: 100%; max-height: 240px; object-fit: contain; background: #152231; border-radius: 6px; }
+.camara-panel [role="alert"] { color: #f3b0b0; }
