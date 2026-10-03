@@ -177,6 +177,13 @@ describe('proyectos sin placa (board: null)', () => {
     pins = await pedir('/api/projects/proto-api/pins');
     expect(pins.body.electrico.energizado).toBe(true);
     expect(pins.body.electrico.fuentes[0].modo).toBe('CV');
+    expect(pins.body.electrico.mediciones).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        modulo: 'fuente1', moduloNombre: 'Fuente regulable', elemento: 'salida', tipo: 'V',
+        tensionV: expect.any(Number), corrienteMa: expect.any(Number), potenciaMw: expect.any(Number), resistenciaOhm: null,
+      }),
+    ]));
+    expect(pins.body.electrico.tensiones['fuente1.V']).toBeCloseTo(5, 1);
 
     // Agregar la placa: pide lenguaje, escribe el código y deja de estar "energizado aparte".
     expect((await pedir('/api/projects/proto-api/board', { method: 'POST', body: { board: 'esp32-s3-devkitc-1' } })).status).toBe(400);

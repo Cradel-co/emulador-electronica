@@ -15,6 +15,7 @@ import { ahora, notificar, observable } from './react/estado.js';
 import { NOMBRE_LENGUAJE_PROYECTO, SIN_PLACA } from './constantes.js';
 import {
   cablesDe as cablesDePuro, esPinSinAlimentar as esPinSinAlimentarPuro, NOMBRE_KIND,
+  nombrePinGpio as nombrePinGpioPuro,
   nombreRef as nombreRefPuro, pinesSinAlimentar as pinesSinAlimentarPuro,
 } from './consultas.js';
 import { fmtMa, fmtV } from './formato.js';
@@ -134,6 +135,10 @@ const state = observable({
   /** Lo que entrega cada fuente regulable ahora (GET /pins → electrico.fuentes): V, mA, W, modo CV/CC. */
   /** Proyecto sin placa: ¿el circuito está energizado (▶)? (GET /pins → electrico.energizado) */
   energizado: false,
+  /** Mediciones del solver por elemento (GET /pins → electrico.mediciones), actualizadas con el circuito. */
+  mediciones: ([] as { modulo: string; moduloNombre: string; elemento: string; tipo: string; tensionV: number; corrienteMa: number; potenciaMw: number; resistenciaOhm: number | null }[]),
+  /** Voltajes del solver por pin cableado (GET /pins → electrico.tensiones). */
+  tensiones: ({} as Record<string, number>),
   /** Lo que el modelo de cada módulo decidió mostrar (`observar` → ui), según la física en vivo. */
   uiModulos: new Map<string, { on?: boolean; brillo?: number }>(),
   fuentes: ([] as { id: string; vAjuste: number; limiteMa: number | null; demandaMa: number | null; mA: number | null; vSalida: number; potenciaW: number; modo: string }[]),
@@ -926,11 +931,7 @@ const destinoGpioDe = (id: string, pin: string) => destinoGpio(`${id}.${pin}`, s
 const nivelGpio = (boardId: string, gpio: number) => state.sim.nivelesPorPlaca.get(boardId)?.get(gpio);
 
 /** Nombre del pin de la placa para un GPIO ("D13" en un Uno, "GPIO13" en un ESP32). */
-function nombrePinGpio(g) {
-  const d = descriptorPlaca();
-  const nombre = d?.pins && Object.keys(d.pins).find((k) => d.pins[k]?.gpio === g);
-  return nombre ?? `GPIO${g}`;
-}
+const nombrePinGpio = (g: number) => nombrePinGpioPuro(g, descriptorPlaca());
 
 /** Cables que tocan un pin "id.PIN". */
 /** Los cables que llegan a una punta. El cálculo está en consultas.ts (puro y probado). */
@@ -1844,6 +1845,8 @@ async function refrescarAvisos() {
     state.avisosDibujo = warnings;
     state.electrico = new Map((respuesta.electrico?.leds ?? []).map((l) => [l.id, l]));
     state.fuentes = respuesta.electrico?.fuentes ?? [];
+    state.mediciones = respuesta.electrico?.mediciones ?? [];
+    state.tensiones = respuesta.electrico?.tensiones ?? {};
     state.uiModulos = new Map(Object.entries(respuesta.electrico?.modulos ?? {}));
     state.alimentacion = respuesta.electrico?.placas?.[state.placaActivaId] ?? respuesta.electrico?.placa ?? null;
     const energizado = Boolean(respuesta.electrico?.energizado);

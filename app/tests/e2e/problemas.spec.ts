@@ -79,7 +79,7 @@ test('la pestaña Problemas junta errores y avisos del circuito, y un error llev
   expect(linea).toBe(3);
 });
 
-test('el panel Debug muestra cómo está alimentada la placa', async ({ page, request }) => {
+test('el panel Debug muestra alimentación y consumo calculados en vivo', async ({ page, request }) => {
   await abrirProyectoNuevo(page, request);
   await page.keyboard.press('Alt+5');
   const alim = page.locator('#dbg-alimentacion');
@@ -91,6 +91,19 @@ test('el panel Debug muestra cómo está alimentada la placa', async ({ page, re
   await page.locator('#usb').click();
   await expect(alim.locator('.dbg-alim-placa')).toContainText('Por USB');
   await expect(alim.locator('.dbg-alim-placa')).toHaveClass(/ok/);
+  await expect(alim.locator('.dbg-alim-resumen')).toContainText('5.00 V');
+  await expect(alim.locator('.dbg-alim-resumen')).toContainText('mA');
+  await expect(alim.locator('.dbg-alim-resumen')).toContainText(/mW|W/);
+  await expect(alim.locator('.dbg-medicion-ayuda')).toContainText('Se recalculan al presionar o soltar un control');
+  const guia = alim.locator('.dbg-medicion-ayuda details');
+  await guia.locator('summary').click();
+  await expect(guia).toContainText('Tensión por pin');
+  const componentes = alim.locator('details.dbg-mediciones').first();
+  await componentes.locator('summary').click();
+  await expect(componentes).toContainText('led1');
+  const tensiones = alim.locator('details.dbg-mediciones').nth(1);
+  await tensiones.locator('summary').click();
+  await expect(tensiones).toContainText('board.GPIO7');
   // El circuito de prueba no tiene fuentes regulables.
   await expect(alim.locator('.dbg-vacio')).toHaveText('Sin fuentes regulables en el circuito.');
 });
