@@ -107,12 +107,26 @@ export function DebugAlimentacion() {
       </p>
       {!sinPlaca && a?.estado === 'ok' && (
         <div className="dbg-alim-resumen" aria-label="Magnitudes de alimentación en vivo">
-          <div><span>Tensión</span><b>{tensionEntrada == null ? '—' : fmtV(tensionEntrada)}</b></div>
+          <div><span>Voltaje de entrada</span><b>{tensionEntrada == null ? '—' : fmtV(tensionEntrada)}</b></div>
           <div><span>{a?.via === 'usb' ? 'Corriente USB' : 'Corriente fuente'}</span><b>{fmtMa(consumoMa)}</b></div>
-          <div><span>Potencia</span><b>{potenciaMw == null ? '—' : fmtMw(potenciaMw)}</b></div>
+          <div><span>Potencia de entrada</span><b>{potenciaMw == null ? '—' : fmtMw(potenciaMw)}</b></div>
         </div>
       )}
-      <p className="dbg-medicion-nota">Valores calculados por la simulación eléctrica.</p>
+      <div className="dbg-medicion-ayuda">
+        <p>Se recalculan al presionar o soltar un control, cambiar una conexión o ajustar una propiedad del componente.</p>
+        <details>
+          <summary>¿Qué significa cada dato?</summary>
+          <ul>
+            <li><b>Voltaje de entrada:</b> tensión que llega desde USB o la fuente.</li>
+            <li><b>Corriente:</b> flujo eléctrico, expresado en mA. Valores muy pequeños se redondean.</li>
+            <li><b>ΔV:</b> diferencia de tensión entre los terminales del elemento.</li>
+            <li><b>Ω:</b> resistencia del elemento; “—” significa que no es una resistencia.</li>
+            <li><b>P:</b> potencia que disipa o entrega el elemento.</li>
+            <li><b>Tensión por pin:</b> voltaje medido respecto a GND.</li>
+          </ul>
+          <p>Son resultados calculados por la simulación, no lecturas de un instrumento físico. Un signo negativo indica sentido opuesto al de referencia del elemento.</p>
+        </details>
+      </div>
       {(fuentes ?? []).length > 0
         ? (
           <>
@@ -144,7 +158,7 @@ export function DebugAlimentacion() {
         {medicionesVisibles.length > 0
           ? (
             <table>
-              <thead><tr><th>Componente</th><th title="Caída de tensión">ΔV</th><th title="Corriente en miliamperios">mA</th><th title="Resistencia en ohmios">Ω</th><th title="Potencia">P</th></tr></thead>
+              <thead><tr><th>Componente</th><th title="Caída de tensión entre terminales">ΔV</th><th title="Corriente en miliamperios">mA</th><th title="Resistencia en ohmios">Ω</th><th title="Potencia en mW o W">P</th></tr></thead>
               <tbody>
                 {medicionesVisibles.map((m) => (
                   <tr key={`${m.modulo}.${m.elemento}`}>
@@ -161,7 +175,7 @@ export function DebugAlimentacion() {
           : <p className="dbg-vacio">Todavía no hay mediciones de componentes.</p>}
       </details>
       <details className="dbg-mediciones dbg-tensiones">
-        <summary>Tensión por pin · {pines.length}</summary>
+        <summary>Tensión por pin respecto a GND · {pines.length}</summary>
         {pines.length > 0
           ? <ul>{pines.map(([pin, v]) => <li key={pin}><span>{pin}</span><b>{fmtV(v)}</b></li>)}</ul>
           : <p className="dbg-vacio">No hay pines cableados para medir.</p>}

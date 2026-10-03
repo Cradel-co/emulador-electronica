@@ -769,7 +769,14 @@ body.depuracion-parada .punto-estado { background: var(--azul); box-shadow: 0 0 
 .dbg-alim-resumen > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; padding: 5px 6px; border: 1px solid var(--borde-suave); border-radius: 5px; background: var(--isla2); }
 .dbg-alim-resumen span { color: var(--tenue); font: 10px var(--font-ui); }
 .dbg-alim-resumen b { color: var(--texto); font: 600 12px var(--font-mono); white-space: nowrap; }
-.dbg-medicion-nota { margin: 2px 8px 8px; color: var(--tenue); font-size: 10px; }
+.dbg-medicion-ayuda { margin: 2px 8px 8px; color: var(--tenue); font-size: 10px; line-height: 1.4; }
+.dbg-medicion-ayuda > p { margin: 2px 0 5px; }
+.dbg-medicion-ayuda details { border-top: 1px solid var(--borde-suave); }
+.dbg-medicion-ayuda summary { padding: 5px 0; color: var(--texto2); cursor: pointer; font: 600 10px var(--font-ui); }
+.dbg-medicion-ayuda ul { margin: 0; padding: 0 0 0 14px; }
+.dbg-medicion-ayuda li { margin: 2px 0; }
+.dbg-medicion-ayuda li b { color: var(--texto); }
+.dbg-medicion-ayuda details > p:last-child { margin: 5px 0; }
 .dbg-subtitulo { margin: 7px 8px 2px; color: var(--tenue); font: 600 10px var(--font-ui); text-transform: uppercase; letter-spacing: .04em; }
 .dbg-fuentes { width: 100%; border-collapse: collapse; font: 12px var(--font-mono); }
 .dbg-fuentes th { text-align: left; font: 600 11px var(--font-ui); color: var(--tenue); padding: 2px 8px; border-bottom: 1px solid var(--borde-suave); }

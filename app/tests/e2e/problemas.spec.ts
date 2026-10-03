@@ -94,6 +94,10 @@ test('el panel Debug muestra alimentación y consumo calculados en vivo', async 
   await expect(alim.locator('.dbg-alim-resumen')).toContainText('5.00 V');
   await expect(alim.locator('.dbg-alim-resumen')).toContainText('mA');
   await expect(alim.locator('.dbg-alim-resumen')).toContainText(/mW|W/);
+  await expect(alim.locator('.dbg-medicion-ayuda')).toContainText('Se recalculan al presionar o soltar un control');
+  const guia = alim.locator('.dbg-medicion-ayuda details');
+  await guia.locator('summary').click();
+  await expect(guia).toContainText('Tensión por pin');
   const componentes = alim.locator('details.dbg-mediciones').first();
   await componentes.locator('summary').click();
   await expect(componentes).toContainText('led1');

@@ -6,6 +6,7 @@ describe('formato de mediciones eléctricas', () => {
     expect(fmtOhm(220)).toBe('220 Ω');
     expect(fmtOhm(10_000)).toBe('10.00 kΩ');
     expect(fmtOhm(1_000_000)).toBe('1.00 MΩ');
+    expect(fmtOhm(1_000_000_000)).toBe('1.00 GΩ');
     expect(fmtOhm(null)).toBe('—');
   });
 

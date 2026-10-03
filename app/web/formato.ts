@@ -8,6 +8,7 @@ export const fmtMa = (ma: number | null) => (ma === null ? '—' : `${ma.toFixed
 /** Resistencia en la escala legible, preservando precisión para valores pequeños. */
 export const fmtOhm = (ohm: number | null) => {
   if (ohm === null) return '—';
+  if (Math.abs(ohm) >= 1_000_000_000) return `${(ohm / 1_000_000_000).toFixed(2)} GΩ`;
   if (Math.abs(ohm) >= 1_000_000) return `${(ohm / 1_000_000).toFixed(2)} MΩ`;
   if (Math.abs(ohm) >= 1_000) return `${(ohm / 1_000).toFixed(2)} kΩ`;
   return `${ohm.toFixed(ohm < 10 ? 2 : 0)} Ω`;
