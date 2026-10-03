@@ -779,3 +779,19 @@ body.depuracion-parada .punto-estado { background: var(--azul); box-shadow: 0 0 
 .quitar-placa:hover { color: var(--rojo); background: rgba(219, 92, 92, .12); }
 .quitar-placa[hidden] { display: none; }
 .modo-fuente.apagada { background: rgba(134, 138, 145, .18); color: var(--tenue); }
+
+/* MicroPython: CodeMirror ocupa toda la fila; los otros lenguajes usan el editor legacy. */
+.editor-wrap.con-micropython { display: block; }
+.editor-wrap.con-micropython > .gutter, .editor-wrap.con-micropython > .editor-area { display: none; }
+#editor-micropython { height: 100%; min-height: 0; overflow: hidden; }
+#editor-micropython[hidden] { display: none; }
+.cm-breakpointGutter { cursor: pointer; min-width: 16px; }
+.cm-breakpoint { color: #e85d65; opacity: .55; }
+.cm-breakpoint.verified { opacity: 1; }
+.cm-debug-stopped { background: rgba(242,197,92,.2) !important; box-shadow: inset 3px 0 #f2c55c; }
+.cm-search input, .cm-search button { font: inherit; }
+
+.editor-preferences { display: grid; grid-template-columns: 1fr 150px; gap: 14px; min-width: 420px; }
+.editor-preferences h2, .editor-preferences p, .editor-preferences-actions { grid-column: 1 / -1; }
+.editor-preferences p { margin: 0; color: var(--tenue); }
+.editor-preferences-actions { display: flex; justify-content: flex-end; }

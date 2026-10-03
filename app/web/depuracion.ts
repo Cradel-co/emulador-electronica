@@ -22,6 +22,7 @@
  *   altoLinea: number,
  *   padEditor: number,
  *   scrollEditor: () => number,
+ *   pintarEditorDebug?: (marks: { breakpoints: Set<number>, verified: Set<number>, stopped: number | null }) => boolean,
  * }} ContextoDebug
  */
 
@@ -298,6 +299,11 @@ export function crearDepuracion(ctx) {
     const barra = $('linea-parada');
     const s = estado.parada;
     const archivo = ctx.archivoActivo();
+    if (ctx.pintarEditorDebug?.({
+      breakpoints: estado.breakpoints.get(archivo) ?? new Set(),
+      verified: estado.verificados.get(archivo) ?? new Set(),
+      stopped: s?.source && archivoDe(s.source) === archivo ? s.line : null,
+    })) { barra.hidden = true; return; }
     if (!s?.source || !s.line || !archivo || archivoDe(s.source) !== archivo) {
       barra.hidden = true;
       return;
