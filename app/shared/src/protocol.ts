@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { CameraStatusSchema } from './camera.js';
 
 export const BRIDGE_PROTOCOL_VERSION = 1;
 
@@ -166,6 +167,7 @@ export const EmuStatusSchema = z.object({
 export type EmuStatus = z.infer<typeof EmuStatusSchema>;
 
 export const ServerEventSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('camera.state'), project: z.string(), instance: z.string(), state: CameraStatusSchema }),
   z.object({ type: z.literal('build.log'), line: z.string() }),
   z.object({
     type: z.literal('build.done'),
