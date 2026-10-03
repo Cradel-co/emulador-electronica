@@ -183,3 +183,46 @@ Validación final del 2026-10-03: **699 tests Vitest** en 48 archivos, **88 test
 (incluidas 17 pruebas del editor), typecheck de web y server y build web aprobados. Se omitieron
 10 pruebas de firmware que requieren `E2E_EMU=1`. Se ejecutó todo en serie y con un worker.
 El proyecto quedó levantado mediante `pnpm run dev` en `http://127.0.0.1:5180`.
+
+## Archivos y ejecución por placa — 2026-10-03
+
+El explorador se muestra exclusivamente en el lateral izquierdo. La placa cuyo código se
+edita se elige haciendo click sobre ella en el circuito. El árbol de archivos y las pestañas
+pertenecen a esa placa. El botón `+` solicita un nombre y crea un `.py` junto al archivo activo,
+añadiendo la extensión si falta; no sobrescribe archivos existentes. El historial de edición,
+el cursor y el scroll se conservan por proyecto, instancia de placa y ruta.
+
+La interfaz usa componentes reutilizables: `FileTreeView` recibe rutas, archivo activo y callback,
+`FileExplorer` conecta ese árbol con el estado de la aplicación y `FileNameForm` presenta el
+formulario de creación. La construcción del árbol y la resolución de GPIO están en módulos
+puros independientes de React.
+
+Los proyectos admiten `boards: [{ id, board, language }]`. Los proyectos históricos sin ese
+campo siguen funcionando sin mover sus archivos: la instancia `board` conserva el código en
+la raíz y las adicionales lo guardan en `boards/<id>/`. Los campos históricos `board` y
+`language` reflejan la primera instancia sobreviviente. Quitar una placa elimina su módulo y
+sus cables, conservando el código en disco. La API de archivos valida el contexto `boardId`
+antes de leer o escribir y bloquea rutas hacia carpetas de otras placas.
+
+Compilar inicia en paralelo el toolchain de cada placa y mantiene resultados y directorios
+separados. Ejecutar inicia todas las placas dentro de un mismo circuito eléctrico; seleccionar
+una placa cambia el contexto de edición. Los GPIO, puentes y depuradores pertenecen a cada
+instancia. El motor eléctrico resuelve el circuito completo con rieles independientes y entrega
+las entradas según los voltajes y umbrales de cada placa. MicroPython sube todos los `.py` de
+su instancia, incluyendo módulos importables en subcarpetas.
+
+Las pruebas de interfaz están en `app/tests/e2e/multiplaca-explorer.spec.ts`. Las pruebas de
+física en `app/server/src/sim/multiplaca.test.ts` verifican comunicación entre placas, niveles y
+alimentación independientes y mediciones referidas a la tierra de cada placa. Las pruebas se
+ejecutan en serie, con un worker y memoria limitada, conservando `pnpm run dev` en el puerto 5180.
+
+Validación final de esta ampliación: **731 tests Vitest** en 53 archivos; **92 tests Playwright**
+de interfaz y una prueba adicional con dos ESP32 reales y firmware MicroPython cacheado.
+La prueba real verifica imports dentro de `lib/`, comunicación por GPIO, puertos independientes,
+recarga de la placa editada sin reiniciar la otra, contexto de depuración y cancelación segura.
+La suite de interfaz omite 11 pruebas optativas de firmware; una de ellas se ejecutó después
+por separado, y las otras 10 no se habilitaron. Typecheck de web y server y build web aprobados.
+
+La recarga de MicroPython interrumpe el programa con `Ctrl+C` antes de entrar al REPL crudo y
+crea las carpetas necesarias al subir archivos. El botón `+` queda visible al desplazar las
+pestañas; seleccionar una placa conserva su historial y dirige consola y breakpoints a ella.
