@@ -98,6 +98,11 @@ originaron: [docs/arquitectura-web.md](./docs/arquitectura-web.md).
 
 No hay límite de líneas por archivo: se separa por responsabilidad.
 
+**Criterio permanente del producto:** desarrollo custom y escalable. Los componentes y contratos
+son propios, reutilizables y configurables; las bibliotecas se integran mediante adaptadores.
+Su estado interno no debe convertirse en el modelo de dominio ni propagarse por toda la aplicación.
+Ver [arquitectura-web.md](./docs/arquitectura-web.md#componentes-propios-y-adaptadores).
+
 ## Documentación
 
 - [README.md](./README.md) — puesta en marcha paso a paso y requisitos.

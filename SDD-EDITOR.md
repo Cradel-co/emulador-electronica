@@ -230,14 +230,14 @@ pestañas; seleccionar una placa conserva su historial y dirige consola y breakp
 ### Ventanas de herramientas independientes
 
 Explorador y Componentes tienen apertura, cierre y posición propios. Cada icono controla
-solamente su ventana; pueden quedar abiertas juntas o por separado. Las flechas de la cabecera
-mueven una ventana al lateral izquierdo o derecho, y la preferencia de ubicación y apertura
-se conserva al recargar. La búsqueda del catálogo no se pierde al mover Componentes.
+solamente su ventana; pueden quedar abiertas juntas o por separado. El agarre de la cabecera
+permite cambiar su ubicación, y la preferencia de ubicación y apertura se conserva por proyecto.
+La búsqueda del catálogo no se pierde al mover Componentes.
 
 `ToolWindow` recibe el título, icono, acciones y contenido como propiedades React. `ToolWindows`
-registra e inyecta `FileExplorer` y `Catalogo` en esa estructura y los coloca en los docks mediante
+registra e inyecta `FileExplorer` y `Catalogo` en esa estructura mediante
 portales; agregar otro contenido no requiere mezclar su interfaz con la de estas herramientas.
-La normalización de preferencias vive en `tool-windows.ts`, separada de los efectos de `app.ts`.
+La normalización de preferencias vive en `docking-layout.ts`, separada de los efectos de `app.ts`.
 Las pruebas de movimiento y persistencia están en `app/tests/e2e/tool-window.spec.ts`.
 
 ### Acoplamiento por arrastre y distribución por proyecto
@@ -250,7 +250,10 @@ fuera de un destino válido cancela el movimiento. Los separadores ajustan las p
 `docking-layout.ts` representa la distribución como un árbol de grupos y divisiones, con
 operaciones puras de movimiento, activación, apertura y redimensionamiento. La normalización
 rechaza árboles incompletos, duplicados, profundos o con tamaños inválidos. `DockWorkspace`
-pinta esa estructura y reubica los nodos originales en sus slots; conserva las raíces React,
+integra el adaptador propio `docking-engine.ts`, que encapsula Dockview 8.4 (MIT) para gestionar
+las divisiones, pestañas y gestos. El formato de Dockview no se guarda como modelo del proyecto:
+el adaptador traduce hacia y desde el contrato propio y aplica el tema del emulador.
+Reubica los nodos originales en sus slots; conserva las raíces React,
 el editor CodeMirror, el SVG del circuito y los controles de consola sin reiniciar su estado.
 Los cambios de distribución no llaman al backend de compilación o de ejecución.
 
@@ -263,11 +266,12 @@ preferencia para que recrear su nombre reciba el predeterminado.
 Configuración → Distribución de ventanas permite guardar el diseño actual como predeterminado,
 restaurar el proyecto al predeterminado y restablecer el predeterminado original. El editor
 conserva su entrada separada en Configuración. Las pruebas puras de modelo y almacenamiento
-están en `docking-layout.test.ts` y `docking-storage.test.ts`; las de navegador en `docking.spec.ts`.
+están en `docking-layout.test.ts`, `docking-storage.test.ts` y `docking-engine.test.ts`;
+las de navegador en `docking.spec.ts`.
 
-Validación de docking: **758 pruebas Vitest** en 55 archivos; typechecks web/server y build web
-aprobados. La pasada general de Playwright aprobó 101 casos, omitió 11 optativos de firmware y
-señaló un selector duplicado por un separador antiguo oculto. Se retiraron los separadores
-obsoletos y ese caso pasó al repetirse. La pasada final de docking aprobó sus 7 casos,
-incluido Escape y soltar fuera, para **103 casos distintos de interfaz verificados**.
+Validación del adaptador Dockview: **766 pruebas Vitest** en 56 archivos; typechecks web/server
+y build web aprobados. La regresión completa de Playwright aprobó **103 casos** y omitió
+11 optativos de firmware. Incluye arrastre, pestañas, Escape, cierre y apertura de las cinco
+ventanas, persistencia por proyecto, predeterminado configurable, historial del editor y
+selección del circuito. Las pruebas se ejecutaron con un único worker y navegador.
 El servidor sigue activo con `pnpm run dev` en el puerto 5180.
