@@ -8,6 +8,7 @@ import { ahora, notificar, observable } from './react/estado.js';
 import { NOMBRE_LENGUAJE_PROYECTO, SIN_PLACA } from './constantes.js';
 import {
   cablesDe as cablesDePuro, esPinSinAlimentar as esPinSinAlimentarPuro, NOMBRE_KIND,
+  gpioDe as gpioDePuro, gpioDeRef as gpioDeRefPuro, nombrePinGpio as nombrePinGpioPuro,
   nombreRef as nombreRefPuro, pinesSinAlimentar as pinesSinAlimentarPuro,
 } from './consultas.js';
 import { fmtMa, fmtV } from './formato.js';
@@ -717,57 +718,14 @@ function pinesAdvertencia() {
   return d ? mapaDePines(d.warningPins) : PINES_ADVERTENCIA_S3;
 }
 
-/** GPIO de una punta en la placa ("board.GPIO6" → 6, "board.D13" → 13), o null si no es un GPIO. */
-function gpioDeRef(ref) {
-  if (!ref.startsWith(`${BOARD_ID}.`)) return null;
-  const pin = ref.slice(BOARD_ID.length + 1);
-  const d = descriptorPlaca();
-  if (d?.pins) {
-    const g = d.pins[pin]?.gpio;
-    return typeof g === 'number' ? g : null;
-  }
-  const m = /^GPIO(\d{1,2})$/.exec(pin);
-  return m ? Number(m[1]) : null;
-}
-
-/** Nombre del pin de la placa para un GPIO ("D13" en un Uno, "GPIO13" en un ESP32). */
-function nombrePinGpio(g) {
-  const d = descriptorPlaca();
-  const nombre = d?.pins && Object.keys(d.pins).find((k) => d.pins[k]?.gpio === g);
-  return nombre ?? `GPIO${g}`;
-}
-
-/** Cables que tocan un pin "id.PIN". */
-/** Los cables que llegan a una punta. El cálculo está en consultas.ts (puro y probado). */
-const cablesDe = (ref) => cablesDePuro(ref, state.diagrama.wires);
-
-/**
- * GPIO del ESP32 al que está cableado un pin de un módulo, o null.
- * Atraviesa componentes "de paso" (p. ej. una resistencia en serie con un LED):
- * para la lógica digital es como si el cable siguiera derecho (eléctricamente
- * sí cuenta su resistencia — eso lo maneja el chequeo de Ley de Ohm aparte).
- */
-function gpioDe(id, pin, visitados = new Set()) {
-  const ref = `${id}.${pin}`;
-  if (visitados.has(ref)) return null; // corta un lazo
-  visitados.add(ref);
-  for (const w of cablesDe(ref)) {
-    const otro = w.from === ref ? w.to : w.from;
-    const g = gpioDeRef(otro);
-    if (g !== null) return g;
-    const punto = otro.indexOf('.');
-    const otroId = otro.slice(0, punto);
-    const otroInst = state.diagrama.modules.find((m) => m.id === otroId);
-    const otroDef = otroInst && state.catalogo.get(otroInst.type);
-    if (!otroDef?.passthrough || otroDef.pins.length !== 2) continue;
-    const siguientePin = otroDef.pins.find((p) => p.name !== otro.slice(punto + 1));
-    if (siguientePin) {
-      const g2 = gpioDe(otroId, siguientePin.name, visitados);
-      if (g2 !== null) return g2;
-    }
-  }
-  return null;
-}
+/** Consultas puras de GPIO; app.ts solo aporta el estado actual del proyecto. */
+const gpioDeRef = (ref: string) => gpioDeRefPuro(ref, descriptorPlaca());
+const nombrePinGpio = (g: number) => nombrePinGpioPuro(g, descriptorPlaca());
+const cablesDe = (ref: string) => cablesDePuro(ref, state.diagrama.wires);
+const gpioDe = (id: string, pin: string) => gpioDePuro(
+  id, pin, state.diagrama.modules, state.diagrama.wires,
+  (type) => state.catalogo.get(type), descriptorPlaca(),
+);
 
 /** Nombre legible de una punta de cable: "ESP32 · GPIO6" / "Pulsador btn1 · OUT". */
 const nombreRef = (ref) =>

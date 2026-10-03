@@ -36,6 +36,14 @@ export function cablesDe(ref: string, wires: readonly Cable[]): Cable[]
 sirve igual si un día cambia la capa de dibujo. `geometria.ts` (#16) es lo que habilitaría pasar el
 canvas a Canvas2D o WebGL: solo habría que reescribir quién pinta.
 
+Las consultas de GPIO (`gpioDeRef`, `nombrePinGpio`, `gpioDe`) también viven en
+`consultas.ts`: reciben el descriptor de placa, el diagrama y la búsqueda en el catálogo.
+`gpioDe` sigue cables y componentes `passthrough` de dos pines, corta ciclos y conserva
+el primer GPIO alcanzable según el orden del cableado. Es conectividad digital; las
+corrientes y caídas de tensión siguen a cargo del motor eléctrico del servidor.
+Su extracción se caracterizó contra `app.ts` y se comparó con la versión original
+sobre 3.000 circuitos deterministas (`tests/unit/gpio.test.ts`).
+
 ## Regla 2: los componentes se montan sobre el nodo que ya existe
 
 Cada pedazo de React es una **isla** (`react/montar.ts`): una raíz montada con `createRoot` sobre un
