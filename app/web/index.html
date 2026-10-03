@@ -76,8 +76,8 @@
 
     <!-- Franja izquierda de ventanas de herramientas -->
     <nav class="stripe stripe-izq" aria-label="Ventanas de herramientas">
-      <button id="tw-explorador" class="act activa" title="Explorador de archivos (Ctrl+Shift+E)" aria-label="Explorador de archivos" aria-controls="explorador-archivos" aria-expanded="true"></button>
-      <button id="tw-catalogo" class="act activa" title="Catálogo de módulos (Alt+1)">
+      <button id="tw-explorador" class="act" title="Explorador de archivos (Ctrl+Shift+E)" aria-label="Explorador de archivos" aria-controls="ventana-explorador" aria-expanded="false"></button>
+      <button id="tw-catalogo" class="act activa" title="Componentes (Alt+1)" aria-label="Componentes" aria-expanded="true" aria-controls="ventana-componentes">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4a2 2 0 0 0 1-1.73Z"/><path d="M3.3 7 12 12l8.7-5"/><path d="M12 22V12"/></svg>
       </button>
       <button id="act-proyectos" class="act" title="Proyectos">
@@ -132,24 +132,7 @@
     <!-- Área de trabajo: "islas" como en el tema Islands de Android Studio -->
     <div class="workspace">
       <main>
-        <aside class="panel isla paleta">
-          <section id="explorador-archivos" class="explorador-archivos" aria-label="Explorador de archivos"></section>
-          <h2 class="panel-header">
-            Catálogo
-            <span class="crece"></span>
-            <button id="importar-modulo" class="btn-chico" title="Importar módulos (carpeta, zip, chip de Wokwi, URL o GitHub)">+ Importar</button>
-            <button class="tw-ocultar" data-ocultar="izq" title="Ocultar (Alt+1)" aria-label="Ocultar catálogo">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/></svg>
-            </button>
-          </h2>
-          <label class="buscar">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-            <input id="buscar-modulos" placeholder="Buscar módulo…" />
-          </label>
-          <p class="ayuda-paleta">Arrastrá un módulo al circuito, o hacé click para agregarlo.</p>
-          <!-- El contenido lo rinde React (issue #9), montado sobre este mismo nodo. -->
-          <div id="lista-modulos" class="lista-modulos"></div>
-        </aside>
+        <aside id="dock-izq" class="panel paleta tool-dock" aria-label="Lateral izquierdo"></aside>
 
         <div class="resizer-v" data-resize="izq" title="Arrastrar para redimensionar"></div>
 
@@ -179,7 +162,9 @@
 
         <div class="resizer-v" data-resize="der" title="Arrastrar para redimensionar"></div>
 
-        <aside class="panel isla derecha">
+        <aside class="panel derecha">
+          <div id="dock-der" class="tool-dock" aria-label="Herramientas del lateral derecho"></div>
+          <div class="panel isla editor-window">
           <section id="panel-codigo" class="panel-codigo">
             <div class="tabs editor-tabs" id="tabs-archivos"></div>
             <div class="editor-wrap">
@@ -196,6 +181,7 @@
             <div id="avisos" class="avisos"></div>
           </section>
           <section id="panel-modulo" class="panel-modulo" hidden></section>
+          </div>
         </aside>
       </main>
 
@@ -408,6 +394,7 @@
       </form>
     </dialog>
 
+    <div id="tool-windows" hidden></div>
     <script type="module" src="/dist/app.js"></script>
   </body>
 </html>

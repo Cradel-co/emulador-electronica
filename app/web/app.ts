@@ -6,6 +6,7 @@ import { crearEditorMicroPython } from './editor-micropython.js';
 import { editorPreferences, subscribeEditorPreferences } from './editor-preferences.js';
 import { destinoGpio, gpioEnPlaca } from './gpio-destination.js';
 import { placasDelProyecto } from './project-boards.js';
+import { toolWindowLayout, type ToolWindowId, type ToolDock } from './tool-windows.js';
 import { formatMicroPython } from './micropython-format.js';
 import { montarReact } from './react/montar.js';
 import { alLienzoListo, registrarAcciones, registrarCtx, registrarEstado, registrarMenu, registrarPaleta, registrarVistas } from './react/puente.js';
@@ -73,6 +74,7 @@ const state = observable({
   archivos: [],
   activo: null,
   placaActivaId: (null as string | null),
+  ventanasHerramientas: toolWindowLayout(null),
   /** @type {Map<string, any>} */
   catalogo: new Map(),
   /** Chips con lógica (GET /api/chips): id → nombre, entorno que miden, hoja de datos, límites. */
@@ -197,6 +199,9 @@ registrarAcciones({
   reemplazarQuemado: (id) => reemplazarQuemado(id),
   abrirArchivo: (ruta) => { seleccionar(null); void abrirArchivo(ruta); },
   nuevoArchivo: abrirNuevoArchivo,
+  importarModulos: abrirImportador,
+  mostrarHerramienta,
+  moverHerramienta,
   irALinea: (archivo, linea) => irALinea(archivo, linea),
   moverEntorno: (id, valores) => {
     void api(`/api/projects/${state.proyecto.name}/modules/${encodeURIComponent(id)}/entorno`, {
@@ -2020,15 +2025,6 @@ ta('editor').addEventListener('keydown', (e) => {
   }
 });
 
-inp('buscar-modulos').addEventListener('input', () => {
-  // <Catalogo> se entera por el estado observable: no hay que repintar nada a mano.
-  state.filtroModulos = inp('buscar-modulos').value;
-});
-
-$('importar-modulo').onclick = () => {
-  state.importacion = null;
-  ($('dlg-importar') as HTMLDialogElement).showModal();
-};
 for (const b of document.querySelectorAll('.imp-fuentes [data-fuente]')) {
   (b as HTMLElement).onclick = () => elegirFuente((b as HTMLElement).dataset.fuente);
 }
@@ -2284,9 +2280,12 @@ function mostrarVentana(cual, visible?: boolean) {
 
 function sincronizarFranjas() {
   const b = document.body.classList;
-  $('tw-catalogo').classList.toggle('activa', !b.contains('sin-izq'));
-  $('tw-explorador').classList.toggle('activa', !b.contains('sin-izq'));
-  $('tw-explorador').setAttribute('aria-expanded', String(!b.contains('sin-izq')));
+  for (const [id, button] of [['componentes', 'tw-catalogo'], ['explorador', 'tw-explorador']] as const) {
+    const ventana = state.ventanasHerramientas[id];
+    const visible = ventana.open && !b.contains(VENTANAS[ventana.dock]);
+    $(button).classList.toggle('activa', visible);
+    $(button).setAttribute('aria-expanded', String(visible));
+  }
   $('act-codigo').classList.toggle('activa', !b.contains('sin-der'));
   const abajo = !b.contains('sin-abajo');
   for (const id of ['tw-build', 'tw-emu', 'tw-debug', 'tw-problemas']) {
@@ -2318,11 +2317,8 @@ for (const b of document.querySelectorAll('[data-tw-tab]')) {
 for (const b of document.querySelectorAll('[data-ocultar]')) {
   (b as HTMLElement).onclick = () => mostrarVentana(((b as HTMLElement).dataset.ocultar as any), false);
 }
-$('tw-catalogo').onclick = () => mostrarVentana('izq');
-$('tw-explorador').onclick = () => {
-  mostrarVentana('izq');
-  if (!document.body.classList.contains('sin-izq')) $('explorador-archivos').scrollIntoView({ block: 'nearest' });
-};
+$('tw-catalogo').onclick = () => mostrarHerramienta('componentes');
+$('tw-explorador').onclick = () => mostrarHerramienta('explorador');
 $('act-codigo').onclick = () => {
   // Oculto: se abre. Abierto con un módulo elegido: vuelve al código. Abierto con el código: se oculta.
   if (document.body.classList.contains('sin-der')) mostrarVentana('der', true);
@@ -2339,6 +2335,9 @@ function alternarModoMover() {
 $('act-mover').onclick = alternarModoMover;
 
 function restaurarVentanas() {
+  try {
+    ahora(() => { state.ventanasHerramientas = toolWindowLayout(JSON.parse(localStorage.getItem('herramientas-layout') ?? 'null')); });
+  } catch { /* Una preferencia dañada conserva el diseño inicial. */ }
   for (const cual of (['izq', 'der', 'abajo'] as const)) {
     try {
       if (localStorage.getItem(`ventana-${cual}`) === '0') document.body.classList.add(VENTANAS[cual]);
@@ -2347,6 +2346,27 @@ function restaurarVentanas() {
     }
   }
   sincronizarFranjas();
+}
+
+function guardarVentanasHerramientas() {
+  try { localStorage.setItem('herramientas-layout', JSON.stringify(state.ventanasHerramientas)); } catch { /* Preferencia opcional. */ }
+  const izquierdaVacia = !Object.values(state.ventanasHerramientas).some(v => v.open && v.dock === 'izq');
+  if (izquierdaVacia) mostrarVentana('izq', false);
+  sincronizarFranjas();
+}
+
+function mostrarHerramienta(id: ToolWindowId, visible?: boolean) {
+  const ventana = state.ventanasHerramientas[id];
+  const open = visible ?? (!ventana.open || document.body.classList.contains(VENTANAS[ventana.dock]));
+  ahora(() => { state.ventanasHerramientas = { ...state.ventanasHerramientas, [id]: { ...ventana, open } }; });
+  if (open) mostrarVentana(ventana.dock, true);
+  guardarVentanasHerramientas();
+}
+
+function moverHerramienta(id: ToolWindowId, dock: ToolDock) {
+  ahora(() => { state.ventanasHerramientas = { ...state.ventanasHerramientas, [id]: { open: true, dock } }; });
+  mostrarVentana(dock, true);
+  guardarVentanasHerramientas();
 }
 
 inp('filtro').addEventListener('input', () => {
@@ -2399,7 +2419,7 @@ function borrarSeleccion() {
 }
 
 function buscarModulo() {
-  mostrarVentana('izq', true);
+  mostrarHerramienta('componentes', true);
   inp('buscar-modulos').focus();
   inp('buscar-modulos').select();
 }
@@ -2441,11 +2461,8 @@ const ACCIONES = [
     habilitada: () => state.seleccion?.tipo === 'modulo',
   },
   { id: 'buscar-modulo', titulo: 'Buscar un módulo en el catálogo', menu: 'Editar', hacer: buscarModulo, habilitada: hayProyecto },
-  { id: 'ver-catalogo', titulo: 'Catálogo', menu: 'Ver', atajo: 'Alt+1', teclas: ['Alt+1', 'Ctrl+B'], hacer: () => mostrarVentana('izq') },
-  { id: 'ver-explorador', titulo: 'Explorador de archivos', menu: 'Ver', atajo: 'Ctrl+Shift+E', hacer: () => {
-    mostrarVentana('izq', true);
-    $('explorador-archivos').scrollIntoView({ block: 'nearest' });
-  } },
+  { id: 'ver-catalogo', titulo: 'Componentes', menu: 'Ver', atajo: 'Alt+1', teclas: ['Alt+1', 'Ctrl+B'], hacer: () => mostrarHerramienta('componentes') },
+  { id: 'ver-explorador', titulo: 'Explorador de archivos', menu: 'Ver', atajo: 'Ctrl+Shift+E', hacer: () => mostrarHerramienta('explorador', true) },
   { id: 'ver-codigo', titulo: 'Código / propiedades', menu: 'Ver', atajo: 'Alt+2', hacer: () => mostrarVentana('der') },
   { id: 'ver-consola', titulo: 'Consola', menu: 'Ver', atajo: 'Ctrl+J', teclas: ['Ctrl+J', 'Ctrl+`'], hacer: () => mostrarVentana('abajo') },
   { id: 'ver-build', titulo: 'Compilación', menu: 'Ver', atajo: 'Alt+0', hacer: () => alternarConsola('build') },

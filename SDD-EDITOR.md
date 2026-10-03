@@ -226,3 +226,16 @@ por separado, y las otras 10 no se habilitaron. Typecheck de web y server y buil
 La recarga de MicroPython interrumpe el programa con `Ctrl+C` antes de entrar al REPL crudo y
 crea las carpetas necesarias al subir archivos. El botón `+` queda visible al desplazar las
 pestañas; seleccionar una placa conserva su historial y dirige consola y breakpoints a ella.
+
+### Ventanas de herramientas independientes
+
+Explorador y Componentes tienen apertura, cierre y posición propios. Cada icono controla
+solamente su ventana; pueden quedar abiertas juntas o por separado. Las flechas de la cabecera
+mueven una ventana al lateral izquierdo o derecho, y la preferencia de ubicación y apertura
+se conserva al recargar. La búsqueda del catálogo no se pierde al mover Componentes.
+
+`ToolWindow` recibe el título, icono, acciones y contenido como propiedades React. `ToolWindows`
+registra e inyecta `FileExplorer` y `Catalogo` en esa estructura y los coloca en los docks mediante
+portales; agregar otro contenido no requiere mezclar su interfaz con la de estas herramientas.
+La normalización de preferencias vive en `tool-windows.ts`, separada de los efectos de `app.ts`.
+Las pruebas de movimiento y persistencia están en `app/tests/e2e/tool-window.spec.ts`.

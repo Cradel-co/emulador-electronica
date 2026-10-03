@@ -7,6 +7,7 @@
  * creado; `Lienzo.tsx` toma el contexto, crea el lienzo contra su propio `<svg>` y lo entrega.
  */
 
+import type { ToolWindowId, ToolDock } from '../tool-windows.js';
 type Ctx = Record<string, unknown>;
 type Lienzo = Record<string, unknown>;
 
@@ -39,6 +40,9 @@ export interface Acciones {
   irALinea: (archivo: string | null, linea: number) => void;
   agregarPlaca: () => void;
   nuevoArchivo: () => void;
+  importarModulos: () => void;
+  mostrarHerramienta: (id: ToolWindowId, visible?: boolean) => void;
+  moverHerramienta: (id: ToolWindowId, dock: ToolDock) => void;
 }
 
 /**

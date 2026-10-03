@@ -2,12 +2,11 @@ import { createRoot } from 'react-dom/client';
 import { createElement, type FunctionComponent } from 'react';
 import { flushSync } from 'react-dom';
 import { NewFileDialog } from './NewFileDialog.js';
-import { FileExplorer } from './FileExplorer.js';
+import { ToolWindows } from './ToolWindows.js';
 import { ExplorerIcon } from './ExplorerIcon.js';
 import { EditorPreferences } from './EditorPreferences.js';
 import { Lienzo } from './Lienzo.js';
 import { Avisos } from './Avisos.js';
-import { Catalogo } from './Catalogo.js';
 import { Proyectos } from './Proyectos.js';
 import { PanelDerecho } from './PanelDerecho.js';
 import { Menu } from './Menu.js';
@@ -36,9 +35,8 @@ const ISLAS: [string, FunctionComponent, boolean][] = [
   // scrollear (ver el comentario de este arreglo).
   ['react-lienzo', Lienzo, true],
   ['avisos-dibujo', Avisos, false],
-  ['explorador-archivos', FileExplorer, false],
+  ['tool-windows', ToolWindows, true],
   ['tw-explorador', ExplorerIcon, false],
-  ['lista-modulos', Catalogo, false],
   ['lista-proyectos', Proyectos, false],
   ['panel-modulo', PanelDerecho, false],
   ['menu', Menu, false],

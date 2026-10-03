@@ -448,7 +448,8 @@ body.modo-mover #lienzo .pin { cursor: move; } /* modo mover: los pines no arran
 #avisos-dibujo:empty { display: none; }
 
 /* --- Panel derecho: código o propiedades del módulo (como "Attributes") --------- */
-.derecha { display: flex; flex-direction: column; }
+.derecha { display: flex; flex-direction: column; gap: 6px; }
+.editor-window { flex: 1; min-height: 0; }
 .panel-codigo { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-height: 0; height: 100%; }
 .panel-codigo[hidden], .panel-modulo[hidden] { display: none; }
 .panel-modulo { overflow: auto; height: 100%; }
@@ -797,7 +798,14 @@ body.depuracion-parada .punto-estado { background: var(--azul); box-shadow: 0 0 
 .editor-preferences p { margin: 0; color: var(--tenue); }
 .editor-preferences-actions { display: flex; justify-content: flex-end; }
 
-.explorador-archivos { flex: 0 1 230px; min-height: 80px; overflow: auto; padding: 10px 8px; border-bottom: 1px solid var(--borde-suave); }
+.tool-dock { display: flex; flex-direction: column; gap: 6px; min-height: 0; }
+.tool-window { flex: 1 1 0; min-height: 100px; }
+.tool-window[hidden], #dock-der:empty { display: none; }
+.tool-window .panel-header { flex-shrink: 0; }
+#dock-der { flex: 0 1 45%; overflow: auto; }
+#dock-der:has(.tool-window:not([hidden])) { min-height: 140px; }
+#dock-der:not(:has(.tool-window:not([hidden]))) { display: none; }
+.explorador-archivos { flex: 1; min-height: 0; overflow: auto; padding: 10px 8px; }
 .explorador-archivos h3 { display: flex; justify-content: space-between; margin: 0 6px 8px; font-size: 12px; }
 .explorador-archivos h3 span { color: var(--tenue); }
 .explorador-archivos ul { list-style: none; margin: 0; padding: 0 0 0 12px; }

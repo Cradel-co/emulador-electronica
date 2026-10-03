@@ -19,7 +19,7 @@ export function FileExplorer() {
   const project = useEstado(() => estado().proyecto);
   const board = placasDelProyecto(project).find(b => b.id === boardId);
   return <>
-    <h3>Explorador{board && <span>{board.id}</span>}</h3>
+    <h3>Placa{board && <span>{board.id}</span>}</h3>
     {board ? <FileTreeView paths={(files ?? []).map(f => f.path)} active={active} onOpen={path => acciones().abrirArchivo(path)} /> : <p>Seleccioná una placa en el circuito para ver sus archivos.</p>}
   </>;
 }
