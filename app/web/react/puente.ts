@@ -7,7 +7,7 @@
  * creado; `Lienzo.tsx` toma el contexto, crea el lienzo contra su propio `<svg>` y lo entrega.
  */
 
-import type { DockZone, WindowId } from '../docking-layout.js';
+import type { DockLayout } from '../docking-layout.js';
 type Ctx = Record<string, unknown>;
 type Lienzo = Record<string, unknown>;
 
@@ -42,9 +42,7 @@ export interface Acciones {
   nuevoArchivo: () => void;
   importarModulos: () => void;
   mostrarHerramienta: (id: 'explorador' | 'componentes', visible?: boolean) => void;
-  moverVentana: (id: WindowId, group: string, zone: DockZone) => void;
-  activarVentana: (group: string, id: WindowId) => void;
-  redimensionarDistribucion: (split: string, sizes: number[]) => void;
+  aplicarDistribucion: (layout: DockLayout) => void;
   guardarDistribucionPredeterminada: () => void;
   restaurarDistribucionProyecto: () => void;
   restaurarDistribucionOriginal: () => void;

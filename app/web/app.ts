@@ -6,7 +6,7 @@ import { crearEditorMicroPython } from './editor-micropython.js';
 import { editorPreferences, subscribeEditorPreferences } from './editor-preferences.js';
 import { destinoGpio, gpioEnPlaca } from './gpio-destination.js';
 import { placasDelProyecto } from './project-boards.js';
-import { defaultDockLayout, setDockWindowOpen, moveDockWindow, activateDockTab, resizeDockSplit, type DockNode, type DockLayout, type WindowId } from './docking-layout.js';
+import { defaultDockLayout, normalizeDockLayout, setDockWindowOpen, type DockNode, type DockLayout, type WindowId } from './docking-layout.js';
 import { projectDockLayout, saveProjectDockLayout, defaultSavedDockLayout, saveDefaultDockLayout, resetDefaultDockLayout, projectDockFilter, saveProjectDockFilter, clearProjectDockLayout } from './docking-storage.js';
 import { formatMicroPython } from './micropython-format.js';
 import { montarReact } from './react/montar.js';
@@ -206,9 +206,7 @@ registrarAcciones({
   nuevoArchivo: abrirNuevoArchivo,
   importarModulos: abrirImportador,
   mostrarHerramienta,
-  moverVentana: (id, group, zone) => actualizarDistribucion(moveDockWindow(state.distribucion, id, group, zone)),
-  activarVentana: (group, id) => actualizarDistribucion(activateDockTab(state.distribucion, group, id)),
-  redimensionarDistribucion: (split, sizes) => actualizarDistribucion(resizeDockSplit(state.distribucion, split, sizes)),
+  aplicarDistribucion: layout => actualizarDistribucion(normalizeDockLayout(layout)),
   guardarDistribucionPredeterminada: () => {
     saveDefaultDockLayout(state.distribucion);
     state.distribucionMensaje = 'Predeterminado guardado. Los proyectos existentes conservan su distribución.';

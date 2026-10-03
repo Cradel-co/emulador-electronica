@@ -342,11 +342,21 @@ test.describe('propiedades y controles', () => {
 test.describe('paneles', () => {
   test('el separador redimensiona el catálogo', async ({ page, request }) => {
     await abrirProyectoNuevo(page, request);
-    const antes = (await page.locator('.paleta').boundingBox())!.width;
-    const sep = (await page.locator('[data-resize="izq"]').boundingBox())!;
-    await page.mouse.move(sep.x + 3, sep.y + 200);
+    const palette = (await page.locator('.paleta').boundingBox())!;
+    const antes = palette.width;
+    const separators = page.getByRole('separator', { name: 'Redimensionar ventanas', exact: true });
+    const candidates = await separators.evaluateAll(elements => elements.map(element => {
+      const rect = element.getBoundingClientRect();
+      return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+    }));
+    const centerY = palette.y + palette.height / 2;
+    const sep = candidates.find(rect => Math.abs(rect.x + rect.width / 2 - (palette.x + palette.width)) < 12
+      && rect.y < centerY && rect.y + rect.height > centerY);
+    expect(sep, 'el catálogo debe tener un separador en su borde derecho').toBeTruthy();
+    const x = sep!.x + sep!.width / 2;
+    await page.mouse.move(x, centerY);
     await page.mouse.down();
-    await page.mouse.move(sep.x + 83, sep.y + 200, { steps: 4 });
+    await page.mouse.move(x + 80, centerY, { steps: 4 });
     await page.mouse.up();
     expect((await page.locator('.paleta').boundingBox())!.width).toBeGreaterThan(antes + 60);
   });

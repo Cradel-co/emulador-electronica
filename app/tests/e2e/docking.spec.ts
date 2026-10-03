@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext, type Locator, type Page } from '@playwright/test';
+import { agarreVentana, arrastrarVentana as arrastrar, grupoVentana as grupo, previewDock } from './docking-helpers.js';
 
 let serial = 0;
 async function crearProyecto(request: APIRequestContext) {
@@ -11,27 +12,6 @@ async function abrir(page: Page, name: string) {
   await page.goto(`/#${name}`);
   await expect(page.locator('#proyecto')).toHaveValue(name);
   await expect(page.locator('.cm-content')).toBeVisible();
-}
-function grupo(page: Page, id: string): Locator {
-  return page.locator('[data-dock-group]').filter({ has: page.locator(`#ventana-${id}`) });
-}
-type Zone = 'left' | 'right' | 'top' | 'bottom' | 'center';
-async function arrastrar(page: Page, title: string, targetId: string, zone: Zone) {
-  const handle = page.getByRole('button', { name: `Mover ventana ${title}`, exact: true });
-  const target = grupo(page, targetId);
-  await expect(handle).toBeVisible();
-  await expect(target).toBeVisible();
-  const from = (await handle.boundingBox())!;
-  const to = (await target.boundingBox())!;
-  const x = to.x + to.width * (zone === 'left' ? 0.12 : zone === 'right' ? 0.88 : 0.5);
-  const y = to.y + to.height * (zone === 'top' ? 0.12 : zone === 'bottom' ? 0.88 : 0.5);
-  await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
-  await page.mouse.down();
-  try {
-    await page.mouse.move(x, y, { steps: 8 });
-    await expect(page.locator(`[data-dock-zone="${zone}"]`)).toBeVisible();
-  } finally { await page.mouse.up(); }
-  await expect(page.locator('[data-dock-zone]')).toHaveCount(0);
 }
 async function configuracion(page: Page) {
   await page.locator('#act-ajustes').click();
@@ -50,7 +30,7 @@ test('agrupa ventanas como pestañas, las cierra individualmente y mueve Explora
   const circuit = grupo(page, 'circuito');
   await expect(circuit.getByRole('tab', { name: 'Componentes', exact: true })).toHaveAttribute('aria-selected', 'true');
   await expect(circuit.getByRole('tab', { name: 'Circuito', exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Ocultar Componentes', exact: true }).click();
+  await grupo(page, 'componentes').getByRole('button', { name: 'Ocultar Componentes', exact: true }).click();
   await expect(page.locator('#ventana-componentes')).toBeHidden();
   await expect(page.locator('#ventana-circuito')).toBeVisible();
   await expect(page.locator('#ventana-codigo')).toBeVisible();
@@ -117,7 +97,7 @@ test('cada proyecto conserva su distribución al alternar y recargar', async ({ 
 
 test('redimensiona separadores y conserva la proporción al recargar', async ({ page, request }) => {
   await abrir(page, await crearProyecto(request));
-  const separator = page.locator('[role="separator"][data-dock-split]').first();
+  const separator = page.getByRole('separator', { name: 'Redimensionar ventanas', exact: true }).first();
   await expect(separator).toBeVisible();
   const vertical = await separator.getAttribute('aria-orientation') === 'vertical';
   const dimension = async () => page.locator('[data-dock-group]').evaluateAll((groups, vertical) => groups.map(group => {
@@ -153,7 +133,7 @@ test('guarda un predeterminado y permite restaurar el proyecto y el original des
   await page.locator('#proyecto').selectOption(b);
   await expect(grupo(page, 'circuito').getByRole('tab', { name: 'Componentes', exact: true })).toBeVisible();
   await grupo(page, 'circuito').getByRole('tab', { name: 'Circuito', exact: true }).click();
-  await page.getByRole('button', { name: 'Ocultar Circuito', exact: true }).click();
+  await grupo(page, 'circuito').getByRole('button', { name: 'Ocultar Circuito', exact: true }).click();
   await expect(page.locator('#ventana-circuito')).toBeHidden();
   settings = await configuracion(page);
   await settings.getByRole('button', { name: 'Restaurar este proyecto al predeterminado', exact: true }).click();
@@ -179,24 +159,27 @@ test('Ajustes deshabilita acciones de proyecto en la bienvenida', async ({ page 
 test('Escape o soltar fuera cancela el movimiento sin cambiar la selección ni la distribución', async ({ page, request }) => {
   await abrir(page, await crearProyecto(request));
   await page.locator('#lienzo .modulo[data-id="btn1"] .etiqueta-modulo').click();
-  const handle = page.getByRole('button', { name: 'Mover ventana Componentes', exact: true });
+  const handle = agarreVentana(page, 'Componentes');
   const original = await grupo(page, 'componentes').getAttribute('data-dock-group');
   const start = (await handle.boundingBox())!;
-  const destination = (await grupo(page, 'circuito').boundingBox())!;
+  const destination = (await grupo(page, 'circuito').locator('.dv-content-container').boundingBox())!;
   await page.mouse.move(start.x + start.width / 2, start.y + start.height / 2);
   await page.mouse.down();
   await page.mouse.move(destination.x + destination.width / 2, destination.y + destination.height / 2, { steps: 8 });
-  await expect(page.locator('[data-dock-zone="center"]')).toBeVisible();
+  await expect(previewDock(page, 'center').first()).toBeVisible();
+  await expect(page.locator('[data-dock-dragging]')).toHaveAttribute('data-dock-dragging', 'componentes');
   await page.keyboard.press('Escape');
   await page.mouse.up();
-  await expect(page.locator('[data-dock-zone]')).toHaveCount(0);
+  await expect(previewDock(page)).toHaveCount(0);
+  await expect(page.locator('[data-dock-dragging]')).toHaveCount(0);
   await expect(grupo(page, 'componentes')).toHaveAttribute('data-dock-group', original!);
   await expect(page.locator('#lienzo .modulo[data-id="btn1"]')).toHaveClass(/seleccionado/);
   await page.mouse.move(start.x + start.width / 2, start.y + start.height / 2);
   await page.mouse.down();
   await page.mouse.move(4, 20, { steps: 8 });
-  await expect(page.locator('.dock-ghost')).toBeVisible();
+  await expect(page.locator('[data-dock-dragging]')).toHaveAttribute('data-dock-dragging', 'componentes');
   await page.mouse.up();
-  await expect(page.locator('.dock-ghost')).toHaveCount(0);
+  await expect(page.locator('[data-dock-dragging]')).toHaveCount(0);
+  await expect(previewDock(page)).toHaveCount(0);
   await expect(grupo(page, 'componentes')).toHaveAttribute('data-dock-group', original!);
 });

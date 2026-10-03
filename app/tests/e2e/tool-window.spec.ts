@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { abrirProyectoNuevo } from './helpers.js';
+import { arrastrarVentana, grupoVentana } from './docking-helpers.js';
 
 async function icono(page: Page, id: string, abierto: boolean) {
   const button = page.locator(`#${id}`);
@@ -28,7 +29,7 @@ test('cada herramienta abre y cierra su propia ventana sin ocultar la otra', asy
   await icono(page, 'tw-explorador', true);
   await icono(page, 'tw-catalogo', true);
 
-  await explorador.getByRole('button', { name: 'Ocultar Explorador', exact: true }).click();
+  await grupoVentana(page, 'explorador').getByRole('button', { name: 'Ocultar Explorador', exact: true }).click();
   await expect(explorador).toBeHidden();
   await expect(componentes).toBeVisible();
   await icono(page, 'tw-explorador', false);
@@ -58,7 +59,7 @@ test('cerrar y reabrir cada ventana actualiza únicamente su icono y conserva el
   ];
   for (const item of windows) {
     const pane = page.locator(`#ventana-${item.id}`);
-    await pane.getByRole('button', { name: `Ocultar ${item.title}`, exact: true }).click();
+    await grupoVentana(page, item.id).getByRole('button', { name: `Ocultar ${item.title}`, exact: true }).click();
     await expect(pane).toBeHidden();
     await expect(page.locator(`#${item.icon}`)).not.toHaveClass(/\bactiva\b/);
     for (const other of windows.filter(other => other.id !== item.id)) {
@@ -79,23 +80,13 @@ test('agrupar Componentes con Circuito conserva filtro al cerrar, reabrir y reca
   const name = await abrirProyectoNuevo(page, request);
   await page.locator('#buscar-modulos').fill('433');
   const count = await page.locator('#lista-modulos .modulo-card').count();
-  const handle = page.locator('[data-window-drag="componentes"]');
-  const circuitGroup = page.locator('#dock-layout [data-dock-group]').filter({ has: page.locator('#ventana-circuito') });
-  const from = await handle.boundingBox();
-  const to = await circuitGroup.boundingBox();
-  expect(from).not.toBeNull(); expect(to).not.toBeNull();
-  await page.mouse.move(from!.x + from!.width / 2, from!.y + from!.height / 2);
-  await page.mouse.down();
-  try {
-    await page.mouse.move(to!.x + to!.width / 2, to!.y + to!.height / 2, { steps: 8 });
-    await expect(page.locator('[data-dock-zone="center"]')).toBeVisible();
-  } finally { await page.mouse.up(); }
-  const grouped = page.locator('#dock-layout [data-dock-group]').filter({ has: page.locator('#ventana-componentes') });
+  await arrastrarVentana(page, 'Componentes', 'circuito', 'center');
+  const grouped = grupoVentana(page, 'componentes');
   await expect(grouped.getByRole('tab', { name: 'Circuito', exact: true })).toBeVisible();
   await expect(grouped.getByRole('tab', { name: 'Componentes', exact: true })).toHaveAttribute('aria-selected', 'true');
   await expect(page.locator('#buscar-modulos')).toHaveValue('433');
   await expect(page.locator('#lista-modulos .modulo-card')).toHaveCount(count);
-  await page.locator('#ventana-componentes').getByRole('button', { name: 'Ocultar Componentes', exact: true }).click();
+  await grupoVentana(page, 'componentes').getByRole('button', { name: 'Ocultar Componentes', exact: true }).click();
   await icono(page, 'tw-catalogo', false);
   await expect(page.locator('#ventana-circuito')).toBeVisible();
   await page.locator('#tw-catalogo').click();

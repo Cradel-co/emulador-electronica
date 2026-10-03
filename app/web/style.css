@@ -819,29 +819,10 @@ body.depuracion-parada .punto-estado { background: var(--azul); box-shadow: 0 0 
 /* Distribución acoplable: cada división conserva sus proporciones por proyecto. */
 .workspace { display: block; }
 .dock-workspace { width: 100%; height: 100%; position: relative; min-width: 0; min-height: 0; }
-.dock-workspace > .dock-split, .dock-workspace > .dock-group { width: 100%; height: 100%; }
-.dock-split { display: flex; flex: 1; min-width: 0; min-height: 0; gap: 6px; }
-.dock-split.horizontal { flex-direction: row; }
-.dock-split.vertical { flex-direction: column; }
-.dock-branch { position: relative; display: flex; flex-basis: 0; min-width: 0; min-height: 0; }
-.dock-group { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; }
-.dock-slot { display: flex; flex: 1; min-width: 0; min-height: 0; }
-.dock-slot > .panel, .dock-slot > .consola-panel { width: 100%; height: 100%; min-width: 0; min-height: 0; flex: 1; }
 .dock-workspace [hidden] { display: none !important; }
-.dock-tabs { display: flex; flex-shrink: 0; overflow-x: auto; min-height: 30px; background: var(--isla); border-radius: 6px 6px 0 0; }
-.dock-tabs button { border: 0; border-radius: 0; background: transparent; white-space: nowrap; font-size: 12px; }
-.dock-tabs button[aria-selected="true"] { background: var(--isla2); box-shadow: inset 0 -2px var(--link); }
-.dock-separator { position: absolute; z-index: 5; touch-action: none; }
-.horizontal > .dock-branch > .dock-separator { left: -6px; top: 0; width: 6px; height: 100%; cursor: col-resize; }
-.vertical > .dock-branch > .dock-separator { top: -6px; left: 0; height: 6px; width: 100%; cursor: row-resize; }
-.dock-separator:hover, .dock-separator:focus-visible { background: var(--link); }
 .window-grip { cursor: grab; touch-action: none; flex-shrink: 0; min-width: 22px; padding: 1px 4px; border: 0; background: transparent; color: var(--tenue); font-size: 19px; line-height: 1; }
 .editor-tabs > .window-grip { min-height: 30px; align-self: center; }
 .editor-tabs > .window-grip::before { display: none; }
-.dock-dragging, .dock-dragging * { cursor: grabbing !important; user-select: none !important; }
-.dock-preview { position: fixed; z-index: 80; pointer-events: none; background: rgba(53,116,240,.24); border: 2px solid var(--link); border-radius: 6px; }
-.dock-ghost { position: fixed; z-index: 81; pointer-events: none; background: var(--isla2); padding: 8px 12px; border-radius: 5px; box-shadow: 0 4px 16px #0008; }
-.dock-empty { padding: 24px; color: var(--tenue); }
 .window-code-header { flex-shrink: 0; background: var(--isla); border-radius: var(--radio-isla); margin: 0; }
 .layout-settings-actions { display: flex; flex-direction: column; gap: 10px; grid-column: 1 / -1; }
 .layout-settings-actions button { text-align: left; }
