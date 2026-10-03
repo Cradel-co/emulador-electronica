@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { abrirProyectoNuevo, modulo, seleccionarModulo } from './helpers.js';
+import { abrirProyectoNuevo } from './helpers.js';
 
 async function icono(page: Page, id: string, abierto: boolean) {
   const button = page.locator(`#${id}`);
@@ -44,57 +44,67 @@ test('cada herramienta abre y cierra su propia ventana sin ocultar la otra', asy
   await expect(explorador).toBeVisible();
 });
 
-test('mueve ambas herramientas entre laterales conservando filtro y selección', async ({ page, request }) => {
+test('cerrar y reabrir cada ventana actualiza únicamente su icono y conserva el contenido', async ({ page, request }) => {
   await abrirProyectoNuevo(page, request);
   await page.locator('#buscar-modulos').fill('433');
-  const filtered = await page.locator('#lista-modulos .modulo-card').count();
-  expect(filtered).toBeGreaterThan(0);
-  await seleccionarModulo(page, 'btn1');
-  await expect(modulo(page, 'btn1')).toHaveClass(/\bseleccionado\b/);
+  const count = await page.locator('#lista-modulos .modulo-card').count();
   await page.locator('#tw-explorador').click();
-
-  const explorador = page.locator('#ventana-explorador');
-  await explorador.getByRole('button', { name: 'Mover Explorador al lateral derecho', exact: true }).click();
-  await expect(page.locator('#dock-der > #ventana-explorador')).toBeVisible();
-  await expect(page.locator('#dock-izq > #ventana-componentes')).toBeVisible();
-  await expect(page.locator('#dock-izq > #ventana-explorador')).toHaveCount(0);
-  await page.screenshot({ path: '/tmp/ventanas-independientes.png' });
-  await expect(modulo(page, 'btn1')).toHaveClass(/\bseleccionado\b/);
-  await icono(page, 'tw-explorador', true);
-  await icono(page, 'tw-catalogo', true);
-
-  const componentes = page.locator('#ventana-componentes');
-  await componentes.getByRole('button', { name: 'Mover Componentes al lateral derecho', exact: true }).click();
-  await expect(page.locator('#dock-der > #ventana-componentes')).toBeVisible();
+  const windows = [
+    { id: 'explorador', title: 'Explorador', icon: 'tw-explorador' },
+    { id: 'componentes', title: 'Componentes', icon: 'tw-catalogo' },
+    { id: 'circuito', title: 'Circuito', icon: 'tw-circuito' },
+    { id: 'codigo', title: 'Código', icon: 'act-codigo' },
+    { id: 'consola', title: 'Consola', icon: 'tw-build' },
+  ];
+  for (const item of windows) {
+    const pane = page.locator(`#ventana-${item.id}`);
+    await pane.getByRole('button', { name: `Ocultar ${item.title}`, exact: true }).click();
+    await expect(pane).toBeHidden();
+    await expect(page.locator(`#${item.icon}`)).not.toHaveClass(/\bactiva\b/);
+    for (const other of windows.filter(other => other.id !== item.id)) {
+      await expect(page.locator(`#${other.icon}`)).toHaveClass(/\bactiva\b/);
+      await expect(page.locator(`#ventana-${other.id}`)).toBeVisible();
+    }
+    await page.locator(`#${item.icon}`).click();
+    await expect(pane).toBeVisible();
+    await expect(page.locator(`#${item.icon}`)).toHaveClass(/\bactiva\b/);
+  }
   await expect(page.locator('#buscar-modulos')).toHaveValue('433');
-  await expect(page.locator('#lista-modulos .modulo-card')).toHaveCount(filtered);
-  await expect(modulo(page, 'btn1')).toHaveClass(/\bseleccionado\b/);
-  await componentes.getByRole('button', { name: 'Mover Componentes al lateral izquierdo', exact: true }).click();
-  await explorador.getByRole('button', { name: 'Mover Explorador al lateral izquierdo', exact: true }).click();
-  await expect(page.locator('#dock-izq > #ventana-componentes')).toBeVisible();
-  await expect(page.locator('#dock-izq > #ventana-explorador')).toBeVisible();
-  await expect(page.locator('#buscar-modulos')).toHaveValue('433');
-  await expect(page.locator('#lista-modulos .modulo-card')).toHaveCount(filtered);
+  await expect(page.locator('#lista-modulos .modulo-card')).toHaveCount(count);
+  await expect(page.locator('#explorador-archivos')).toContainText('main.yaml');
+  await expect(page.locator('#editor')).toHaveValue(/name:/);
 });
 
-test('persiste lateral y apertura individual al recargar', async ({ page, request }) => {
+test('agrupar Componentes con Circuito conserva filtro al cerrar, reabrir y recargar', async ({ page, request }) => {
   const name = await abrirProyectoNuevo(page, request);
-  await page.locator('#tw-explorador').click();
-  await page.locator('#ventana-explorador').getByRole('button', { name: 'Mover Explorador al lateral derecho', exact: true }).click();
+  await page.locator('#buscar-modulos').fill('433');
+  const count = await page.locator('#lista-modulos .modulo-card').count();
+  const handle = page.locator('[data-window-drag="componentes"]');
+  const circuitGroup = page.locator('#dock-layout [data-dock-group]').filter({ has: page.locator('#ventana-circuito') });
+  const from = await handle.boundingBox();
+  const to = await circuitGroup.boundingBox();
+  expect(from).not.toBeNull(); expect(to).not.toBeNull();
+  await page.mouse.move(from!.x + from!.width / 2, from!.y + from!.height / 2);
+  await page.mouse.down();
+  try {
+    await page.mouse.move(to!.x + to!.width / 2, to!.y + to!.height / 2, { steps: 8 });
+    await expect(page.locator('[data-dock-zone="center"]')).toBeVisible();
+  } finally { await page.mouse.up(); }
+  const grouped = page.locator('#dock-layout [data-dock-group]').filter({ has: page.locator('#ventana-componentes') });
+  await expect(grouped.getByRole('tab', { name: 'Circuito', exact: true })).toBeVisible();
+  await expect(grouped.getByRole('tab', { name: 'Componentes', exact: true })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('#buscar-modulos')).toHaveValue('433');
+  await expect(page.locator('#lista-modulos .modulo-card')).toHaveCount(count);
   await page.locator('#ventana-componentes').getByRole('button', { name: 'Ocultar Componentes', exact: true }).click();
+  await icono(page, 'tw-catalogo', false);
+  await expect(page.locator('#ventana-circuito')).toBeVisible();
+  await page.locator('#tw-catalogo').click();
+  await icono(page, 'tw-catalogo', true);
+  await expect(page.locator('#buscar-modulos')).toHaveValue('433');
+  await expect(page.locator('#lista-modulos .modulo-card')).toHaveCount(count);
   await page.reload();
   await expect(page.locator('#proyecto')).toHaveValue(name);
-  await expect(page.locator('#dock-der > #ventana-explorador')).toBeVisible();
-  await expect(page.locator('#ventana-componentes')).toBeHidden();
-  await icono(page, 'tw-explorador', true);
-  await icono(page, 'tw-catalogo', false);
-  await expect(page.locator('#explorador-archivos')).toContainText('main.yaml');
-  await page.locator('#tw-catalogo').click();
-  await expect(page.locator('#dock-izq > #ventana-componentes')).toBeVisible();
-  await page.locator('#ventana-explorador').getByRole('button', { name: 'Ocultar Explorador', exact: true }).click();
-  await page.reload();
-  await expect(page.locator('#ventana-componentes')).toBeVisible();
-  await expect(page.locator('#ventana-explorador')).toBeHidden();
-  await icono(page, 'tw-catalogo', true);
-  await icono(page, 'tw-explorador', false);
+  await expect(grouped.getByRole('tab', { name: 'Componentes', exact: true })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('#buscar-modulos')).toHaveValue('433');
+  await expect(page.locator('#lista-modulos .modulo-card')).toHaveCount(count);
 });

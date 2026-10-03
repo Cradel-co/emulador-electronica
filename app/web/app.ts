@@ -6,7 +6,8 @@ import { crearEditorMicroPython } from './editor-micropython.js';
 import { editorPreferences, subscribeEditorPreferences } from './editor-preferences.js';
 import { destinoGpio, gpioEnPlaca } from './gpio-destination.js';
 import { placasDelProyecto } from './project-boards.js';
-import { toolWindowLayout, type ToolWindowId, type ToolDock } from './tool-windows.js';
+import { defaultDockLayout, setDockWindowOpen, moveDockWindow, activateDockTab, resizeDockSplit, type DockNode, type DockLayout, type WindowId } from './docking-layout.js';
+import { projectDockLayout, saveProjectDockLayout, defaultSavedDockLayout, saveDefaultDockLayout, resetDefaultDockLayout, projectDockFilter, saveProjectDockFilter, clearProjectDockLayout } from './docking-storage.js';
 import { formatMicroPython } from './micropython-format.js';
 import { montarReact } from './react/montar.js';
 import { alLienzoListo, registrarAcciones, registrarCtx, registrarEstado, registrarMenu, registrarPaleta, registrarVistas } from './react/puente.js';
@@ -74,7 +75,8 @@ const state = observable({
   archivos: [],
   activo: null,
   placaActivaId: (null as string | null),
-  ventanasHerramientas: toolWindowLayout(null),
+  distribucion: defaultDockLayout(),
+  distribucionMensaje: '',
   /** @type {Map<string, any>} */
   catalogo: new Map(),
   /** Chips con lógica (GET /api/chips): id → nombre, entorno que miden, hoja de datos, límites. */
@@ -173,7 +175,10 @@ registrarEstado(state);
 registrarAcciones({
   agregarModulo: (type) => agregarModulo(type),
   quitarDelCatalogo: (m) => void quitarDelCatalogo(m),
-  filtrarModulos: (texto) => { state.filtroModulos = texto; },
+  filtrarModulos: (texto) => {
+    state.filtroModulos = texto;
+    if (state.proyecto) saveProjectDockFilter(state.proyecto.name, texto);
+  },
   abrirProyecto: (nombre) => void cambiarDeProyecto(nombre),
   eliminarProyecto: (nombre) => void eliminarProyecto(nombre),
   eliminarModulo: (id) => eliminarModulo(id),
@@ -201,7 +206,21 @@ registrarAcciones({
   nuevoArchivo: abrirNuevoArchivo,
   importarModulos: abrirImportador,
   mostrarHerramienta,
-  moverHerramienta,
+  moverVentana: (id, group, zone) => actualizarDistribucion(moveDockWindow(state.distribucion, id, group, zone)),
+  activarVentana: (group, id) => actualizarDistribucion(activateDockTab(state.distribucion, group, id)),
+  redimensionarDistribucion: (split, sizes) => actualizarDistribucion(resizeDockSplit(state.distribucion, split, sizes)),
+  guardarDistribucionPredeterminada: () => {
+    saveDefaultDockLayout(state.distribucion);
+    state.distribucionMensaje = 'Predeterminado guardado. Los proyectos existentes conservan su distribución.';
+  },
+  restaurarDistribucionProyecto: () => {
+    actualizarDistribucion(defaultSavedDockLayout());
+    state.distribucionMensaje = 'Este proyecto usa ahora la distribución predeterminada.';
+  },
+  restaurarDistribucionOriginal: () => {
+    resetDefaultDockLayout();
+    state.distribucionMensaje = 'Predeterminado original restablecido. Los proyectos existentes conservan su distribución.';
+  },
   irALinea: (archivo, linea) => irALinea(archivo, linea),
   moverEntorno: (id, valores) => {
     void api(`/api/projects/${state.proyecto.name}/modules/${encodeURIComponent(id)}/entorno`, {
@@ -1936,6 +1955,7 @@ async function eliminarProyecto(nombre) {
   if (!confirm(`¿Eliminar el proyecto "${nombre}"? No se puede deshacer.`)) return;
   try {
     await api(`/api/projects/${nombre}`, { method: 'DELETE' });
+    clearProjectDockLayout(nombre);
     // Si era el proyecto abierto (p.ej. desde la barra de iconos), hay que soltarlo antes de
     // recargar la lista: si no, cargarProyectos() intenta reabrir un proyecto que ya no existe.
     if (state.proyecto?.name === nombre) {
@@ -1965,7 +1985,12 @@ async function abrirProyecto(nombre) {
   const { project, files, placa } = await api(`/api/projects/${nombre}`);
   if (mia !== aperturas) return;
   document.body.classList.remove('inicio');
+  const cambioProyecto = state.proyecto?.name !== nombre;
   state.proyecto = project;
+  if (cambioProyecto) {
+    state.filtroModulos = projectDockFilter(nombre);
+    actualizarDistribucion(projectDockLayout(nombre));
+  }
   state.placaActivaId = placasDelProyecto(project)[0]?.id ?? null;
   depuracion?.alCambiarContexto();
   state.placa = placa ?? null;
@@ -2177,7 +2202,7 @@ $('dlg-nuevo').addEventListener('close', async () => {
 $('ejecutar').onclick = async () => {
   if (!state.proyecto) return;
   // Como "Run" en el IDE: se abre la consola de compilación si estaba oculta.
-  if (document.body.classList.contains('sin-abajo')) {
+  if (!ventanaVisible('consola')) {
     mostrarVentana('abajo', true);
     elegirTabConsola('build');
   }
@@ -2263,31 +2288,50 @@ $('abrir-web').onclick = () => {
 // --- Ventanas de herramientas (se muestran/ocultan como en Android Studio y VS Code) ---
 
 const VENTANAS = { izq: 'sin-izq', der: 'sin-der', abajo: 'sin-abajo' };
+const VISTA_VENTANA = { izq: 'componentes', der: 'codigo', abajo: 'consola' } as const;
+
+function grupoDeVentana(id: WindowId, node: DockNode = state.distribucion.root) {
+  if (node.kind === 'group') return node.views.includes(id) ? node : null;
+  for (const child of node.children) {
+    const group = grupoDeVentana(id, child);
+    if (group) return group;
+  }
+  return null;
+}
+
+function ventanaVisible(id: WindowId) {
+  const group = grupoDeVentana(id);
+  const active = group && (state.distribucion.open[group.active] ? group.active : group.views.find(view => state.distribucion.open[view]));
+  return state.distribucion.open[id] && active === id;
+}
+
+function actualizarDistribucion(layout: DockLayout) {
+  ahora(() => { state.distribucion = layout; });
+  if (state.proyecto) saveProjectDockLayout(state.proyecto.name, layout);
+  sincronizarFranjas();
+}
+
+function abrirVentana(id: WindowId, visible?: boolean) {
+  actualizarDistribucion(setDockWindowOpen(state.distribucion, id, visible ?? !ventanaVisible(id)));
+}
 
 /** @param {'izq' | 'der' | 'abajo'} cual @param {boolean} [visible] sin valor: alterna */
 function mostrarVentana(cual, visible?: boolean) {
-  const clase = VENTANAS[cual];
-  const ver = visible ?? document.body.classList.contains(clase);
-  document.body.classList.toggle(clase, !ver);
-  try {
-    localStorage.setItem(`ventana-${cual}`, ver ? '1' : '0');
-  } catch {
-    /* no es crítico */
-  }
-  sincronizarFranjas();
-  if (ver && cual === 'abajo') pintarConsola();
+  abrirVentana(VISTA_VENTANA[cual], visible);
+  if (state.distribucion.open.consola && cual === 'abajo') pintarConsola();
 }
 
 function sincronizarFranjas() {
-  const b = document.body.classList;
   for (const [id, button] of [['componentes', 'tw-catalogo'], ['explorador', 'tw-explorador']] as const) {
-    const ventana = state.ventanasHerramientas[id];
-    const visible = ventana.open && !b.contains(VENTANAS[ventana.dock]);
+    const visible = state.distribucion.open[id];
     $(button).classList.toggle('activa', visible);
     $(button).setAttribute('aria-expanded', String(visible));
   }
-  $('act-codigo').classList.toggle('activa', !b.contains('sin-der'));
-  const abajo = !b.contains('sin-abajo');
+  $('act-codigo').classList.toggle('activa', state.distribucion.open.codigo);
+  $('act-codigo').setAttribute('aria-expanded', String(state.distribucion.open.codigo));
+  $('tw-circuito').classList.toggle('activa', state.distribucion.open.circuito);
+  $('tw-circuito').setAttribute('aria-expanded', String(state.distribucion.open.circuito));
+  const abajo = state.distribucion.open.consola;
   for (const id of ['tw-build', 'tw-emu', 'tw-debug', 'tw-problemas']) {
     $(id).classList.toggle('activa', abajo && $(id).dataset.twTab === state.tab);
   }
@@ -2304,7 +2348,7 @@ function elegirTabConsola(tab) {
 
 /** Click en la franja: abre la consola en esa pestaña; si ya estaba ahí, la oculta. */
 function alternarConsola(tab) {
-  const visible = !document.body.classList.contains('sin-abajo');
+  const visible = ventanaVisible('consola');
   if (visible && state.tab === tab) return mostrarVentana('abajo', false);
   mostrarVentana('abajo', true);
   elegirTabConsola(tab);
@@ -2317,11 +2361,15 @@ for (const b of document.querySelectorAll('[data-tw-tab]')) {
 for (const b of document.querySelectorAll('[data-ocultar]')) {
   (b as HTMLElement).onclick = () => mostrarVentana(((b as HTMLElement).dataset.ocultar as any), false);
 }
+for (const b of document.querySelectorAll('[data-close-window]')) {
+  (b as HTMLElement).onclick = () => abrirVentana((b as HTMLElement).dataset.closeWindow as WindowId, false);
+}
 $('tw-catalogo').onclick = () => mostrarHerramienta('componentes');
 $('tw-explorador').onclick = () => mostrarHerramienta('explorador');
+$('tw-circuito').onclick = () => abrirVentana('circuito');
 $('act-codigo').onclick = () => {
   // Oculto: se abre. Abierto con un módulo elegido: vuelve al código. Abierto con el código: se oculta.
-  if (document.body.classList.contains('sin-der')) mostrarVentana('der', true);
+  if (!ventanaVisible('codigo')) mostrarVentana('der', true);
   else if (state.seleccion) seleccionar(null);
   else mostrarVentana('der', false);
 };
@@ -2335,39 +2383,14 @@ function alternarModoMover() {
 $('act-mover').onclick = alternarModoMover;
 
 function restaurarVentanas() {
-  try {
-    ahora(() => { state.ventanasHerramientas = toolWindowLayout(JSON.parse(localStorage.getItem('herramientas-layout') ?? 'null')); });
-  } catch { /* Una preferencia dañada conserva el diseño inicial. */ }
-  for (const cual of (['izq', 'der', 'abajo'] as const)) {
-    try {
-      if (localStorage.getItem(`ventana-${cual}`) === '0') document.body.classList.add(VENTANAS[cual]);
-    } catch {
-      /* no es crítico */
-    }
-  }
+  document.body.classList.remove(...Object.values(VENTANAS));
   sincronizarFranjas();
 }
 
-function guardarVentanasHerramientas() {
-  try { localStorage.setItem('herramientas-layout', JSON.stringify(state.ventanasHerramientas)); } catch { /* Preferencia opcional. */ }
-  const izquierdaVacia = !Object.values(state.ventanasHerramientas).some(v => v.open && v.dock === 'izq');
-  if (izquierdaVacia) mostrarVentana('izq', false);
-  sincronizarFranjas();
+function mostrarHerramienta(id: 'explorador' | 'componentes', visible?: boolean) {
+  abrirVentana(id, visible);
 }
 
-function mostrarHerramienta(id: ToolWindowId, visible?: boolean) {
-  const ventana = state.ventanasHerramientas[id];
-  const open = visible ?? (!ventana.open || document.body.classList.contains(VENTANAS[ventana.dock]));
-  ahora(() => { state.ventanasHerramientas = { ...state.ventanasHerramientas, [id]: { ...ventana, open } }; });
-  if (open) mostrarVentana(ventana.dock, true);
-  guardarVentanasHerramientas();
-}
-
-function moverHerramienta(id: ToolWindowId, dock: ToolDock) {
-  ahora(() => { state.ventanasHerramientas = { ...state.ventanasHerramientas, [id]: { open: true, dock } }; });
-  mostrarVentana(dock, true);
-  guardarVentanasHerramientas();
-}
 
 inp('filtro').addEventListener('input', () => {
   state.filtro = inp('filtro').value;
@@ -2464,6 +2487,7 @@ const ACCIONES = [
   { id: 'ver-catalogo', titulo: 'Componentes', menu: 'Ver', atajo: 'Alt+1', teclas: ['Alt+1', 'Ctrl+B'], hacer: () => mostrarHerramienta('componentes') },
   { id: 'ver-explorador', titulo: 'Explorador de archivos', menu: 'Ver', atajo: 'Ctrl+Shift+E', hacer: () => mostrarHerramienta('explorador', true) },
   { id: 'ver-codigo', titulo: 'Código / propiedades', menu: 'Ver', atajo: 'Alt+2', hacer: () => mostrarVentana('der') },
+  { id: 'ver-circuito', titulo: 'Circuito', menu: 'Ver', hacer: () => abrirVentana('circuito') },
   { id: 'ver-consola', titulo: 'Consola', menu: 'Ver', atajo: 'Ctrl+J', teclas: ['Ctrl+J', 'Ctrl+`'], hacer: () => mostrarVentana('abajo') },
   { id: 'ver-build', titulo: 'Compilación', menu: 'Ver', atajo: 'Alt+0', hacer: () => alternarConsola('build') },
   { id: 'ver-emu', titulo: 'Emulador (consola serie)', menu: 'Ver', atajo: 'Alt+F12', hacer: () => alternarConsola('emu') },
@@ -2628,72 +2652,9 @@ $('dlg-buscar').addEventListener('click', (e) => {
   if (e.target === e.currentTarget) ($('dlg-buscar') as HTMLDialogElement).close(); // click en el fondo
 });
 $('buscar-todo').onclick = () => abrirPaleta();
-$('act-ajustes').onclick = () => ($('dlg-editor-preferences') as HTMLDialogElement).showModal();
+$('act-ajustes').onclick = () => { state.distribucionMensaje = ''; ($('dlg-ajustes') as HTMLDialogElement).showModal(); };
 $('bienvenida-acerca').onclick = () => ($('dlg-acerca') as HTMLDialogElement).showModal();
 $('bienvenida-importar').onclick = abrirImportador;
-
-// --- Paneles redimensionables -----------------------------------------------
-
-/**
- * Límites y variable CSS de cada separador arrastrable.
- * `izq`/`der` mueven columnas de `main`; `consola` mueve la fila de la consola.
- */
-const LIMITES_REDIMENSION = {
-  izq: { variable: '--col-izq', min: 200, max: 480, selector: '.paleta', prop: 'width' },
-  der: { variable: '--col-der', min: 280, max: 900, selector: '.derecha', prop: 'width' },
-  consola: { variable: '--alto-consola', min: 100, max: 600, selector: '.consola-panel', prop: 'height' },
-};
-
-function iniciarRedimension() {
-  const raiz = document.documentElement;
-
-  // Restaurar tamaños de la última sesión.
-  for (const cfg of Object.values(LIMITES_REDIMENSION)) {
-    try {
-      const guardado = localStorage.getItem(cfg.variable);
-      if (guardado) raiz.style.setProperty(cfg.variable, guardado);
-    } catch {
-      /* localStorage puede no estar disponible; no es crítico */
-    }
-  }
-
-  for (const handle of document.querySelectorAll('[data-resize]')) {
-    const el = (handle as HTMLElement);
-    const tipo = (el.dataset.resize as keyof typeof LIMITES_REDIMENSION);
-    const cfg = LIMITES_REDIMENSION[tipo];
-    const horizontal = tipo !== 'consola';
-    // La consola y el panel derecho crecen hacia el lado contrario al que se arrastra.
-    const signo = tipo === 'izq' ? 1 : -1;
-
-    el.addEventListener('mousedown', (e) => {
-      e.preventDefault();
-      const inicioPos = horizontal ? e.clientX : e.clientY;
-      const panel = (document.querySelector<HTMLElement>(cfg.selector) as HTMLElement);
-      const valorInicial = panel.getBoundingClientRect()[cfg.prop];
-      el.classList.add('arrastrando');
-      document.body.style.userSelect = 'none';
-
-      const mover = (ev) => {
-        const pos = horizontal ? ev.clientX : ev.clientY;
-        const nuevo = Math.min(cfg.max, Math.max(cfg.min, valorInicial + signo * (pos - inicioPos)));
-        raiz.style.setProperty(cfg.variable, `${nuevo}px`);
-      };
-      const soltar = () => {
-        el.classList.remove('arrastrando');
-        document.body.style.userSelect = '';
-        document.removeEventListener('mousemove', mover);
-        document.removeEventListener('mouseup', soltar);
-        try {
-          localStorage.setItem(cfg.variable, raiz.style.getPropertyValue(cfg.variable));
-        } catch {
-          /* no es crítico si no se puede persistir */
-        }
-      };
-      document.addEventListener('mousemove', mover);
-      document.addEventListener('mouseup', soltar);
-    });
-  }
-}
 
 // --- Arranque ---------------------------------------------------------------
 
@@ -2723,7 +2684,7 @@ const depuracion = crearDepuracion({
     elegirTabConsola('debug');
     mostrarVentana('der', true);
   },
-  debugVisible: () => state.tab === 'debug' && !document.body.classList.contains('sin-abajo'),
+  debugVisible: () => state.tab === 'debug' && ventanaVisible('consola'),
   nombrePin: nombrePinGpio,
   altoLinea: ALTO_LINEA,
   padEditor: PAD_EDITOR,
@@ -2735,7 +2696,6 @@ const depuracion = crearDepuracion({
   // Antes que nada: React monta el lienzo (sincrónico, ver montarReact) y todo lo que viene
   // después ya puede dibujar en él.
   montarReact();
-  iniciarRedimension();
   restaurarVentanas();
   const { modules } = await api('/api/modules').catch(() => ({ modules: [] }));
   state.catalogo = new Map(modules.map((m) => [m.type, m]));

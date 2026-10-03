@@ -5,7 +5,6 @@ import { FileExplorer } from './FileExplorer.js';
 import { ExplorerIcon } from './ExplorerIcon.js';
 import { acciones, estado } from './puente.js';
 import { useEstado } from './estado.js';
-import type { ToolWindowLayout, ToolWindowId } from '../tool-windows.js';
 
 function Componentes() {
   const filtro = useEstado(() => estado().filtroModulos as string);
@@ -21,18 +20,15 @@ function Componentes() {
 
 /** Registro de ventanas: cada contenido se inyecta en la misma estructura reutilizable. */
 export function ToolWindows() {
-  const layout = useEstado(() => estado().ventanasHerramientas as ToolWindowLayout);
   const views = [
     { id: 'explorador' as const, title: 'Explorador', icon: <ExplorerIcon />, body: <section id="explorador-archivos" className="explorador-archivos" aria-label="Explorador de archivos"><FileExplorer /></section> },
     { id: 'componentes' as const, title: 'Componentes', actions: <button id="importar-modulo" className="btn-chico" title="Importar módulos" onClick={() => acciones().importarModulos()}>+ Importar</button>, body: <Componentes /> },
   ];
   return <>{views.map(view => {
-    const config = layout[view.id];
-    const dock = document.getElementById(`dock-${config.dock}`);
+    const dock = document.getElementById(`ventana-${view.id}`);
     if (!dock) return null;
     return createPortal(<ToolWindow id={`ventana-${view.id}`} title={view.title} icon={view.icon} actions={view.actions}
-      open={config.open} dock={config.dock} onClose={() => acciones().mostrarHerramienta(view.id, false)}
-      onMove={destination => acciones().moverHerramienta(view.id as ToolWindowId, destination)}>
+      onClose={() => acciones().mostrarHerramienta(view.id, false)}>
       {view.body}
     </ToolWindow>, dock, view.id);
   })}</>;

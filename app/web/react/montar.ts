@@ -3,6 +3,9 @@ import { createElement, type FunctionComponent } from 'react';
 import { flushSync } from 'react-dom';
 import { NewFileDialog } from './NewFileDialog.js';
 import { ToolWindows } from './ToolWindows.js';
+import { DockWorkspace } from './DockWorkspace.js';
+import { LayoutSettings } from './LayoutSettings.js';
+import { Settings } from './Settings.js';
 import { ExplorerIcon } from './ExplorerIcon.js';
 import { EditorPreferences } from './EditorPreferences.js';
 import { Lienzo } from './Lienzo.js';
@@ -36,12 +39,15 @@ const ISLAS: [string, FunctionComponent, boolean][] = [
   ['react-lienzo', Lienzo, true],
   ['avisos-dibujo', Avisos, false],
   ['tool-windows', ToolWindows, true],
+  ['dock-layout', DockWorkspace, true],
   ['tw-explorador', ExplorerIcon, false],
   ['lista-proyectos', Proyectos, false],
   ['panel-modulo', PanelDerecho, false],
   ['menu', Menu, false],
   ['dlg-buscar', Paleta, false],
   ['dlg-editor-preferences', EditorPreferences, false],
+  ['dlg-ajustes', Settings, true],
+  ['dlg-layout-settings', LayoutSettings, true],
   ['dlg-nuevo-archivo', NewFileDialog, false],
   ['tabs-archivos', Pestanas, false],
   ['miga', Miga, false],

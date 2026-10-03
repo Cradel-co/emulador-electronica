@@ -235,6 +235,7 @@ test('las pestañas conservan cursor y scroll de archivos largos', async ({ page
 test('los ajustes cambian tema, fuente e indentación y persisten al recargar', async ({ page, request }) => {
   await proyecto(page, request, 'micropython', 'if True:');
   await page.locator('#act-ajustes').click();
+  await page.locator('#dlg-ajustes').getByRole('button', { name: 'Ajustes del editor', exact: true }).click();
   const settings = page.locator('#dlg-editor-preferences');
   await expect(settings).toBeVisible();
   await page.locator('#editor-theme').selectOption('light');
@@ -258,6 +259,7 @@ test('los ajustes cambian tema, fuente e indentación y persisten al recargar', 
   await expect(page.locator('.cm-editor')).toHaveCSS('font-size', '18px');
   await expect(page.locator('.cm-editor')).not.toHaveClass(/cm-dark/);
   await page.locator('#act-ajustes').click();
+  await page.locator('#dlg-ajustes').getByRole('button', { name: 'Ajustes del editor', exact: true }).click();
   await expect(page.locator('#editor-theme')).toHaveValue('light');
   await expect(page.locator('#editor-font-size')).toHaveValue('18');
   await expect(page.locator('#editor-indent-width')).toHaveValue('2');
