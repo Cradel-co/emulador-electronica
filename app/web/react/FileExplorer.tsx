@@ -4,7 +4,7 @@ import { useEstado } from './estado.js';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { acciones, estado } from './puente.js';
 import { placasDelProyecto } from '../project-boards.js';
-import { carpetaDeArchivo, construirArbolArchivos, type FileTree } from '../file-tree.js';
+import { carpetaDeArchivo, construirArbolArchivos, type FileTree, type BoardFileTree } from '../file-tree.js';
 interface TreeActions { active: string | null; selected: string | null; onOpen: (path: string) => void; onSelect: (path: string) => void }
 function TreeChildren({ node, active, selected, onOpen, onSelect }: TreeActions & { node: FileTree }) {
   const children = [...node.children.values()].sort((a, b) => Number(a.file) - Number(b.file) || a.name.localeCompare(b.name));
@@ -45,13 +45,16 @@ export function FileTreeView({ paths, directories = [], active, selected = null,
   return <TreeChildren node={construirArbolArchivos(paths, directories)} active={active} selected={selected} onOpen={onOpen} onSelect={onSelect} />;
 }
 /** Grupo plegable para las raíces del explorador, con acciones inyectables. */
-function ExplorerGroup({ label, actions, selected = false, onSelect, children, className = '', revealKey }: {
-  label: string; actions?: ReactNode; selected?: boolean; onSelect: () => void; children: ReactNode; className?: string; revealKey?: string | null;
+function ExplorerGroup({ label, actions, selected = false, onSelect, children, className = '', revealKey, expanded }: {
+  label: string; actions?: ReactNode; selected?: boolean; onSelect: () => void; children: ReactNode; className?: string; revealKey?: string | null; expanded?: boolean;
 }) {
   const details = useRef<HTMLDetailsElement>(null);
-  useEffect(() => { if (details.current) details.current.open = true; }, [revealKey]);
-  return <details ref={details} className={`explorer-group ${className}`} open>
-    <summary className={selected ? 'activa' : undefined} title={label} onClick={onSelect}>
+  useEffect(() => { if (expanded === undefined && details.current) details.current.open = true; }, [revealKey, expanded]);
+  return <details ref={details} className={`explorer-group ${className}`} open={expanded ?? true}>
+    <summary className={selected ? 'activa' : undefined} title={label} onClick={event => {
+      if (expanded !== undefined) event.preventDefault();
+      onSelect();
+    }}>
       <TreeChevron /><span className="explorer-root-row"><span className="explorer-root-name">{label}</span>{actions}</span>
     </summary>
     <div className="explorer-group-children">{children}</div>
@@ -62,10 +65,42 @@ export function FileExplorer() {
   const tree = useRef<HTMLDivElement>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState('');
-  const revealRoots = () => tree.current?.querySelectorAll<HTMLDetailsElement>('.explorer-group').forEach(group => { group.open = true; });
+  const files = useEstado(() => estado().archivos as { path: string }[]);
+  const directories = useEstado(() => estado().carpetas as string[]);
+  const active = useEstado(() => estado().activo as string | null);
+  const boardId = useEstado(() => estado().placaActivaId as string | null);
+  const project = useEstado(() => estado().proyecto);
+  const circuitSelection = useEstado(() => estado().seleccion as { tipo: string; id?: string } | null);
+  const snapshots = useEstado(() => estado().exploradorPlacas as BoardFileTree[]);
+  const catalog = useEstado(() => estado().catalogo as Map<string, { name: string }>);
+  const boards = placasDelProyecto(project);
+  const boardsKey = boards.map(board => `${board.id}:${board.board}`).join('|');
+  const [selected, setSelected] = useState<{ boardId: string; path: string } | null>(null);
+  const [expanded, setExpanded] = useState<string | null>(boardId);
+  useEffect(() => { setSelected(null); setExpanded(boardId); }, [project?.name, boardId]);
+  useEffect(() => { setSelected(null); setExpanded(boardId); }, [active]);
+  useEffect(() => {
+    if (circuitSelection?.tipo === 'modulo' && circuitSelection.id === boardId) setExpanded(boardId);
+  }, [circuitSelection, boardId]);
+  useEffect(() => {
+    let cancelled = false;
+    setRefreshError('');
+    void acciones().cargarExplorador().catch(error => {
+      if (!cancelled) setRefreshError(error instanceof Error ? error.message : 'No se pudo cargar el explorador.');
+    });
+    return () => { cancelled = true; };
+  }, [project?.name, boardsKey, files, directories]);
+  const targetBoardId = selected?.boardId ?? boardId;
+  const targetBoard = boards.find(board => board.id === targetBoardId);
+  const parent = selected?.path ?? carpetaDeArchivo(active);
+  const revealRoots = () => {
+    const root = tree.current?.querySelector<HTMLDetailsElement>('.explorer-project-root');
+    if (root) root.open = true;
+    setExpanded(targetBoardId);
+  };
   const collapse = () => {
     tree.current?.querySelectorAll<HTMLDetailsElement>('details:not(.explorer-project-root)').forEach(group => { group.open = false; });
-    setSelected('');
+    setExpanded(null);
   };
   const refresh = async () => {
     setRefreshing(true); setRefreshError('');
@@ -73,37 +108,44 @@ export function FileExplorer() {
     catch (error) { setRefreshError(error instanceof Error ? error.message : 'No se pudo actualizar el explorador.'); }
     finally { setRefreshing(false); }
   };
-  const files = useEstado(() => estado().archivos as { path: string }[]);
-  const directories = useEstado(() => estado().carpetas as string[]);
-  const active = useEstado(() => estado().activo as string | null);
-  const boardId = useEstado(() => estado().placaActivaId as string | null);
-  const project = useEstado(() => estado().proyecto);
-  const boardName = useEstado(() => estado().placa?.nombre as string | undefined);
-  const board = placasDelProyecto(project).find(b => b.id === boardId);
-  const [selected, setSelected] = useState<string | null>(null);
-  useEffect(() => setSelected(null), [project?.name, boardId, active]);
-  const parent = selected ?? carpetaDeArchivo(active);
+  const openFile = async (id: string, path: string) => {
+    setSelected(null);
+    try { await acciones().abrirArchivoDePlaca(id, path); }
+    catch (error) { setRefreshError(error instanceof Error ? error.message : 'No se pudo abrir el archivo.'); }
+  };
   const toolbar = <div className="explorer-toolbar" role="toolbar" aria-label="Acciones del explorador" onClick={event => {
     event.preventDefault();
     event.stopPropagation();
   }}>
-    <button type="button" disabled={!board} aria-label="Nuevo archivo" title={`Nuevo archivo en ${parent || 'la raíz de la placa'}`} onClick={() => { revealRoots(); acciones().nuevoArchivo(parent); }}><EntryIcon folder={false} /></button>
-    <button type="button" disabled={!board} aria-label="Nueva carpeta" title={`Nueva carpeta en ${parent || 'la raíz de la placa'}`} onClick={() => { revealRoots(); acciones().nuevaCarpeta(parent); }}><EntryIcon folder /></button>
-    <button type="button" disabled={!board || refreshing} aria-label="Actualizar explorador" title="Actualizar explorador" onClick={() => void refresh()}><ActionIcon kind="refresh" /></button>
-    <button type="button" disabled={!board} aria-label="Plegar carpetas" title="Plegar carpetas" onClick={collapse}><ActionIcon kind="collapse" /></button>
+    <button type="button" disabled={!targetBoard} aria-label="Nuevo archivo" title={`Nuevo archivo en ${parent || 'la raíz de la placa'}`} onClick={() => { revealRoots(); acciones().nuevoArchivo(parent, targetBoardId ?? undefined); }}><EntryIcon folder={false} /></button>
+    <button type="button" disabled={!targetBoard} aria-label="Nueva carpeta" title={`Nueva carpeta en ${parent || 'la raíz de la placa'}`} onClick={() => { revealRoots(); acciones().nuevaCarpeta(parent, targetBoardId ?? undefined); }}><EntryIcon folder /></button>
+    <button type="button" disabled={!boards.length || refreshing} aria-label="Actualizar explorador" title="Actualizar explorador" onClick={() => void refresh()}><ActionIcon kind="refresh" /></button>
+    <button type="button" disabled={!boards.length} aria-label="Plegar carpetas" title="Plegar carpetas" onClick={collapse}><ActionIcon kind="collapse" /></button>
   </div>;
   return <ToolWindow id="ventana-explorador" title="Explorador" icon={<ExplorerIcon />}
     onClose={() => acciones().mostrarHerramienta('explorador', false)}>
     <section id="explorador-archivos" className="explorador-archivos" aria-label="Explorador de archivos">
-      <div ref={tree} className="file-explorer-tree" data-board-id={board?.id} onClick={event => {
-        if (event.target === event.currentTarget) setSelected('');
+      <div ref={tree} className="file-explorer-tree" data-board-id={boardId ?? undefined} onClick={event => {
+        if (event.target === event.currentTarget && boardId) setSelected({ boardId, path: '' });
       }}>
-        {project ? <ExplorerGroup key={project.name} label={project.name} revealKey={active} actions={toolbar} onSelect={() => setSelected('')} className="explorer-project-root">
-          {board ? <ExplorerGroup key={board.id} label={boardName ?? board.board} revealKey={active} selected={selected === '' || selected === null}
-            onSelect={() => setSelected('')} className="explorer-board-root">
-            <FileTreeView paths={(files ?? []).map(f => f.path)} directories={directories ?? []} selected={selected} active={active}
-              onSelect={setSelected} onOpen={path => { setSelected(null); acciones().abrirArchivo(path); }} />
-          </ExplorerGroup> : <p>Seleccioná una placa en el circuito para ver sus archivos.</p>}
+        {project ? <ExplorerGroup key={project.name} label={project.name} revealKey={`${boardId}:${active}`} actions={toolbar}
+          onSelect={() => { if (boardId) setSelected({ boardId, path: '' }); }} className="explorer-project-root">
+          {boards.map(board => {
+            const snapshot = snapshots?.find(item => item.id === board.id);
+            const name = snapshot?.name ?? catalog?.get(board.board)?.name ?? board.board;
+            const label = boards.filter(item => item.board === board.board).length > 1 ? `${name} · ${board.id}` : name;
+            const isActive = board.id === boardId;
+            return <div key={board.id} className="explorer-board" data-board-id={board.id}>
+              <ExplorerGroup label={label} expanded={expanded === board.id} selected={isActive}
+                onSelect={() => { setSelected({ boardId: board.id, path: '' }); setExpanded(current => current === board.id ? null : board.id); }} className="explorer-board-root">
+                <FileTreeView paths={(isActive ? files ?? [] : snapshot?.files ?? []).map(file => file.path)}
+                  directories={isActive ? directories ?? [] : snapshot?.directories ?? []}
+                  selected={selected?.boardId === board.id ? selected.path : null} active={isActive ? active : null}
+                  onSelect={path => setSelected({ boardId: board.id, path })} onOpen={path => void openFile(board.id, path)} />
+              </ExplorerGroup>
+            </div>;
+          })}
+          {!boards.length && <p>Agregá una placa al circuito para crear sus archivos.</p>}
         </ExplorerGroup> : <p>Abrí un proyecto para ver sus archivos.</p>}
       </div>
       {refreshError && <p role="alert">{refreshError}</p>}

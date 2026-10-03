@@ -549,6 +549,27 @@ async function registerRoutes(): Promise<void> {
     }
   });
 
+  // El árbol del proyecto enumera todas las placas sin cambiar el contexto del editor.
+  app.get('/api/projects/:name/explorer', async (req, reply) => {
+    const { name } = req.params as { name: string };
+    try {
+      const project = await requireProject(name);
+      const boards = await Promise.all(placasDelProyecto(project).map(async (board) => {
+        const [files, directories, placa] = await Promise.all([
+          store.listFiles(name, board.language, board.id),
+          store.listDirectories(name, board.language, board.id),
+          buscarPlaca(board.board),
+        ]);
+        const descriptor = placa ? await placaParaUi(placa) : null;
+        return { id: board.id, name: descriptor?.nombre ?? board.board,
+          files: files.filter(file => !/(^|\/)(secrets\.yaml|project\.json)$/.test(file.path)), directories };
+      }));
+      reply.send({ boards });
+    } catch (err) {
+      fail(reply, (err as NodeJS.ErrnoException)?.code === 'ENOENT' ? new ProjectError('El proyecto no existe.', 404) : err);
+    }
+  });
+
   app.delete('/api/projects/:name', async (req, reply) => {
     const { name } = req.params as { name: string };
     try {

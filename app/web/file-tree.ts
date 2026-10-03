@@ -28,3 +28,6 @@ export function rutaNuevaEntrada(parent: string, name: string, kind: EntryKind, 
   const suffix = kind === 'file' && !base.includes('.') ? SUFFIX[language] ?? '' : '';
   return `${parent ? parent + '/' : ''}${input}${suffix}`;
 }
+
+/** Árbol de una instancia de placa; las rutas siempre son relativas a esa placa. */
+export interface BoardFileTree { id: string; name: string; files: { path: string }[]; directories: string[] }

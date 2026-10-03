@@ -6,7 +6,7 @@ import { crearEditorMicroPython } from './editor-micropython.js';
 import { editorPreferences, subscribeEditorPreferences } from './editor-preferences.js';
 import { destinoGpio, gpioEnPlaca } from './gpio-destination.js';
 import { placasDelProyecto } from './project-boards.js';
-import { carpetaDeArchivo, rutaNuevaEntrada, type EntryCreationContext, type EntryKind } from './file-tree.js';
+import { carpetaDeArchivo, rutaNuevaEntrada, type EntryCreationContext, type EntryKind, type BoardFileTree } from './file-tree.js';
 import { defaultDockLayout, normalizeDockLayout, setDockWindowOpen, type DockNode, type DockLayout, type WindowId } from './docking-layout.js';
 import { projectDockLayout, saveProjectDockLayout, defaultSavedDockLayout, saveDefaultDockLayout, resetDefaultDockLayout, projectDockFilter, saveProjectDockFilter, clearProjectDockLayout } from './docking-storage.js';
 import { formatMicroPython } from './micropython-format.js';
@@ -76,6 +76,7 @@ const state = observable({
   proyecto: null,
   archivos: [],
   carpetas: [] as string[],
+  exploradorPlacas: [] as BoardFileTree[],
   creacionEntrada: null as EntryCreationContext | null,
   activo: null,
   placaActivaId: (null as string | null),
@@ -211,9 +212,14 @@ registrarAcciones({
   },
   reemplazarQuemado: (id) => reemplazarQuemado(id),
   abrirArchivo: (ruta) => { seleccionar(null); void abrirArchivo(ruta); },
+  abrirArchivoDePlaca: async (boardId, path) => {
+    await seleccionarPlaca(boardId, path);
+    if (state.placaActivaId === boardId && state.activo === path) seleccionar(null);
+  },
+  cargarExplorador: () => cargarExplorador(),
   nuevoArchivo: abrirNuevoArchivo,
   actualizarExplorador,
-  nuevaCarpeta: parent => abrirCreacionEntrada('directory', parent),
+  nuevaCarpeta: (parent, boardId) => abrirCreacionEntrada('directory', parent, boardId),
   crearEntrada,
   importarModulos: abrirImportador,
   mostrarHerramienta,
@@ -826,16 +832,19 @@ async function guardar(silencioso = false) {
 }
 
 
+let aperturasArchivo = 0;
 async function abrirArchivo(ruta) {
+  const version = ++aperturasArchivo;
   if (!state.proyecto) return;
   const proyecto = state.proyecto.name;
   const boardId = state.placaActivaId;
   if (!boardId) return;
   if (state.activo && state.activo !== ruta && !await guardar(true)) return;
+  if (version !== aperturasArchivo) return;
   const { content } = await api(urlArchivo(proyecto, ruta, boardId));
   // Si mientras cargaba se cambió de proyecto, este contenido es de otro: no se muestra
   // (si no, el autoguardado lo escribiría en el proyecto equivocado).
-  if (state.proyecto?.name !== proyecto || state.placaActivaId !== boardId) return;
+  if (version !== aperturasArchivo || state.proyecto?.name !== proyecto || state.placaActivaId !== boardId) return;
   const preservarErrores = proyectoEditor === proyecto && placaEditor === boardId && Boolean(state.activo) && state.activo !== ruta;
   state.activo = ruta;
   editor.lenguaje = lenguajeDeArchivo(ruta);
@@ -844,10 +853,14 @@ async function abrirArchivo(ruta) {
 }
 
 let seleccionPlacaVersion = 0;
-/** Cambia el contexto del editor únicamente al seleccionar una placa en el circuito. */
-async function seleccionarPlaca(boardId: string) {
-  if (!state.proyecto || state.placaActivaId === boardId) return;
+/** Cambia el contexto desde el circuito o al abrir un archivo de otra placa. */
+async function seleccionarPlaca(boardId: string, archivo?: string) {
+  if (!state.proyecto) return;
   const version = ++seleccionPlacaVersion;
+  if (state.placaActivaId === boardId) {
+    if (archivo) await abrirArchivo(archivo);
+    return;
+  }
   const nombre = state.proyecto.name;
   try {
     if (!await guardar(true)) return;
@@ -863,7 +876,7 @@ async function seleccionarPlaca(boardId: string) {
     state.carpetas = resultado.directories ?? [];
     state.archivos = resultado.files.filter(f => !/(^|\/)(secrets\.yaml|project\.json)$/.test(f.path));
     state.activo = null;
-    const main = state.archivos.find(f => /(^|\/)main\.py$/.test(f.path)) ?? state.archivos[0];
+    const main = archivo ? state.archivos.find(f => f.path === archivo) : state.archivos.find(f => /(^|\/)main\.py$/.test(f.path)) ?? state.archivos[0];
     if (main) await abrirArchivo(main.path);
     else editarContenido('');
     pintarPanelDerecho(); pintarWidgetsProyecto(); pintarAlimentacion(); lienzo.render();
@@ -874,12 +887,12 @@ async function seleccionarPlaca(boardId: string) {
   } catch (e) { nota(`No se pudo abrir la placa: ${String((e as Error)?.message ?? e)}`); }
 }
 
-function abrirNuevoArchivo(parent?: string) {
-  abrirCreacionEntrada('file', parent);
+function abrirNuevoArchivo(parent?: string, boardId?: string) {
+  abrirCreacionEntrada('file', parent, boardId);
 }
 
-function abrirCreacionEntrada(kind: EntryKind, parent = carpetaDeArchivo(state.activo)) {
-  const board = placaActiva();
+function abrirCreacionEntrada(kind: EntryKind, parent = carpetaDeArchivo(state.activo), boardId = state.placaActivaId) {
+  const board = placasDelProyecto(state.proyecto).find(board => board.id === boardId);
   if (!state.proyecto || !board) return;
   ahora(() => { state.creacionEntrada = { project: state.proyecto.name, boardId: board.id, parent, kind, language: board.language }; });
   const dialog = $('dlg-nuevo-archivo') as HTMLDialogElement;
@@ -892,18 +905,22 @@ async function crearEntrada(name: string, kind: EntryKind): Promise<void> {
   const context = state.creacionEntrada;
   if (!context || context.kind !== kind) throw new Error('No hay una creación pendiente.');
   const path = rutaNuevaEntrada(context.parent, name, kind, context.language);
-  if (state.proyecto?.name !== context.project || state.placaActivaId !== context.boardId) throw new Error('Cambió la placa seleccionada. Volvé a abrir el formulario.');
+  if (state.proyecto?.name !== context.project || !placasDelProyecto(state.proyecto).some(board => board.id === context.boardId)) throw new Error('Cambió el proyecto o se quitó la placa. Volvé a abrir el formulario.');
   if (!await guardar(true)) throw new Error('No se pudo guardar el archivo actual.');
   const endpoint = kind === 'directory'
     ? `/api/projects/${encodeURIComponent(context.project)}/directories${queryPlaca(context.boardId)}`
     : urlArchivo(context.project, path, context.boardId);
   await api(endpoint, { method: 'POST', body: JSON.stringify(kind === 'directory' ? { path } : { content: '' }) });
-  if (state.proyecto?.name !== context.project || state.placaActivaId !== context.boardId) return;
-  const summary = await api(`/api/projects/${encodeURIComponent(context.project)}${queryPlaca(context.boardId)}`);
-  if (state.proyecto?.name !== context.project || state.placaActivaId !== context.boardId) return;
-  state.archivos = summary.files.filter(f => !/(^|\/)(secrets\.yaml|project\.json)$/.test(f.path));
-  state.carpetas = summary.directories ?? [];
-  if (kind === 'file') { seleccionar(null); await abrirArchivo(path); }
+  if (state.proyecto?.name !== context.project) return;
+  await cargarExplorador(true);
+  if (state.proyecto?.name !== context.project) return;
+  if (kind === 'file') {
+    await seleccionarPlaca(context.boardId, path);
+    if (state.placaActivaId === context.boardId && state.activo === path) seleccionar(null);
+  } else if (state.placaActivaId === context.boardId) {
+    const summary = state.exploradorPlacas.find(board => board.id === context.boardId);
+    if (summary) { state.archivos = summary.files; state.carpetas = summary.directories; }
+  }
 }
 
 // --- Dibujo: consultas ------------------------------------------------------
@@ -2000,18 +2017,29 @@ async function irAInicio() {
 /** Cuenta las aperturas: si se pide otro proyecto mientras uno carga, la carga vieja se descarta. */
 let aperturas = 0;
 
-/** Actualiza el árbol de la placa sin reiniciar el editor, el circuito ni la simulación. */
-async function actualizarExplorador(): Promise<void> {
+let cargasExplorador = 0;
+/** Carga metadatos de todas las placas sin cambiar el contexto del editor. */
+async function cargarExplorador(sincronizarActivo = false): Promise<void> {
   const project = state.proyecto?.name;
-  const boardId = state.placaActivaId;
-  if (!project || !boardId) return;
-  await guardar();
-  const result = await api(`/api/projects/${encodeURIComponent(project)}?boardId=${encodeURIComponent(boardId)}`);
-  if (state.proyecto?.name !== project || state.placaActivaId !== boardId) return;
+  if (!project) return;
+  const version = ++cargasExplorador;
+  const result = await api(`/api/projects/${encodeURIComponent(project)}/explorer`);
+  if (version !== cargasExplorador || state.proyecto?.name !== project) return;
+  const boards: BoardFileTree[] = result.boards.map((board: BoardFileTree) => ({
+    ...board, files: board.files.filter(file => !/(^|\/)(secrets\.yaml|project\.json)$/.test(file.path)),
+  }));
   ahora(() => {
-    state.archivos = result.files.filter((file: { path: string }) => !/(^|\/)(secrets\.yaml|project\.json)$/.test(file.path));
-    state.carpetas = result.directories ?? [];
+    state.exploradorPlacas = boards;
+    if (sincronizarActivo) {
+      const active = boards.find(board => board.id === state.placaActivaId);
+      if (active) { state.archivos = active.files; state.carpetas = active.directories; }
+    }
   });
+}
+
+async function actualizarExplorador(): Promise<void> {
+  if (!await guardar(true)) throw new Error('No se pudo guardar el archivo actual.');
+  await cargarExplorador(true);
 }
 
 async function abrirProyecto(nombre) {
@@ -2020,6 +2048,7 @@ async function abrirProyecto(nombre) {
   if (mia !== aperturas) return;
   document.body.classList.remove('inicio');
   const cambioProyecto = state.proyecto?.name !== nombre;
+  if (cambioProyecto) state.exploradorPlacas = [];
   state.proyecto = project;
   if (cambioProyecto) {
     state.filtroModulos = projectDockFilter(nombre);

@@ -266,6 +266,29 @@ describe('GET /api/emulator expone el estado en vivo', () => {
 });
 
 describe('contexto de archivos multiplaca', () => {
+  it('expone el árbol completo con nombres y carpetas aisladas sin cambiar los archivos seleccionados', async () => {
+    const name = 'explorador-proyecto-completo';
+    await pedir('/api/projects', { method: 'POST', body: { name, language: 'micropython' } });
+    const added = await pedir(`/api/projects/${name}/board`, { method: 'POST', body: { board: 'esp32-c3-devkitm-1', language: 'micropython' } });
+    const secondary = added.body.project.boards[1].id as string;
+    await pedir(`/api/projects/${name}/directories`, { method: 'POST', body: { path: 'primaria/vacia' } });
+    await pedir(`/api/projects/${name}/directories?boardId=${secondary}`, { method: 'POST', body: { path: 'secundaria/vacia' } });
+    await pedir(`/api/projects/${name}/files/primaria/modulo.py`, { method: 'POST', body: { content: 'value = 1\n' } });
+    await pedir(`/api/projects/${name}/files/secundaria/modulo.py?boardId=${secondary}`, { method: 'POST', body: { content: 'value = 2\n' } });
+
+    const { status, body } = await pedir(`/api/projects/${name}/explorer`);
+    expect(status).toBe(200);
+    expect(body.boards.map((board: { id: string }) => board.id)).toEqual(['board', secondary]);
+    expect(body.boards[0]).toMatchObject({ id: 'board', name: 'ESP32-S3 DevKitC-1', directories: ['primaria', 'primaria/vacia'] });
+    expect(body.boards[1]).toMatchObject({ id: secondary, name: 'ESP32-C3 DevKitM-1', directories: ['secundaria', 'secundaria/vacia'] });
+    expect(body.boards[0].files.map((file: { path: string }) => file.path)).toEqual(['main.py', 'primaria/modulo.py']);
+    expect(body.boards[1].files.map((file: { path: string }) => file.path)).toEqual(['main.py', 'secundaria/modulo.py']);
+    expect(body.boards[1].files.find((file: { path: string }) => file.path === 'secundaria/modulo.py')).toMatchObject({ size: 10, modified: expect.any(Number) });
+    expect((await pedir(`/api/projects/${name}/files/primaria/modulo.py`)).body.content).toBe('value = 1\n');
+    expect((await pedir(`/api/projects/${name}/files/secundaria/modulo.py?boardId=${secondary}`)).body.content).toBe('value = 2\n');
+    expect((await pedir('/api/projects/no-existe-explorer/explorer')).status).toBe(404);
+  });
+
   it('aísla las rutas y conserva la instancia sobreviviente al quitar la primaria', async () => {
     const name = 'archivos-multiplaca';
     await pedir('/api/projects', { method: 'POST', body: { name, language: 'micropython' } });

@@ -110,12 +110,12 @@ test('cada placa mantiene contenido e historial propios al seleccionarla en el c
   await seleccionarModulo(page, secondId);
   await expect(page.locator('#editor')).toHaveValue('segunda = 2\n');
   await expect(explorer.locator('.file-explorer-tree')).toHaveAttribute('data-board-id', secondId);
-  await expect(explorer.locator('.explorer-board-root > summary')).toHaveText('ESP32-C3 DevKitM-1');
-  const refreshed = page.waitForResponse(response => response.request().method() === 'GET' && response.url().includes(`/api/projects/${name}?boardId=${secondId}`));
+  await expect(explorer.locator(`.explorer-board[data-board-id="${secondId}"] .explorer-board-root > summary`)).toHaveText('ESP32-C3 DevKitM-1');
+  const refreshed = page.waitForResponse(response => response.request().method() === 'GET' && response.url().includes(`/api/projects/${name}/explorer`));
   await explorer.getByRole('button', { name: 'Actualizar explorador', exact: true }).click();
   expect((await refreshed).ok()).toBeTruthy();
   await expect(page.locator('#editor')).toHaveValue('segunda = 2\n');
-  await expect(explorer.locator('.explorer-board-root > summary')).toHaveText('ESP32-C3 DevKitM-1');
+  await expect(explorer.locator(`.explorer-board[data-board-id="${secondId}"] .explorer-board-root > summary`)).toHaveText('ESP32-C3 DevKitM-1');
   expect((await (await request.get(`/api/projects/${name}/files/main.py`)).json()).content).toBe('primera = 7\n');
   await escribir(page, 'segunda = 8\n');
   await seleccionarModulo(page, 'board');
@@ -191,4 +191,56 @@ test('eliminar la placa principal conserva la segunda y no inventa una placa fan
   const { project } = await (await request.get(`/api/projects/${name}`)).json();
   expect(project.boards.map((b: { id: string }) => b.id)).toEqual([secondId]);
   expect(project.modules.filter((m: { id: string }) => m.id === 'board')).toHaveLength(0);
+});
+
+
+test('muestra todas las placas, examina una sin cambiar Código y abre su archivo con el contexto correcto', async ({ page, request }) => {
+  const name = await crearProyecto(request);
+  const added = await request.post(`/api/projects/${name}/board`, { data: { board: 'esp32-c3-devkitm-1', language: 'micropython', x: 450, y: 80 } });
+  expect(added.ok()).toBeTruthy();
+  const data = await added.json();
+  const secondId = data.boardId ?? data.project.boards.at(-1).id;
+  for (const [id, content] of [['board', 'valor = 11\n'], [secondId, 'valor = 22\n']]) {
+    expect((await request.put(`/api/projects/${name}/files/lib/valor.py?boardId=${id}`, { data: { content } })).ok()).toBeTruthy();
+  }
+  await abrir(page, name);
+  const explorer = page.locator('#explorador-archivos');
+  const primary = explorer.locator('.explorer-board[data-board-id="board"]');
+  const secondary = explorer.locator(`.explorer-board[data-board-id="${secondId}"]`);
+  await expect(explorer.locator('.explorer-board')).toHaveCount(2);
+  await expect(primary.locator('.explorer-board-root > summary')).toBeVisible();
+  await expect(secondary.locator('.explorer-board-root > summary')).toBeVisible();
+  await expect(primary.locator('.explorer-board-root')).toHaveAttribute('open', '');
+  await expect(secondary.locator('.explorer-board-root')).not.toHaveAttribute('open');
+  await escribir(page, 'primera = 9\n');
+  await secondary.locator('.explorer-board-root > summary').click();
+  await expect(primary.locator('.explorer-board-root')).not.toHaveAttribute('open');
+  await expect(secondary.locator('.explorer-board-root')).toHaveAttribute('open', '');
+  await expect(explorer.locator('.file-explorer-tree')).toHaveAttribute('data-board-id', 'board');
+  await expect(page.locator('#editor')).toHaveValue('primera = 9\n');
+  // Incluso al volver a tocar la placa ya activa, el explorador vuelve a desplegarla.
+  await seleccionarModulo(page, 'board');
+  await expect(primary.locator('.explorer-board-root')).toHaveAttribute('open', '');
+  await expect(secondary.locator('.explorer-board-root')).not.toHaveAttribute('open');
+  await secondary.locator('.explorer-board-root > summary').click();
+  await secondary.getByTitle('lib/valor.py', { exact: true }).click();
+  await expect(explorer.locator('.file-explorer-tree')).toHaveAttribute('data-board-id', secondId);
+  await expect(page.locator('#editor')).toHaveValue('valor = 22\n');
+  await expect(page.locator('#tabs-archivos button.activa')).toHaveText('lib/valor.py');
+  expect((await (await request.get(`/api/projects/${name}/files/main.py?boardId=board`)).json()).content).toBe('primera = 9\n');
+  // Crear desde una carpeta de la placa inactiva conserva el aislamiento y abre el archivo creado.
+  await primary.locator('.explorer-board-root > summary').click();
+  await primary.getByTitle('lib', { exact: true }).click();
+  await explorer.getByRole('button', { name: 'Nuevo archivo', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Nuevo archivo MicroPython', exact: true });
+  await dialog.getByLabel('Nombre del archivo').fill('nuevo');
+  await dialog.getByRole('button', { name: 'Crear', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await expect(explorer.locator('.file-explorer-tree')).toHaveAttribute('data-board-id', 'board');
+  await expect(page.locator('#tabs-archivos button.activa')).toHaveText('lib/nuevo.py');
+  const tree = await (await request.get(`/api/projects/${name}/explorer`)).json();
+  expect(tree.boards.find((board: { id: string }) => board.id === secondId).files.some((file: { path: string }) => file.path === 'lib/nuevo.py')).toBe(false);
+  await primary.getByTitle('lib/valor.py', { exact: true }).click();
+  await expect(page.locator('#editor')).toHaveValue('valor = 11\n');
+  await page.screenshot({ path: '/tmp/explorador-todas-las-placas.png' });
 });

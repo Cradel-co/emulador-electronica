@@ -108,7 +108,7 @@ test('las carpetas y archivos pertenecen a la placa seleccionada en el circuito'
   await escribirYGuardar(page, request, name, 'solo_primaria/valor.py', 'valor = 1\n');
   await seleccionarModulo(page, second);
   await expect(explorer(page).locator('.file-explorer-tree')).toHaveAttribute('data-board-id', second);
-  await expect(explorer(page).locator('summary[title="solo_primaria"]')).toHaveCount(0);
+  await expect(explorer(page).locator('summary[title="solo_primaria"]')).toBeHidden();
   await raiz(page);
   await crear(page, 'directory', 'solo_secundaria');
   await seleccionarCarpeta(page, 'solo_secundaria');
@@ -116,7 +116,7 @@ test('las carpetas y archivos pertenecen a la placa seleccionada en el circuito'
   await escribirYGuardar(page, request, name, 'solo_secundaria/valor.py', 'valor = 2\n', second);
   await seleccionarModulo(page, 'board');
   await expect(explorer(page).locator('.file-explorer-tree')).toHaveAttribute('data-board-id', 'board');
-  await expect(explorer(page).locator('summary[title="solo_secundaria"]')).toHaveCount(0);
+  await expect(explorer(page).locator('summary[title="solo_secundaria"]')).toBeHidden();
   await file(page, 'solo_primaria/valor.py').click();
   await expect(page.locator('#editor')).toHaveValue('valor = 1\n');
   await seleccionarModulo(page, second);

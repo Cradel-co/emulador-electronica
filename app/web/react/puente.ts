@@ -38,10 +38,12 @@ export interface Acciones {
   reemplazarQuemado: (id: string) => void;
   moverEntorno: (id: string, valores: Record<string, number>) => void;
   abrirArchivo: (ruta: string) => void;
+  abrirArchivoDePlaca: (boardId: string, path: string) => Promise<void>;
+  cargarExplorador: () => Promise<void>;
   irALinea: (archivo: string | null, linea: number) => void;
   agregarPlaca: () => void;
-  nuevoArchivo: (parent?: string) => void;
-  nuevaCarpeta: (parent?: string) => void;
+  nuevoArchivo: (parent?: string, boardId?: string) => void;
+  nuevaCarpeta: (parent?: string, boardId?: string) => void;
   actualizarExplorador: () => Promise<void>;
   crearEntrada: (name: string, kind: EntryKind) => Promise<void>;
   importarModulos: () => void;
