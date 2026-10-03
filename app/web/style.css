@@ -795,3 +795,18 @@ body.depuracion-parada .punto-estado { background: var(--azul); box-shadow: 0 0 
 .editor-preferences h2, .editor-preferences p, .editor-preferences-actions { grid-column: 1 / -1; }
 .editor-preferences p { margin: 0; color: var(--tenue); }
 .editor-preferences-actions { display: flex; justify-content: flex-end; }
+
+.explorador-archivos { flex: 0 1 230px; min-height: 80px; overflow: auto; padding: 10px 8px; border-bottom: 1px solid var(--borde-suave); }
+.explorador-archivos h3 { display: flex; justify-content: space-between; margin: 0 6px 8px; font-size: 12px; }
+.explorador-archivos h3 span { color: var(--tenue); }
+.explorador-archivos ul { list-style: none; margin: 0; padding: 0 0 0 12px; }
+.explorador-archivos > ul { padding-left: 0; }
+.explorador-archivos button { display: block; width: 100%; text-align: left; padding: 4px 8px; border: none; background: transparent; font-size: 12px; border-radius: 4px; }
+.explorador-archivos button.activa { background: var(--seleccion, #264faa); }
+.explorador-archivos summary { padding: 4px; cursor: pointer; font-size: 12px; }
+.explorador-archivos p { font-size: 12px; color: var(--tenue); }
+
+#tabs-archivos > .nuevo-archivo { position: sticky; right: -6px; margin-left: auto; z-index: 4; background: var(--isla); min-width: 38px; justify-content: center; box-shadow: -8px 0 10px var(--isla); }
+#tabs-archivos > .nuevo-archivo::before { display: none; }
+
+#tabs-archivos > button:not(.nuevo-archivo) { max-width: 260px; overflow: hidden; text-overflow: ellipsis; scroll-margin-right: 44px; }

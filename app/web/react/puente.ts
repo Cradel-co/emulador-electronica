@@ -38,6 +38,7 @@ export interface Acciones {
   abrirArchivo: (ruta: string) => void;
   irALinea: (archivo: string | null, linea: number) => void;
   agregarPlaca: () => void;
+  nuevoArchivo: () => void;
 }
 
 /**

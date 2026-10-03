@@ -112,11 +112,18 @@ test.describe('código por módulo', () => {
     await expect(panel.locator('input[data-prop="codeA"]')).toHaveValue(/^[01]{24}$/);
   });
 
-  test('no se puede agregar un segundo ESP32', async ({ page, request }) => {
-    await abrirProyectoNuevo(page, request);
+  test('agrega un segundo ESP32 con su lenguaje sin modificar el código de la primera placa', async ({ page, request }) => {
+    const name = await abrirProyectoNuevo(page, request);
+    const original = (await (await request.get(`/api/projects/${name}/files/main.yaml`)).json()).content;
     await page.locator('.modulo-card[data-type="esp32-s3-devkitc-1"]').click();
-    await expect(page.locator('#nota')).toContainText('un solo microcontrolador');
-    await expect(page.locator('#lienzo .modulo.programable')).toHaveCount(1);
+    await expect(page.locator('#dlg-placa')).toBeVisible();
+    await page.locator('#placa-lenguaje').selectOption('micropython');
+    await page.locator('#dlg-placa button[value="agregar"]').click();
+    await expect(page.locator('#lienzo .modulo.programable')).toHaveCount(2);
+    const { project } = await (await request.get(`/api/projects/${name}`)).json();
+    expect(project.boards.map((b: { language: string }) => b.language)).toEqual(['esphome', 'micropython']);
+    expect((await (await request.get(`/api/projects/${name}/files/main.yaml`)).json()).content).toBe(original);
+    expect((await request.get(`/api/projects/${name}/files/main.py?boardId=board2`)).ok()).toBeTruthy();
   });
 });
 

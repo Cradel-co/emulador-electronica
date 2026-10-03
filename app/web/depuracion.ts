@@ -14,6 +14,8 @@
  *   log: (tab: string, texto: string) => void,
  *   proyecto: () => { name: string } | null,
  *   archivoActivo: () => string | null,
+ *   disponible?: () => boolean,
+ *   contexto?: () => string,
  *   archivos: () => { path: string }[],
  *   irALinea: (archivo: string | undefined, linea: number) => Promise<void>,
  *   abrirVentanaDebug: () => void,
@@ -53,7 +55,9 @@ export function crearDepuracion(ctx) {
   // --- Estado y botones ---------------------------------------------------------------
 
   async function refrescarEstado() {
+    const contexto = ctx.contexto?.();
     const r = await api('/api/debug/state').catch(() => null);
+    if (contexto !== ctx.contexto?.()) return;
     if (!r) return;
     estado.capacidades = r.capabilities;
     aplicarEstado(r.state);
@@ -89,7 +93,9 @@ export function crearDepuracion(ctx) {
 
   /** Lo que la grabadora ya tiene de pines (al recargar la página o abrir la ventana tarde). */
   async function cargarTrazaPines() {
+    const contexto = ctx.contexto?.();
     const r = await api('/api/debug/trace?types=pin&limit=2000').catch(() => null);
+    if (contexto !== ctx.contexto?.()) return;
     if (!r?.eventos) return;
     estado.pines.clear();
     estado.corridaTrace = r.corrida?.inicio ?? null;
@@ -100,8 +106,11 @@ export function crearDepuracion(ctx) {
   const traducirMotivo = (m) => MOTIVOS[m] ?? m;
 
   async function control(action) {
+    const contexto = ctx.contexto?.();
+    if (ctx.disponible && !ctx.disponible()) { ctx.nota('Seleccioná una placa en el circuito para depurar.'); return; }
     try {
       const r = await api('/api/debug/control', { method: 'POST', body: JSON.stringify({ action, waitMs: 1500 }) });
+      if (contexto !== ctx.contexto?.()) return;
       if (r?.state) aplicarEstado(r.state);
       await refrescarTodo();
     } catch (e) {
@@ -112,17 +121,20 @@ export function crearDepuracion(ctx) {
   // --- Pila y variables ------------------------------------------------------------------
 
   async function refrescarTodo() {
+    const contexto = ctx.contexto?.();
     if (!ctx.debugVisible() && !estado.parada) return;
     await Promise.all([pintarPila(), pintarVariables()]);
   }
 
   async function pintarPila() {
+    const contexto = ctx.contexto?.();
     const ul = $('dbg-pila');
     if (!estado.parada || estado.capacidades?.stackTrace === 'no') {
       ul.innerHTML = `<li class="dbg-vacio">${estado.parada ? 'Este motor no da la pila.' : 'La pila aparece cuando el programa se detiene (breakpoint o pausa).'}</li>`;
       return;
     }
     const r = await api('/api/debug/stack').catch(() => null);
+    if (contexto !== ctx.contexto?.()) return;
     const marcos = r?.stackFrames ?? [];
     ul.innerHTML = marcos.length
       ? marcos
@@ -141,6 +153,7 @@ export function crearDepuracion(ctx) {
   }
 
   async function pintarVariables() {
+    const contexto = ctx.contexto?.();
     const cont = $('dbg-variables');
     if (!estado.capacidades?.variables) {
       cont.innerHTML = `<p class="dbg-vacio">${estado.capacidades?.motor === 'ninguno' || !estado.capacidades ? 'Ejecutá el proyecto: las variables del firmware aparecen acá.' : 'Este motor no permite leer variables.'}</p>`;
@@ -148,10 +161,12 @@ export function crearDepuracion(ctx) {
     }
     const q = estado.parada && estado.marcoElegido !== undefined ? `?frameId=${estado.marcoElegido}` : '';
     const r = await api(`/api/debug/scopes${q}`).catch(() => null);
+    if (contexto !== ctx.contexto?.()) return;
     const scopes = r?.scopes ?? [];
     const frag = document.createDocumentFragment();
     for (const s of scopes) {
       const hijos = await api(`/api/debug/variables?ref=${s.variablesReference}`).catch(() => null);
+      if (contexto !== ctx.contexto?.()) return;
       const grupo = document.createElement('details');
       grupo.className = 'dbg-scope';
       grupo.open = !s.expensive || estado.abiertas.has(`scope:${s.name}`);
@@ -172,6 +187,7 @@ export function crearDepuracion(ctx) {
 
   /** Una variable del árbol; si tiene hijos, se cargan al expandirla (como en el IDE). */
   function filaVariable(v, nivel) {
+    const contexto = ctx.contexto?.();
     const fila = document.createElement('div');
     fila.className = 'dbg-var';
     fila.style.setProperty('--nivel', String(nivel));
@@ -189,6 +205,7 @@ export function crearDepuracion(ctx) {
       recordar(clave, abierta);
       if (abierta) {
         const r = await api(`/api/debug/variables?ref=${v.variablesReference}`).catch(() => null);
+        if (contexto !== ctx.contexto?.()) return;
         hijos.textContent = '';
         for (const h of r?.variables ?? []) hijos.append(filaVariable(h, nivel + 1));
       }
@@ -200,12 +217,14 @@ export function crearDepuracion(ctx) {
   }
 
   async function evaluar() {
+    const contexto = ctx.contexto?.();
     const input = ($('dbg-eval') as HTMLInputElement);
     const expresion = input.value.trim();
     if (!expresion) return;
     const res = $('dbg-eval-res');
     try {
       const r = await api('/api/debug/evaluate', { method: 'POST', body: JSON.stringify({ expression: expresion }) });
+      if (contexto !== ctx.contexto?.()) return;
       res.textContent = '';
       res.append(filaVariable({ name: expresion, value: r.result, type: r.type, variablesReference: r.variablesReference ?? 0 }, 0));
     } catch (e) {
@@ -247,13 +266,16 @@ export function crearDepuracion(ctx) {
   }
 
   async function cargarBreakpoints() {
+    const contexto = ctx.contexto?.();
     const p = ctx.proyecto();
     if (!p) return;
     const r = await api(`/api/debug/breakpoints?project=${encodeURIComponent(p.name)}`).catch(() => null);
+    if (contexto !== ctx.contexto?.()) return;
     marcarVerificados(r?.breakpoints ?? []);
   }
 
   async function alternarBreakpoint(linea) {
+    const contexto = ctx.contexto?.();
     const p = ctx.proyecto();
     const archivo = ctx.archivoActivo();
     if (!p || !archivo) return;
@@ -267,6 +289,7 @@ export function crearDepuracion(ctx) {
         method: 'PUT',
         body: JSON.stringify({ project: p.name, source: archivo, lines: [...lineas].sort((a, b) => a - b) }),
       });
+    if (contexto !== ctx.contexto?.()) return;
       const nuevos = (r?.breakpoints ?? []).filter((b) => b.source && archivoDe(b.source) === archivo);
       const noVerif = nuevos.filter((b) => !b.verified && b.message && b.message !== 'se pone al ejecutar');
       if (noVerif.length) ctx.nota(`Breakpoint en ${archivo}:${noVerif[0].line}: ${noVerif[0].message}`);
@@ -421,9 +444,11 @@ export function crearDepuracion(ctx) {
     alMensaje(msg) {
       switch (msg.type) {
         case 'debug.stopped': {
+          const contexto = ctx.contexto?.();
           const s = { ...msg, status: 'stopped' };
           estado.marcoElegido = undefined;
           void refrescarEstado().then(() => {
+            if (contexto !== ctx.contexto?.()) return;
             aplicarEstado(s);
             ctx.abrirVentanaDebug(); // como el IDE: al detenerse, se ve la ventana de depuración
             if (s.source && s.line) void ctx.irALinea(archivoDe(s.source), s.line).then(pintarParada);
@@ -452,13 +477,23 @@ export function crearDepuracion(ctx) {
       }
     },
     /** Al abrir un proyecto o cambiar de archivo. */
+    alCambiarContexto() {
+      estado.capacidades = null; estado.parada = null; estado.corriendo = false;
+      estado.breakpoints.clear(); estado.verificados.clear(); estado.pines.clear();
+      estado.marcoElegido = undefined; estado.abiertas.clear();
+      pintarBreakpoints();
+      void cargarBreakpoints(); void refrescarEstado(); void cargarTrazaPines();
+    },
     alCambiarArchivo() {
       pintarBreakpoints();
     },
     async alAbrirProyecto() {
+      const contexto = ctx.contexto?.();
       estado.pines.clear();
       await cargarBreakpoints();
+      if (contexto !== ctx.contexto?.()) return;
       await refrescarEstado();
+      if (contexto !== ctx.contexto?.()) return;
       await cargarTrazaPines();
     },
     /** Al mostrar la pestaña Debug. */
