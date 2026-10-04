@@ -29,6 +29,10 @@ export interface Acciones {
   quitarDelCatalogo: (m: { type: string; name: string }) => void;
   filtrarModulos: (texto: string) => void;
   abrirProyecto: (nombre: string) => void;
+  navegarAprendizaje: (leccion?: string, paso?: string) => void;
+  completarAprendizaje: (leccion: string, revision: number, paso: string) => void;
+  crearPracticaAprendizaje: (plantillaId: string) => void;
+  irAInicio: () => void;
   eliminarProyecto: (nombre: string) => void;
   // Panel derecho
   eliminarModulo: (id: string) => void;

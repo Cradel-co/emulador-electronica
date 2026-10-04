@@ -57,6 +57,20 @@ export function createWorkspaceNavigation(options: WorkspaceNavigationOptions): 
 
   const root = createRootRoute();
   const home = createRoute({ getParentRoute: () => root, path: '/' });
+  const aprender = createRoute({
+    getParentRoute: () => root,
+    path: '/aprender',
+    validateSearch: (search: Record<string, unknown>): { paso?: string } => ({
+      ...(typeof search.paso === 'string' ? { paso: search.paso } : {}),
+    }),
+  });
+  const leccionAprendizaje = createRoute({
+    getParentRoute: () => root,
+    path: '/aprender/$leccion',
+    validateSearch: (search: Record<string, unknown>): { paso?: string } => ({
+      ...(typeof search.paso === 'string' ? { paso: search.paso } : {}),
+    }),
+  });
   const project = createRoute({
     getParentRoute: () => root,
     path: '/projects/$project',
@@ -66,7 +80,7 @@ export function createWorkspaceNavigation(options: WorkspaceNavigationOptions): 
     }),
   });
   const router = createRouter({
-    routeTree: root.addChildren([home, project]),
+    routeTree: root.addChildren([home, aprender, leccionAprendizaje, project]),
     history,
     isServer: false,
     origin: typeof window === 'undefined' ? 'http://localhost' : window.location.origin,
@@ -161,7 +175,19 @@ export function createWorkspaceNavigation(options: WorkspaceNavigationOptions): 
       const request = ++navigationRevision;
       if (!(await canLeave()) || destroyed || request !== navigationRevision) return;
       // El guardado ya terminó. El blocker del historial cubre Atrás/Adelante.
-      if (normalized.project === null) {
+      if (normalized.project === null && normalized.aprender) {
+        if (normalized.aprender.leccion) {
+          await router.navigate({
+            to: '/aprender/$leccion', params: { leccion: normalized.aprender.leccion },
+            search: { paso: normalized.aprender.paso }, replace: navigationOptions.replace, ignoreBlocker: true,
+          });
+        } else {
+          await router.navigate({
+            to: '/aprender', search: { paso: normalized.aprender.paso },
+            replace: navigationOptions.replace, ignoreBlocker: true,
+          });
+        }
+      } else if (normalized.project === null) {
         await router.navigate({ to: '/', replace: navigationOptions.replace, ignoreBlocker: true });
       } else {
         await router.navigate({

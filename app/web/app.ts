@@ -24,6 +24,8 @@ import {
   nombreRef as nombreRefPuro, pinesSinAlimentar as pinesSinAlimentarPuro,
 } from './consultas.js';
 import { fmtMa, fmtV } from './formato.js';
+import { leccionPorId } from './aprendizaje/contenido.js';
+import { almacenLocalAprendizaje, completarLeccion, progresoDeLeccion, registrarPaso } from './aprendizaje/progreso.js';
 
 /**
  * Id de esta pestaña: el server lo devuelve en los eventos para no recargar los cambios propios.
@@ -78,6 +80,7 @@ const ORDEN_CATEGORIAS = ['Placas', 'Entradas', 'Salidas', 'Pasivos', 'Radio 433
 const state = observable({
   proyectos: [],
   proyecto: null,
+  aprendizajeRuta: null as { leccion?: string; paso?: string } | null,
   archivos: [],
   carpetas: [] as string[],
   exploradorPlacas: [] as BoardFileTree[],
@@ -200,6 +203,21 @@ registrarAcciones({
     if (state.proyecto) saveProjectDockFilter(state.proyecto.name, texto);
   },
   abrirProyecto: (nombre) => void cambiarDeProyecto(nombre),
+  navegarAprendizaje: (leccion, paso) => {
+    if (leccion && paso) {
+      const contenido = leccionPorId(leccion);
+      if (contenido) registrarPaso(almacenLocalAprendizaje(), leccion, contenido.revision, paso);
+    }
+    void navegacion.navigate({ project: null, aprender: {
+      ...(leccion ? { leccion } : {}), ...(paso ? { paso } : {}),
+    } });
+  },
+  completarAprendizaje: (leccion, revision, paso) => {
+    completarLeccion(almacenLocalAprendizaje(), leccion, revision, paso);
+    void navegacion.navigate({ project: null, aprender: {} });
+  },
+  crearPracticaAprendizaje: (plantillaId) => void crearPracticaAprendizaje(plantillaId),
+  irAInicio: () => void navegacion.navigate({ project: null }),
   eliminarProyecto: (nombre) => void eliminarProyecto(nombre),
   eliminarModulo: (id) => eliminarModulo(id),
   eliminarCable: (indice) => eliminarCable(indice),
@@ -1968,6 +1986,10 @@ async function cargarProyectos(seleccionarNombre?: string) {
 
 function mostrarInicio() {
   document.body.classList.add('inicio');
+  document.body.classList.remove('aprender');
+  $('bienvenida-proyectos').classList.add('activa');
+  $('bienvenida-acerca').classList.remove('activa');
+  state.aprendizajeRuta = null;
   state.proyecto = null;
   state.placaActivaId = null;
   state.activo = null;
@@ -2725,8 +2747,19 @@ $('dlg-buscar').addEventListener('click', (e) => {
 });
 $('buscar-todo').onclick = () => abrirPaleta();
 $('act-ajustes').onclick = () => { state.distribucionMensaje = ''; ($('dlg-ajustes') as HTMLDialogElement).showModal(); };
-$('bienvenida-acerca').onclick = () => ($('dlg-acerca') as HTMLDialogElement).showModal();
+$('bienvenida-acerca').onclick = () => void navegacion.navigate({ project: null, aprender: {} });
 $('bienvenida-importar').onclick = abrirImportador;
+
+async function crearPracticaAprendizaje(plantillaId: string): Promise<void> {
+  const nombre = window.prompt('Nombre del proyecto de práctica:', 'practica-led')?.trim();
+  if (!nombre) return;
+  try {
+    await api('/api/projects', { method: 'POST', body: JSON.stringify({ name: nombre, template: plantillaId }) });
+    await cargarProyectos(nombre);
+  } catch (error) {
+    nota('No se pudo crear la práctica: ' + String((error as Error)?.message ?? error));
+  }
+}
 
 // --- Arranque ---------------------------------------------------------------
 
@@ -2766,6 +2799,7 @@ const depuracion = crearDepuracion({
 
 /** El estado visible es la fuente para canonicalizar rutas resueltas o recuperadas. */
 function rutaActual(): WorkspaceRoute {
+  if (state.aprendizajeRuta) return { project: null, aprender: { ...state.aprendizajeRuta } };
   return state.proyecto ? {
     project: state.proyecto.name,
     ...(state.placaActivaId ? { board: state.placaActivaId } : {}),
@@ -2805,6 +2839,25 @@ async function aplicarContextoRuta(route: WorkspaceRoute): Promise<void> {
 
 async function aplicarRuta(route: WorkspaceRoute): Promise<WorkspaceRoute> {
   try {
+    if (route.aprender) {
+      const aprender = { ...route.aprender };
+      const leccion = aprender.leccion ? leccionPorId(aprender.leccion) : undefined;
+      if (leccion) {
+        const guardado = progresoDeLeccion(almacenLocalAprendizaje(), leccion.id, leccion.revision)?.ultimoPasoId;
+        const solicitado = aprender.paso ?? guardado;
+        if (solicitado && leccion.pasos.some(paso => paso.id === solicitado)) aprender.paso = solicitado;
+        else aprender.paso = leccion.pasos[0]?.id;
+        if (aprender.paso) registrarPaso(almacenLocalAprendizaje(), leccion.id, leccion.revision, aprender.paso);
+      }
+      state.aprendizajeRuta = aprender;
+      document.body.classList.remove('inicio');
+      document.body.classList.add('aprender');
+      $('bienvenida-proyectos').classList.remove('activa');
+      $('bienvenida-acerca').classList.add('activa');
+      return rutaActual();
+    }
+    state.aprendizajeRuta = null;
+    document.body.classList.remove('aprender');
     if (!route.project) {
       mostrarInicio();
       await cargarProyectos();
