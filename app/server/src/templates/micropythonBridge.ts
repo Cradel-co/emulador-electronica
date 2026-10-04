@@ -191,7 +191,8 @@ _seq = [0]
 
 
 def _avisar(n, v):
-    if n in _chip_pins:
+    # Antes del anuncio de pines también se conserva CS: main.py puede arrancar enseguida.
+    if not _estado['chips'] or n in _chip_pins:
         _send('@P %d %d %d' % (n, 1 if v else 0, utime.ticks_us()))
 
 
@@ -357,7 +358,7 @@ class SPI:
         self._x(bytes(buf), False)
 
     def read(self, nbytes, write=0):
-        return self._x(bytes([write]) * nbytes, True)
+        return b''.join(self._x(bytes([write]) * min(512, nbytes - offset), True) for offset in range(0, nbytes, 512))
 
     def readinto(self, buf, write=0):
         d = self.read(len(buf), write)
@@ -365,7 +366,7 @@ class SPI:
             buf[i] = d[i]
 
     def write_readinto(self, write_buf, read_buf):
-        d = self._x(bytes(write_buf), True)
+        d = b''.join(self._x(bytes(write_buf[offset:offset + 512]), True) for offset in range(0, len(write_buf), 512))
         for i in range(len(d)):
             read_buf[i] = d[i]
 

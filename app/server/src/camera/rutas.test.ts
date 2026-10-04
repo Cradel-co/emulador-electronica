@@ -1,0 +1,51 @@
+import { CameraDescriptorSchema } from '@emu/shared';
+import Fastify from 'fastify';
+import { it, expect } from 'vitest';
+import sharp from 'sharp';
+import { registrarRutasCamara } from './rutas.js';
+import { ServicioCamara } from './servicio.js';
+it('API: recibe y devuelve JPEG, no filtra sesión y comprueba módulo', async () => {
+  const app = Fastify();
+  let existe = true;
+  registrarRutasCamara(app, new ServicioCamara(() => {}), async (_p, i) => {
+    if (!existe || i !== 'c') return null;
+    return { maxWidth: 640, maxHeight: 480, maxBytes: 1048576, quality: 0.8 };
+  });
+  const base = '/api/projects/p/cameras/c';
+  const a = await app.inject({ method: 'POST', url: base + '/session' });
+  expect(a.statusCode).toBe(200);
+  const id = a.json().id as string;
+  expect((await app.inject(base + '/status')).body).not.toContain(id);
+  const bytes = await sharp({ create: { width: 16, height: 16, channels: 3, background: 'blue' } }).jpeg().toBuffer();
+  const url = base + '/session/' + id + '/captures';
+  const b = await app.inject({ method: 'POST', url, headers: { 'content-type': 'image/jpeg' }, payload: bytes });
+  expect(b.statusCode).toBe(200);
+  const c = await app.inject(base + '/capture?id=' + b.json().id);
+  expect(c.rawPayload).toEqual(bytes);
+  expect(c.headers['cache-control']).toBe('no-store');
+  expect((await app.inject({ method: 'POST', url, headers: { 'content-type': 'image/jpeg' }, payload: Buffer.from('roto') })).statusCode).toBe(400);
+  expect((await app.inject({ method: 'POST', url, headers: { 'content-type': 'image/png' }, payload: bytes })).statusCode).toBe(415);
+  existe = false;
+  expect((await app.inject(base + '/status')).statusCode).toBe(404);
+  await app.close();
+});
+
+it('la API entrega una captura solicitada, rechaza respuestas viejas y valida errores del propietario', async () => {
+  const s = new ServicioCamara(()=>{}), app = Fastify();
+  registrarRutasCamara(app,s,async()=>CameraDescriptorSchema.parse({hardware:'arducam-mini-2mp-plus'}));
+  const base = '/api/projects/p/cameras/a';
+  const session = s.abrir('p','a');
+  let recibida: Buffer | undefined;
+  const id = s.solicitar('p','a',bytes=>{recibida=bytes;},()=>{});
+  const bytes = await sharp({create:{width:32,height:24,channels:3,background:'blue'}}).jpeg().toBuffer();
+  const url = base + '/session/' + session.id + '/captures?requestId=' + id;
+  expect((await app.inject({method:'POST',url,headers:{'content-type':'image/jpeg'},payload:bytes})).statusCode).toBe(200);
+  const photo = await app.inject({url:base+'/capture'});
+  expect(photo.rawPayload).toEqual(recibida);
+  expect((await app.inject({method:'POST',url,headers:{'content-type':'image/jpeg'},payload:bytes})).statusCode).toBe(409);
+  const next = s.solicitar('p','a',()=>{},()=>{});
+  const errorUrl = base+'/session/'+session.id+'/requests/'+next+'/error';
+  expect((await app.inject({method:'POST',url:errorUrl})).statusCode).toBe(200);
+  expect((await app.inject({method:'POST',url:errorUrl})).statusCode).toBe(409);
+  await app.close();
+});

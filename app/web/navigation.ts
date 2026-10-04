@@ -57,21 +57,35 @@ export function createWorkspaceNavigation(options: WorkspaceNavigationOptions): 
 
   const root = createRootRoute();
   const home = createRoute({ getParentRoute: () => root, path: '/' });
-  const learn = createRoute({ getParentRoute: () => root, path: '/aprender' });
-  const learnTopics = createRoute({ getParentRoute: () => root, path: '/aprender/temas' });
-  const learnPaths = createRoute({ getParentRoute: () => root, path: '/aprender/rutas' });
-  const learnTopic = createRoute({ getParentRoute: () => root, path: '/aprender/temas/$slug' });
-  const learnPath = createRoute({ getParentRoute: () => root, path: '/aprender/rutas/$slug' });
+  const aprender = createRoute({
+    getParentRoute: () => root,
+    path: '/aprender',
+    validateSearch: (search: Record<string, unknown>): { paso?: string } => ({
+      ...(typeof search.paso === 'string' ? { paso: search.paso } : {}),
+    }),
+  });
+  const leccionAprendizaje = createRoute({
+    getParentRoute: () => root,
+    path: '/aprender/$leccion',
+    validateSearch: (search: Record<string, unknown>): { paso?: string } => ({
+      ...(typeof search.paso === 'string' ? { paso: search.paso } : {}),
+    }),
+  });
+  const temas = createRoute({ getParentRoute: () => root, path: '/aprender/temas' });
+  const tema = createRoute({ getParentRoute: () => root, path: '/aprender/temas/$slug' });
+  const rutas = createRoute({ getParentRoute: () => root, path: '/aprender/rutas' });
+  const ruta = createRoute({ getParentRoute: () => root, path: '/aprender/rutas/$slug' });
   const project = createRoute({
     getParentRoute: () => root,
     path: '/projects/$project',
-    validateSearch: (search: Record<string, unknown>): { board?: string; file?: string } => ({
+    validateSearch: (search: Record<string, unknown>): { board?: string; file?: string; leccion?: string } => ({
       ...(typeof search.board === 'string' ? { board: search.board } : {}),
       ...(typeof search.file === 'string' ? { file: search.file } : {}),
+      ...(typeof search.leccion === 'string' ? { leccion: search.leccion } : {}),
     }),
   });
   const router = createRouter({
-    routeTree: root.addChildren([home, learn, learnTopics, learnPaths, learnTopic, learnPath, project]),
+    routeTree: root.addChildren([home, aprender, leccionAprendizaje, temas, tema, rutas, ruta, project]),
     history,
     isServer: false,
     origin: typeof window === 'undefined' ? 'http://localhost' : window.location.origin,
@@ -166,17 +180,27 @@ export function createWorkspaceNavigation(options: WorkspaceNavigationOptions): 
       const request = ++navigationRevision;
       if (!(await canLeave()) || destroyed || request !== navigationRevision) return;
       // El guardado ya terminó. El blocker del historial cubre Atrás/Adelante.
-      if (normalized.project === null) {
-        if (normalized.page === 'aprender' && normalized.learning && normalized.slug) {
-          await router.navigate({ to: normalized.learning === 'temas' ? '/aprender/temas/$slug' : '/aprender/rutas/$slug', params: { slug: normalized.slug }, replace: navigationOptions.replace, ignoreBlocker: true });
+      if (normalized.project === null && normalized.aprender) {
+        if (normalized.learning) {
+          await router.navigate({ to: workspaceRoutePath(normalized), replace: navigationOptions.replace, ignoreBlocker: true });
+        } else if (normalized.aprender.leccion) {
+          await router.navigate({
+            to: '/aprender/$leccion', params: { leccion: normalized.aprender.leccion },
+            search: { paso: normalized.aprender.paso }, replace: navigationOptions.replace, ignoreBlocker: true,
+          });
         } else {
-          await router.navigate({ to: normalized.page !== 'aprender' ? '/' : normalized.learning === 'temas' ? '/aprender/temas' : normalized.learning === 'rutas' ? '/aprender/rutas' : '/aprender', replace: navigationOptions.replace, ignoreBlocker: true });
+          await router.navigate({
+            to: '/aprender', search: { paso: normalized.aprender.paso },
+            replace: navigationOptions.replace, ignoreBlocker: true,
+          });
         }
+      } else if (normalized.project === null) {
+        await router.navigate({ to: '/', replace: navigationOptions.replace, ignoreBlocker: true });
       } else {
         await router.navigate({
           to: '/projects/$project',
           params: { project: normalized.project },
-          search: { board: normalized.board, file: normalized.file },
+          search: { board: normalized.board, file: normalized.file, leccion: normalized.leccion },
           replace: navigationOptions.replace,
           ignoreBlocker: true,
         });

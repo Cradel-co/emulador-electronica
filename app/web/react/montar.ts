@@ -10,7 +10,6 @@ import { ExplorerIcon } from './ExplorerIcon.js';
 import { EditorPreferences } from './EditorPreferences.js';
 import { Lienzo } from './Lienzo.js';
 import { Avisos } from './Avisos.js';
-import { Aprender, AprenderNav } from './Aprender.js';
 import { Proyectos } from './Proyectos.js';
 import { PanelDerecho } from './PanelDerecho.js';
 import { Menu } from './Menu.js';
@@ -18,6 +17,8 @@ import { Paleta } from './Paleta.js';
 import { Miga, Notificaciones, Pestanas } from './Barra.js';
 import { DebugAlimentacion, ErroresCompilacion, Problemas, ResultadoImportacion } from './Problemas.js';
 import { OpcionesLenguajePlaca, OpcionesPlacaNueva, OpcionesPlacas, OpcionesPlantillas, OpcionesProyectos } from './Selectores.js';
+import { AprenderNav } from './Aprender.js';
+import { Aprendizaje } from './Aprendizaje.js';
 
 /**
  * Monta las islas de React sobre la UI de `app.ts` (#9).
@@ -43,8 +44,8 @@ const ISLAS: [string, FunctionComponent, boolean][] = [
   ['dock-layout', DockWorkspace, true],
   ['tw-explorador', ExplorerIcon, false],
   ['lista-proyectos', Proyectos, false],
-  ['pagina-aprender', Aprender, false],
   ['aprendizaje-nav', AprenderNav, false],
+  ['pantalla-aprender', Aprendizaje, false],
   ['panel-modulo', PanelDerecho, false],
   ['menu', Menu, false],
   ['dlg-buscar', Paleta, false],

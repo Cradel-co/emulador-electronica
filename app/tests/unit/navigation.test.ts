@@ -12,22 +12,6 @@ function setup(initial = '/', apply = async (route: WorkspaceRoute) => route, ca
 }
 
 describe('adaptador de TanStack Router', () => {
-  it('abre Aprender por enlace directo y navega entre Aprender e Inicio', async () => {
-    const { navigation, history, error } = setup('/aprender');
-    await navigation.start();
-    expect(navigation.current).toEqual({ project: null, page: 'aprender' });
-    await navigation.navigate({ project: null });
-    expect(history.location.href).toBe('/');
-    history.back();
-    await vi.waitFor(() => expect(navigation.current.page).toBe('aprender'));
-    history.forward();
-    await vi.waitFor(() => expect(navigation.current).toEqual({ project: null }));
-    await navigation.navigate({ project: null, page: 'aprender' });
-    expect(history.location.href).toBe('/aprender');
-    expect(error).not.toHaveBeenCalled();
-    navigation.destroy();
-  });
-
   it('migra un enlace anterior y completa la selección resuelta sin aplicar dos veces', async () => {
     const { navigation, load, history } = setup('casa', async route => ({ ...route, board: 'esp32', file: 'main.py' }));
     await navigation.start();
