@@ -364,6 +364,12 @@ async function pasada(c: Contexto, chipEncendido: boolean, propsExtra: Map<strin
   return { res, elementos, modulos, placa, placas, avisosModelos };
 }
 
+/** Copia de la topología del proyecto con controles fijos, para análisis propios acotados. */
+export function armarNetlistCircuito(project: Project, buscar: BuscarDef, opciones: OpcionesAnalisis = {}): Netlist {
+  const c = preparar(project, buscar, instantaneaOpcionesAnalisis(opciones));
+  return armarPasada(c, c.hayPlaca, new Map()).n;
+}
+
 const tension = (p: Pasada, nodo: string): number => Netlist.tension(p.res, nodo);
 const tieneTension = (p: Pasada, nodo: string): boolean => nodo === '0' || p.res.valores.has(`v(${nodo})`);
 const fmt = (x: number, d = 1): string => x.toFixed(d).replace('.', ',');

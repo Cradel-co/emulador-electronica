@@ -2,6 +2,7 @@ import Fastify from 'fastify';
 import { describe, expect, it, vi } from 'vitest';
 import { ProjectSchema } from '@emu/shared';
 import { registrarRutasAnalisisFisico, type DependenciasAnalisisFisico } from './rutasAnalisisFisico.js';
+import { loadCatalog } from './catalog.js';
 
 const parametros = { pasoS: 0.01, duracionS: 1, inicializacion: 'equilibrio' };
 const proyecto = ProjectSchema.parse({ name: 'analisis', board: null, language: null, modules: [], wires: [], sim: { wifiSsid: 'x', wifiPassword: 'y' } });
@@ -61,4 +62,67 @@ describe('API de análisis temporal', () => {
     expect(respuesta.statusCode).toBe(422);
     expect(respuesta.json().resuelto).toBe(false);
   });
+});
+
+const electrotermico = {
+  parametros: { duracionS: 0.1, pasoInicialS: 0.1, pasoMaximoS: 0.1, pasoMinimoS: 1e-4, toleranciaC: 0.01 },
+  modelos: { 'r.r': {
+    resistenciaReferenciaOhm: 100, temperaturaReferenciaC: 25, coeficientePorK: 0.02,
+    dominioElectrico: { tensionMaxAbsV: 20, corrienteMaxAbsA: 1, potenciaMaxW: 5 },
+    termica: { ...termico, capacidadJPorK: 0.1 },
+  } },
+};
+
+it('API electro térmica rechaza contratos incompletos o excesivos antes de cargar el proyecto', async () => {
+  const app = Fastify(), cargar = vi.fn(async () => ({ proyecto, buscar: () => undefined, opciones: {} }));
+  registrarRutasAnalisisFisico(app, { cargar });
+  try {
+    for (const payload of [
+      { ...electrotermico, modelos: {} },
+      { ...electrotermico, parametros: { ...electrotermico.parametros, toleranciaC: 0 } },
+      { ...electrotermico, netlist: '.op' },
+      { ...electrotermico, modelos: { 'r.r': { ...electrotermico.modelos['r.r'], coeficientePorK: -1 } } },
+    ]) {
+      const r = await app.inject({ method: 'POST', url: '/api/projects/p/analysis/electrothermal', payload });
+      expect(r.statusCode).toBe(400);
+    }
+    expect(cargar).not.toHaveBeenCalled();
+  } finally { await app.close(); }
+});
+
+it('API real usa el proyecto, devuelve realimentación R(T) y no modifica sus propiedades', async () => {
+  const catalogo = await loadCatalog();
+  const p = ProjectSchema.parse({ name: 'calentamiento', board: null, language: null,
+    modules: [
+      { id: 'f', type: 'fuente-regulable', x: 0, y: 0, props: { voltage: 10, currentLimitMa: 1000 } },
+      { id: 'r', type: 'resistor', x: 0, y: 0, props: { ohms: 100 } },
+    ], wires: [{ from: 'f.V', to: 'r.1' }, { from: 'r.2', to: 'f.GND' }], sim: { wifiSsid: 'test', wifiPassword: '' },
+  });
+  const antes = structuredClone(p), app = Fastify();
+  registrarRutasAnalisisFisico(app, { cargar: async () => ({ proyecto: p, buscar: tipo => catalogo.find(m => m.type === tipo), opciones: {} }) });
+  try {
+    const r = await app.inject({ method: 'POST', url: '/api/projects/cal/analysis/electrothermal', payload: electrotermico });
+    expect(r.statusCode, r.statusCode === 200 ? '' : r.body).toBe(200);
+    const body = r.json();
+    expect(body.perfil).toBe('electrotermico-rc-cuasiestatico');
+    expect(body.caracterizadoEnLaboratorio).toBe(false);
+    const s = body.elementos['r.r'];
+    expect(s.resistenciaOhm.at(-1)).toBeGreaterThan(101.8);
+    expect(s.i.at(-1)).toBeLessThan(s.i[0]);
+    expect(body.estadisticas.evaluacionesElectricas).toBeLessThanOrEqual(12);
+    expect(p).toEqual(antes);
+  } finally { await app.close(); }
+}, 30_000);
+
+it('API electro térmica devuelve 422 sin trazas parciales si falla el acoplamiento', async () => {
+  const app = Fastify();
+  registrarRutasAnalisisFisico(app, {
+    cargar: async () => ({ proyecto, buscar: () => undefined, opciones: {} }),
+    resolverElectrotermico: async () => { throw new Error('Sin convergencia térmica'); },
+  });
+  try {
+    const r = await app.inject({ method: 'POST', url: '/api/projects/p/analysis/electrothermal', payload: electrotermico });
+    expect(r.statusCode).toBe(422);
+    expect(r.json()).toEqual({ resuelto: false, error: 'Sin convergencia térmica' });
+  } finally { await app.close(); }
 });

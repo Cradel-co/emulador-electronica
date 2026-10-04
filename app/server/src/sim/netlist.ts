@@ -70,6 +70,7 @@ export class Netlist {
   private cuenta = 0;
   private readonly reactivos = new Map<string, { linea: number; inicial?: number }>();
   private readonly fuentes = new Map<string, { linea: number; limitada: boolean; negativa: boolean }>();
+  private readonly resistencias = new Map<string, number>();
 
   constructor(private readonly titulo: string) {}
 
@@ -112,6 +113,7 @@ export class Netlist {
     switch (p.tipo) {
       case 'R':
         el.ohms = p.ohms;
+        this.resistencias.set(el.id, this.lineas.length);
         this.lineas.push(`r_${n} ${p.a} ${p.b} ${p.ohms}`);
         break;
       case 'S':
@@ -237,6 +239,17 @@ export class Netlist {
     return this.renderizar(this.lineas, ['.op']);
   }
 
+  /** Actualización local de un R ya armado: conserva nombre, terminales y topología. */
+  actualizarResistencia(id: string, ohms: number): void {
+    const el = this.elementos.find(e => e.id === id);
+    const indice = this.resistencias.get(id);
+    const linea = indice === undefined ? undefined : this.lineas[indice];
+    if (!el || el.tipo !== 'R' || indice === undefined || linea === undefined) throw new ErrorSpice(`No existe una resistencia actualizable: ${id}`, [], '');
+    validarPrimitivaSpice({ tipo: 'R', nombre: el.local, a: el.a, b: el.b, ohms });
+    this.lineas[indice] = linea.replace(/\S+$/, String(ohms));
+    el.ohms = ohms;
+  }
+
   /** IC y estímulos se aplican a una copia; el punto de operación conserva su netlist. */
   textoTransitorio(parametros: ParametrosTransitorio): string {
     this.validarPresupuestoTransitorio(Math.ceil(parametros.duracionS / parametros.pasoS) + 1);
@@ -290,7 +303,9 @@ export class Netlist {
   private renderizar(lineas: readonly string[], analisis: readonly string[]): string {
     const modelos = [...this.modelos].map(([cuerpo, n]) => `.model ${n} ${cuerpo}`);
     return [
-      this.titulo.replace(/\n/g, ' '),
+      // El lector raw del adaptador calcula offsets como caracteres, no bytes UTF-8.
+      // Sólo normalizamos la cabecera SPICE; el nombre del proyecto no se modifica.
+      this.titulo.normalize('NFKD').replace(/\p{M}/gu, '').replace(/[^\x20-\x7E]/g, ' '),
       ...lineas,
       // ngspice no resuelve un circuito sin elementos: una resistencia suelta a tierra no cambia nada.
       ...(lineas.length === 0 ? ['r_vacio n_vacio 0 1'] : []),
