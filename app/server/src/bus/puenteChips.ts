@@ -3,6 +3,7 @@ import { armarBusChips } from './armarBus.js';
 import type { EntradaChip } from './chipSandbox.js';
 import { ErrorContencionSpi, type BusChips } from './busChips.js';
 import type { ChipEnBus } from './proyectoChips.js';
+import { ErrorElectricoI2c } from './i2cFisico.js';
 
 /**
  * Chips del dibujo en un ESP32 con MicroPython. esp-emu no acepta dispositivos I2C/SPI propios, así
@@ -155,6 +156,12 @@ export class PuenteChips {
           return false;
       }
     } catch (err) {
+      if (err instanceof ErrorElectricoI2c) {
+        this.ev.alLog?.(err.message);
+        const id = Number(p[1]);
+        if ((tag === '@I2C' || tag === '@I2CS') && Number.isSafeInteger(id)) this.ev.enviar(`@I2CR ${id} E:${err.codigo}`);
+        return true;
+      }
       if (err instanceof ErrorContencionSpi) {
         this.ev.alLog?.(err.message);
         if (tag === '@SPI' && p[10] === '1') this.ev.enviar(`@SPIR ${num(p[1])} E:${err.codigo}`);

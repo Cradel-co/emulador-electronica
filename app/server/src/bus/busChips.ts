@@ -1,4 +1,5 @@
-import type { SalidaChip } from '@emu/shared';
+import { PerfilI2cRcSchema, type PerfilI2cRc, type SalidaChip } from '@emu/shared';
+import { ErrorElectricoI2c, evaluarI2cRc } from './i2cFisico.js';
 import { ErrorChip, type EntradaChip, type EventoChip, type ResultadoLote } from './chipSandbox.js';
 
 /**
@@ -116,7 +117,30 @@ export class BusChips {
   /** Últimas transacciones (para inspeccionar); tope fijo. */
   readonly historial: TransaccionI2c[] = [];
 
-  constructor(private readonly ev: EventosBus) {}
+  private readonly perfilI2c: PerfilI2cRc | undefined;
+  private frecuenciaI2c: number | undefined;
+  constructor(private readonly ev: EventosBus, perfilI2c?: PerfilI2cRc) {
+    this.perfilI2c = perfilI2c === undefined ? undefined : PerfilI2cRcSchema.parse(perfilI2c);
+  }
+
+  private verificarI2c(): void {
+    if (!this.perfilI2c) return; // Compatibilidad funcional, sin acreditación eléctrica.
+    let r: ReturnType<typeof evaluarI2cRc>;
+    try { r = evaluarI2cRc(this.perfilI2c, this.frecuenciaI2c ?? NaN); }
+    catch (error) {
+      // Un equivalente no resoluble también debe contestar al firmware. No dejar
+      // el pedido UART pendiente hasta timeout ni transformarlo en un NACK válido.
+      throw new ErrorElectricoI2c({ perfil: 'i2c-rc-declarado', apto: false, lineas: {},
+        problemas: [error instanceof Error ? error.message : 'Equivalente eléctrico I2C no resuelto'] });
+    }
+    for (const d of this.dispositivos) {
+      if (!d.spi && d.alimentado && d.maxHz !== undefined && this.frecuenciaI2c !== undefined && this.frecuenciaI2c > d.maxHz) {
+        r.problemas.push(`${d.id}: frecuencia supera ${d.maxHz} Hz del chip`);
+        r.apto = false;
+      }
+    }
+    if (!r.apto) throw new ErrorElectricoI2c(r);
+  }
 
   agregar(o: OpcionesDispositivo): void {
     const d: Dispositivo = {
@@ -195,6 +219,8 @@ export class BusChips {
 
   /** Aviso (una vez por chip) si el maestro usa SCL más rápido de lo que el chip soporta. */
   velocidad(hz: number): void {
+    this.frecuenciaI2c = hz;
+    this.verificarI2c();
     for (const d of this.dispositivos) {
       if (d.maxHz && hz > d.maxHz * 1.05 && !this.avisadoVelocidad.has(d.id)) {
         this.avisadoVelocidad.add(d.id);
@@ -207,11 +233,13 @@ export class BusChips {
 
   /** START (o START repetido). */
   inicio(): void {
+    this.verificarI2c();
     this.cerrarSegmento();
   }
 
   /** Manda la dirección. Devuelve el ACK (alguien contestó). */
   conectar(direccion: number, escritura: boolean): boolean {
+    this.verificarI2c();
     this.cerrarSegmento();
     const t = this.ev.ahoraUs();
     const con = this.dispositivos.filter((d) => d.alimentado && !d.roto && d.direcciones.includes(direccion) && t >= d.ocupadoHasta);

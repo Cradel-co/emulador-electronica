@@ -7,6 +7,7 @@ import { microPythonSimbridge } from '../templates/micropythonBridge.js';
 import { cargarChips } from './catalogoChips.js';
 import { entornoDe, type ChipEnBus } from './proyectoChips.js';
 import { PuenteChips } from './puenteChips.js';
+import { perfilI2cSintetico } from '../fixtures/perfilI2c.js';
 
 /**
  * Chips en un ESP32 con MicroPython: el simbridge.py DE VERDAD (el que se sube al chip) corre en
@@ -103,6 +104,23 @@ async function correr(chips: ChipEnBus[], programa: string) {
 
 const python = spawnSync('python3', ['--version']).status === 0;
 describe.skipIf(!python)('chips en ESP32 con MicroPython (simbridge.py real en CPython)', () => {
+  it('I2C scan y lectura rechazan líneas eléctricas inválidas con OSError 5', async () => {
+    const perfil = structuredClone(perfilI2cSintetico); perfil.sda.resistenciaPullupOhm = null;
+    const { out, lineas, puente } = await correr([chip('bosch-bme280', 'bme', {
+      i2cGpio: { sda: 21, scl: 22 }, i2cFisico: perfil,
+    })], `
+i2c = I2C(0, sda=Pin(21), scl=Pin(22), freq=100000)
+out['errores'] = []
+for accion in [lambda: i2c.scan(), lambda: i2c.readfrom(0x77, 1)]:
+    try:
+        accion()
+        out['errores'].append('sin error')
+    except OSError as e:
+        out['errores'].append(e.args[0])
+`);
+    try { expect(out.errores).toEqual([5, 5]); expect(lineas.join()).toMatch(/pull-up/); }
+    finally { puente.apagar(); }
+  });
   it('SPI informa contención como OSError 5 y permite seguir después de soltar un CS', async () => {
     const sensor = (id: string, csGpio: number, respuesta: number): ChipEnBus => chip('bosch-bme280', id, {
       codigo: `module.exports = { spi: function () { return [${respuesta}]; } };`,
