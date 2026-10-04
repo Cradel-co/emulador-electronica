@@ -225,7 +225,9 @@ En **Nuevo proyecto**, elegí la plantilla **ArduCAM con ESP32-S3 y MicroPython*
 
 Cada cinco segundos MicroPython pide una fotografía nueva mediante I2C/SPI, lee el JPEG completo en bloques de 512 bytes e imprime longitud y SHA-256. El visor muestra la fotografía recuperada del backend y su huella: ambas deben coincidir, sin pulsar **Capturar**. Mostrá otro objeto para verificar una fotografía diferente. **Detener** libera la webcam; parar o reiniciar el programa cancela las solicitudes pendientes.
 
-Primera versión: JPEG 320 × 240 con bandas si cambia la proporción, sin TFT ni video continuo. El driver solo utiliza APIs normales de MicroPython; su funcionamiento en una placa física requiere validación posterior. Registros, límites y alcance: [SDD-ARDUCAM.md](SDD-ARDUCAM.md).
+La plantilla inicial **ArduCAM con ESP32-S3 y MicroPython** verifica la captura JPEG sin TFT. Para mostrar una foto en el circuito, elegí **ArduCAM y TFT ST7735 con ESP32-S3**: comparte SCLK/MOSI y usa CS separados; MicroPython solicita la foto, conserva el JPEG completo en la FIFO y la dibuja centrada en la pantalla. Cada Enter en la consola solicita otra foto; no hay video continuo.
+
+La TFT recibe 128 × 96 RGB565 con bandas negras. Para mantener el tiempo de respuesta en esp-emu, esta primera versión representa los bloques JPEG por su color promedio (detalle efectivo aproximado de 40 × 30); la IDCT completa y la prueba en hardware físico quedan pendientes. El driver solo usa APIs normales de MicroPython. Diseño y alcance: [SDD-ARDUCAM-TFT.md](SDD-ARDUCAM-TFT.md).
 
 ## Placas soportadas
 

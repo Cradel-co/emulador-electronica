@@ -1,6 +1,6 @@
 # SDD: mostrar una captura ArduCAM en la TFT ST7735
 
-**Estado:** diseño propuesto para el siguiente hito.  
+**Estado:** implementación en curso; conversión DC validada en esp-emu.
 **Base:** ArduCAM Mini 2MP Plus, ESP32-S3, MicroPython y webcam en localhost.  
 **Resultado buscado:** una foto solicitada por el firmware, decodificada y dibujada en una TFT conectada al circuito.
 
@@ -10,14 +10,13 @@ Ampliar la plantilla ArduCAM existente para que, después de recibir una fotogra
 completa por I²C/SPI, el firmware la decodifique y la muestre en el módulo TFT ST7735
 128 × 160, también mediante el bus SPI del circuito.
 
-La primera entrega mostrará una imagen fija por captura. El programa podrá pedir capturas
+La primera entrega muestra una imagen fija por captura. El programa puede pedir capturas
 sucesivas manualmente, pero no habrá temporizador ni streaming continuo. El panel de cámara
 seguirá mostrando la captura confirmada por el backend y permitirá comparar su SHA-256 con
 el JPEG leído por el firmware.
 
 Quedan fuera: video en vivo, rotación y controles de imagen configurables, más resoluciones,
-otros controladores de pantalla, aceleración JPEG específica del emulador y validación en
-una placa física.
+otros controladores de pantalla, IDCT JPEG completa en MicroPython y validación en una placa física.
 
 ## 2. Estado existente y brecha
 
@@ -46,11 +45,13 @@ backend. Rechazará de forma explícita JPEG progresivo, componentes o marcadore
 dimensiones inesperadas y entradas truncadas. Las restricciones se comprobarán antes de
 reservar memoria o comenzar la escritura en la pantalla.
 
-El decodificador entregará píxeles en bloques pequeños, no creará un framebuffer RGB completo.
-La conversión a RGB565 y el escalado por vecino más próximo se harán por bloque. Así se limita
-la memoria de trabajo, que contiene además el JPEG de entrada y la FIFO de ArduCAM. El diseño
-debe medir memoria y tiempo en el firmware ESP32-S3 emulado antes de fijar los tamaños de
-bloque y los límites de aceptación.
+El JPEG completo se valida y se decodifica dentro del firmware. En la salida reducida a 128 × 96,
+la primera versión usa el coeficiente DC de cada bloque 8 × 8 como color promedio; así conserva
+colores y formas amplias sin exceder el tiempo práctico de ejecución de MicroPython en esp-emu.
+La imagen se amplía a 128 × 96 y se centra en la TFT, con un detalle efectivo aproximado de
+40 × 30. La salida RGB565 ocupa 24 KiB, además del JPEG de entrada y los bloques de trabajo.
+La IDCT completa, necesaria para recuperar el detalle fino, queda como mejora posterior y debe
+medirse por separado en esp-emu y en ESP32-S3 físico.
 
 ## 4. Encuadre y formato de pantalla
 
@@ -93,7 +94,7 @@ usa SPI.
 6. El decodificador valida cabecera, tablas, dimensiones y formato antes de dibujar.
 7. Inicializa la ST7735, limpia la pantalla a negro y escribe la imagen centrada por SPI.
 8. El panel de cámara y la consola muestran que la captura fue solicitada por firmware; el
-   panel indica la huella y la TFT muestra la misma imagen, reducida.
+   panel indica la huella y la TFT muestra la imagen reducida con detalle grueso.
 
 Una nueva captura solo reemplaza la imagen de pantalla después de recibirse y validarse
 completamente. Si la captura o la decodificación falla, el firmware informa la causa y no
@@ -119,7 +120,7 @@ Primero se agregarán pruebas que fallen por la ausencia de las capacidades requ
 
 - **Conversión JPEG:** fixture JPEG baseline determinista, SOF0, submuestreo soportado,
   dimensiones y tablas; comparar píxeles seleccionados RGB565 contra una decodificación
-  independiente.
+  independiente y comprobar colores promedio en la salida reducida.
 - **Fallos del decodificador:** JPEG truncado, marcador desconocido, progresivo, dimensiones
   fuera del límite y tablas inválidas; debe fallar antes de escribir la TFT.
 - **Controlador TFT:** inicialización, limpieza, CASET/RASET/RAMWR, conversión RGB565,
@@ -147,8 +148,9 @@ El hito se considerará terminado cuando:
 2. El firmware reciba el JPEG completo y su SHA-256 coincida con el backend.
 3. El firmware decodifique el JPEG con el módulo MicroPython estándar y envíe píxeles RGB565
    por SPI al ST7735 conectado al circuito.
-4. La TFT muestre una versión reducida sin deformación, con bandas negras y colores
-   comprobados mediante fixture y prueba localhost.
+4. La TFT muestre una versión reducida sin deformación, con bandas negras y colores promedio
+   comprobados mediante fixture y prueba localhost. La primera versión conserva formas amplias;
+   el detalle fino depende de implementar y validar una IDCT completa.
 5. Una segunda captura cambie la imagen; detener o reiniciar no deje webcam o solicitud
    pendiente activa.
 
