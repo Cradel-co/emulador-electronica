@@ -332,3 +332,24 @@ test('una respuesta tardía de formato conserva lo escrito mientras el worker tr
   await expect(page.locator('#lista-notificaciones')).toContainText('se conservaron tus cambios');
   await expect(page.locator('#editor')).toHaveValue('x=3+4 # cambio nuevo');
 });
+
+test('la numeración permanece dentro de una ventana angosta con líneas largas', async ({ page, request }) => {
+  await page.setViewportSize({ width: 1086, height: 819 });
+  await proyecto(page, request, 'micropython', `# ${'línea larga '.repeat(40)}\nvalor = 1\nprint(valor)\n`);
+  const first = page.locator('.cm-lineNumbers .cm-gutterElement').filter({ hasText: /^1$/ });
+  await expect(first).toBeVisible();
+  await page.locator('.cm-content').press('Control+Home');
+  await expect.poll(async () => {
+    const panel = await page.locator('#ventana-codigo').boundingBox();
+    const wrap = await page.locator('.editor-wrap').boundingBox();
+    const number = await first.boundingBox();
+    if (!panel || !wrap || !number) return false;
+    return wrap.width <= panel.width + 1 && number.x >= panel.x && number.x + number.width <= panel.x + panel.width;
+  }).toBe(true);
+  expect(await first.evaluate(element => {
+    const rect = element.getBoundingClientRect();
+    const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
+    return hit !== null && (element === hit || element.contains(hit));
+  })).toBe(true);
+  await page.screenshot({ path: test.info().outputPath('numeracion-lineas.png') });
+});

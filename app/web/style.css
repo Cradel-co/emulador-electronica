@@ -297,7 +297,7 @@ body.sin-abajo .consola-panel, body.sin-abajo .resizer-h { display: none; }
 .vacio { padding: 14px; color: var(--tenue); font-size: 12.5px; }
 
 /* --- Editor de código --------------------------------------------------------- */
-.editor-wrap { display: grid; grid-template-columns: auto minmax(0, 1fr); min-height: 0; background: var(--isla); }
+.editor-wrap { display: grid; grid-template-columns: auto minmax(0, 1fr); min-width: 0; min-height: 0; background: var(--isla); }
 .gutter {
   min-width: 46px; padding: 8px 12px 8px 14px; text-align: right; color: #4b5059; user-select: none;
   overflow: hidden; white-space: pre; font: 13px/var(--alto-linea) var(--font-mono);
@@ -450,7 +450,7 @@ body.modo-mover #lienzo .pin { cursor: move; } /* modo mover: los pines no arran
 /* --- Panel derecho: código o propiedades del módulo (como "Attributes") --------- */
 .derecha { display: flex; flex-direction: column; gap: 6px; }
 .editor-window { flex: 1; min-height: 0; }
-.panel-codigo { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-height: 0; height: 100%; }
+.panel-codigo { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto; min-width: 0; min-height: 0; height: 100%; }
 .panel-codigo[hidden], .panel-modulo[hidden] { display: none; }
 .panel-modulo { overflow: auto; height: 100%; }
 .insp { display: flex; flex-direction: column; gap: 12px; padding: 4px 14px 16px; }
