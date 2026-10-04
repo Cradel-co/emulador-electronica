@@ -1,5 +1,9 @@
 # Análisis temporal, ADC, térmica y evidencia
 
+Registro de la primera tanda temporal. La implementación posterior de adquisición ADC,
+ADC1 MicroPython, comprobaciones I2C, térmica acoplada y presupuesto RF se describe en
+[Perfiles físicos](PERFILES-FISICOS.md); sus dominios actualizan las limitaciones de esta fotografía histórica.
+
 Continuación del [plan de fidelidad](PLAN-FIDELIDAD-FISICA.md), 4 de octubre de 2026. Esta entrega amplía fenómenos concretos; no declara equivalencia total con el hardware. El circuito que acompaña al firmware sigue usando instantáneas DC. La nueva traza transitoria es un **análisis de diseño independiente**, con topología y GPIO fijos.
 
 ## Transitorios del equivalente eléctrico

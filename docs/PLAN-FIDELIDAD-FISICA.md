@@ -454,6 +454,8 @@ La prueba optativa omitida y la limitación de validación visual son las mismas
 
 ## 12. Continuación: transitorios, ADC, térmica y evidencia
 
+Este apartado registra el cierre anterior. Los avances posteriores y sus límites están en §13.
+
 El documento [Análisis temporal y evidencia](ANALISIS-TEMPORAL-Y-EVIDENCIA.md) registra contratos, ecuaciones, API, parámetros, fuentes y límites de esta tanda en `fix/fidelidad-fisica` / PR #54. Se conservó el workspace principal de trabajo paralelo y se continuó en el worktree aislado. Tras la interrupción de sesión se volvió a levantar el dev principal con `pnpm run dev`; esto no traslada automáticamente el código del worktree a ese proceso.
 
 | Fenómeno / caso | Avance de software | Lo que no cierra |
@@ -487,3 +489,57 @@ Verificación final del árbol entregado, Node 24.14.0, Vitest 2.1.9 y un solo w
 Los totales incluyen las regresiones previas; no deben sumarse a los de §11. La prueba omitida sigue siendo la integración optativa `micropythonImports.integration.test.ts`, que requiere activar `EMU_TEST_MICROPYTHON_IMPORTS=1` y disponer de binario/firmware externo. No se realizó verificación visual en navegador ni medición de laboratorio. El dev del checkout principal permanece en 5180 con pnpm; la nueva implementación queda en la rama aislada hasta integrar el PR.
 
 Logs locales: `/tmp/fidelidad-temporal-final-suite.log`, `/tmp/fidelidad-temporal-final-tsc.log`, `/tmp/fidelidad-temporal-web-build.log`, `/tmp/fidelidad-evidencia-cli.json`; casos rojo/verde de recarga en `/tmp/vigencia-electrica-{rojo,verde}.log` y aislamiento transitorio en `/tmp/transitorios-islas-{rojo,verde}.log`. Son archivos temporales de la sesión; las pruebas versionadas permiten reproducir la verificación. Los resultados de software no acreditan parámetros de hardware sin la campaña física pendiente.
+
+## 13. Perfiles configurables: adquisición, I2C, electrotérmica y RF
+
+Implementación modular, contratos, ejemplos y fuentes en [Perfiles físicos](PERFILES-FISICOS.md).
+Se continúa en `fix/fidelidad-fisica`, PR #54; el checkout principal y sus cambios de
+otros trabajos permanecen separados. El dev de ese checkout sigue ejecutándose con
+pnpm en 5180; estas modificaciones todavía requieren integrar la rama para verse allí.
+
+| Área | Implementación y evidencia nueva | Límite conservado |
+|---|---|---|
+| ADC Uno | Equivalente de adquisición RC con memoria de canales, fuente/interruptor, offset, ganancia y ruido uniforme con semilla; registros AVR, worker/local y reset | Snapshot DC, sin carga devuelta al solver ni calibración de silicio |
+| ADC1 ESP32 | Shim `machine.ADC`, GPIO/atenuación y perfil lineal explícito; `read`/`read_u16`, OSError para datos desconocidos o sin modelo; CPython para transporte y ciclo de vida mock | Sólo MicroPython, ADC1, S3/C3/C6; sin SAR nativo, ADC2, eFuse o `read_uv` |
+| I2C | RC declarado por placa/GPIO, niveles/corriente, mínimos/máximos de flancos, carga y reloj; impide ACK fuera de dominio, con error al firmware | No extrae automáticamente el equivalente del esquema ni resuelve cada bit/arbitraje/stretching |
+| Térmica | R(T) lineal realimentada en ngspice, RK2 adaptativo, dominios, balance y presupuestos | Cuasiestático; sin C/L eléctricos, firmware, red térmica ni averías |
+| RF | Friis, pérdidas/polarización y umbral declarados; filtro MCP/WS, destino eléctrico y capacidad del transporte | Espacio libre/campo lejano; inyección al puente, no ACK ni BER/PER |
+
+La revisión cruzada detectó y corrigió además: errores I2C de dominio que omitían
+respuesta UART; flancos Fast-mode más rápidos que el mínimo; perfiles RF aplicados
+sin verificar el receptor o su alimentación; entregas RF aparentes en backends sin
+soporte; y el rango de la API RF que excedía los 24 bits del búfer RMT nativo. Las
+guardas TypeScript limitan el transporte real a 24 bits/protocolo 1. El código C++
+existente no se modificó y sigue requiriendo sus propias guardas si se accede a él
+por fuera del servidor de la aplicación.
+
+También se reprodujo un bloqueo por cabecera SPICE Unicode: el adaptador raw
+interpretaba posiciones de caracteres como offsets de bytes. Se normaliza únicamente
+esa cabecera, preservando el nombre del proyecto. La prueba ejecuta la red real con
+un título acentuado.
+
+No se considera cerrado el reloj común firmware/analógica, la física completa de
+buses, el ADC nativo ESP32, la caracterización térmica/RF de cada parte, el
+envejecimiento, las averías ni la validación de laboratorio. Los datos sintéticos
+siguen identificados como tales. Ningún porcentaje de pruebas aprobadas equivale
+a un porcentaje de realidad reproducida.
+
+### 13.1 Verificación de esta continuación
+
+Node 24.14.0, Vitest 2.1.9, un worker y prioridad reducida:
+
+- Suite completa: **123 suites aprobadas y una omitida; 1.351 pruebas aprobadas y una omitida**, 173,02 s.
+- Las pruebas incluyen AVR local/worker, ADC1 vía plantilla Python y transporte UART,
+  modelos RC/Friis, API térmica con ngspice real, MCP, contratos WS y rechazo de
+  entregas que exceden la capacidad del transporte. Son **159 pruebas aprobadas más**
+  que en §12, incluidas regresiones de las revisiones cruzadas.
+- La omisión sigue siendo `micropythonImports.integration.test.ts`, optativa y con
+  dependencias externas. CPython y procesos simulados no sustituyen esa integración
+  con firmware MicroPython real.
+- TypeScript servidor y frontend: correctos, con declaraciones de navegación regeneradas.
+- Build web: correcto, 175 módulos en 815 ms. `git diff --check`: correcto.
+- No se ejecutó navegador/Playwright ni laboratorio. Dev principal confirmado en 5180.
+
+Log local reproducible de la suite: `/tmp/perfiles-fisicos-suite.log`; typecheck del
+servidor: `/tmp/perfiles-fisicos-tsc-final.log`; build: `/tmp/perfiles-fisicos-web-build.log`. Los logs temporales no se versionan;
+los casos unitarios y de integración sí.
