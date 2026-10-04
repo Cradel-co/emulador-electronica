@@ -1,3 +1,4 @@
+import { SeccionCamara } from './SeccionCamara.js';
 import { Miniatura } from './Miniatura.js';
 import { SeccionChip } from './SeccionChip.js';
 import { useEstado, useVersion } from './estado.js';
@@ -36,7 +37,9 @@ export function PanelModulo({ inst, def }: { inst: any; def: any }) {
         <div className="insp-mini"><Miniatura def={def} /></div>
         <p className="insp-desc">{def.description ?? ''}</p>
         <div className={`insp-badge${esAire ? ' aire' : ''}`}>
-          {esAire
+          {def.camera
+            ? def.camera.hardware ? <><b>ArduCAM</b> — conectá alimentación, I2C y SPI; activá la webcam antes de ejecutar el firmware.</> : <><b>Cámara virtual</b> — usa la webcam del computador; funciona sin cables, alimentación ni firmware.</>
+            : esAire
             ? <><b>Inalámbrico</b> — no se programa ni lleva cables: se comunica por radio 433 MHz con el receptor o transmisor conectado a la {vistas().nombrePlaca()}.</>
             : chips.length > 0
               ? <><b>Con chip</b> — adentro tiene {chips.map((c) => `un ${c.nombre}`).join(' y ')} que habla{chips.length > 1 ? 'n' : ''} por su bus con el código de la {vistas().nombrePlaca()}: se emula su lógica, no solo su consumo.</>
@@ -60,6 +63,7 @@ export function PanelModulo({ inst, def }: { inst: any; def: any }) {
           </div>
         )}
 
+        {def.camera && <SeccionCamara key={`${estado().proyecto.name}:${inst.id}`} project={estado().proyecto.name} instance={inst.id} camera={def.camera} />}
         <SeccionChip inst={inst} def={def} />
 
         {control && <Controles inst={inst} def={def} control={control} />}

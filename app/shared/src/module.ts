@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { CameraDescriptorSchema } from './camera.js';
 import { BoardDescriptorSchema } from './board.js';
 import { UsoChipSchema } from './chip.js';
 
@@ -57,6 +58,8 @@ export const ModuleDefSchema = z.object({
   description: z.string().optional(),
   /** Tiene código propio (una placa: ESP32, Arduino...). Los demás módulos solo se cablean. */
   programmable: z.boolean().default(false),
+  /** Fuente virtual de imágenes del navegador, sin interfaz eléctrica. */
+  camera: CameraDescriptorSchema.optional(),
   /**
    * Descriptor de placa (board.ts): chip, motor de emulación, lenguajes, pines del MCU.
    * Lo llevan los módulos programables; es lo que permite sumar placas sin tocar código.
@@ -151,7 +154,7 @@ export const ModuleDefSchema = z.object({
    * el módulo con elementos físicos que resuelve el motor (ngspice). Sin `model`, el motor arma
    * uno a partir de los flags (`passthrough`, `diode`, `switch`, `source`).
    */
-  model: z.string().regex(/^[\w.-]+\.js$/, 'un archivo .js de la carpeta del módulo').optional(),
+  model: z.string().regex(/^[\w.-]+\.(?:js|ts)$/, 'un archivo .js de la carpeta del módulo').optional(),
   /**
    * Chips con lógica digital que lleva la placa (`chips/<id>/`): sensor, reloj, pantalla, EEPROM...
    * Una placa puede tener varios en el mismo bus (la ZS-042: un DS3231 y una AT24C32). `pines`

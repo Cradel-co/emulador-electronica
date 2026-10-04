@@ -13,6 +13,7 @@ import {
   type Language,
   type Project,
 } from '@emu/shared';
+import { arducamDriver, arducamMain } from './templates/arducam.js';
 import { PATHS } from './paths.js';
 
 export class ProjectError extends Error {
@@ -54,6 +55,8 @@ function isHiddenFile(rel: string): boolean {
 
 export class ProjectStore {
   constructor(readonly root = PATHS.projects) {}
+  /** Recursos efímeros asociados al diagrama, también para cambios por MCP. */
+  alCambiar?: (name: string, modules: Project['modules']) => void | Promise<void>;
 
   async init(): Promise<void> {
     await fs.mkdir(this.root, { recursive: true });
@@ -238,6 +241,10 @@ export class ProjectStore {
       recursive: true,
       filter: (src) => src === origen || !path.basename(src).startsWith('.'),
     });
+    if (templateId === 'arducam-esp32-s3') {
+      await fs.writeFile(path.join(this.projectDir(name), 'arducam.py'), arducamDriver);
+      await fs.writeFile(path.join(this.projectDir(name), 'main.py'), arducamMain);
+    }
     return this.save({ ...base, name });
   }
 
@@ -247,11 +254,13 @@ export class ProjectStore {
     await fs.mkdir(dir, { recursive: true });
     const parsed = ProjectSchema.parse(project);
     await fs.writeFile(path.join(dir, 'project.json'), JSON.stringify(parsed, null, 2) + '\n', 'utf8');
+    await this.alCambiar?.(parsed.name, parsed.modules);
     return parsed;
   }
 
   async delete(name: string): Promise<void> {
     await fs.rm(this.projectDir(name), { recursive: true, force: true });
+    await this.alCambiar?.(name, []);
   }
 
   /** Resuelve una ruta relativa dentro del proyecto, sin salir de la carpeta. */
