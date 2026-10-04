@@ -87,6 +87,16 @@ export const BoardDemoSchema = z.object({
 const porLenguaje = <T extends z.ZodTypeAny>(t: T) =>
   z.object(Object.fromEntries(LANGUAGES.map((l) => [l, t.optional()])) as Record<Language, z.ZodOptional<T>>).strict();
 
+/** Parámetros del modelo de un regulador; el límite puede ser conservador, no una curva de protección certificada. */
+const RegulatorSchema = z.object({
+  voltage: z.number().positive().max(50),
+  dropoutV: z.number().nonnegative().max(50),
+  currentLimitMa: z.number().positive(),
+  quiescentCurrentMa: z.number().nonnegative().optional(),
+  reference: z.string().url().optional(),
+  notes: z.string().max(2000).optional(),
+});
+
 export const BoardDescriptorSchema = z.object({
   /** Id del chip ("esp32s3", "atmega328p"). */
   chip: z.string().min(1).max(40),
@@ -97,8 +107,16 @@ export const BoardDescriptorSchema = z.object({
   backend: EngineRefSchema,
   /** Tensión de un pin de salida en alto (V): 3.3 en ESP32, 5 en el Uno. */
   logicVoltage: z.number().positive().max(50),
-  /** Corriente máxima absoluta por pin (mA), de la hoja de datos. */
+  /** Límite histórico por pin (mA). pinCurrentRating aclara si proviene de drive típico o máximo absoluto. */
   maxPinCurrentMa: z.number().positive(),
+  /** Distingue la característica típica de drive del máximo absoluto; maxPinCurrentMa se conserva para descriptores antiguos. */
+  pinCurrentRating: z.object({
+    kind: z.enum(['absolute-maximum', 'typical-drive']),
+    sourceMa: z.number().positive(),
+    sinkMa: z.number().positive(),
+    conditions: z.string().max(1000).optional(),
+    reference: z.string().url().optional(),
+  }).optional(),
   /** Corriente recomendada por pin (mA). Por defecto, la mitad de la máxima. */
   recommendedPinCurrentMa: z.number().positive().optional(),
   /**
@@ -142,6 +160,11 @@ export const BoardDescriptorSchema = z.object({
         .min(1),
       /** Consumo típico de la placa andando (mA): lo que le pide a la fuente que la alimenta. */
       currentMa: z.number().positive(),
+      /** Sin estos datos se conserva la aproximación histórica; no equivale al esquema real de cualquier placa. */
+      usb: z.object({ voltage: z.number().positive().max(50), currentLimitMa: z.number().positive() }).optional(),
+      regulators: z.object({ logic3v3: RegulatorSchema.optional(), vin5v: RegulatorSchema.optional() }).optional(),
+      /** Umbral configurado del modelo. Si falta: aproximación histórica de 0,8 · VDD. */
+      brownoutVoltage: z.number().positive().max(50).optional(),
     })
     .optional(),
   pins: z.record(z.string().min(1), BoardPinSchema),

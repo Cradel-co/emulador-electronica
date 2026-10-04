@@ -289,6 +289,13 @@
     },
     "logicVoltage": 3.3,
     "maxPinCurrentMa": 40,
+    "pinCurrentRating": {
+      "kind": "typical-drive",
+      "sourceMa": 40,
+      "sinkMa": 28,
+      "conditions": "Características típicas a VDD=3,3 V y PAD_DRIVER=3: IOH con VOH>=2,64 V; IOL con VOL=0,495 V. No son máximos absolutos ni una garantía para cualquier drive strength.",
+      "reference": "https://documentation.espressif.com/esp32_s3_datasheet_en.pdf"
+    },
     "recommendedPinCurrentMa": 20,
     "pinOutputOhm": 33,
     "supplyOutputOhm": 0.5,

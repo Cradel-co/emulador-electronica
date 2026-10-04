@@ -218,12 +218,28 @@
     "recommendedPinCurrentMa": 20,
     "pinOutputOhm": 25,
     "supplyOutputOhm": 0.5,
+    "pinCurrentRating": {
+      "kind": "absolute-maximum",
+      "sourceMa": 40,
+      "sinkMa": 40,
+      "conditions": "Máximo absoluto del ATmega328P; no es una condición de funcionamiento continuo. Para diseño de la placa se usan 20 mA por pin.",
+      "reference": "https://store-usa.arduino.cc/products/arduino-uno-rev3"
+    },
     "power": {
       "inputs": [
         { "pin": "VIN", "min": 7.0, "max": 20.0, "feeds": "vin" },
         { "pin": "5V", "min": 4.5, "max": 5.5, "feeds": "5v" }
       ],
-      "currentMa": 50
+      "currentMa": 50,
+      "regulators": {
+        "logic3v3": {
+          "voltage": 3.3,
+          "dropoutV": 0.3,
+          "currentLimitMa": 50,
+          "reference": "https://content.arduino.cc/assets/Pinout-UNOrev3_latest.pdf",
+          "notes": "50 mA es el límite operativo publicado del pin 3V3, usado como límite conservador del modelo. No representa una curva medida de protección del regulador; dropout conserva la aproximación previa."
+        }
+      }
     },
     "pins": {
       "D0": {
