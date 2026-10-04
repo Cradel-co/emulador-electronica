@@ -267,7 +267,7 @@ npx playwright test    # e2e, con server y catálogo aislados
 E2E_EMU=1 npx playwright test simulacion   # e2e con Docker y emulador reales
 npx tsc --noEmit -p server      # typecheck del server (no hay script `typecheck` en package.json)
 npm run build:web               # compila la UI: React + TypeScript -> web/dist/app.js (Vite)
-npx tsc --noEmit -p web         # typecheck de la UI
+npm --workspace web run typecheck # typecheck de la UI y el adaptador de rutas
 ```
 
 Los e2e usan `EMU_PROJECTS_DIR` y `EMU_MODULES_DIR` para no tocar tus proyectos reales.

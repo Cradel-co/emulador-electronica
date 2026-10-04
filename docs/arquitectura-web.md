@@ -171,3 +171,25 @@ Un componente compartido recibe contenido y acciones por parámetros; no incorpo
 por cada pantalla que lo utiliza. Los efectos se conectan por el puente y las decisiones puras
 se prueban por separado. Agregar una ventana debe extender su registro y aportar su contenido,
 sin duplicar la infraestructura de arrastre, guardado o configuración.
+
+
+## Navegación del espacio de trabajo
+
+`navigation.ts` es el adaptador de TanStack Router (historial hash). El dominio usa
+`WorkspaceRoute`: proyecto, placa y archivo. `navigation-route.ts` valida y serializa el
+contrato; `navigation-selection.ts` resuelve selecciones ausentes o eliminadas desde metadatos.
+Las vistas y el puente no importan TanStack: sus acciones llegan a la orquestación de `app.ts`.
+
+La dirección canónica es `/#/projects/<proyecto>?board=<instancia>&file=<ruta-relativa>`.
+Los enlaces anteriores `/#<proyecto>` siguen abriendo y se normalizan. Inicio usa `/#/`.
+Un proyecto inexistente vuelve a Inicio; una placa o archivo inexistente usa el contexto
+válido disponible y actualiza la URL. El historial permite Atrás/Adelante entre selecciones.
+
+Antes de navegar se guarda el circuito pendiente y el archivo. Un fallo conserva selección,
+URL y contenido; la navegación se puede reintentar. El adaptador serializa cargas y favorece
+la última solicitud. No monta un RouterProvider sobre la aplicación: editor, circuito y
+ventanas conservan sus nodos, y el docking sigue guardándose por proyecto fuera de la URL.
+
+El adaptador tiene su proyecto TypeScript con `strictNullChecks` habilitado, requisito de
+TanStack. El typecheck del workspace compila sus declaraciones antes del frontend heredado;
+Vite usa las fuentes originales. No se debilitan los tipos de la biblioteca para integrarla.
