@@ -114,11 +114,12 @@
           </span>
           <div><b>Emulador de electrónica</b><small>Prototipado de placas programables</small></div>
         </div>
-        <button class="activa" type="button">Proyectos</button>
+        <button id="bienvenida-proyectos" class="activa" type="button" aria-current="page">Proyectos</button>
         <button id="bienvenida-importar" type="button">Importar módulos</button>
         <button id="bienvenida-acerca" type="button">Aprender</button>
+        <div id="aprendizaje-nav" hidden></div>
       </aside>
-      <div class="bienvenida-cuerpo">
+      <div id="inicio-proyectos" class="bienvenida-cuerpo">
         <div class="inicio-cabecera">
           <label class="buscar">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
@@ -129,6 +130,7 @@
           <!-- El contenido lo rinde React (issue #9), montado sobre este mismo nodo. -->
           <div id="lista-proyectos" class="lista-proyectos"></div>
       </div>
+      <section id="pagina-aprender" class="bienvenida-cuerpo" aria-label="Aprender" hidden></section>
     </section>
 
     <!-- Área de trabajo: "islas" como en el tema Islands de Android Studio -->

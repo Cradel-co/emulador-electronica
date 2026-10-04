@@ -1,3 +1,5 @@
+import './aprendizaje.css';
+import { aprendizaje } from './react/aprendizaje-estado.js';
 // Orquestación del frontend: componentes persistentes y efectos contra la API local.
 import { resolveWorkspaceSelection } from './navigation-selection.js';
 import { createWorkspaceNavigation, type WorkspaceRoute } from './navigation.js';
@@ -1931,13 +1933,23 @@ async function cargarProyectos(seleccionarNombre?: string) {
 
 // --- Pantalla de inicio: lista de proyectos ----------------------------------
 
-function mostrarInicio() {
+function mostrarInicio(page?: 'aprender') {
+  document.body.classList.toggle('aprendiendo', page === 'aprender');
+  $('aprendizaje-nav').hidden = page !== 'aprender';
+  $('inicio-proyectos').hidden = page === 'aprender';
+  $('pagina-aprender').hidden = page !== 'aprender';
+  for (const [id, activa] of [['bienvenida-proyectos', !page], ['bienvenida-acerca', page === 'aprender']] as const) {
+    $(id).classList.toggle('activa', activa);
+    if (activa) $(id).setAttribute('aria-current', 'page');
+    else $(id).removeAttribute('aria-current');
+  }
   document.body.classList.add('inicio');
   state.proyecto = null;
   state.placaActivaId = null;
   state.activo = null;
   sel('proyecto').value = '';
   pintarWidgetsProyecto();
+  if (page === 'aprender') document.title = 'Aprender – Emulador de electrónica';
   cerrarMenus();
 }
 
@@ -2051,7 +2063,7 @@ async function abrirProyecto(nombre) {
   // Se puede seguir escribiendo mientras llega el proyecto: guardar también esa versión.
   if (state.editorSucio && (!await guardar(true) || state.editorSucio)) return;
   if (mia !== aperturas) return;
-  document.body.classList.remove('inicio');
+  document.body.classList.remove('inicio', 'aprendiendo');
   const cambioProyecto = state.proyecto?.name !== nombre;
   if (cambioProyecto) state.exploradorPlacas = [];
   state.proyecto = project;
@@ -2690,7 +2702,8 @@ $('dlg-buscar').addEventListener('click', (e) => {
 });
 $('buscar-todo').onclick = () => abrirPaleta();
 $('act-ajustes').onclick = () => { state.distribucionMensaje = ''; ($('dlg-ajustes') as HTMLDialogElement).showModal(); };
-$('bienvenida-acerca').onclick = () => ($('dlg-acerca') as HTMLDialogElement).showModal();
+$('bienvenida-acerca').onclick = () => void navegacion.navigate({ project: null, page: 'aprender' });
+$('bienvenida-proyectos').onclick = () => void navegacion.navigate({ project: null });
 $('bienvenida-importar').onclick = abrirImportador;
 
 // --- Arranque ---------------------------------------------------------------
@@ -2735,7 +2748,7 @@ function rutaActual(): WorkspaceRoute {
     project: state.proyecto.name,
     ...(state.placaActivaId ? { board: state.placaActivaId } : {}),
     ...(state.activo ? { file: state.activo } : {}),
-  } : { project: null };
+  } : { project: null, ...(!$('pagina-aprender').hidden ? aprendizaje.route : {}) };
 }
 
 async function navegarArchivo(file: string, board = state.placaActivaId): Promise<void> {
@@ -2771,7 +2784,9 @@ async function aplicarContextoRuta(route: WorkspaceRoute): Promise<void> {
 async function aplicarRuta(route: WorkspaceRoute): Promise<WorkspaceRoute> {
   try {
     if (!route.project) {
-      mostrarInicio();
+      aprendizaje.route = route;
+      mostrarInicio(route.page);
+      if (route.page === 'aprender') $('pagina-aprender').scrollTop = 0;
       await cargarProyectos();
       return rutaActual();
     }

@@ -57,6 +57,11 @@ export function createWorkspaceNavigation(options: WorkspaceNavigationOptions): 
 
   const root = createRootRoute();
   const home = createRoute({ getParentRoute: () => root, path: '/' });
+  const learn = createRoute({ getParentRoute: () => root, path: '/aprender' });
+  const learnTopics = createRoute({ getParentRoute: () => root, path: '/aprender/temas' });
+  const learnPaths = createRoute({ getParentRoute: () => root, path: '/aprender/rutas' });
+  const learnTopic = createRoute({ getParentRoute: () => root, path: '/aprender/temas/$slug' });
+  const learnPath = createRoute({ getParentRoute: () => root, path: '/aprender/rutas/$slug' });
   const project = createRoute({
     getParentRoute: () => root,
     path: '/projects/$project',
@@ -66,7 +71,7 @@ export function createWorkspaceNavigation(options: WorkspaceNavigationOptions): 
     }),
   });
   const router = createRouter({
-    routeTree: root.addChildren([home, project]),
+    routeTree: root.addChildren([home, learn, learnTopics, learnPaths, learnTopic, learnPath, project]),
     history,
     isServer: false,
     origin: typeof window === 'undefined' ? 'http://localhost' : window.location.origin,
@@ -162,7 +167,11 @@ export function createWorkspaceNavigation(options: WorkspaceNavigationOptions): 
       if (!(await canLeave()) || destroyed || request !== navigationRevision) return;
       // El guardado ya terminó. El blocker del historial cubre Atrás/Adelante.
       if (normalized.project === null) {
-        await router.navigate({ to: '/', replace: navigationOptions.replace, ignoreBlocker: true });
+        if (normalized.page === 'aprender' && normalized.learning && normalized.slug) {
+          await router.navigate({ to: normalized.learning === 'temas' ? '/aprender/temas/$slug' : '/aprender/rutas/$slug', params: { slug: normalized.slug }, replace: navigationOptions.replace, ignoreBlocker: true });
+        } else {
+          await router.navigate({ to: normalized.page !== 'aprender' ? '/' : normalized.learning === 'temas' ? '/aprender/temas' : normalized.learning === 'rutas' ? '/aprender/rutas' : '/aprender', replace: navigationOptions.replace, ignoreBlocker: true });
+        }
       } else {
         await router.navigate({
           to: '/projects/$project',

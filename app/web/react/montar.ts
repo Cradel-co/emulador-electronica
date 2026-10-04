@@ -10,6 +10,7 @@ import { ExplorerIcon } from './ExplorerIcon.js';
 import { EditorPreferences } from './EditorPreferences.js';
 import { Lienzo } from './Lienzo.js';
 import { Avisos } from './Avisos.js';
+import { Aprender, AprenderNav } from './Aprender.js';
 import { Proyectos } from './Proyectos.js';
 import { PanelDerecho } from './PanelDerecho.js';
 import { Menu } from './Menu.js';
@@ -42,6 +43,8 @@ const ISLAS: [string, FunctionComponent, boolean][] = [
   ['dock-layout', DockWorkspace, true],
   ['tw-explorador', ExplorerIcon, false],
   ['lista-proyectos', Proyectos, false],
+  ['pagina-aprender', Aprender, false],
+  ['aprendizaje-nav', AprenderNav, false],
   ['panel-modulo', PanelDerecho, false],
   ['menu', Menu, false],
   ['dlg-buscar', Paleta, false],

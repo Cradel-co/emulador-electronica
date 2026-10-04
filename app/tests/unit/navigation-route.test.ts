@@ -6,6 +6,18 @@ describe('contrato de rutas del espacio de trabajo', () => {
     expect(parseWorkspaceRoute(href)).toEqual({ project: null });
   });
 
+  it('reconoce y distingue la página Aprender de Inicio', () => {
+    const route = { project: null, page: 'aprender' } as const;
+    expect(parseWorkspaceRoute('#/aprender')).toEqual(route);
+    expect(parseWorkspaceRoute('/aprender/')).toEqual(route);
+    expect(workspaceRoutePath(route)).toBe('/aprender');
+    expect(sameWorkspaceRoute(route, { project: null })).toBe(false);
+  });
+
+  it.each(['/aprender/temas', '/aprender/rutas', '/aprender/temas/fundamentos', '/aprender/rutas/primer-circuito'])('conserva las rutas de aprendizaje %s', href => {
+    expect(workspaceRoutePath(parseWorkspaceRoute(href))).toBe(href);
+  });
+
   it('migra enlaces de proyectos anteriores sin perder caracteres', () => {
     expect(parseWorkspaceRoute('#alarma%20patio')).toEqual({ project: 'alarma patio' });
     expect(workspaceRoutePath(parseWorkspaceRoute('#alarma%20patio'))).toBe('/projects/alarma%20patio');
@@ -25,7 +37,7 @@ describe('contrato de rutas del espacio de trabajo', () => {
     expect(() => parseWorkspaceRoute(href)).toThrow(WorkspaceRouteError);
   });
 
-  it.each(['/inexistente', '/projects/', '/projects/casa/archivo', '/projects/..', '/projects/a%2Fb', '/projects/casa?board=..', '/projects/casa?file=../main.py', '/projects/casa?file=lib//sensor.py', '/projects/casa?file=lib%5Csensor.py', '/projects/casa?board=a&board=b', '/projects/casa?file=a&file=b', '/projects/casa#otra'])('rechaza rutas ambiguas o inseguras %j', href => {
+  it.each(['/aprender/temas/..', '/aprender/rutas/a%2Fb', '/aprender#otra', '/inexistente', '/projects/', '/projects/casa/archivo', '/projects/..', '/projects/a%2Fb', '/projects/casa?board=..', '/projects/casa?file=../main.py', '/projects/casa?file=lib//sensor.py', '/projects/casa?file=lib%5Csensor.py', '/projects/casa?board=a&board=b', '/projects/casa?file=a&file=b', '/projects/casa#otra'])('rechaza rutas ambiguas o inseguras %j', href => {
     expect(() => parseWorkspaceRoute(href)).toThrow(WorkspaceRouteError);
   });
 
