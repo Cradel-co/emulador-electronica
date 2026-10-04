@@ -57,3 +57,12 @@ describe('contrato de rutas del espacio de trabajo', () => {
     expect(sameWorkspaceRoute({ project: null }, { project: null, aprender: {} })).toBe(false);
   });
 });
+
+it('conserva temas y rutas del catálogo sin confundirlos con las lecciones', () => {
+  for (const learning of ['temas', 'rutas'] as const) {
+    const route = { project: null, aprender: {}, learning, slug: 'fundamentos' };
+    expect(parseWorkspaceRoute(workspaceRoutePath(route))).toEqual(route);
+    expect(parseWorkspaceRoute(`#/aprender/${learning}`)).toEqual({ project: null, aprender: {}, learning });
+  }
+  expect(() => parseWorkspaceRoute('#/aprender/rutas/%2F')).toThrow();
+});

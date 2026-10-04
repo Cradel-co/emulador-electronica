@@ -1,0 +1,31 @@
+## La potencia también necesita signos
+
+Usá la **convención pasiva**: p = v · i es positiva cuando la corriente entra por el terminal tomado como positivo de la tensión. Un resistor absorbe potencia; una fuente que entrega energía tiene potencia negativa con esta convención.
+
+<Formula descripcion="Balance de Tellegen para una red que satisface KCL y KVL">Σ pk = Σ vk · ik = 0</Formula>
+
+El balance se obtiene de las leyes de Kirchhoff y la conectividad de la red. No exige que todos los elementos sean resistencias. En este ejemplo DC resistivo no hay energía almacenada cambiando con el tiempo.
+
+<Circuito ejemplo="serie" />
+
+<Ejemplo titulo="Potencia suministrada y absorbida">
+
+Con I = 2,5 mA y una caída de 2,5 V por resistor, cada resistencia absorbe **6,25 mW**. La fuente aporta 5 V · 2,5 mA = 12,5 mW; su potencia pasiva es **−12,5 mW**. El balance es −12,5 + 6,25 + 6,25 = **0 mW**.
+
+</Ejemplo>
+
+<Actividad />
+
+<Aviso titulo="Interpretá la medida de la fuente">
+
+Si el panel de la fuente expresa potencia entregada como magnitud positiva, asignale signo negativo al armar el balance pasivo. No sumes potencias absolutas como si fueran potencias algebraicas.
+
+</Aviso>
+
+## Cerrá el recorrido
+
+Repetí el cálculo con R2 = 2 kΩ. Usá los valores de corriente y tensión del nuevo circuito, y comprobá que la potencia entregada iguala la suma de las absorbidas. Anotá cualquier diferencia de redondeo.
+
+<Pregunta titulo="¿Un balance de potencia correcto demuestra por sí solo que el circuito está bien conectado?" respuesta="No. Una red distinta de la que querías construir también puede conservar potencia. Revisá primero su topología, luego KCL, KVL y el balance energético." />
+
+[MIT: teorema de Tellegen](https://circuits.mit.edu/S26/psets/00/tellegen).

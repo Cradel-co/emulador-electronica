@@ -25,6 +25,7 @@ import {
 } from './consultas.js';
 import { fmtMa, fmtV } from './formato.js';
 import './aprendizaje.css';
+import { leccionMdxPorId, leccionesMdx, RUTA_PILOTO } from './aprendizaje/piloto.js';
 import { aprendizaje } from './react/aprendizaje-estado.js';
 import { contenidoAprendizaje, leccionPorId } from './aprendizaje/contenido.js';
 import { almacenLocalAprendizaje, asociarProyecto, CLAVE_PROGRESO_APRENDIZAJE, completarLeccion, quitarAsociacionProyecto, registrarPaso, registroDeLeccion, restablecerRespaldoProgreso } from './aprendizaje/progreso.js';
@@ -227,9 +228,11 @@ registrarAcciones({
   },
   completarAprendizaje: (leccion, revision, paso) => {
     completarLeccion(almacenLocalAprendizaje(), leccion, revision, paso);
-    void navegacion.navigate({ project: null, aprender: {} });
+    const indice = leccionesMdx.findIndex(item => item.id === leccion);
+    const siguiente = indice >= 0 ? leccionesMdx[indice + 1] : undefined;
+    void navegacion.navigate(indice < 0 ? { project: null, aprender: {} } : siguiente ? { project: null, aprender: { leccion: siguiente.id } } : { project: null, aprender: {}, learning: 'rutas', slug: RUTA_PILOTO });
   },
-  crearPracticaAprendizaje: (plantillaId) => void crearPracticaAprendizaje(plantillaId),
+  crearPracticaAprendizaje: (plantillaId, nombre) => void crearPracticaAprendizaje(plantillaId, nombre),
   continuarPracticaAprendizaje: (leccion) => void continuarPracticaAprendizaje(leccion),
   volverALeccionAprendizaje: () => void volverALeccionAprendizaje(),
   irAInicio: () => void navegacion.navigate({ project: null }),
@@ -2768,15 +2771,17 @@ $('act-ajustes').onclick = () => { state.distribucionMensaje = ''; ($('dlg-ajust
 $('bienvenida-acerca').onclick = () => void navegacion.navigate({ project: null, aprender: {} });
 $('bienvenida-importar').onclick = abrirImportador;
 
-async function crearPracticaAprendizaje(plantillaId: string): Promise<void> {
+async function crearPracticaAprendizaje(plantillaId: string, nombreSolicitado?: string): Promise<void> {
   if (state.creandoPracticaAprendizaje) return;
-  const nombre = window.prompt('Nombre del proyecto de práctica:', 'practica-led')?.trim();
+  const nombre = (nombreSolicitado ?? window.prompt('Nombre del proyecto de práctica:', 'practica-led'))?.trim();
   if (!nombre || state.creandoPracticaAprendizaje) return;
   state.creandoPracticaAprendizaje = true;
   const leccion = state.aprendizajeRuta?.leccion ? leccionPorId(state.aprendizajeRuta.leccion) : undefined;
   try {
     await crearConRecuperacion(
-      () => api('/api/projects', { method: 'POST', body: JSON.stringify({ name: nombre, template: plantillaId }) }),
+      () => leccion && leccionMdxPorId(leccion.id)
+        ? api(`/api/learning/examples/${encodeURIComponent(plantillaId)}/projects`, { method: 'POST', body: JSON.stringify({ name: nombre }) })
+        : api('/api/projects', { method: 'POST', body: JSON.stringify({ name: nombre, template: plantillaId }) }),
       async () => {
         const encontrado = await api(`/api/projects/${encodeURIComponent(nombre)}`);
         return encontrado.project?.name === nombre ? encontrado : null;
@@ -2937,6 +2942,7 @@ async function aplicarRuta(route: WorkspaceRoute): Promise<WorkspaceRoute> {
     }
     if (state.proyecto?.name !== route.project) await abrirProyecto(route.project);
     if (state.proyecto?.name !== route.project) return rutaActual();
+    document.body.classList.remove('inicio');
     await aplicarContextoRuta(route);
     return rutaActual();
   } catch (error) {

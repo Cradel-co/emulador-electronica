@@ -1,0 +1,29 @@
+## Cerrá el recorrido del lazo
+
+En un lazo DC del modelo concentrado, la suma algebraica de las tensiones es cero. Al atravesar una fuente de negativo a positivo sumás una subida; al recorrer un resistor en el sentido de su corriente sumás una caída.
+
+<Formula descripcion="Ley de tensiones de Kirchhoff (KVL)">Σ V = 0  +Vfuente − VR1 − VR2 = 0</Formula>
+
+<Circuito ejemplo="serie" />
+
+<Ejemplo titulo="Dos resistencias iguales en serie">
+
+Rtotal = 2000 Ω, I = 2,5 mA. Cada resistor cae 2,5 V. El lazo completo da **+5 − 2,5 − 2,5 = 0 V**.
+
+</Ejemplo>
+
+<Actividad />
+
+## Probá resistencias distintas
+
+Cambiá R2 a 2 kΩ con la fuente apagada. A 5 V la corriente pasa a 1,667 mA. R1 cae 1,667 V y R2 cae 3,333 V. La suma vuelve a dar 5 V.
+
+<Aviso titulo="No confundas potencial y caída">
+
+El potencial de un terminal respecto de GND y la tensión entre los terminales de un componente son mediciones diferentes. Para el balance del lazo usá las tensiones de cada elemento con el sentido de recorrido elegido.
+
+</Aviso>
+
+<Pregunta titulo="Si recorrés el lazo en sentido contrario, ¿deja de cumplirse KVL?" respuesta="No. Cambian todos los signos: −5 + 2,5 + 2,5 = 0 V. La elección del recorrido no cambia el circuito." />
+
+[OpenStax: reglas de Kirchhoff](https://openstax.org/books/university-physics-volume-2/pages/10-3-kirchhoffs-rules).

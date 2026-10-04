@@ -51,6 +51,7 @@ export interface RutaAprendizaje {
 
 /** Los tres primeros recorridos son accesos iniciales; el resto se explora por tema. */
 export const rutasAprendizaje: readonly RutaAprendizaje[] = [
+  { id: 'ohm-kirchhoff-tellegen', titulo: 'De Ohm a Kirchhoff y Tellegen', detalle: 'Seis lecciones con circuitos para conectar tensión, corriente, resistencia y conservación de energía.', tema: 'fundamentos', nivel: 'Inicial', icono: 'circuito' },
   { id: 'primer-circuito', titulo: 'Tu primer circuito', detalle: 'Reconocer fuente, carga y retorno; conectar una resistencia y un LED y anticipar qué magnitudes observar.', tema: 'fundamentos', nivel: 'Inicial', icono: 'circuito' },
   { id: 'programar-placas', titulo: 'Programá tu primera placa', detalle: 'Pasar de un programa sencillo al control de una salida y la lectura de una entrada, respetando los límites de los pines.', tema: 'micropython', nivel: 'Inicial', icono: 'codigo' },
   { id: 'sensores-en-accion', titulo: 'Sensores en acción', detalle: 'Relacionar una magnitud física con una señal eléctrica y diseñar el recorrido desde la lectura hasta una respuesta.', tema: 'sensores', nivel: 'Intermedio', icono: 'placa' },

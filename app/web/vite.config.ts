@@ -1,4 +1,6 @@
 import { defineConfig } from 'vite';
+import remarkGfm from 'remark-gfm';
+import mdx from '@mdx-js/rollup';
 import react from '@vitejs/plugin-react';
 
 /**
@@ -12,7 +14,7 @@ import react from '@vitejs/plugin-react';
  */
 export default defineConfig({
   root: import.meta.dirname,
-  plugins: [react()],
+  plugins: [{ ...mdx({ remarkPlugins: [remarkGfm] }), enforce: 'pre' }, react({ include: /\.(jsx|tsx|mdx)$/ })],
   // En modo librería Vite no reemplaza `process.env.NODE_ENV`, así que React se bundlea con todo
   // su código de desarrollo: pesa el doble y hace chequeos extra en cada render. Con esto queda el
   // build de producción.

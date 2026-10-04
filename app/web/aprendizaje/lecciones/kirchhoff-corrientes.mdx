@@ -1,0 +1,29 @@
+## La carga se conserva en el nodo
+
+En el modelo de circuito concentrado, la suma algebraica de las corrientes en un nodo es cero. Elegí un signo para las corrientes que entran y el opuesto para las que salen.
+
+<Formula descripcion="Ley de corrientes de Kirchhoff (KCL)">Σ I = 0  Ientrada = I1 + I2</Formula>
+
+<Circuito ejemplo="paralelo" />
+
+<Ejemplo titulo="Dos ramas sobre una fuente de 5 V">
+
+R1 = 1 kΩ recibe 5 mA y R2 = 2 kΩ recibe 2,5 mA. En el nodo positivo, la fuente aporta **7,5 mA**: 7,5 − 5 − 2,5 = 0 mA.
+
+</Ejemplo>
+
+<Actividad />
+
+## Abrí una rama
+
+Apagá la fuente y desconectá un cable de R2. Al encender, esa rama lleva 0 mA y la fuente aporta 5 mA. No se pierde corriente: cambió la red y, con ella, la solución del circuito.
+
+<Aviso titulo="Mediciones y redondeo">
+
+Si el panel muestra pocos decimales, la suma de los números visibles puede dejar un pequeño residuo. Compará usando una precisión consistente. Un residuo grande exige revisar los nodos y los signos.
+
+</Aviso>
+
+<Pregunta titulo="¿Cuánta corriente aporta la fuente si las dos ramas valen 1 kΩ?" respuesta="Cada rama toma 5 mA; la fuente entrega 10 mA. El balance del nodo sigue siendo cero." />
+
+[OpenStax: reglas de Kirchhoff](https://openstax.org/books/university-physics-volume-2/pages/10-3-kirchhoffs-rules).

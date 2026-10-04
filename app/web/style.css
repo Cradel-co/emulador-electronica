@@ -631,7 +631,7 @@ body.inicio #pantalla-inicio {
 body.inicio .workspace, body.inicio .stripe, body.inicio .solo-proyecto, body.inicio #ir-inicio { display: none; }
 #pantalla-aprender { display: none; }
 body.aprender #pantalla-aprender {
-  grid-column: 1 / -1; grid-row: 2; display: block; min-height: 0; overflow: auto; padding: 0 6px 6px;
+  grid-column: 2; grid-row: 1; display: block; min-height: 0; overflow: auto; padding: 24px;
 }
 body.aprender #inicio-proyectos, body.aprender .workspace, body.aprender .stripe,
 body.aprender .solo-proyecto, body.aprender #ir-inicio { display: none; }
@@ -914,5 +914,5 @@ body.depuracion-parada .punto-estado { background: var(--azul); box-shadow: 0 0 
 .explorer-board-root > summary { color: #c5a65b; }
 .explorer-board-root > .explorer-group-children > ul { padding-left: 0; }
 
-body.aprendiendo #pantalla-aprender { display: block; min-width: 0; flex: 1; padding: 24px; overflow: auto; background: var(--fondo-panel); border-radius: 12px; }
+body.aprendiendo #pantalla-aprender { display: block; min-width: 0; flex: 1; padding: 24px; overflow: auto; background: var(--isla); border-radius: 12px; }
 body:not(.aprendiendo) #aprendizaje-nav { display: none; }
