@@ -1,5 +1,6 @@
 import type { BuildArtifacts } from './buildService.js';
 import type { EmulatorStatus } from './emulator.js';
+import type { EstadoAnalogicoAvr } from './analogicoAvr.js';
 import type { ChipEnBus } from './bus/proyectoChips.js';
 
 /**
@@ -32,6 +33,8 @@ export interface OpcionesArranque {
   chips?: ChipEnBus[];
   /** ms entre la alimentación y la primera instrucción del micro (`board.arranqueMs`). */
   arranqueMs?: number;
+  /** Snapshot analógico inicial, antes de ejecutar firmware AVR. */
+  analogicoAvr?: EstadoAnalogicoAvr;
 }
 
 export interface Emulador {
@@ -47,5 +50,7 @@ export interface Emulador {
   markBridgeReady(): void;
   /** VCC efectivo de los módulos conectados a buses, por id de instancia. */
   actualizarAlimentacionChips(porInstancia: Readonly<Record<string, boolean>>): void;
+  /** Sólo backend AVR; otros motores no anuncian soporte ADC. */
+  actualizarAnalogicoAvr?(estado: EstadoAnalogicoAvr): void;
   shutdown(): Promise<void>;
 }

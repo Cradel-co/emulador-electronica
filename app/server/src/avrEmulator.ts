@@ -5,6 +5,7 @@ import type { BuildArtifacts } from './buildService.js';
 import type { EmulatorEvents, EmulatorStatus } from './emulator.js';
 import type { Emulador, OpcionesArranque, PuenteSim } from './emulatorBackend.js';
 import { AvrSimulador, PINES_UNO, RelojAvr, type PinMcu } from './avrSim.js';
+import type { EstadoAnalogicoAvr } from './analogicoAvr.js';
 import type { MensajeAlWorker, MensajeDelWorker } from './avrWorker.js';
 import { ControlDepuracionAvr, type EventoAvr, type PedidoAvr, type RespuestaAvr } from './debug/avrControl.js';
 import type { SalidaChip } from '@emu/shared';
@@ -41,6 +42,7 @@ export class AvrEmulator implements Emulador {
   private worker: Worker | null = null;
   private local: { sim: AvrSimulador; reloj: RelojAvr } | null = null;
   private puente: PuenteSim | null = null;
+  private analogico: EstadoAnalogicoAvr | undefined;
   private hex = '';
   private frecuenciaHz = 16_000_000;
   private pines: PinMcu[] = PINES_UNO;
@@ -90,6 +92,11 @@ export class AvrEmulator implements Emulador {
     }));
   }
 
+  actualizarAnalogicoAvr(estado: EstadoAnalogicoAvr): void {
+    this.analogico = { ...estado, canales: { ...estado.canales } };
+    this.mandar({ t: 'analogico-avr', estado: this.analogico });
+  }
+
   /** Actualiza VCC también dentro del hilo que ejecuta los periféricos AVR. */
   actualizarAlimentacionChips(porInstancia: Readonly<Record<string, boolean>>): void {
     for (const c of this.chips) {
@@ -135,6 +142,7 @@ export class AvrEmulator implements Emulador {
     this.pines = opts.pinesMcu ?? PINES_UNO;
     this.chips = opts.chips ?? [];
     this.arranqueMs = opts.arranqueMs ?? 0;
+    this.analogico = opts.analogicoAvr ? { ...opts.analogicoAvr, canales: { ...opts.analogicoAvr.canales } } : undefined;
     this.entornos.clear();
     this.salidasChips.clear();
     for (const c of this.chips) this.entornos.set(c.id, { ...c.entorno });
@@ -180,7 +188,7 @@ export class AvrEmulator implements Emulador {
       this.log(`[emu] el emulador terminó (code=${code})`);
       this.teardown(`terminó con código ${code}`);
     });
-    worker.postMessage({ t: 'iniciar', hex: this.hex, frecuenciaHz: this.frecuenciaHz, pines: this.pines, chips: this.chips, arranqueMs: this.arranqueMs } satisfies MensajeAlWorker);
+    worker.postMessage({ t: 'iniciar', hex: this.hex, frecuenciaHz: this.frecuenciaHz, pines: this.pines, chips: this.chips, arranqueMs: this.arranqueMs, analogicoAvr: this.analogico } satisfies MensajeAlWorker);
   }
 
   private arrancarLocal(): void {
@@ -189,6 +197,7 @@ export class AvrEmulator implements Emulador {
         onSerial: (b) => this.serial([b]),
         onPin: (pin, nivel) => this.recibir({ t: 'pin', pin, nivel }),
       }, this.frecuenciaHz, this.pines);
+      if (this.analogico) sim.actualizarAnalogicoAvr(this.analogico);
       // En modo local el bus se arma de nuevo en cada arranque (un reset rearma todo).
       this.lineasLocal = new LineasCompartidas((gpio, nivel) => sim.ponerEntrada(gpio, nivel));
       const lineas = this.lineasLocal;
@@ -211,11 +220,11 @@ export class AvrEmulator implements Emulador {
       const reloj = new RelojAvr(sim, () => {
         if (sim.lineaVencida()) this.recibir({ t: 'flush' });
         this.controlLocal?.alTerminarTramo();
-      });
+      }, error => this.fallarLocal(error));
       this.local = { sim, reloj };
       this.controlLocal.alCrearSim(sim);
       reloj.arrancar();
-      this.recibir({ t: 'listo' });
+      if (this.local?.sim === sim) this.recibir({ t: 'listo' });
     } catch (err) {
       this.log(`[avr] no se pudo cargar el firmware: ${(err as Error).message}`);
       this.teardown((err as Error).message, 'crashed');
@@ -230,6 +239,9 @@ export class AvrEmulator implements Emulador {
     const l = this.local;
     if (!l) return;
     switch (m.t) {
+      case 'analogico-avr':
+        l.sim.actualizarAnalogicoAvr(m.estado);
+        break;
       case 'entrada':
         if (this.lineasLocal) this.lineasLocal.desdeApp(m.pin, m.nivel);
         else l.sim.ponerEntrada(m.pin, m.nivel);
@@ -272,6 +284,7 @@ export class AvrEmulator implements Emulador {
         break;
       case 'error':
         this.log(`[avr] error: ${m.mensaje}`);
+        if (m.fatal) this.teardown(m.mensaje, 'crashed');
         break;
       case 'chip':
         this.salidasChips.set(m.id, m.salida);
@@ -299,7 +312,12 @@ export class AvrEmulator implements Emulador {
   /** Pedido al control de depuración (memoria, registros, breakpoints, pausa, paso). */
   depurar(pedido: PedidoAvr, timeoutMs = 3000): Promise<RespuestaAvr> {
     if (!this.worker) {
-      return Promise.resolve(this.controlLocal && this.local ? this.controlLocal.atender(pedido) : { ok: false, error: 'el Arduino no está corriendo' });
+      try {
+        return Promise.resolve(this.controlLocal && this.local ? this.controlLocal.atender(pedido) : { ok: false, error: 'el Arduino no está corriendo' });
+      } catch (error) {
+        this.fallarLocal(error);
+        return Promise.resolve({ ok: false, error: error instanceof Error ? error.message : String(error) });
+      }
     }
     const id = this.siguientePedido++;
     const worker = this.worker;
@@ -314,6 +332,11 @@ export class AvrEmulator implements Emulador {
       });
       worker.postMessage({ t: 'depurar', id, pedido } satisfies MensajeAlWorker);
     });
+  }
+
+  private fallarLocal(error: unknown): void {
+    this.busLocal?.apagar();
+    this.recibir({ t: 'error', mensaje: error instanceof Error ? error.message : String(error), fatal: true });
   }
 
   /** Bytes del Serial → líneas del log (como el monitor serie del IDE de Arduino). */
