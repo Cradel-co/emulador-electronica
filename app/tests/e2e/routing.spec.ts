@@ -303,12 +303,13 @@ test('el layout de aprendizaje permite buscar temas y explorar recorridos', asyn
   await expect(page.getByRole('heading', { name: 'ESP32', exact: true })).toBeVisible();
   await page.getByRole('link', { name: 'Rutas de aprendizaje', exact: true }).click();
   await page.getByRole('textbox', { name: 'Buscar temas y rutas' }).fill('');
-  await page.locator('.aprender-ruta-card').first().click();
+  await page.getByRole('link', { name: /RUTA DE APRENDIZAJE Tu primer circuito/ }).click();
   await expect(page).toHaveURL(/#\/aprender\/rutas\/primer-circuito$/);
   await expect(page.getByRole('heading', { name: 'Tu recorrido', exact: true })).toBeVisible();
   await page.reload();
   await expect(page.getByRole('heading', { name: 'Tu primer circuito', exact: true })).toBeVisible();
   await page.setViewportSize({ width: 600, height: 850 });
   await expect(page.locator('#pagina-aprender')).toBeVisible();
+  expect(await page.locator('#pagina-aprender').evaluate(element => element.getBoundingClientRect().width)).toBeGreaterThan(480);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
