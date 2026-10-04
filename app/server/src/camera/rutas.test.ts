@@ -1,3 +1,4 @@
+import { CameraDescriptorSchema } from '@emu/shared';
 import Fastify from 'fastify';
 import { it, expect } from 'vitest';
 import sharp from 'sharp';
@@ -26,5 +27,25 @@ it('API: recibe y devuelve JPEG, no filtra sesión y comprueba módulo', async (
   expect((await app.inject({ method: 'POST', url, headers: { 'content-type': 'image/png' }, payload: bytes })).statusCode).toBe(415);
   existe = false;
   expect((await app.inject(base + '/status')).statusCode).toBe(404);
+  await app.close();
+});
+
+it('la API entrega una captura solicitada, rechaza respuestas viejas y valida errores del propietario', async () => {
+  const s = new ServicioCamara(()=>{}), app = Fastify();
+  registrarRutasCamara(app,s,async()=>CameraDescriptorSchema.parse({hardware:'arducam-mini-2mp-plus'}));
+  const base = '/api/projects/p/cameras/a';
+  const session = s.abrir('p','a');
+  let recibida: Buffer | undefined;
+  const id = s.solicitar('p','a',bytes=>{recibida=bytes;},()=>{});
+  const bytes = await sharp({create:{width:32,height:24,channels:3,background:'blue'}}).jpeg().toBuffer();
+  const url = base + '/session/' + session.id + '/captures?requestId=' + id;
+  expect((await app.inject({method:'POST',url,headers:{'content-type':'image/jpeg'},payload:bytes})).statusCode).toBe(200);
+  const photo = await app.inject({url:base+'/capture'});
+  expect(photo.rawPayload).toEqual(recibida);
+  expect((await app.inject({method:'POST',url,headers:{'content-type':'image/jpeg'},payload:bytes})).statusCode).toBe(409);
+  const next = s.solicitar('p','a',()=>{},()=>{});
+  const errorUrl = base+'/session/'+session.id+'/requests/'+next+'/error';
+  expect((await app.inject({method:'POST',url:errorUrl})).statusCode).toBe(200);
+  expect((await app.inject({method:'POST',url:errorUrl})).statusCode).toBe(409);
   await app.close();
 });

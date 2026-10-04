@@ -1,4 +1,11 @@
 import vm from 'node:vm';
+import { z } from 'zod';
+export const EntradaChipSchema = z.discriminatedUnion('tipo', [
+  z.object({ tipo: z.literal('configuracion'), soportada: z.boolean() }).strict(),
+  z.object({ tipo: z.literal('imagen'), token: z.number().int().nonnegative(), bytes: z.array(z.number().int().min(0).max(255)).max(1048576) }).strict(),
+  z.object({ tipo: z.literal('fallo'), token: z.number().int().nonnegative(), mensaje: z.string().max(300) }).strict(),
+]);
+export type EntradaChip = z.infer<typeof EntradaChipSchema>;
 import type { SalidaChip } from '@emu/shared';
 
 /**
@@ -27,6 +34,7 @@ const MAX_GUARDADO = 64 * 1024;
 
 /** Un evento para el chip, en orden. `t` = µs de emulación desde que arrancó. */
 export type EventoChip =
+  | { tipo: 'externo'; t: number; datos: EntradaChip }
   | { tipo: 'encender'; t: number; guardado?: unknown }
   | { tipo: 'apagar'; t: number }
   | { tipo: 'escribir'; t: number; bytes: number[] }
@@ -161,6 +169,7 @@ function __lote(json) {
     else if (ev.tipo === 'seleccionar') { if (typeof m.seleccionar === 'function') m.seleccionar(ctx); }
     else if (ev.tipo === 'soltar') { if (typeof m.soltar === 'function') m.soltar(ctx); }
     else if (ev.tipo === 'spi') { lecturas.push(typeof m.spi === 'function' ? (m.spi(ctx, ev.mosi, ev.dc) || []) : []); }
+    else if (ev.tipo === 'externo') { if (typeof m.externo === 'function') m.externo(ctx, ev.datos); }
     else if (ev.tipo === 'pin') { if (typeof m.pin === 'function') m.pin(ctx, ev.nombre, ev.nivel); }
   }
   var r = { lecturas: lecturas, direcciones: __direcciones(), ocupadoHasta: __estado.ocupadoHasta, logs: __logs, pines: __estado.pines, despertarEn: __estado.despertar };
@@ -195,6 +204,7 @@ export class SandboxChip {
 
   /** Corre una tanda de eventos en orden y devuelve lo que el bus necesita. */
   correr(eventos: EventoChip[], entorno: Record<string, number>, props: Record<string, unknown>): ResultadoLote {
+    for (const e of eventos) if (e.tipo === 'externo') EntradaChipSchema.parse(e.datos);
     // La entrada entra como string primitivo: ningún objeto del server cruza al sandbox.
     (this.ctx as Record<string, unknown>).__entrada = JSON.stringify({ eventos, entorno, props });
     let salida: unknown;

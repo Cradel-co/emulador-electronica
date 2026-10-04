@@ -5,7 +5,7 @@ import { ErrorCamara, ServicioCamara } from './servicio.js';
 export function registrarRutasCamara(app: FastifyInstance, servicio: ServicioCamara, descriptor: (p: string, i: string) => Promise<CameraDescriptor | null>) {
   app.addContentTypeParser('image/jpeg', { parseAs: 'buffer', bodyLimit: 1048576 }, (_req, body, done) => done(null, body));
   const base = '/api/projects/:nombre/cameras/:instancia';
-  for (const [method, suffix] of [['POST', '/session'], ['POST', '/session/:sesion/heartbeat'], ['DELETE', '/session/:sesion'], ['POST', '/session/:sesion/captures'], ['GET', '/capture'], ['GET', '/status']] as const) {
+  for (const [method, suffix] of [['POST', '/session'], ['POST', '/session/:sesion/heartbeat'], ['DELETE', '/session/:sesion'], ['POST', '/session/:sesion/captures'], ['GET', '/capture'], ['GET', '/status'], ['POST', '/session/:sesion/requests/:requestId/error']] as const) {
     app.route({ method, url: base + suffix, bodyLimit: 1048576, handler: async (req, reply) => {
       const { nombre: p, instancia: i, sesion = '' } = req.params as { nombre: string; instancia: string; sesion?: string };
       try {
@@ -14,10 +14,11 @@ export function registrarRutasCamara(app: FastifyInstance, servicio: ServicioCam
         if (suffix === '/session') return servicio.abrir(p, i);
         if (suffix.endsWith('/heartbeat')) return servicio.renovar(p, i, sesion);
         if (method === 'DELETE') { servicio.cerrar(p, i, sesion); return { ok: true }; }
+        if (suffix.endsWith('/error')) { servicio.errorSolicitud(p, i, sesion, (req.params as { requestId: string }).requestId); return { ok: true }; }
         if (suffix.endsWith('/captures')) {
           if (req.headers['content-type']?.split(';')[0] !== 'image/jpeg') throw new ErrorCamara('UNSUPPORTED_IMAGE', 'Solo se admiten fotografías JPEG.', 415);
           if (!Buffer.isBuffer(req.body)) throw new ErrorCamara('INVALID_IMAGE', 'Falta la fotografía JPEG.', 400);
-          return await servicio.capturar(p, i, sesion, req.body, limites);
+          return await servicio.capturar(p, i, sesion, req.body, limites, (req.query as { requestId?: string }).requestId);
         }
         if (suffix === '/status') return servicio.estado(p, i);
         const { id } = req.query as { id?: string };

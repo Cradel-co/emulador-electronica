@@ -212,6 +212,10 @@ export class EmulatorManager implements Emulador {
     bridge.escucharLineas((l) => { if (this.chips === puente) puente.recibir(l); });
   }
 
+  actualizarCamaras(chips: ChipEnBus[]): void { this.chips?.actualizarCamaras(chips); }
+
+  entradaCamara(instancia: string, datos: import('./bus/chipSandbox.js').EntradaChip): void { this.chips?.entradaCamara(instancia, datos); }
+
   chipsEnCorrida(): { id: string; instancia: string; chip: string; nombre: string; alimentado: boolean; entorno: Record<string, number>; salida?: SalidaChip }[] {
     return (this.chips?.chips ?? []).map((c) => ({
       id: c.id, instancia: c.instancia, chip: c.chip, nombre: c.nombre, alimentado: c.alimentado,
@@ -438,6 +442,9 @@ export class EmulatorManager implements Emulador {
     socket.write('\x02');
     await new Promise((r) => setTimeout(r, 150));
     this.subiendoRepl = false;
+    const chips = this.chips?.chips ?? [];
+    this.chips?.apagar();
+    this.armarChips(chips);
     socket.write('\x04');
     return { ok: true, output: `${files.length} archivo(s) subido(s)` };
   }
@@ -526,6 +533,9 @@ export class EmulatorManager implements Emulador {
 
   async reset(): Promise<string> {
     if (!this.status.ports) throw new Error('El emulador no está corriendo');
+    const chips = this.chips?.chips ?? [];
+    this.chips?.apagar();
+    this.armarChips(chips);
     return this.control('reset', this.status.ports);
   }
 

@@ -105,7 +105,7 @@ export const micropython: Toolchain = {
             { path: 'simbridge.py', content: simbridge },
             { path: 'boot.py', content: microPythonBoot },
           ],
-          delProyecto: ['main.py'],
+          delProyecto: (await fs.readdir(ctx.projectDir)).filter(f => /^[a-zA-Z0-9_-]+\.py$/.test(f) && f !== 'boot.py' && f !== 'simbridge.py').sort(),
         },
       },
     };

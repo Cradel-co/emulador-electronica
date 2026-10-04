@@ -154,7 +154,7 @@ export const ModuleDefSchema = z.object({
    * el módulo con elementos físicos que resuelve el motor (ngspice). Sin `model`, el motor arma
    * uno a partir de los flags (`passthrough`, `diode`, `switch`, `source`).
    */
-  model: z.string().regex(/^[\w.-]+\.js$/, 'un archivo .js de la carpeta del módulo').optional(),
+  model: z.string().regex(/^[\w.-]+\.(?:js|ts)$/, 'un archivo .js de la carpeta del módulo').optional(),
   /**
    * Chips con lógica digital que lleva la placa (`chips/<id>/`): sensor, reloj, pantalla, EEPROM...
    * Una placa puede tener varios en el mismo bus (la ZS-042: un DS3231 y una AT24C32). `pines`
