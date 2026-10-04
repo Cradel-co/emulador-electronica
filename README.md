@@ -205,6 +205,20 @@ del que venía corriendo.
 
 Pestaña **Debug** (Alt+5): breakpoints, paso a paso, variables, pila de llamadas, y un analizador de pines con los últimos 10 segundos. Habla GDB/RSP por debajo. Detalle por motor en [`docs/depuracion.md`](docs/depuracion.md).
 
+## Cámara virtual del computador
+
+Agregá **Cámara virtual** desde el catálogo y seleccioná el módulo. En localhost, pulsá
+**Activar** y aceptá el permiso del navegador; podés elegir otra webcam con la cámara detenida.
+**Capturar** envía una fotografía JPEG al backend y muestra la imagen recuperada del servidor,
+con número, dimensiones y hora. **Detener** libera la webcam. Funciona sin firmware ni energía.
+
+Solo se conserva la última foto en memoria; puede desaparecer al superar el presupuesto global,
+quitar el módulo/proyecto o reiniciar el servidor. No se graban video ni audio. Para usar cámaras
+fuera de localhost, el navegador requiere un contexto seguro (HTTPS); LAN queda para otra etapa.
+Las pantallas del circuito y el firmware todavía no consumen estas fotos.
+
+Diseño, contratos y prueba completa: [SDD-CAMARA.md](SDD-CAMARA.md).
+
 ## Placas soportadas
 
 | Placa | Chip / motor | Qué anda de punta a punta | Límites honestos |

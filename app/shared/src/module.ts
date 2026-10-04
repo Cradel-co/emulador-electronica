@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { CameraDescriptorSchema } from './camera.js';
 import { BoardDescriptorSchema } from './board.js';
 import { UsoChipSchema } from './chip.js';
 
@@ -57,6 +58,8 @@ export const ModuleDefSchema = z.object({
   description: z.string().optional(),
   /** Tiene código propio (una placa: ESP32, Arduino...). Los demás módulos solo se cablean. */
   programmable: z.boolean().default(false),
+  /** Fuente virtual de imágenes del navegador, sin interfaz eléctrica. */
+  camera: CameraDescriptorSchema.optional(),
   /**
    * Descriptor de placa (board.ts): chip, motor de emulación, lenguajes, pines del MCU.
    * Lo llevan los módulos programables; es lo que permite sumar placas sin tocar código.

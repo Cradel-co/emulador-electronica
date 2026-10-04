@@ -17,6 +17,8 @@ import {
   type ServerEvent,
 } from '@emu/shared';
 import { PATHS } from './paths.js';
+import { ServicioCamara } from './camera/servicio.js';
+import { registrarRutasCamara } from './camera/rutas.js';
 import { ProjectStore, ProjectError } from './projectStore.js';
 import { BuildService, type BuildArtifacts, type BuildError as BuildErrorLike, type BuildResult } from './buildService.js';
 import { EmulatorManager, type EmulatorEvents } from './emulator.js';
@@ -55,6 +57,11 @@ const logger = Fastify({ logger: false });
 
 const store = new ProjectStore();
 const builder = new BuildService();
+const camaras = new ServicioCamara(broadcast);
+store.alCambiar = async (name, modules) => {
+  const catalogo = await loadCatalog();
+  camaras.reconciliar(name, modules.filter(m => catalogo.some(d => d.type === m.type && d.camera)).map(m => m.id));
+};
 
 // --- Estado compartido ------------------------------------------------------
 
@@ -462,6 +469,13 @@ async function registerRoutes(): Promise<void> {
   app.get('/api/modules', async () => ({ modules: await loadCatalog() }));
 
   registrarRutasChips(app, depsChips, fail);
+  registrarRutasCamara(app, camaras, async (name, id) => {
+    if (!await store.exists(name)) return null;
+    const p = await store.read(name);
+    const inst = p.modules.find(m => m.id === id);
+    if (!inst) return null;
+    return (await loadCatalog()).find(m => m.type === inst.type)?.camera ?? null;
+  });
 
   // Importador de módulos (carpeta, zip, chip de Wokwi, URL / GitHub).
   app.post('/api/modules/import', { bodyLimit: 25 * 1024 * 1024 }, async (req, reply) => {

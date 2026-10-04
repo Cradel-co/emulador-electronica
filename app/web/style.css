@@ -808,6 +808,10 @@ body.depuracion-parada .punto-estado { background: var(--azul); box-shadow: 0 0 
 .quitar-placa[hidden] { display: none; }
 .modo-fuente.apagada { background: rgba(134, 138, 145, .18); color: var(--tenue); }
 
+/* Capturas de la webcam y fotografía confirmada por el servidor. */
+.camara-panel { display: grid; gap: 10px; }
+.camara-panel video, .camara-panel img { width: 100%; max-height: 240px; object-fit: contain; background: #152231; border-radius: 6px; }
+.camara-panel [role="alert"] { color: #f3b0b0; }
 /* MicroPython: CodeMirror ocupa toda la fila; los otros lenguajes usan el editor legacy. */
 .editor-wrap.con-micropython { display: block; }
 .editor-wrap.con-micropython > .gutter, .editor-wrap.con-micropython > .editor-area { display: none; }

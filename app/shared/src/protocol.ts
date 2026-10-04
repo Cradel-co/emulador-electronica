@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { CameraStatusSchema } from './camera.js';
 import { PROJECT_BOARD_ID_RE } from './project.js';
 
 const BoardEventFields = { boardId: z.string().regex(PROJECT_BOARD_ID_RE).optional(), project: z.string().optional() };
@@ -169,6 +170,7 @@ export const EmuStatusSchema = z.object({
 export type EmuStatus = z.infer<typeof EmuStatusSchema>;
 
 export const ServerEventSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('camera.state'), project: z.string(), instance: z.string(), state: CameraStatusSchema }),
   z.object({ type: z.literal('build.log'), ...BoardEventFields, line: z.string() }),
   z.object({
     type: z.literal('build.done'), ...BoardEventFields,

@@ -1,3 +1,4 @@
+import { ControladorCamara, desconectarCamara, eventoCamara } from './camera.js';
 // Frontend sin bundler: ES modules nativos contra la API local (sección 11).
 import { miniatura, ponerImagenPantalla } from './modulos.js';
 import { lenguajeDeArchivo, NOMBRE_LENGUAJE, resaltar } from './editor.js';
@@ -182,6 +183,13 @@ registrarEstado(state);
 // Lo que los componentes de React necesitan disparar (#9). Van por el puente y no importándose,
 // para no armar un ciclo entre app.ts y los componentes.
 registrarAcciones({
+  crearCamara: (project, instance, camera) => new ControladorCamara(`/api/projects/${encodeURIComponent(project)}/cameras/${encodeURIComponent(instance)}`, {
+    media: navigator.mediaDevices,
+    fetch: async (url, init) => {
+      if (String(url).endsWith('/status') || String(url).endsWith('/session')) await esperarDiagramaCamara(project);
+      return fetch(url, init);
+    },
+  }, camera, project, instance),
   agregarModulo: (type) => agregarModulo(type),
   quitarDelCatalogo: (m) => void quitarDelCatalogo(m),
   filtrarModulos: (texto) => {
@@ -450,6 +458,9 @@ function conectarWS() {
           notificar();
         }
         break;
+      case 'camera.state':
+        eventoCamara(msg.project, msg.instance, msg.state);
+        break;
       case 'chip.salida':
         if (msg.project === state.proyecto?.name) {
           state.salidasChips.set(msg.id, msg.salida);
@@ -479,7 +490,7 @@ function conectarWS() {
   // y los `pin.watch` se registran por conexión. Sin resincronizar, lo que cambió mientras el
   // WebSocket estaba caído no se entera nunca (issue #8).
   ws.onopen = () => { if (state.proyecto) void resincronizar(); };
-  ws.onclose = () => setTimeout(conectarWS, 1500);
+  ws.onclose = () => { desconectarCamara(); setTimeout(conectarWS, 1500); };
 }
 
 /**
@@ -1003,6 +1014,26 @@ function cableadosConRol(rol) {
 
 // --- Dibujo: cambios --------------------------------------------------------
 
+let guardadoDiagrama: Promise<unknown> = Promise.resolve();
+
+/** Serializa guardados para que la cámara no abra una instancia aún sin persistir. */
+function enviarDiagrama(proyecto: string, diagrama: typeof state.diagrama) {
+  const body = JSON.stringify(diagrama);
+  guardadoDiagrama = guardadoDiagrama.catch(() => {}).then(() => api(`/api/projects/${proyecto}/diagram`, { method: 'PUT', body }));
+  return guardadoDiagrama;
+}
+
+async function esperarDiagramaCamara(proyecto: string) {
+  if (state.proyecto?.name !== proyecto) throw new Error('El proyecto cambió.');
+  if (state.timerDiagrama) {
+    clearTimeout(state.timerDiagrama);
+    state.timerDiagrama = null;
+    enviarDiagrama(proyecto, state.diagrama);
+  }
+  await guardadoDiagrama;
+  if (state.proyecto?.name !== proyecto) throw new Error('El proyecto cambió.');
+}
+
 function guardarDiagrama() {
   // Todos los cambios del dibujo pasan por acá: es el lugar para avisarle a React, que no ve
   // las mutaciones de adentro de `wires`/`modules` (ver react/estado.ts).
@@ -1013,10 +1044,7 @@ function guardarDiagrama() {
   state.timerDiagrama = setTimeout(async () => {
     state.timerDiagrama = null;
     try {
-      await api(`/api/projects/${proyecto}/diagram`, {
-        method: 'PUT',
-        body: JSON.stringify(state.diagrama),
-      });
+      await enviarDiagrama(proyecto, state.diagrama);
       if (state.proyecto?.name === proyecto) await refrescarAvisos();
     } catch (e: any) {
       nota(`No se pudo guardar el circuito: ${String(((e as Error))?.message ?? e)}`);
@@ -1099,7 +1127,7 @@ function agregarModulo(type, x?: number, y?: number) {
   seleccionar({ tipo: 'modulo', id: inst.id });
   nota(def.pins.length
     ? `${def.name} agregado: conectá sus pines ${state.proyecto.board ? `a la ${nombrePlaca()}` : 'al circuito'} (click en un pin y después en otro).`
-    : `${def.name} agregado: es inalámbrico, no lleva cables.`);
+    : def.camera ? `${def.name} agregada: seleccioná Activar para usar la webcam.` : `${def.name} agregado: es inalámbrico, no lleva cables.`);
 }
 
 // --- Agregar y quitar la placa ---------------------------------------------------------
