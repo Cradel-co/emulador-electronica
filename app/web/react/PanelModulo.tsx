@@ -38,7 +38,7 @@ export function PanelModulo({ inst, def }: { inst: any; def: any }) {
         <p className="insp-desc">{def.description ?? ''}</p>
         <div className={`insp-badge${esAire ? ' aire' : ''}`}>
           {def.camera
-            ? <><b>Cámara virtual</b> — usa la webcam del computador; funciona sin cables, alimentación ni firmware.</>
+            ? def.camera.hardware ? <><b>ArduCAM</b> — conectá alimentación, I2C y SPI; activá la webcam antes de ejecutar el firmware.</> : <><b>Cámara virtual</b> — usa la webcam del computador; funciona sin cables, alimentación ni firmware.</>
             : esAire
             ? <><b>Inalámbrico</b> — no se programa ni lleva cables: se comunica por radio 433 MHz con el receptor o transmisor conectado a la {vistas().nombrePlaca()}.</>
             : chips.length > 0

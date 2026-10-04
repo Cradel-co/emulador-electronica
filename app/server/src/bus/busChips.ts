@@ -1,5 +1,5 @@
 import type { SalidaChip } from '@emu/shared';
-import { ErrorChip, type EventoChip, type ResultadoLote } from './chipSandbox.js';
+import { ErrorChip, type EntradaChip, type EventoChip, type ResultadoLote } from './chipSandbox.js';
 
 /**
  * Bus I2C entre el maestro (el periférico TWI del micro emulado, o un maestro virtual en los
@@ -38,7 +38,7 @@ export interface OpcionesDispositivo {
   /** Lo que el chip guardó en la ejecución anterior (memoria no volátil). */
   guardado?: unknown;
   /** Si el chip está en el bus SPI: su CS y su DC (gpio del micro) y lo que acepta. */
-  spi?: { csGpio: number; dcGpio?: number; modos: number[]; lsbPrimero: boolean; soloEscritura: boolean; maxHz?: number };
+  spi?: { miso?: number; csGpio: number; dcGpio?: number; modos: number[]; lsbPrimero: boolean; soloEscritura: boolean; maxHz?: number };
   /** Pines del micro que el chip lee (gpio → nombre del pin del chip): RST, ENABLE... */
   entradas?: Record<number, string>;
   /**
@@ -266,7 +266,7 @@ export class BusChips {
   }
 
   /** Un byte por SPI: lo que sale del micro por MOSI. Devuelve lo que entra por MISO (0xFF si nadie contesta). */
-  spiByte(mosi: number, cfg: { modo: number; lsbPrimero: boolean; hz: number }): number {
+  spiByte(mosi: number, cfg: { modo: number; lsbPrimero: boolean; hz: number; misoGpio?: number }): number {
     const t = this.ev.ahoraUs();
     let miso = 0xff;
     for (const d of this.dispositivos) {
@@ -295,6 +295,7 @@ export class BusChips {
         continue;
       }
       const r = this.correr(d, [{ tipo: 'spi', t, mosi: [entra], dc: [dc] }]);
+      if (cfg.misoGpio !== undefined && d.spi.miso !== undefined && cfg.misoGpio !== d.spi.miso) continue;
       miso &= deformar(r?.lecturas.at(-1)?.[0] ?? 0xff, modoMal, ordenMal);
     }
     return miso;
@@ -336,6 +337,18 @@ export class BusChips {
   }
 
   /** Corre lo pendiente del chip más `extra`. Si el chip falla, queda fuera del bus. */
+  alimentar(id: string, alimentado: boolean): void {
+    const d = this.dispositivos.find(x => x.id === id);
+    if (!d || d.alimentado === alimentado) return;
+    this.correr(d, [{ tipo: alimentado ? 'encender' : 'apagar', t: this.ev.ahoraUs() }]);
+    d.alimentado = alimentado; d.seleccionado = false; d.pendientes = [];
+  }
+
+  externo(id: string, datos: EntradaChip): void {
+    const d = this.dispositivos.find(x => x.id === id);
+    if (d?.alimentado && !d.roto) this.correr(d, [{ tipo: 'externo', t: this.ev.ahoraUs(), datos }]);
+  }
+
   private correr(d: Dispositivo, extra: EventoChip[]): ResultadoLote | null {
     const eventos = d.pendientes.concat(extra);
     d.pendientes = [];

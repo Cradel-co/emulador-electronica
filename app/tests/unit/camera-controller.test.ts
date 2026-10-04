@@ -45,3 +45,16 @@ it('fallo de heartbeat detiene pistas y no reactiva la cámara', async () => {
     c.destruir();
   } finally { vi.useRealTimers(); }
 });
+
+it('solo el propietario responde a la solicitud, y notifica si la vista previa no está lista', async () => {
+  const f = fake();
+  const fetcher = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({id:'s',expiresAt:45000}))).mockImplementation(async () => new Response('{}'));
+  const c = new ControladorCamara('/camera', {media:{getUserMedia:async()=>f.stream,enumerateDevices:async()=>[]},fetch:fetcher},undefined,'p','a');
+  await c.activar();
+  await c.solicitud('otro','a','req'); expect(fetcher).toHaveBeenCalledTimes(1);
+  await c.solicitud('p','a','req');
+  expect(fetcher).toHaveBeenLastCalledWith('/camera/session/s/requests/req/error',expect.objectContaining({method:'POST'}));
+  expect(c.snapshot.error).toContain('firmware');
+  c.errorFirmware('p','a','La captura venció.'); expect(c.snapshot.error).toBe('La captura venció.');
+  c.destruir();
+});

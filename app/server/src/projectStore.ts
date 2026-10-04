@@ -13,6 +13,7 @@ import {
   type Language,
   type Project,
 } from '@emu/shared';
+import { arducamDriver, arducamMain } from './templates/arducam.js';
 import { PATHS } from './paths.js';
 
 export class ProjectError extends Error {
@@ -240,6 +241,10 @@ export class ProjectStore {
       recursive: true,
       filter: (src) => src === origen || !path.basename(src).startsWith('.'),
     });
+    if (templateId === 'arducam-esp32-s3') {
+      await fs.writeFile(path.join(this.projectDir(name), 'arducam.py'), arducamDriver);
+      await fs.writeFile(path.join(this.projectDir(name), 'main.py'), arducamMain);
+    }
     return this.save({ ...base, name });
   }
 

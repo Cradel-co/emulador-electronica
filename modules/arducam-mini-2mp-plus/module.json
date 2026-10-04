@@ -1,0 +1,89 @@
+{
+  "type": "arducam-mini-2mp-plus",
+  "name": "ArduCAM Mini 2MP Plus",
+  "category": "Sensores",
+  "description": "Cámara JPEG OV2640 por I2C/SPI, alimentada por la webcam. Configuración inicial: 320 × 240.",
+  "width": 140,
+  "height": 86,
+  "svg": "module.svg",
+  "model": "model.ts",
+  "camera": {
+    "maxWidth": 640,
+    "maxHeight": 480,
+    "maxBytes": 1048576,
+    "quality": 0.8,
+    "hardware": "arducam-mini-2mp-plus"
+  },
+  "pins": [
+    {
+      "name": "VCC",
+      "x": 10,
+      "y": 86,
+      "kind": "power"
+    },
+    {
+      "name": "GND",
+      "x": 27,
+      "y": 86,
+      "kind": "ground"
+    },
+    {
+      "name": "SDA",
+      "x": 44,
+      "y": 86,
+      "kind": "digital-io"
+    },
+    {
+      "name": "SCL",
+      "x": 61,
+      "y": 86,
+      "kind": "digital-in"
+    },
+    {
+      "name": "SCLK",
+      "x": 78,
+      "y": 86,
+      "kind": "digital-in"
+    },
+    {
+      "name": "MOSI",
+      "x": 95,
+      "y": 86,
+      "kind": "digital-in"
+    },
+    {
+      "name": "MISO",
+      "x": 112,
+      "y": 86,
+      "kind": "digital-io"
+    },
+    {
+      "name": "CS",
+      "x": 129,
+      "y": 86,
+      "kind": "digital-in"
+    }
+  ],
+  "chips": [
+    {
+      "id": "ov2640",
+      "pines": {
+        "VCC": "VCC",
+        "GND": "GND",
+        "SDA": "SDA",
+        "SCL": "SCL"
+      }
+    },
+    {
+      "id": "arduchip",
+      "pines": {
+        "VCC": "VCC",
+        "GND": "GND",
+        "SCLK": "SCLK",
+        "MOSI": "MOSI",
+        "MISO": "MISO",
+        "CS": "CS"
+      }
+    }
+  ]
+}

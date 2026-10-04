@@ -215,9 +215,17 @@ con número, dimensiones y hora. **Detener** libera la webcam. Funciona sin firm
 Solo se conserva la última foto en memoria; puede desaparecer al superar el presupuesto global,
 quitar el módulo/proyecto o reiniciar el servidor. No se graban video ni audio. Para usar cámaras
 fuera de localhost, el navegador requiere un contexto seguro (HTTPS); LAN queda para otra etapa.
-Las pantallas del circuito y el firmware todavía no consumen estas fotos.
+La Cámara virtual sigue siendo independiente del firmware y de las pantallas. Para captura por firmware, usá la ArduCAM descrita abajo.
 
 Diseño, contratos y prueba completa: [SDD-CAMARA.md](SDD-CAMARA.md).
+
+## ArduCAM con ESP32-S3 y MicroPython
+
+En **Nuevo proyecto**, elegí la plantilla **ArduCAM con ESP32-S3 y MicroPython**. Incluye el circuito cableado y genera `arducam.py` y `main.py` desde una plantilla TypeScript. Seleccioná la cámara, pulsá **Activar webcam**, aceptá el permiso y ejecutá el programa.
+
+Cada cinco segundos MicroPython pide una fotografía nueva mediante I2C/SPI, lee el JPEG completo en bloques de 512 bytes e imprime longitud y SHA-256. El visor muestra la fotografía recuperada del backend y su huella: ambas deben coincidir, sin pulsar **Capturar**. Mostrá otro objeto para verificar una fotografía diferente. **Detener** libera la webcam; parar o reiniciar el programa cancela las solicitudes pendientes.
+
+Primera versión: JPEG 320 × 240 con bandas si cambia la proporción, sin TFT ni video continuo. El driver solo utiliza APIs normales de MicroPython; su funcionamiento en una placa física requiere validación posterior. Registros, límites y alcance: [SDD-ARDUCAM.md](SDD-ARDUCAM.md).
 
 ## Placas soportadas
 

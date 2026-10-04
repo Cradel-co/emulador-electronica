@@ -17,6 +17,7 @@ import {
   type ServerEvent,
 } from '@emu/shared';
 import { PATHS } from './paths.js';
+import { CoordinadorCapturas } from './camera/coordinador.js';
 import { ServicioCamara } from './camera/servicio.js';
 import { registrarRutasCamara } from './camera/rutas.js';
 import { ProjectStore, ProjectError } from './projectStore.js';
@@ -58,9 +59,11 @@ const logger = Fastify({ logger: false });
 const store = new ProjectStore();
 const builder = new BuildService();
 const camaras = new ServicioCamara(broadcast);
+const capturasFirmware = new CoordinadorCapturas(camaras, mensaje => logBuild(mensaje));
 store.alCambiar = async (name, modules) => {
   const catalogo = await loadCatalog();
   camaras.reconciliar(name, modules.filter(m => catalogo.some(d => d.type === m.type && d.camera)).map(m => m.id));
+  if (runningProject === name) await actualizarCamarasDelCircuito(name);
 };
 
 // --- Estado compartido ------------------------------------------------------
@@ -207,6 +210,8 @@ function emuladorDe(motor: string, boardId = 'board'): Emulador {
     if ('oyenteChips' in conChips) {
       conChips.oyenteChips = (id, salida) => {
         if (runningProject) broadcast({ type: 'chip.salida', project: runningProject, id, salida });
+        const motorCamara = e as Emulador & { entradaCamara?: (i: string, d: import('./bus/chipSandbox.js').EntradaChip) => void };
+        if (runningProject && motorCamara.entradaCamara) capturasFirmware.salida(runningProject, id, salida, (i, datos) => motorCamara.entradaCamara?.(i, datos));
       };
     }
     // Memoria no volátil de los chips (EEPROM, la hora con pila): se guarda en el proyecto.
@@ -1250,6 +1255,17 @@ let timerSensado = 0;
  * tenía, como hace la histéresis de una entrada real. Se agrupa a 50 ms porque un LED que
  * parpadea manda muchos cambios de salida y cada uno obliga a resolver el circuito de nuevo.
  */
+/** El guardado espera esta actualización: una respuesta tardía no puede ganar al corte de VCC. */
+async function actualizarCamarasDelCircuito(nombre: string): Promise<void> {
+  if (runningProject !== nombre || !(emulator instanceof EmulatorManager)) return;
+  if (!emulator.chipsEnCorrida().some(c => c.chip === 'arduchip')) return;
+  const original = await store.read(nombre), catalogo = await loadCatalog();
+  const buscar = (t: string) => catalogo.find(m => m.type === t);
+  const placa = original.board ? await buscarPlaca(original.board) : undefined;
+  const r = await analizarCircuito(conPlaca(original), buscar, { niveles, cerrados: cerradosDe(nombre), direcciones: await direccionesDe(original), fuentesApagadas: fuentesApagadasDe(original) });
+  emulator.actualizarCamaras(chipsDelProyecto(original, buscar, placa?.desc, undefined, id => r.modulos[id]?.ui?.on).chips);
+}
+
 function refrescarEntradasDelCircuito(nombre: string): Promise<void> {
   if (timerSensado) return Promise.resolve();
   return new Promise((listo) => {
@@ -1264,6 +1280,9 @@ function refrescarEntradasDelCircuito(nombre: string): Promise<void> {
           const r = await analizarCircuito(conPlaca(original), buscar, {
             nivelesPorPlaca, cerrados: cerradosDe(nombre), direccionesPorPlaca: await direccionesTodas(original),
           });
+          const placa = original.board ? await buscarPlaca(original.board) : undefined;
+          const chips = chipsDelProyecto(original, buscar, placa?.desc, undefined, id => r.modulos[id]?.ui?.on);
+          (emulator as Emulador & { actualizarCamaras?: (cs: import('./bus/proyectoChips.js').ChipEnBus[]) => void }).actualizarCamaras?.(chips.chips);
           for (const e of r.entradas) {
             const boardId = e.boardId ?? primaryBoardId;
             const target = corridas.get(boardId);

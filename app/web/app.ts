@@ -1,4 +1,4 @@
-import { ControladorCamara, desconectarCamara, eventoCamara } from './camera.js';
+import { ControladorCamara, desconectarCamara, eventoCamara, solicitarCaptura, errorCamara } from './camera.js';
 // Frontend sin bundler: ES modules nativos contra la API local (sección 11).
 import { miniatura, ponerImagenPantalla } from './modulos.js';
 import { lenguajeDeArchivo, NOMBRE_LENGUAJE, resaltar } from './editor.js';
@@ -458,10 +458,14 @@ function conectarWS() {
           notificar();
         }
         break;
+      case 'camera.capture.request':
+        solicitarCaptura(msg.project, msg.instance, msg.requestId);
+        break;
       case 'camera.state':
         eventoCamara(msg.project, msg.instance, msg.state);
         break;
       case 'chip.salida':
+        if (msg.id.endsWith(':arduchip') && typeof msg.salida.cameraError === 'string') errorCamara(msg.project, msg.id.slice(0, -':arduchip'.length), msg.salida.cameraError);
         if (msg.project === state.proyecto?.name) {
           state.salidasChips.set(msg.id, msg.salida);
           // Una pantalla refresca seguido: se cambia solo su imagen, sin redibujar todo el circuito.
