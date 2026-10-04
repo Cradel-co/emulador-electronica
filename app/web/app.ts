@@ -1,3 +1,4 @@
+import { riesgoDesdeFisica, salidaDesdeFisica } from './estado-electrico.js';
 // Orquestación del frontend: componentes persistentes y efectos contra la API local.
 import { resolveWorkspaceSelection } from './navigation-selection.js';
 import { createWorkspaceNavigation, type WorkspaceRoute } from './navigation.js';
@@ -143,6 +144,8 @@ const state = observable({
   avisosDibujo: ([] as { message: string, pin?: number }[]),
   /** Placas conocidas (GET /api/boards, o las programables del catálogo si no existe). */
   placas: ([] as any[]),
+  /** Hay una instantánea eléctrica resuelta; independiente de la ejecución de firmware. */
+  fisicaValida: false,
   /** Veredicto del motor eléctrico por LED (GET /pins → electrico.leds): id → { mA, estado }. */
   electrico: (new Map() as Map<string, { id: string, mA: number, estado: string, mAFijo?: number }>),
   /** ¿La placa tiene con qué andar? (GET /pins → electrico.placa): estado, por dónde, mensaje, quemada. */
@@ -1468,20 +1471,14 @@ function vivoDe(inst) {
     /** Lo último que mostró la pantalla del chip del módulo (si tiene una). */
     pantalla: state.sim.listo ? state.salidasChips.get(inst.id) : undefined,
   };
-  if (def?.bridge?.role === 'output') {
-    const gpio = gpioDe(inst.id, def.bridge.pin);
-    // Sin GND (y VCC si lo necesita) no prende, aunque el ESP32 ponga el pin en 1: como en la vida real.
-    const destino = destinoGpioDe(inst.id, def.bridge.pin);
-    vivo.on = destino && nivelGpio(destino.boardId, destino.gpio) === 1 && pinesSinAlimentar(inst, def).length === 0;
-  }
-  // Un LED también prende si le llega corriente sin pasar por el código: una fuente, el 3V3
-  // de la placa, un pulsador en serie... (lo calcula el motor eléctrico del server).
-  if (def?.diode && (state.electrico.get(inst.id)?.mAFijo ?? 0) > 0.5) vivo.on = true;
-  // Y lo que diga su propio modelo (un relé que "pega", un módulo importado...), siempre que el
-  // circuito esté vivo: sin simulación ni energía, las salidas del cálculo son hipotéticas.
-  if (state.uiModulos.get(inst.id)?.on && (state.sim.listo || state.energizado)) vivo.on = true;
+  vivo.on = salidaDesdeFisica({
+    valida: state.fisicaValida,
+    led: state.electrico.get(inst.id),
+    modelo: state.uiModulos.get(inst.id),
+  });
   const quemado = state.sim.quemados.get(inst.id);
-  if (quemado) {
+  // El estado latched del servidor solo representa la política de placas, no LEDs.
+  if (quemado && def?.programmable) {
     vivo.on = false;
     vivo.quemado = true;
     vivo.explotando = ahora - quemado.hora < 1400;
@@ -1489,24 +1486,18 @@ function vivoDe(inst) {
   return vivo;
 }
 
-// --- LEDs que se queman ------------------------------------------------------------
-// El motor eléctrico del server dice, por LED, si con su pin en alto la corriente lo
-// destruye (estado "se-quema"). Si la simulación lo enciende así, se quema de verdad:
-// destello y humo, y queda muerto hasta reemplazarlo.
-
+// --- Riesgo de sobrecorriente en la instantánea viva ----------------------------
+// El límite simplificado informa riesgo: el modelo no calcula daño térmico ni
+// cambia la topología del LED. No se apaga ni recuerda una avería ficticia.
 function revisarQuemaduras() {
-  if (!state.sim.listo) return;
+  // Limpia marcas visuales heredadas de LED; la política de placas sigue separada.
   for (const inst of state.diagrama.modules) {
-    const veredicto = state.electrico.get(inst.id);
-    if (veredicto?.estado !== 'se-quema' || state.sim.quemados.has(inst.id)) continue;
-    if (!vivoDe(inst).on) continue;
-    state.sim.quemados.set(inst.id, { hora: Date.now(), mA: veredicto.mA });
-    const def = state.catalogo.get(inst.type);
-    nota(`Se quemó ${def?.name ?? 'el LED'} (${inst.id}): le pasaban ~${Math.round(veredicto.mA)} mA. Quedó muerto, como pasaría en la vida real: reemplazalo y poné una resistencia en serie.`);
-    log('emu', `[física] ${inst.id} se quemó con ~${Math.round(veredicto.mA)} mA`);
-    lienzo.render();
-    setTimeout(() => lienzo.render(), 1450); // termina la explosión, queda el humo
-    if (state.seleccion?.tipo === 'modulo' && state.seleccion.id === inst.id) pintarPanelDerecho();
+    if (!state.catalogo.get(inst.type)?.programmable) state.sim.quemados.delete(inst.id);
+  }
+  if (!state.fisicaValida) return;
+  const selected = state.seleccion;
+  if (selected?.tipo === 'modulo' && riesgoDesdeFisica({ valida: true, led: state.electrico.get(selected.id) })) {
+    pintarPanelDerecho();
   }
 }
 
@@ -1954,13 +1945,39 @@ async function quitarDelCatalogo(m) {
 
 // --- Avisos dibujo ↔ código -----------------------------------------------------
 
+let revisionObservacionFisica = 0;
+/** Suelta medidas anteriores e invalida respuestas pendientes de otro contexto. */
+function invalidarObservacionFisica(avisos: typeof state.avisosDibujo = []): void {
+  revisionObservacionFisica++;
+  state.fisicaValida = false;
+  state.electrico = new Map();
+  state.uiModulos = new Map();
+  state.fuentes = [];
+  state.mediciones = [];
+  state.tensiones = {};
+  state.alimentacion = null;
+  state.energizado = false;
+  state.codePins = new Set();
+  state.avisosDibujo = avisos;
+  state.sim.quemados.clear();
+  actualizarCortos([]);
+  actualizarCuentaProblemas();
+}
+
 async function refrescarAvisos() {
   if (!state.proyecto) return;
+  const revision = ++revisionObservacionFisica;
   const proyecto = state.proyecto.name;
+  let avisosFallidos: typeof state.avisosDibujo | null = null;
   try {
     const respuesta = await api(`/api/projects/${proyecto}/pins`);
-    if (state.proyecto?.name !== proyecto) return;
+    if (revision !== revisionObservacionFisica || state.proyecto?.name !== proyecto) return;
+    if (respuesta.electrico?.resuelto !== true || !Array.isArray(respuesta.electrico.leds)) {
+      avisosFallidos = Array.isArray(respuesta.warnings) ? respuesta.warnings : null;
+      throw new Error('El servidor no entregó una instantánea eléctrica resuelta.');
+    }
     const { pins, warnings } = respuesta;
+    state.fisicaValida = respuesta.electrico.resuelto === true;
     state.codePins = new Set(pins);
     state.avisosDibujo = warnings;
     state.electrico = new Map((respuesta.electrico?.leds ?? []).map((l) => [l.id, l]));
@@ -1976,13 +1993,17 @@ async function refrescarAvisos() {
     }
     reflejarPlacaQuemada();
     pintarAlimentacion();
+
     actualizarCortos(warnings);
     actualizarCuentaProblemas();
     revisarQuemaduras();
     // Los avisos los rinde <Avisos> (#9): alcanza con haber asignado `state.avisosDibujo`.
     lienzo.render();
-  } catch {
-    /* el proyecto puede no tener archivos aún */
+  } catch (error) {
+    if (revision !== revisionObservacionFisica || state.proyecto?.name !== proyecto) return;
+    invalidarObservacionFisica(avisosFallidos?.length ? avisosFallidos : [{ message: `Análisis eléctrico no válido: ${String((error as Error)?.message ?? error)}` }]);
+    lienzo.render();
+    pintarPanelDerecho();
   }
 }
 
@@ -1999,6 +2020,7 @@ async function cargarProyectos(seleccionarNombre?: string) {
 
 function mostrarInicio() {
   document.body.classList.add('inicio');
+  invalidarObservacionFisica();
   document.body.classList.remove('aprender');
   $('bienvenida-proyectos').classList.add('activa');
   $('bienvenida-acerca').classList.remove('activa');
@@ -2126,6 +2148,7 @@ async function abrirProyecto(nombre) {
   document.body.classList.remove('inicio');
   const cambioProyecto = state.proyecto?.name !== nombre;
   if (cambioProyecto) state.exploradorPlacas = [];
+  invalidarObservacionFisica();
   state.proyecto = project;
   if (cambioProyecto) {
     state.filtroModulos = projectDockFilter(nombre);
