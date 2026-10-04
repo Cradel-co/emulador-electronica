@@ -280,6 +280,7 @@ emulador-electronica/
 | Documento | Qué cubre |
 |---|---|
 | [`docs/vision-y-alcance.md`](docs/vision-y-alcance.md) | Qué es el proyecto, qué falta, límites reales |
+| [`SDD-APRENDIZAJE.md`](SDD-APRENDIZAJE.md) | Diseño de Aprender, TanStack Router, prácticas y plan de implementación por TDD |
 | [`GUIA-IMPLEMENTACION.md`](GUIA-IMPLEMENTACION.md) | Diseño técnico: arquitectura, protocolo del puente, pipeline por lenguaje, API |
 | [`docs/depuracion.md`](docs/depuracion.md) | Modo debug: qué se puede en cada motor, API REST, DAP |
 | [`docs/esp-emulator.md`](docs/esp-emulator.md) | Qué es y qué no es `esp-emu` |
