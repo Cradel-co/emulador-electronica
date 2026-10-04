@@ -1,4 +1,5 @@
 import type { EstadoAnalogicoAvr } from './analogicoAvr.js';
+import type { PerfilAnalogicoAvr } from '@emu/shared';
 import type { MessagePort } from 'node:worker_threads';
 import type { SalidaChip } from '@emu/shared';
 import { AvrSimulador, RelojAvr, type PinMcu } from './avrSim.js';
@@ -15,7 +16,7 @@ import { ControlDepuracionAvr, type EventoAvr, type PedidoAvr, type RespuestaAvr
  */
 
 export type MensajeAlWorker =
-  | { t: 'iniciar'; hex: string; frecuenciaHz: number; pines: PinMcu[]; chips?: ChipEnBus[]; arranqueMs?: number; analogicoAvr?: EstadoAnalogicoAvr }
+  | { t: 'iniciar'; hex: string; frecuenciaHz: number; pines: PinMcu[]; chips?: ChipEnBus[]; arranqueMs?: number; analogicoAvr?: EstadoAnalogicoAvr; perfilAnalogicoAvr?: PerfilAnalogicoAvr }
   /** El usuario movió el entorno de un chip (temperatura...). */
   | { t: 'entorno'; id: string; valores: Record<string, number> }
   | { t: 'alimentacion-chips'; porInstancia: Record<string, boolean> }
@@ -66,6 +67,7 @@ export function atenderWorker(puerto: MessagePort): void {
   let chips: ChipEnBus[] = [];
   let arranqueMs = 0;
   let analogico: EstadoAnalogicoAvr | undefined;
+  let perfilAnalogico: PerfilAnalogicoAvr | undefined;
   let bus: BusChips | null = null;
   let tiempoAntesUs = 0; // µs simulados de las CPU anteriores (resets)
   const salidas = new Map<string, SalidaChip>();
@@ -115,7 +117,7 @@ export function atenderWorker(puerto: MessagePort): void {
     sim = new AvrSimulador(hex, {
       onSerial: (b) => serial.push(b),
       onPin: (pin, nivel) => enviar({ t: 'pin', pin, nivel }),
-    }, frecuenciaHz, pines);
+    }, frecuenciaHz, pines, perfilAnalogico);
     if (analogico) sim.actualizarAnalogicoAvr(analogico);
     if (bus) {
       sim.conectarChips(bus);
@@ -150,6 +152,7 @@ export function atenderWorker(puerto: MessagePort): void {
           chips = m.chips ?? [];
           arranqueMs = m.arranqueMs ?? 0;
           analogico = m.analogicoAvr;
+          perfilAnalogico = m.perfilAnalogicoAvr;
           sim = null;
           armarBus();
           crear();

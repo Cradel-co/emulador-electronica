@@ -6,6 +6,7 @@ import type { EmulatorEvents, EmulatorStatus } from './emulator.js';
 import type { Emulador, OpcionesArranque, PuenteSim } from './emulatorBackend.js';
 import { AvrSimulador, PINES_UNO, RelojAvr, type PinMcu } from './avrSim.js';
 import type { EstadoAnalogicoAvr } from './analogicoAvr.js';
+import { PerfilAnalogicoAvrSchema, type PerfilAnalogicoAvr } from '@emu/shared';
 import type { MensajeAlWorker, MensajeDelWorker } from './avrWorker.js';
 import { ControlDepuracionAvr, type EventoAvr, type PedidoAvr, type RespuestaAvr } from './debug/avrControl.js';
 import type { SalidaChip } from '@emu/shared';
@@ -43,6 +44,7 @@ export class AvrEmulator implements Emulador {
   private local: { sim: AvrSimulador; reloj: RelojAvr } | null = null;
   private puente: PuenteSim | null = null;
   private analogico: EstadoAnalogicoAvr | undefined;
+  private perfilAnalogico: PerfilAnalogicoAvr = { tipo: 'ideal-10bits' };
   private hex = '';
   private frecuenciaHz = 16_000_000;
   private pines: PinMcu[] = PINES_UNO;
@@ -136,6 +138,7 @@ export class AvrEmulator implements Emulador {
   }
 
   async start(projectName: string, artifacts: BuildArtifacts, opts: OpcionesArranque = {}): Promise<EmulatorStatus> {
+    if (opts.perfilAnalogicoEsp !== undefined) throw new Error('El perfil ADC ESP no es compatible con el backend AVR.');
     if (this.status.running) await this.stop();
     this.hex = await fs.readFile(artifacts.firmware, 'utf8');
     this.frecuenciaHz = opts.frecuenciaHz ?? 16_000_000;
@@ -143,6 +146,7 @@ export class AvrEmulator implements Emulador {
     this.chips = opts.chips ?? [];
     this.arranqueMs = opts.arranqueMs ?? 0;
     this.analogico = opts.analogicoAvr ? { ...opts.analogicoAvr, canales: { ...opts.analogicoAvr.canales } } : undefined;
+    this.perfilAnalogico = PerfilAnalogicoAvrSchema.parse(opts.perfilAnalogicoAvr ?? { tipo: 'ideal-10bits' });
     this.entornos.clear();
     this.salidasChips.clear();
     for (const c of this.chips) this.entornos.set(c.id, { ...c.entorno });
@@ -152,6 +156,7 @@ export class AvrEmulator implements Emulador {
     this.status = { ...AvrEmulator.emptyStatus(), state: 'starting', running: true, project: projectName, startedAt: Date.now() };
     this.emitState();
     this.log(`$ avr8js atmega328p @ ${this.frecuenciaHz / 1e6} MHz ${artifacts.firmware}`);
+    this.log(`[adc] Perfil ${this.perfilAnalogico.tipo}${this.perfilAnalogico.tipo === 'rc-no-ideal' ? ` (${this.perfilAnalogico.id}); parámetros declarados, sin calibración de laboratorio` : ''}.`);
 
     this.puente = {
       watch: (pin) => this.mandar({ t: 'vigilar', pin }),
@@ -188,7 +193,7 @@ export class AvrEmulator implements Emulador {
       this.log(`[emu] el emulador terminó (code=${code})`);
       this.teardown(`terminó con código ${code}`);
     });
-    worker.postMessage({ t: 'iniciar', hex: this.hex, frecuenciaHz: this.frecuenciaHz, pines: this.pines, chips: this.chips, arranqueMs: this.arranqueMs, analogicoAvr: this.analogico } satisfies MensajeAlWorker);
+    worker.postMessage({ t: 'iniciar', hex: this.hex, frecuenciaHz: this.frecuenciaHz, pines: this.pines, chips: this.chips, arranqueMs: this.arranqueMs, analogicoAvr: this.analogico, perfilAnalogicoAvr: this.perfilAnalogico } satisfies MensajeAlWorker);
   }
 
   private arrancarLocal(): void {
@@ -196,7 +201,7 @@ export class AvrEmulator implements Emulador {
       const sim = new AvrSimulador(this.hex, {
         onSerial: (b) => this.serial([b]),
         onPin: (pin, nivel) => this.recibir({ t: 'pin', pin, nivel }),
-      }, this.frecuenciaHz, this.pines);
+      }, this.frecuenciaHz, this.pines, this.perfilAnalogico);
       if (this.analogico) sim.actualizarAnalogicoAvr(this.analogico);
       // En modo local el bus se arma de nuevo en cada arranque (un reset rearma todo).
       this.lineasLocal = new LineasCompartidas((gpio, nivel) => sim.ponerEntrada(gpio, nivel));

@@ -10,6 +10,7 @@ import { estadoAnalogicoDesdeCircuito, type EstadoAnalogicoAvr } from './analogi
 import { AvrSimulador } from './avrSim.js';
 import { AvrEmulator } from './avrEmulator.js';
 import { BASE_DATOS_AVR } from './debug/avrControl.js';
+import type { PerfilAnalogicoAvr } from '@emu/shared';
 let catalogo: ModuloCatalogo[] = [];
 beforeAll(async () => { catalogo = await loadCatalog(); });
 const proyecto = (): Project => ({ schemaVersion: 1, name: 'adc-fisico', board: 'arduino-uno', language: 'arduino',
@@ -26,13 +27,13 @@ const descriptor = () => {
 };
 
 /** Firmware mínimo: convierte ADC, espera ADSC y copia ADCL/ADCH a SRAM, repetidamente. */
-function firmware(mux = 0x40): string {
+function firmware(mux = 0x40, repetir = true): string {
   const ldi = (v: number) => 0xe000 | ((v & 0xf0) << 4) | (v & 15);
   const palabras = [
     ldi(mux), 0x9300, adcConfig.ADMUX, ldi(0xc7), 0x9300, adcConfig.ADCSRA,
     0x9100, adcConfig.ADCSRA, 0xfd06, 0xcffc, // LDS r16; SBRC r16,ADSC; RJMP espera
     0x9110, adcConfig.ADCL, 0x9120, adcConfig.ADCH,
-    0x9310, 0x100, 0x9320, 0x101, 0xcff0,
+    0x9310, 0x100, 0x9320, 0x101, repetir ? 0xcff0 : 0xcfff,
   ];
   const datos = palabras.flatMap(p => [p & 255, p >> 8]);
   const registro = [datos.length, 0, 0, 0, ...datos];
@@ -105,10 +106,13 @@ it('usa AREF externa cableada al riel 3V3 real al leer el divisor', async () => 
 
 let carpetaTemporal = '';
 let rutaFirmware = '';
+let rutaUnaMuestra = '';
 beforeAll(async () => {
   carpetaTemporal = await mkdtemp(join(tmpdir(), 'adc-avr-'));
   rutaFirmware = join(carpetaTemporal, 'adc.hex');
   await writeFile(rutaFirmware, firmware());
+  rutaUnaMuestra = join(carpetaTemporal, 'adc-una-muestra.hex');
+  await writeFile(rutaUnaMuestra, firmware(0x40, false));
 });
 afterAll(async () => { if (carpetaTemporal) await rm(carpetaTemporal, { recursive: true, force: true }); });
 
@@ -169,6 +173,28 @@ describe.each(['local', 'worker'] as const)('ADC en AvrEmulator %s', modo => {
       const paso = await emu.depurar({ op: 'paso' });
       expect(paso).toMatchObject({ ok: false });
       expect(emu.getStatus()).toMatchObject({ state: 'crashed', running: false, exitInfo: expect.stringContaining('ADC AVR') });
+    } finally { await emu.stop(); }
+  });
+  it('perfil RC explícito llega al firmware y conserva parámetros, semilla y política inicial al reset', async () => {
+    const emu = crear();
+    const perfil: Extract<PerfilAnalogicoAvr, { tipo: 'rc-no-ideal' }> = {
+      tipo: 'rc-no-ideal', id: 'prueba-rc', fuente: 'Parámetros sintéticos; oráculo analítico RC', condiciones: 'Vin constante',
+      rangoVEntrada: { min: 0, max: 5 }, capacitanciaF: 1e-9, resistenciaInterruptorOhm: 0,
+      resistenciasFuenteOhm: { 0: 10_000 }, adquisicionS: 10e-6, voltajeInicialV: 0,
+      ganancia: 1, offsetLsb: 0, ruido: { tipo: 'uniforme', amplitudLsb: 8, semilla: 1 },
+    };
+    try {
+      await emu.start('adc-rc', { ...artefactos(), firmware: rutaUnaMuestra }, {
+        analogicoAvr: { resuelto: true, vcc: 5, avcc: 5, aref: null, canales: { 0: 5 } }, perfilAnalogicoAvr: perfil,
+      });
+      // 647,29 cuentas RC menos 4,2167 LSB del primer ruido determinista -> 643.
+      await esperarCuenta(emu, 643);
+      expect(emu.getRecentLog().some(l => l.includes('rc-no-ideal (prueba-rc)'))).toBe(true);
+      perfil.resistenciasFuenteOhm[0] = 0;
+      if (perfil.ruido) perfil.ruido.semilla = 50;
+      await emu.reset(); await esperarCuenta(emu, 643);
+      emu.actualizarAnalogicoAvr({ resuelto: true, vcc: 5, avcc: 5, aref: null, canales: { 0: 2.5 } });
+      await emu.reset(); await esperarCuenta(emu, 319);
     } finally { await emu.stop(); }
   });
 });

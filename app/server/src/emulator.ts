@@ -9,6 +9,7 @@ import { detectState, extractIp, HANG_TIMEOUT_MS, HangWatchdog, stripAnsi } from
 import { reservePorts, releasePorts, PORTS_PER_INSTANCE } from './ports.js';
 import type { BuildArtifacts } from './buildService.js';
 import type { Emulador, OpcionesArranque } from './emulatorBackend.js';
+import { PuenteAnalogicoEsp, type EstadoAnalogicoEsp } from './analogicoEsp.js';
 
 export const ESP_EMU_BIN = process.env.ESP_EMU_BIN ?? 'esp-emu';
 export const ESP_EMU_VERSION = '0.44.0';
@@ -60,6 +61,9 @@ export class EmulatorManager implements Emulador {
   private gdbPort: number | null = null;
   /** Chips del dibujo (MicroPython: machine.I2C/SPI por el puente). Ver bus/puenteChips.ts. */
   private chips: PuenteChips | null = null;
+  /** Exclusivo del shim MicroPython; no representa el periférico SAR de esp-emu. */
+  private analogico: PuenteAnalogicoEsp | null = null;
+  private rfNativoHabilitado = false;
   private readonly salidasChips = new Map<string, SalidaChip>();
   private readonly entornos = new Map<string, Record<string, number>>();
   /** Lo que publica un chip (una pantalla) va a la UI. Lo conecta index.ts. */
@@ -90,12 +94,21 @@ export class EmulatorManager implements Emulador {
     return { ...this.status };
   }
 
+  capacidadRf(): { maxBits: number; protocolos: readonly number[] } | null {
+    return this.status.running && this.rfNativoHabilitado ? { maxBits: 24, protocolos: [1] } : null;
+  }
+
   async available(): Promise<boolean> {
     return which(ESP_EMU_BIN);
   }
 
   /** Arranca (o rearranca) el emulador con el firmware ya compilado. */
   async start(projectName: string, artifacts: BuildArtifacts, opts: OpcionesArranque = {}): Promise<EmulatorStatus> {
+    if (opts.perfilAnalogicoAvr !== undefined) throw new Error('El perfil ADC AVR no es compatible con el backend ESP.');
+    if (opts.perfilAnalogicoEsp !== undefined && !artifacts.needsRepl) throw new Error('El perfil ADC ESP sólo está implementado mediante machine.ADC de MicroPython.');
+    // Validar antes de parar la corrida anterior, reservar puertos o lanzar un proceso.
+    const analogico = artifacts.needsRepl ? new PuenteAnalogicoEsp(opts.chip ?? 'esp32s3', opts.perfilAnalogicoEsp, l => this.bridge?.enviarLinea(l)) : null;
+    if (opts.analogicoEsp) analogico?.actualizar(opts.analogicoEsp);
     if (this.status.running) await this.stop();
 
     const ports = await this.pickPorts(artifacts);
@@ -136,6 +149,7 @@ export class EmulatorManager implements Emulador {
     const child = spawn(ESP_EMU_BIN, args, { stdio: ['ignore', 'pipe', 'pipe'] });
     this.child = child;
     this.stdoutLines = [];
+    this.rfNativoHabilitado = !artifacts.needsRepl && (opts.rmtLoopback?.length ?? 0) > 0;
 
     this.status = {
       ...this.status,
@@ -178,6 +192,13 @@ export class EmulatorManager implements Emulador {
       onRawLine: (line) => this.events.onLog(`[bridge] ${line}`),
     });
     this.bridge.connect();
+    this.analogico = analogico;
+    if (analogico) {
+      this.bridge.escucharLineas(l => { if (this.analogico === analogico) analogico.recibir(l); });
+      this.events.onLog(opts.perfilAnalogicoEsp
+        ? `[adc] MicroPython ADC1: perfil ${opts.perfilAnalogicoEsp.id}; transferencia lineal declarada, sin calibración eFuse.`
+        : '[adc] MicroPython ADC1 sin perfil: las lecturas devolverán SIN_MODELO.');
+    }
     if (artifacts.needsRepl) this.armarChips(opts.chips ?? []);
 
     // MicroPython (y cualquier --uart-tcp): la consola del chip deja de salir por stdout y
@@ -215,6 +236,8 @@ export class EmulatorManager implements Emulador {
   }
 
   actualizarCamaras(chips: ChipEnBus[]): void { this.chips?.actualizarCamaras(chips); }
+
+  actualizarAnalogicoEsp(estado: EstadoAnalogicoEsp): void { this.analogico?.actualizar(estado); }
 
   entradaCamara(instancia: string, datos: import('./bus/chipSandbox.js').EntradaChip): void { this.chips?.entradaCamara(instancia, datos); }
 
@@ -590,6 +613,8 @@ export class EmulatorManager implements Emulador {
     this.gdbPort = null;
     this.chips?.apagar();
     this.chips = null;
+    this.analogico = null;
+    this.rfNativoHabilitado = false;
     this.bridge?.close();
     this.bridge = null;
     this.replSocket?.destroy();

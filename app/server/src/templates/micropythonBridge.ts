@@ -23,6 +23,8 @@
 // chip a chip (S3/C3: 0x60004004, C6: 0x60091004; C3 y C6 tienen menos de 32 GPIO y
 // no tienen OUT1).
 
+import { microPythonAdcPara } from './micropythonAdc.js';
+
 const hex = (n: number): string => `0x${n.toString(16).padStart(8, '0')}`;
 
 export interface PlacaMicroPython {
@@ -42,6 +44,7 @@ export function microPythonSimbridgePara(p: PlacaMicroPython): string {
       ? `_GPIO_OUT1_REG = None        # ${p.chip}: menos de 32 GPIO, no hay OUT1`
       : `_GPIO_OUT1_REG = ${hex(out1)}  # DR_REG_GPIO_BASE + 0x10 (pines 32-48 en el bit 0..)`;
   return SIMBRIDGE.replace('@@CHIP@@', p.chip)
+    .replace('@@ADC@@', microPythonAdcPara(p.chip))
     .replace('@@OUT@@', `_GPIO_OUT_REG = ${hex(out)}   # DR_REG_GPIO_BASE + 0x4  (pines 0-31)`)
     .replace('@@OUT1@@', linea1)
     .replace('@@UART@@', `_uart = machine.UART(${p.uart}, baudrate=115200, tx=${p.tx}, rx=${p.rx})`);
@@ -137,7 +140,7 @@ _REEMPLAZOS = {}
 
 def _instalar_pin():
     """Hace que main.py use este Pin (y los buses de los chips): \`from machine import Pin\`, \`machine.I2C(...)\`."""
-    _REEMPLAZOS.update({'Pin': Pin, 'I2C': I2C, 'SoftI2C': SoftI2C, 'SPI': SPI, 'SoftSPI': SoftSPI})
+    _REEMPLAZOS.update({'Pin': Pin, 'I2C': I2C, 'SoftI2C': SoftI2C, 'SPI': SPI, 'SoftSPI': SoftSPI, 'ADC': ADC, 'ADCBlock': ADCBlock})
     try:
         for k in _REEMPLAZOS:
             setattr(machine, k, _REEMPLAZOS[k])
@@ -247,6 +250,9 @@ def _gpio(p):
     return int(d) if d else None
 
 
+@@ADC@@
+
+
 class I2C:
     def __init__(self, id=0, scl=None, sda=None, freq=400000, timeout=50000):
         self._scl = None
@@ -269,12 +275,16 @@ class I2C:
 
     def _tx(self, ops):
         r = _pedir('I2C', '%d %d %d %d %s' % (utime.ticks_us(), self._sda, self._scl, self._freq, ';'.join(ops))).split(';')
+        if 'E:ELECTRICO_I2C' in r:
+            raise OSError(5, 'simulación: el bus I2C no cumple su perfil eléctrico declarado')
         if 'N' in r:
             raise OSError(19)  # ENODEV: la dirección no contestó (NACK), como en la placa real
         return r
 
     def scan(self):
         r = _pedir('I2CS', '%d %d %d %d' % (utime.ticks_us(), self._sda, self._scl, self._freq))
+        if r == 'E:ELECTRICO_I2C':
+            raise OSError(5, 'simulación: el bus I2C no cumple su perfil eléctrico declarado')
         return [int(x, 16) for x in r.split(',') if x]
 
     def writeto(self, addr, buf, stop=True):
@@ -527,7 +537,7 @@ def _handle(line):
             trigger, handler, p = irq
             if (lvl == 0 and trigger & _Pin.IRQ_FALLING) or (lvl == 1 and trigger & _Pin.IRQ_RISING):
                 micropython.schedule(handler, p)
-    elif tag == 'I2CR' or tag == 'SPIR':
+    elif tag == 'I2CR' or tag == 'SPIR' or tag == 'ADCR':
         _resp[int(parts[1])] = parts[2] if len(parts) > 2 else ''
     elif tag == 'CHIPPINS':
         _chip_pins.clear()

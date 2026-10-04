@@ -1,6 +1,8 @@
 import { adcConfig, ADCMuxInputType, ADCReference, AVRADC, type ADCMuxInput, type CPU } from 'avr8js';
 import type { BoardDescriptor, Project } from '@emu/shared';
 import type { AnalisisCircuito } from './sim/analisis.js';
+import type { PerfilAnalogicoAvr, CanalAnalogicoAvr } from '@emu/shared';
+import { AdquisicionAdc } from './adquisicionAdc.js';
 
 /** Voltajes respecto de GND del MCU. null significa desconocido, no cero voltios. */
 export interface EstadoAnalogicoAvr {
@@ -19,12 +21,16 @@ const desconocido = (): EstadoAnalogicoAvr => ({ resuelto: false, vcc: null, avc
  * ADC ideal de 10 bits y referencias nominales de avr8js, alimentado por el solver.
  * Fuente primaria: Microchip ATmega328P, §23.7 (VIN·1024/VREF) y §23.5.2.
  * https://ww1.microchip.com/downloads/en/DeviceDoc/Atmel-7810-Automotive-Microcontrollers-ATmega328P_Datasheet.pdf
- * No modela impedancia/sample-and-hold, ruido, error ADC, asentamiento al cambiar referencia,
- * tolerancia/temperatura de bandgap ni auto-trigger; muestra a inicio de conversión.
+ * Por defecto conserva el ADC ideal. El perfil RC opcional agrega adquisición, memoria,
+ * ganancia/offset y ruido sintético, con parámetros declarados; no calibra el silicio.
+ * Vin se congela al inicio: sin cosimulación de la carga del capacitor sobre el circuito,
+ * asentamiento de referencia, tolerancia/temperatura de bandgap ni auto-trigger.
  */
 export class AdaptadorAnalogicoAvr {
   private estado = desconocido();
-  constructor(private readonly cpu: CPU, private readonly adc: AVRADC) {
+  private readonly adquisicion: AdquisicionAdc;
+  constructor(private readonly cpu: CPU, private readonly adc: AVRADC, perfil?: PerfilAnalogicoAvr, private readonly frecuenciaHz = 16_000_000) {
+    this.adquisicion = new AdquisicionAdc(perfil);
     adc.onADCRead = input => {
       const resultado = this.convertir(input);
       cpu.addClockEvent(() => adc.completeADCRead(resultado), adc.sampleCycles);
@@ -65,7 +71,12 @@ export class AdaptadorAnalogicoAvr {
     } else if (input.type === ADCMuxInputType.Constant) voltaje = input.voltage;
     else throw new ErrorAnalogicoAvr('temperatura o entrada diferencial sin modelo calibrado.');
     if (voltaje < -1e-6 || voltaje > avcc + 1e-6) throw new ErrorAnalogicoAvr('entrada fuera del dominio GND..AVCC; no se simula como una lectura válida saturada.');
-    return Math.min(1023, Math.max(0, Math.floor(voltaje * 1024 / referencia)));
+    const canal: CanalAnalogicoAvr = mux === 14 ? 'bandgap' : mux === 15 ? 'gnd' : String(mux) as CanalAnalogicoAvr;
+    // ATmega328P §23.4: muestra a 13,5 ciclos ADC tras habilitar y 1,5 en conversiones normales.
+    // El perfil declara cuánto de esa ventana usa su equivalente RC; no lo inferimos del esquema.
+    const ciclosAdc = this.adc.sampleCycles / this.adc.prescaler;
+    const ventanaS = (ciclosAdc === 25 ? 13.5 : 1.5) * this.adc.prescaler / this.frecuenciaHz;
+    return this.adquisicion.convertir({ canal, voltaje: Math.min(avcc, Math.max(0, voltaje)), referencia, avcc, ventanaS }).cuenta;
   }
 }
 

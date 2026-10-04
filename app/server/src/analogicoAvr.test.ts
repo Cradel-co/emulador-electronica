@@ -2,9 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { adcConfig } from 'avr8js';
 import { AvrSimulador } from './avrSim.js';
 import type { EstadoAnalogicoAvr } from './analogicoAvr.js';
+import type { PerfilAnalogicoAvr } from '@emu/shared';
 
 const estado = (v = 2.5): EstadoAnalogicoAvr => ({ resuelto: true, vcc: 5, avcc: 5, aref: 2.048, canales: { 0: v, 1: 1 } });
-function simular() { return new AvrSimulador(':00000001FF', { onSerial: () => {}, onPin: () => {} }); }
+function simular(perfil?: PerfilAnalogicoAvr) { return new AvrSimulador(':00000001FF', { onSerial: () => {}, onPin: () => {} }, 16_000_000, undefined, perfil); }
 function convertir(sim: AvrSimulador, mux = 0x40, control = 0xc7): number {
   sim.cpu.writeData(adcConfig.ADMUX, mux);
   sim.cpu.writeData(adcConfig.ADCSRA, control);
@@ -89,5 +90,40 @@ describe('ADC AVR recibe tensiones físicas sin unknown→0', () => {
     s.cpu.progMem[4004] = 0xcfff; // RJMP -1
     s.ejecutar(6000);
     expect((s.cpu.data[17] ?? 0) | ((s.cpu.data[18] ?? 0) << 8)).toBe(512);
+  });
+});
+
+describe('perfil RC en registros ADC del MCU', () => {
+  const perfil = (): Extract<PerfilAnalogicoAvr, { tipo: 'rc-no-ideal' }> => ({
+    tipo: 'rc-no-ideal', id: 'rc-sintetico', fuente: 'Oráculo RC analítico sintético', condiciones: 'Vin constante',
+    rangoVEntrada: { min: 0, max: 5 }, capacitanciaF: 1e-9, resistenciaInterruptorOhm: 0,
+    resistenciasFuenteOhm: { 0: 10_000, 1: 10_000, bandgap: 0, gnd: 0 },
+    adquisicionS: 10e-6, voltajeInicialV: 0, ganancia: 1, offsetLsb: 0, ruido: null,
+  });
+  it('ADCL/ADCH reciben RC y retienen carga al cambiar MUX', () => {
+    const s = simular(perfil()); s.actualizarAnalogicoAvr(estado(5));
+    expect(convertir(s)).toBe(647); // 5(1−e^-1)/5·1024, cuantizado
+    expect(convertir(s)).toBe(885); // 5(1−e^-2)
+    s.actualizarAnalogicoAvr({ ...estado(), canales: { 0: 5, 1: 0 } });
+    expect(convertir(s, 0x41)).toBe(325); // decae desde la muestra previa, no desde cero
+  });
+  it('rechaza adquisición que excede ventana al cambiar prescaler', () => {
+    const s = simular(perfil()); s.actualizarAnalogicoAvr(estado());
+    expect(convertir(s)).toBe(323);
+    expect(() => convertir(s, 0x40, 0xc1)).toThrow(/ventana/);
+  });
+  it('distingue la ventana inicial de 13,5 ciclos y la normal de 1,5', () => {
+    const p = perfil(); p.adquisicionS = 20e-6;
+    const s = simular(p); s.actualizarAnalogicoAvr(estado(5));
+    expect(convertir(s)).toBe(885);
+    expect(() => convertir(s)).toThrow(/ventana/);
+  });
+  it('separa referencias internas de impedancias externas y reinicia memoria con CPU nueva', () => {
+    const s = simular(perfil()); s.actualizarAnalogicoAvr(estado(5));
+    expect(convertir(s, 0x4e)).toBe(225);
+    expect(convertir(s, 0x4f)).toBe(0);
+    expect(convertir(s)).toBe(647);
+    const reiniciado = simular(perfil()); reiniciado.actualizarAnalogicoAvr(estado(5));
+    expect(convertir(reiniciado)).toBe(647);
   });
 });

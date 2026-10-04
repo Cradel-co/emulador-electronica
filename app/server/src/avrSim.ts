@@ -27,6 +27,7 @@ import {
   watchdogConfig,
 } from 'avr8js';
 import { AdaptadorAnalogicoAvr, type EstadoAnalogicoAvr } from './analogicoAvr.js';
+import type { PerfilAnalogicoAvr } from '@emu/shared';
 import type { BusChips } from './bus/busChips.js';
 
 /**
@@ -138,7 +139,7 @@ export class AvrSimulador {
   private readonly mapa = new Map<number, { puerto: Puerto; bit: number }>();
   private readonly gpios: number[];
 
-  constructor(hex: string, eventos: AvrEventos, frecuenciaHz = 16_000_000, pines: PinMcu[] = PINES_UNO) {
+  constructor(hex: string, eventos: AvrEventos, frecuenciaHz = 16_000_000, pines: PinMcu[] = PINES_UNO, perfilAnalogicoAvr?: PerfilAnalogicoAvr) {
     this.eventos = eventos;
     this.frecuenciaHz = frecuenciaHz;
     for (const p of pines) {
@@ -159,7 +160,7 @@ export class AvrSimulador {
     const reloj = new AVRClock(this.cpu, frecuenciaHz, clockConfig);
     new AVRWatchdog(this.cpu, watchdogConfig, reloj);
     new AVREEPROM(this.cpu, new EEPROMMemoryBackend(1024), eepromConfig);
-    this.analogico = new AdaptadorAnalogicoAvr(this.cpu, new AVRADC(this.cpu, adcConfig));
+    this.analogico = new AdaptadorAnalogicoAvr(this.cpu, new AVRADC(this.cpu, adcConfig), perfilAnalogicoAvr, frecuenciaHz);
 
     this.puertos = {
       B: new AVRIOPort(this.cpu, portBConfig),
