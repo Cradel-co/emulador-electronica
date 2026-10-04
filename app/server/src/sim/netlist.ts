@@ -1,5 +1,7 @@
 import type { ModeloDiodo, Primitiva } from '@emu/shared';
 import type { ResultadoSpice } from './spice.js';
+import type { ParametrosTransitorio } from './transitorio.js';
+import { MAX_VECTORES_TRANSITORIO, validarCantidadValoresTransitorio } from './validacionSpice.js';
 import { ErrorSpice, validarDiagnosticosSpice, validarPrimitivaSpice, valorSpice } from './validacionSpice.js';
 
 /**
@@ -66,6 +68,8 @@ export class Netlist {
   private readonly modelos = new Map<string, string>();
   readonly elementos: ElementoArmado[] = [];
   private cuenta = 0;
+  private readonly reactivos = new Map<string, { linea: number; inicial?: number }>();
+  private readonly fuentes = new Map<string, { linea: number; limitada: boolean; negativa: boolean }>();
 
   constructor(private readonly titulo: string) {}
 
@@ -116,11 +120,13 @@ export class Netlist {
         break;
       case 'C': {
         const x = conMedidor();
+        this.reactivos.set(el.id, { linea: this.lineas.length, inicial: p.v0 });
         this.lineas.push(`c_${n} ${x} ${p.b} ${p.faradios}${p.v0 !== undefined ? ` IC=${p.v0}` : ''}`);
         break;
       }
       case 'L': {
         const x = conMedidor();
+        this.reactivos.set(el.id, { linea: this.lineas.length, inicial: p.i0 });
         this.lineas.push(`l_${n} ${x} ${p.b} ${p.henrios}${p.i0 !== undefined ? ` IC=${p.i0}` : ''}`);
         break;
       }
@@ -143,7 +149,8 @@ export class Netlist {
       }
       case 'V': {
         const x = conMedidor();
-        this.fuente(n, x, p.b, p.voltios, p);
+        const linea = this.fuente(n, x, p.b, p.voltios, p);
+        this.fuentes.set(el.id, { linea, limitada: p.limiteA !== undefined || Boolean(p.soloEntrega), negativa: p.voltios < 0 });
         break;
       }
       case 'REG':
@@ -160,17 +167,18 @@ export class Netlist {
    * (lo que sobra vuelve por el recorte). Con `soloEntrega`, un diodo de bloqueo en la salida
    * (no absorbe corriente de afuera, como un regulador o un USB).
    */
-  private fuente(n: string, pos: string, neg: string, v: number, o: { rSerie?: number; limiteA?: number; soloEntrega?: boolean }): void {
+  private fuente(n: string, pos: string, neg: string, v: number, o: { rSerie?: number; limiteA?: number; soloEntrega?: boolean }): number {
     const limite = o.limiteA ?? (o.soloEntrega ? 10 : undefined);
     if (limite === undefined) {
       const y = `y_${n}`;
       this.lineas.push(`r_${n} ${pos} ${y} ${Math.max(o.rSerie ?? RSERIE_MIN, RSERIE_MIN)}`);
       this.lineas.push(`v_${n} ${y} ${neg} DC ${v}`);
-      return;
+      return this.lineas.length - 1;
     }
     const recorte = this.modelo(MODELO_RECORTE);
     const r = `r_${n}`;
     const salida = o.soloEntrega ? `q_${n}` : pos; // con bloqueo, el recorte queda detrás del diodo
+    const linea = this.lineas.length;
     this.lineas.push(`vref_${n} ${r} ${neg} DC ${v}`);
     if (v >= 0) {
       this.lineas.push(`ilim_${n} ${neg} ${salida} DC ${limite}`);
@@ -181,6 +189,7 @@ export class Netlist {
       this.lineas.push(`drec_${n} ${r} ${salida} ${recorte}`);
       if (o.soloEntrega) this.lineas.push(`dblq_${n} ${pos} ${salida} ${recorte}`);
     }
+    return linea;
   }
 
   /**
@@ -225,18 +234,72 @@ export class Netlist {
   }
 
   texto(): string {
+    return this.renderizar(this.lineas, ['.op']);
+  }
+
+  /** IC y estímulos se aplican a una copia; el punto de operación conserva su netlist. */
+  textoTransitorio(parametros: ParametrosTransitorio): string {
+    this.validarPresupuestoTransitorio(Math.ceil(parametros.duracionS / parametros.pasoS) + 1);
+    const lineas = [...this.lineas];
+    for (const id of Object.keys(parametros.condicionesIniciales ?? {})) {
+      if (!this.reactivos.has(id)) throw new ErrorSpice(`Condición inicial para elemento desconocido o no reactivo: ${id}`, [], '');
+    }
+    for (const [id, reactivo] of this.reactivos) {
+      const linea = lineas[reactivo.linea];
+      if (linea === undefined) throw new ErrorSpice(`No se encontró el elemento ${id}`, [], '');
+      const base = linea.replace(/ IC=\S+$/, '');
+      if (parametros.inicializacion === 'explicita') {
+        const inicial = parametros.condicionesIniciales?.[id] ?? reactivo.inicial;
+        if (inicial === undefined) throw new ErrorSpice(`Falta condición inicial para ${id}`, [], '');
+        lineas[reactivo.linea] = `${base} IC=${inicial}`;
+      } else lineas[reactivo.linea] = base;
+    }
+    for (const [id, puntos] of Object.entries(parametros.estimulos ?? {})) {
+      const fuente = this.fuentes.get(id);
+      if (!fuente) throw new ErrorSpice(`Estímulo para fuente de tensión desconocida: ${id}`, [], '');
+      if (fuente.limitada && puntos.some(p => fuente.negativa ? p.valor > 0 : p.valor < 0)) {
+        throw new ErrorSpice(`El estímulo de ${id} cambia la polaridad de una fuente limitada; ese cambio de topología no está modelado`, [], '');
+      }
+      const linea = lineas[fuente.linea];
+      const primero = puntos[0];
+      if (linea === undefined || primero === undefined) throw new ErrorSpice(`Estímulo inválido para ${id}`, [], '');
+      lineas[fuente.linea] = linea.replace(/ DC \S+$/, ` DC ${primero.valor} PWL(${puntos.map(p => `${p.t} ${p.valor}`).join(' ')})`);
+    }
+    return this.renderizar(lineas, [
+      `.save ${this.vectoresTransitorios().join(' ')}`,
+      '.options reltol=1e-5 abstol=1e-12 vntol=1e-8',
+      `.tran ${parametros.pasoS} ${parametros.duracionS} 0 ${parametros.pasoS}${parametros.inicializacion === 'explicita' ? ' uic' : ''}`,
+    ]);
+  }
+
+  /** El adaptador publica v/i/p por elemento y puede repetir un nodo bajo muchos pines. */
+  validarPresupuestoTransitorio(muestras: number, cantidadPines = this.nodos().size + 1): void {
+    if (this.elementos.length > 256) throw new ErrorSpice('El transitorio admite hasta 256 elementos', [], '');
+    const vectores = this.vectoresTransitorios().length;
+    if (vectores > MAX_VECTORES_TRANSITORIO) throw new ErrorSpice('El transitorio excede el límite de vectores', [], '');
+    validarCantidadValoresTransitorio(muestras, vectores);
+    validarCantidadValoresTransitorio(muestras, 1 + cantidadPines + 3 * this.elementos.length);
+  }
+
+  private vectoresTransitorios(): string[] {
+    const vectores = ['time', ...[...this.nodos()].map(n => `v(${n})`)];
+    for (const el of this.elementos) if (el.medidor) vectores.push(`i(${el.medidor})`);
+    return [...new Set(vectores)];
+  }
+
+  private renderizar(lineas: readonly string[], analisis: readonly string[]): string {
     const modelos = [...this.modelos].map(([cuerpo, n]) => `.model ${n} ${cuerpo}`);
     return [
       this.titulo.replace(/\n/g, ' '),
-      ...this.lineas,
+      ...lineas,
       // ngspice no resuelve un circuito sin elementos: una resistencia suelta a tierra no cambia nada.
-      ...(this.lineas.length === 0 ? ['r_vacio n_vacio 0 1'] : []),
+      ...(lineas.length === 0 ? ['r_vacio n_vacio 0 1'] : []),
       // 1 TΩ de cada nodo a tierra (como la aislación real): un módulo sin cablear o un circuito
       // flotante queda definido en vez de dar "matriz singular". `rshunt` solo no alcanza.
       ...[...this.nodos()].map((nodo, i) => `r_fuga${i} ${nodo} 0 1e12`),
       ...modelos,
       '.options rshunt=1e12 itl1=400 gmin=1e-12',
-      '.op',
+      ...analisis,
       '.end',
     ].join('\n');
   }

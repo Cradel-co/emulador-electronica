@@ -1,0 +1,12 @@
+{
+  "type": "capacitor", "name": "Capacitor ideal", "category": "Pasivos",
+  "description": "C constante: i = C·dv/dt. Abierto en DC. Estado inicial explícito en análisis transitorio. Sin ESR, fugas, tolerancia, ruptura ni dependencia térmica.",
+  "width": 70, "height": 30,
+  "pins": [{ "name": "1", "x": 0, "y": 15, "kind": "other" }, { "name": "2", "x": 70, "y": 15, "kind": "other" }],
+  "controls": [],
+  "props": {
+    "faradios": { "type": "number", "default": 0.000001, "label": "Capacitancia (F)", "min": 1e-12, "max": 100 },
+    "inicialV": { "type": "number", "default": 0, "label": "Tensión inicial 1→2 (V)" }
+  },
+  "svg": "module.svg", "model": "model.ts"
+}

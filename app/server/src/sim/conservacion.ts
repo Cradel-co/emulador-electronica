@@ -1,11 +1,12 @@
 import type { ElementoResuelto } from './netlist.js';
 
 /**
- * Gate numérico del equivalente DC, con los presupuestos que usaba motor.test.ts:
+ * Gate numérico de una instantánea del equivalente, DC o transitoria:
  * KCL: 1 µA + 0,1 % de corriente bruta; potencia: 1 nW + 0,1 % de potencia bruta.
  * Absorbe redondeo y fugas de regularización; no es la tolerancia del componente real.
+ * En transitorio, p de C/L incluye intercambio con su energía almacenada: no es calor.
  */
-export function verificarConservacionDc(elementos: readonly ElementoResuelto[]): void {
+export function verificarConservacionInstantanea(elementos: readonly Pick<ElementoResuelto, 'id' | 'a' | 'b' | 'va' | 'vb' | 'i' | 'p'>[]): void {
   const nodos = new Map<string, { residual: number; escala: number }>();
   let potencia = 0;
   let escalaPotencia = 0;
@@ -29,3 +30,6 @@ export function verificarConservacionDc(elementos: readonly ElementoResuelto[]):
     throw new Error(`Balance de potencia fuera de tolerancia: ${potencia} W`);
   }
 }
+
+/** Nombre conservado para los consumidores del análisis de punto de operación. */
+export const verificarConservacionDc = verificarConservacionInstantanea;
