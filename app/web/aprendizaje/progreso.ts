@@ -1,4 +1,4 @@
-const CLAVE = 'emu.aprendizaje.v1';
+export const CLAVE_PROGRESO_APRENDIZAJE = 'emu.aprendizaje.v1';
 
 export interface AlmacenAprendizaje {
   getItem(clave: string): string | null;
@@ -19,18 +19,41 @@ export interface ProgresoAprendizaje {
 }
 
 function vacio(): ProgresoAprendizaje { return { version: 1, lecciones: {} }; }
+function copiar(documento: ProgresoAprendizaje): ProgresoAprendizaje {
+  return { version: 1, lecciones: Object.fromEntries(Object.entries(documento.lecciones).map(([id, registro]) => [id, { ...registro }])) };
+}
+
+let respaldoSinAlmacenamiento = vacio();
+const respaldosPorAlmacenamiento = new WeakMap<AlmacenAprendizaje, ProgresoAprendizaje>();
+
+function recordar(almacen: AlmacenAprendizaje | null | undefined, documento: ProgresoAprendizaje): ProgresoAprendizaje {
+  const respaldo = copiar(documento);
+  if (almacen) respaldosPorAlmacenamiento.set(almacen, respaldo);
+  else respaldoSinAlmacenamiento = respaldo;
+  return copiar(respaldo);
+}
 
 export function almacenLocalAprendizaje(): AlmacenAprendizaje | null {
   try { return window.localStorage; } catch { return null; }
 }
 
 export function leerProgreso(almacen: AlmacenAprendizaje | null | undefined): ProgresoAprendizaje {
+  const respaldo = almacen ? respaldosPorAlmacenamiento.get(almacen) ?? vacio() : respaldoSinAlmacenamiento;
+  if (!almacen) return copiar(respaldo);
+  let texto: string | null;
   try {
-    const texto = almacen?.getItem(CLAVE);
-    if (!texto) return vacio();
-    const valor: unknown = JSON.parse(texto);
+    texto = almacen.getItem(CLAVE_PROGRESO_APRENDIZAJE);
+  } catch {
+    return copiar(respaldo);
+  }
+  if (!texto) return copiar(respaldo);
+
+  let valor: unknown;
+  try { valor = JSON.parse(texto); }
+  catch { return recordar(almacen, vacio()); }
+  try {
     if (!valor || typeof valor !== 'object' || !('version' in valor) || valor.version !== 1
-      || !('lecciones' in valor) || !valor.lecciones || typeof valor.lecciones !== 'object' || Array.isArray(valor.lecciones)) return vacio();
+      || !('lecciones' in valor) || !valor.lecciones || typeof valor.lecciones !== 'object' || Array.isArray(valor.lecciones)) return recordar(almacen, vacio());
     const lecciones: Record<string, ProgresoLeccion> = {};
     for (const [id, registro] of Object.entries(valor.lecciones)) {
       if (!id || !registro || typeof registro !== 'object') continue;
@@ -47,14 +70,25 @@ export function leerProgreso(almacen: AlmacenAprendizaje | null | undefined): Pr
         ...(typeof dato.proyectoNombre === 'string' ? { proyectoNombre: dato.proyectoNombre } : {}),
       };
     }
-    return { version: 1, lecciones };
+    return recordar(almacen, { version: 1, lecciones });
   } catch {
-    return vacio();
+    return copiar(respaldo);
   }
 }
 
-export function progresoDeLeccion(almacen: AlmacenAprendizaje | null | undefined, id: string, revision: number): ProgresoLeccion | undefined {
+/** Registro más reciente aunque pertenezca a una revisión anterior de la lección. */
+export function registroDeLeccion(almacen: AlmacenAprendizaje | null | undefined, id: string): ProgresoLeccion | undefined {
   const registro = leerProgreso(almacen).lecciones[id];
+  return registro ? { ...registro } : undefined;
+}
+
+/** Un borrado externo del registro invalida también el respaldo en memoria de esta pestaña. */
+export function restablecerRespaldoProgreso(almacen: AlmacenAprendizaje | null | undefined): void {
+  recordar(almacen, vacio());
+}
+
+export function progresoDeLeccion(almacen: AlmacenAprendizaje | null | undefined, id: string, revision: number): ProgresoLeccion | undefined {
+  const registro = registroDeLeccion(almacen, id);
   return registro?.revision === revision ? registro : undefined;
 }
 
@@ -128,5 +162,6 @@ export function quitarAsociacionProyecto(
 }
 
 function guardar(almacen: AlmacenAprendizaje | null | undefined, documento: ProgresoAprendizaje): void {
-  try { almacen?.setItem(CLAVE, JSON.stringify(documento)); } catch { /* La lectura no depende del almacenamiento local. */ }
+  const guardado = recordar(almacen, documento);
+  try { almacen?.setItem(CLAVE_PROGRESO_APRENDIZAJE, JSON.stringify(guardado)); } catch { /* Se conserva el respaldo en memoria. */ }
 }

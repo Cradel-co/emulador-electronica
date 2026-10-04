@@ -6,14 +6,17 @@ test('Aprender abre su índice, permite avanzar pasos y conserva la ruta al reca
   await expect(page.locator('body')).toHaveClass(/aprender/);
   await expect(page).toHaveURL(/#\/aprender$/);
   await expect(page.getByRole('heading', { name: 'Aprendé electrónica, paso a paso' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Aprendé electrónica, paso a paso' })).toBeFocused();
 
   await page.getByRole('button', { name: 'Empezar lección' }).click();
   await expect(page).toHaveURL(/#\/aprender\/encender-un-led\?paso=identificar$/);
   await expect(page.getByRole('heading', { name: 'Encender un LED' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Encender un LED' })).toBeFocused();
   await expect(page.getByRole('heading', { name: 'Identificá cada componente' })).toBeVisible();
   await page.getByRole('button', { name: 'Siguiente' }).click();
   await expect(page).toHaveURL(/#\/aprender\/encender-un-led\?paso=seguir-circuito$/);
   await expect(page.getByRole('heading', { name: 'Seguí el circuito' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Seguí el circuito' })).toBeFocused();
 
   await page.reload();
   await expect(page.getByRole('heading', { name: 'Seguí el circuito' })).toBeVisible();
@@ -23,6 +26,38 @@ test('Aprender abre su índice, permite avanzar pasos y conserva la ruta al reca
   await expect(page).toHaveURL(/#\/aprender\/encender-un-led\?paso=seguir-circuito$/);
   await page.goBack();
   await expect(page).toHaveURL(/#\/aprender$/);
+  await expect(page.getByRole('heading', { name: 'Aprendé electrónica, paso a paso' })).toBeFocused();
+});
+
+test('otra pestaña actualiza el progreso visible en el índice', async ({ page, context }) => {
+  await page.goto('/#/aprender');
+  await expect(page.getByRole('button', { name: 'Empezar lección' })).toBeVisible();
+  const otraPestana = await context.newPage();
+  await otraPestana.goto('/#/aprender/encender-un-led?paso=seguir-circuito');
+  await expect(page.getByRole('button', { name: 'Continuar lección' })).toBeVisible();
+  await expect(page.locator('.aprendizaje-tarjeta')).toContainText('En curso');
+  await otraPestana.close();
+});
+
+test('un progreso de otra revisión invita a revisar y conserva el paso y la práctica', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('emu.aprendizaje.v1', JSON.stringify({
+    version: 1,
+    lecciones: {
+      'encender-un-led': {
+        revision: 2, ultimoPasoId: 'seguir-circuito', completada: true,
+        completadaEn: '2026-10-01T00:00:00.000Z', proyectoNombre: 'practica-led',
+      },
+    },
+  })));
+  await page.goto('/#/aprender');
+  await expect(page.locator('.aprendizaje-tarjeta')).toContainText('Pendiente de revisar');
+  await page.getByRole('button', { name: 'Revisar lección' }).click();
+  await expect(page).toHaveURL(/paso=seguir-circuito$/);
+  await expect(page.getByRole('heading', { name: 'Seguí el circuito' })).toBeVisible();
+  await page.locator('#pantalla-aprender').getByRole('button', { name: /Todas las lecciones/ }).click();
+  await expect(page.locator('.aprendizaje-tarjeta')).toContainText('En curso');
+  await expect(page.locator('.aprendizaje-tarjeta')).not.toContainText('Completada');
+  await expect(page.getByRole('button', { name: 'Continuar práctica' })).toBeVisible();
 });
 
 test('una lección desconocida muestra una salida para volver al índice', async ({ page }) => {
@@ -50,10 +85,38 @@ test('un paso desconocido vuelve al primer paso y normaliza la dirección', asyn
   await expect(page).toHaveURL(/#\/aprender\/encender-un-led\?paso=identificar$/);
 });
 
+test('los pasos se pueden manejar con teclado y la lección no desborda una pantalla estrecha', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/#/aprender/encender-un-led?paso=identificar');
+  const titulo = page.getByRole('heading', { name: 'Encender un LED' });
+  await expect(titulo).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(page.locator('.aprendizaje-pasos button').nth(0)).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(page.locator('.aprendizaje-pasos button').nth(1)).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(page).toHaveURL(/paso=seguir-circuito$/);
+  await expect(page.getByRole('heading', { name: 'Seguí el circuito' })).toBeFocused();
+  const ancho = await page.locator('.aprendizaje-pagina').evaluate(element => ({
+    cliente: element.clientWidth, contenido: element.scrollWidth,
+  }));
+  expect(ancho.contenido).toBeLessThanOrEqual(ancho.cliente);
+});
+
 test('la última parte de la lección crea la práctica con una plantilla independiente', async ({ page, request }) => {
   const plantillas = await (await request.get('/api/templates')).json();
   expect(plantillas.some((plantilla: { id: string }) => plantilla.id === 'aprender-led')).toBe(true);
   const nombre = 'practica-aprender-led';
+  let respuestaPerdida = false;
+  await page.route('**/api/projects', async route => {
+    if (route.request().method() === 'POST' && !respuestaPerdida) {
+      respuestaPerdida = true;
+      await route.fetch(); // el servidor confirma la creación
+      await route.abort('connectionreset'); // el navegador pierde la respuesta
+      return;
+    }
+    await route.continue();
+  });
   await page.goto('/#/aprender/encender-un-led?paso=invertir-led');
   page.once('dialog', dialog => dialog.accept(nombre));
   await page.getByRole('button', { name: 'Abrir práctica' }).click();

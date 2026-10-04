@@ -25,7 +25,8 @@ import {
 } from './consultas.js';
 import { fmtMa, fmtV } from './formato.js';
 import { contenidoAprendizaje, leccionPorId } from './aprendizaje/contenido.js';
-import { almacenLocalAprendizaje, asociarProyecto, completarLeccion, progresoDeLeccion, quitarAsociacionProyecto, registrarPaso } from './aprendizaje/progreso.js';
+import { almacenLocalAprendizaje, asociarProyecto, CLAVE_PROGRESO_APRENDIZAJE, completarLeccion, quitarAsociacionProyecto, registrarPaso, registroDeLeccion, restablecerRespaldoProgreso } from './aprendizaje/progreso.js';
+import { crearConRecuperacion } from './aprendizaje/practica.js';
 
 /**
  * Id de esta pestaña: el server lo devuelve en los eventos para no recargar los cambios propios.
@@ -82,6 +83,8 @@ const state = observable({
   proyecto: null,
   aprendizajeRuta: null as { leccion?: string; paso?: string } | null,
   leccionPracticaId: null as string | null,
+  revisionProgresoAprendizaje: 0,
+  creandoPracticaAprendizaje: false,
   archivos: [],
   carpetas: [] as string[],
   exploradorPlacas: [] as BoardFileTree[],
@@ -187,6 +190,11 @@ const state = observable({
   },
 });
 registrarEstado(state);
+window.addEventListener('storage', event => {
+  if (event.key !== CLAVE_PROGRESO_APRENDIZAJE && event.key !== null) return;
+  if (event.newValue === null) restablecerRespaldoProgreso(almacenLocalAprendizaje());
+  state.revisionProgresoAprendizaje++;
+});
 // Lo que los componentes de React necesitan disparar (#9). Van por el puente y no importándose,
 // para no armar un ciclo entre app.ts y los componentes.
 registrarAcciones({
@@ -2759,22 +2767,32 @@ $('bienvenida-acerca').onclick = () => void navegacion.navigate({ project: null,
 $('bienvenida-importar').onclick = abrirImportador;
 
 async function crearPracticaAprendizaje(plantillaId: string): Promise<void> {
+  if (state.creandoPracticaAprendizaje) return;
   const nombre = window.prompt('Nombre del proyecto de práctica:', 'practica-led')?.trim();
-  if (!nombre) return;
+  if (!nombre || state.creandoPracticaAprendizaje) return;
+  state.creandoPracticaAprendizaje = true;
   const leccion = state.aprendizajeRuta?.leccion ? leccionPorId(state.aprendizajeRuta.leccion) : undefined;
   try {
-    await api('/api/projects', { method: 'POST', body: JSON.stringify({ name: nombre, template: plantillaId }) });
+    await crearConRecuperacion(
+      () => api('/api/projects', { method: 'POST', body: JSON.stringify({ name: nombre, template: plantillaId }) }),
+      async () => {
+        const encontrado = await api(`/api/projects/${encodeURIComponent(nombre)}`);
+        return encontrado.project?.name === nombre ? encontrado : null;
+      },
+    );
     if (leccion) asociarProyecto(almacenLocalAprendizaje(), leccion.id, leccion.revision, nombre);
     await cargarProyectos();
     await navegacion.navigate({ project: nombre, ...(leccion ? { leccion: leccion.id } : {}) });
   } catch (error) {
     nota('No se pudo crear la práctica: ' + String((error as Error)?.message ?? error));
+  } finally {
+    state.creandoPracticaAprendizaje = false;
   }
 }
 
 async function continuarPracticaAprendizaje(leccionId: string): Promise<void> {
   const leccion = leccionPorId(leccionId);
-  const progreso = leccion && progresoDeLeccion(almacenLocalAprendizaje(), leccion.id, leccion.revision);
+  const progreso = leccion && registroDeLeccion(almacenLocalAprendizaje(), leccion.id);
   const nombre = progreso?.proyectoNombre;
   if (!leccion || !nombre) return;
   try {
@@ -2796,7 +2814,7 @@ async function continuarPracticaAprendizaje(leccionId: string): Promise<void> {
 async function volverALeccionAprendizaje(): Promise<void> {
   const leccion = state.leccionPracticaId ? leccionPorId(state.leccionPracticaId) : undefined;
   if (!leccion) return;
-  const paso = progresoDeLeccion(almacenLocalAprendizaje(), leccion.id, leccion.revision)?.ultimoPasoId;
+  const paso = registroDeLeccion(almacenLocalAprendizaje(), leccion.id)?.ultimoPasoId;
   await navegacion.navigate({ project: null, aprender: { leccion: leccion.id, ...(paso ? { paso } : {}) } });
 }
 
@@ -2884,7 +2902,7 @@ async function aplicarRuta(route: WorkspaceRoute): Promise<WorkspaceRoute> {
       const aprender = { ...route.aprender };
       const leccion = aprender.leccion ? leccionPorId(aprender.leccion) : undefined;
       if (leccion) {
-        const guardado = progresoDeLeccion(almacenLocalAprendizaje(), leccion.id, leccion.revision)?.ultimoPasoId;
+        const guardado = registroDeLeccion(almacenLocalAprendizaje(), leccion.id)?.ultimoPasoId;
         const solicitado = aprender.paso ?? guardado;
         if (solicitado && leccion.pasos.some(paso => paso.id === solicitado)) aprender.paso = solicitado;
         else aprender.paso = leccion.pasos[0]?.id;
@@ -2906,7 +2924,7 @@ async function aplicarRuta(route: WorkspaceRoute): Promise<WorkspaceRoute> {
     }
     const leccionDeUrl = route.leccion ? leccionPorId(route.leccion) : undefined;
     const leccionAsociada = contenidoAprendizaje.find(leccion =>
-      progresoDeLeccion(almacenLocalAprendizaje(), leccion.id, leccion.revision)?.proyectoNombre === route.project);
+      registroDeLeccion(almacenLocalAprendizaje(), leccion.id)?.proyectoNombre === route.project);
     state.leccionPracticaId = leccionDeUrl?.id ?? leccionAsociada?.id ?? null;
     if (state.proyecto?.name === route.project) pintarWidgetsProyecto();
     if (!state.proyectos.some(project => project.name === route.project)) await cargarProyectos();

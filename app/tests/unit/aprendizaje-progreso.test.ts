@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { asociarProyecto, completarLeccion, leerProgreso, progresoDeLeccion, quitarAsociacionProyecto, registrarPaso } from '../../web/aprendizaje/progreso.js';
+import { asociarProyecto, completarLeccion, leerProgreso, progresoDeLeccion, quitarAsociacionProyecto, registrarPaso, registroDeLeccion } from '../../web/aprendizaje/progreso.js';
 
 class AlmacenMemoria {
   datos = new Map<string, string>();
@@ -26,6 +26,14 @@ describe('progreso local de Aprender', () => {
     const roto = { getItem() { throw new Error('sin acceso'); }, setItem() { throw new Error('cuota'); } };
     expect(leerProgreso(roto)).toEqual({ version: 1, lecciones: {} });
     expect(() => registrarPaso(roto, 'encender-un-led', 1, 'probar')).not.toThrow();
+  });
+
+  it('mantiene el progreso en memoria mientras el almacenamiento está bloqueado', () => {
+    const bloqueado = { getItem() { return null; }, setItem() { throw new Error('cuota'); } };
+    registrarPaso(bloqueado, 'leccion-sin-storage', 1, 'paso-1');
+    expect(registroDeLeccion(bloqueado, 'leccion-sin-storage')).toEqual({
+      revision: 1, ultimoPasoId: 'paso-1', completada: false,
+    });
   });
 
   it('reinicia la finalización cuando cambia la revisión y elimina registros inválidos', () => {
@@ -65,5 +73,16 @@ describe('progreso local de Aprender', () => {
       version: 1, lecciones: { 'encender-un-led': { revision: 2, completada: false, proyectoNombre: 4 } },
     }));
     expect(leerProgreso(almacen).lecciones['encender-un-led']).toBeUndefined();
+  });
+
+  it('expone un registro de otra revisión para retomar la práctica y revisar la lección', () => {
+    const almacen = new AlmacenMemoria();
+    registrarPaso(almacen, 'encender-un-led', 1, 'paso-que-sigue-existiendo');
+    asociarProyecto(almacen, 'encender-un-led', 1, 'practica-led');
+    completarLeccion(almacen, 'encender-un-led', 1, 'paso-que-sigue-existiendo');
+    expect(progresoDeLeccion(almacen, 'encender-un-led', 2)).toBeUndefined();
+    expect(registroDeLeccion(almacen, 'encender-un-led')).toMatchObject({
+      revision: 1, ultimoPasoId: 'paso-que-sigue-existiendo', completada: true, proyectoNombre: 'practica-led',
+    });
   });
 });
