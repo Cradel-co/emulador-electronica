@@ -82,7 +82,7 @@ test('permiso denegado se informa sin abrir sesión', async ({ page, request }) 
   expect((await (await request.get(`/api/projects/${project}/cameras/${instance}/status`)).json()).active).toBe(false);
 });
 
-test('otra pestaña no toma la sesión y seleccionar otro módulo detiene', async ({ page, context, request }) => {
+test('otra pestaña no toma la sesión y cambiar el foco del módulo mantiene la cámara', async ({ page, context, request }) => {
   const project = await abrirProyectoNuevo(page, request), instance = await agregar(page);
   await page.getByRole('button', { name: 'Activar', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Capturar', exact: true })).toBeEnabled();
@@ -96,6 +96,10 @@ test('otra pestaña no toma la sesión y seleccionar otro módulo detiene', asyn
   await other.getByRole('button', { name: 'Activar', exact: true }).click();
   await expect(other.getByRole('region', { name: 'Cámara virtual' }).getByRole('alert')).toContainText('otra sesión');
   await seleccionarModulo(page, 'btn1');
+  await expect.poll(async () => (await (await request.get(`/api/projects/${project}/cameras/${instance}/status`)).json()).active).toBe(true);
+  await seleccionarModulo(page, instance);
+  await expect(page.getByRole('status').filter({ hasText: 'Cámara activa' })).toBeVisible();
+  await page.getByRole('button', { name: 'Detener', exact: true }).click();
   await expect.poll(async () => (await (await request.get(`/api/projects/${project}/cameras/${instance}/status`)).json()).active).toBe(false);
 });
 

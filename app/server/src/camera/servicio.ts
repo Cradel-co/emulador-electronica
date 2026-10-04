@@ -1,4 +1,5 @@
 import { randomUUID, createHash } from 'node:crypto';
+import { performance } from 'node:perf_hooks';
 import sharp from 'sharp';
 import { CameraDescriptorSchema, type CameraCapture, type CameraDescriptor, type CameraSession, type CameraStatus, type ServerEvent } from '@emu/shared';
 
@@ -75,6 +76,7 @@ export class ServicioCamara {
     if (bytes.length > limites.maxBytes) throw new ErrorCamara('CAPTURE_TOO_LARGE', 'La fotografía supera el tamaño permitido.', 413);
     r.pending = true;
     try {
+      const inicioValidacion = performance.now();
       let width: number, height: number;
       try {
         const image = sharp(bytes, { limitInputPixels: limites.maxWidth * limites.maxHeight, failOn: 'warning' });
@@ -87,16 +89,20 @@ export class ServicioCamara {
         if (err instanceof ErrorCamara) throw err;
         throw new ErrorCamara('INVALID_IMAGE', 'La fotografía JPEG es inválida o supera el límite de píxeles.', 400);
       }
+      const backendValidateMs = performance.now() - inicioValidacion;
       // La sesión o el módulo pudieron desaparecer durante la decodificación.
       if (this.recursos.get(this.clave(p, i)) !== r || this.propietario(p, i, id) !== r) throw new ErrorCamara('SESSION_EXPIRED', 'La sesión cambió durante la captura.');
       if (requestId && (r.solicitud !== solicitud || !solicitud || solicitud.expiresAt <= this.ahora())) throw new ErrorCamara('REQUEST_EXPIRED', 'La solicitud cambió durante la captura.');
+      let backendNormalizeMs = 0;
       if (requestId) {
+        const inicioNormalizacion = performance.now();
         bytes = await sharp(bytes).resize(320, 240, { fit: 'contain', background: 'black' }).jpeg({ quality: 80 }).toBuffer();
+        backendNormalizeMs = performance.now() - inicioNormalizacion;
         width = 320; height = 240;
         if (bytes.length > limites.maxBytes) throw new ErrorCamara('CAPTURE_TOO_LARGE', 'La fotografía normalizada supera el límite.', 413);
         if (this.recursos.get(this.clave(p, i)) !== r || this.propietario(p, i, id) !== r || r.solicitud !== solicitud || !solicitud || solicitud.expiresAt <= this.ahora()) throw new ErrorCamara('REQUEST_EXPIRED', 'La solicitud fue cancelada durante la normalización.');
       }
-      const meta: CameraCapture = { id: randomUUID(), project: p, instance: i, number: ++r.number, width, height, size: bytes.length, receivedAt: this.ahora(), ...(requestId ? { requestId } : {}), sha256: createHash('sha256').update(bytes).digest('hex') };
+      const meta: CameraCapture = { id: randomUUID(), project: p, instance: i, number: ++r.number, width, height, size: bytes.length, receivedAt: this.ahora(), ...(requestId ? { requestId } : {}), sha256: createHash('sha256').update(bytes).digest('hex'), timings: { backendValidateMs, backendNormalizeMs } };
       r.capture = { bytes: Buffer.from(bytes), meta };
       let total = [...this.recursos.values()].reduce((n, v) => n + (v.capture?.bytes.length ?? 0), 0);
       for (const viejo of [...this.recursos.values()].filter(v => v.capture && v !== r).sort((a,b) => (a.capture?.meta.receivedAt ?? 0) - (b.capture?.meta.receivedAt ?? 0))) {

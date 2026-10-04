@@ -78,6 +78,11 @@ describe('plantilla ArduCAM con TFT', () => {
     expect(main).toContain('decodificar_rgb565');
     expect(main).toContain('dibujar_rgb565');
     expect(main).toContain('Pin(14');
+    expect(main).not.toContain("input('Enter para solicitar otra foto");
+    expect(main).toContain('time.sleep_ms(1000)');
+    expect(main).toContain('Tiempos ms: captura=');
+    expect(main).toContain('decodificacion=');
+    expect(main).toContain('time.ticks_us()');
   });
 });
 

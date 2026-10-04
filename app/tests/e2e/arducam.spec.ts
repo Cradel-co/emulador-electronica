@@ -40,6 +40,8 @@ test('ESP32-S3 MicroPython solicita webcam, lee FIFO y calcula la huella del bac
     const image = panel.getByAltText('Fotografía recuperada del servidor');
     await expect(image).toBeVisible();
     expect(await image.evaluate((el: HTMLImageElement) => [el.naturalWidth, el.naturalHeight])).toEqual([320,240]);
+    await expect(panel).toContainText('JPEG navegador=');
+    await expect(panel).toContainText('backend validar/decodificar=');
     await page.evaluate(async () => {
       const canvas = (window as unknown as { fuenteArduCAM: HTMLCanvasElement }).fuenteArduCAM;
       const ctx = canvas.getContext('2d'); if (!ctx) throw new Error('canvas');
@@ -130,8 +132,6 @@ test('la foto solicitada por MicroPython llega decodificada a la pantalla ST7735
       const video = document.querySelector('video');
       if (video) await new Promise<void>(resolve => video.requestVideoFrameCallback(() => resolve()));
     });
-    await page.locator('#entrada-console').fill('');
-    await page.locator('#entrada-console').press('Enter');
     await expect.poll(async () => (await (await request.get(base + '/status')).json()).capture.sha256, { timeout: 30_000 }).not.toBe(primeraHuella);
     await expect.poll(async () => {
       const pixeles = await leer();

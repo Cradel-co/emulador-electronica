@@ -263,6 +263,19 @@ def decodificar_rgb565(jpeg, destino_ancho=None, destino_alto=None):
     mcu_alto = max_v * 8
     mcu_columnas = (ancho + mcu_ancho - 1) // mcu_ancho
     mcu_filas = (alto + mcu_alto - 1) // mcu_alto
+    reducido_dc = frecuencias_u == 1 and frecuencias_v == 1
+    if reducido_dc:
+        # El recorrido anterior visitaba cada muestra original y sobrescribía
+        # varias veces cada píxel destino. Guardar solo la última muestra que
+        # llegaba a cada coordenada conserva exactamente su redondeo y encuadre.
+        columnas_por_mcu = [[] for _ in range(mcu_columnas)]
+        for dx in range(destino_ancho):
+            x = ((dx + 1) * ancho - 1) // destino_ancho
+            columnas_por_mcu[x // mcu_ancho].append((dx, x % mcu_ancho))
+        filas_por_mcu = [[] for _ in range(mcu_filas)]
+        for dy in range(destino_alto):
+            y = ((dy + 1) * alto - 1) // destino_alto
+            filas_por_mcu[y // mcu_alto].append((dy, y % mcu_alto))
     for my in range(mcu_filas):
         for mx in range(mcu_columnas):
             bloques = {}
@@ -275,6 +288,28 @@ def decodificar_rgb565(jpeg, destino_ancho=None, destino_alto=None):
                 bloques[cid] = lista
             base_x = mx * mcu_ancho
             base_y = my * mcu_alto
+            if reducido_dc:
+                for dy, ly in filas_por_mcu[my]:
+                    for dx, lx in columnas_por_mcu[mx]:
+                        valores = []
+                        for cid, _, _ in scan:
+                            comp = componentes[cid]
+                            sx = lx * comp['h'] // max_h
+                            sy = ly * comp['v'] // max_v
+                            indice = (sy // 8) * comp['h'] + (sx // 8)
+                            valores.append(bloques[cid][indice][0])
+                        if len(valores) == 1:
+                            r = g = b = valores[0]
+                        else:
+                            yy, cb, cr = valores[0], valores[1] - 128, valores[2] - 128
+                            r = int(yy + 1.402 * cr + 0.5)
+                            g = int(yy - 0.344136 * cb - 0.714136 * cr + 0.5)
+                            b = int(yy + 1.772 * cb + 0.5)
+                        r = max(0, min(255, r)); g = max(0, min(255, g)); b = max(0, min(255, b))
+                        p = (dy * destino_ancho + dx) * 2
+                        salida[p] = (r & 248) | (g >> 5)
+                        salida[p + 1] = ((g & 28) << 3) | (b >> 3)
+                continue
             for ly in range(mcu_alto):
                 y = base_y + ly
                 if y >= alto:

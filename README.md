@@ -221,13 +221,15 @@ Diseño, contratos y prueba completa: [SDD-CAMARA.md](SDD-CAMARA.md).
 
 ## ArduCAM con ESP32-S3 y MicroPython
 
-En **Nuevo proyecto**, elegí la plantilla **ArduCAM con ESP32-S3 y MicroPython**. Incluye el circuito cableado y genera `arducam.py` y `main.py` desde una plantilla TypeScript. Seleccioná la cámara, pulsá **Activar webcam**, aceptá el permiso y ejecutá el programa.
+En **Nuevo proyecto**, elegí la plantilla **ArduCAM con ESP32-S3 y MicroPython**. Incluye el circuito cableado y genera `arducam.py` y `main.py` desde una plantilla TypeScript. Seleccioná la cámara, pulsá **Activar webcam** la primera vez y aceptá el permiso del navegador. El navegador guarda esa autorización; al volver a seleccionar el módulo, la sesión activa se conserva y, si la sesión se cerró, se reanuda automáticamente cuando el navegador indica que el permiso sigue concedido.
 
 Cada cinco segundos MicroPython pide una fotografía nueva mediante I2C/SPI, lee el JPEG completo en bloques de 512 bytes e imprime longitud y SHA-256. El visor muestra la fotografía recuperada del backend y su huella: ambas deben coincidir, sin pulsar **Capturar**. Mostrá otro objeto para verificar una fotografía diferente. **Detener** libera la webcam; parar o reiniciar el programa cancela las solicitudes pendientes.
 
-La plantilla inicial **ArduCAM con ESP32-S3 y MicroPython** verifica la captura JPEG sin TFT. Para mostrar una foto en el circuito, elegí **ArduCAM y TFT ST7735 con ESP32-S3**: comparte SCLK/MOSI y usa CS separados; MicroPython solicita la foto, conserva el JPEG completo en la FIFO y la dibuja centrada en la pantalla. Cada Enter en la consola solicita otra foto; no hay video continuo.
+La plantilla inicial **ArduCAM con ESP32-S3 y MicroPython** verifica la captura JPEG sin TFT. Para ver la cámara en el circuito, elegí **ArduCAM y TFT ST7735 con ESP32-S3**: comparte SCLK/MOSI y usa CS separados; MicroPython solicita una foto y, después de cada ciclo completo, espera un segundo antes de volver a solicitarla. Como la captura, la decodificación y el dibujo se suman a esa pausa, el intervalo entre imágenes es mayor a un segundo. Es una vista casi en vivo compuesta por capturas; no es un flujo de video continuo por SPI. Cambiar la selección del circuito no apaga la webcam; **Detener**, cambiar de proyecto o salir de la página sí la libera.
 
 La TFT recibe 128 × 96 RGB565 con bandas negras. Para mantener el tiempo de respuesta en esp-emu, esta primera versión representa los bloques JPEG por su color promedio (detalle efectivo aproximado de 40 × 30); la IDCT completa y la prueba en hardware físico quedan pendientes. El driver solo usa APIs normales de MicroPython. Diseño y alcance: [SDD-ARDUCAM-TFT.md](SDD-ARDUCAM-TFT.md).
+
+En localhost, el navegador y el backend simulan la salida JPEG de la cámara; el OV2640 de la ArduCAM física comprime la imagen dentro del propio sensor. El ESP32 no codifica en ninguno de esos recorridos: en localhost codifican navegador/backend y, físicamente, el OV2640. MicroPython sí decodifica el JPEG para que la TFT reciba píxeles RGB565. Los tiempos del emulador no estiman el rendimiento físico.
 
 ## Placas soportadas
 

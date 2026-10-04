@@ -20,6 +20,8 @@ describe('Cámara virtual', () => {
     const a = s.abrir('p', 'c'), bytes = await jpeg();
     const m = await s.capturar('p', 'c', a.id, bytes);
     expect(m).toMatchObject({ width: 32, height: 24, number: 1 });
+    expect(m.timings?.backendValidateMs).toBeGreaterThanOrEqual(0);
+    expect(m.timings?.backendNormalizeMs).toBe(0);
     expect(s.imagen('p', 'c', m.id).bytes).toEqual(bytes);
     s.cerrar('p', 'c', a.id);
     expect(s.imagen('p', 'c').meta.id).toBe(m.id);

@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import sharp from 'sharp';
 import { describe, expect, it } from 'vitest';
 import { decodificadorJpegMicroPython } from './jpegDecoder.js';
@@ -30,9 +31,21 @@ async function jpegDeColores(ancho = 64, alto = 48): Promise<{ jpeg: Buffer; rgb
   return { jpeg, rgb: decodificado };
 }
 
-function ejecutar(jpeg: Buffer, destino?: { ancho: number; alto: number }): { ok: boolean; pixeles?: Buffer; error?: string } {
+async function jpegTexturado(ancho = 320, alto = 240): Promise<Buffer> {
+  const rgb = Buffer.alloc(ancho * alto * 3);
+  for (let y = 0; y < alto; y++) for (let x = 0; x < ancho; x++) {
+    const i = (y * ancho + x) * 3;
+    rgb[i] = (x * 37 + y * 19 + (x * y) % 251) & 255;
+    rgb[i + 1] = (x * 13 + y * 43 + (x * y) % 239) & 255;
+    rgb[i + 2] = (x * 29 + y * 7 + (x * y) % 227) & 255;
+  }
+  return sharp(rgb, { raw: { width: ancho, height: alto, channels: 3 } })
+    .jpeg({ quality: 85, chromaSubsampling: '4:2:0' }).toBuffer();
+}
+
+function ejecutar(jpeg: Buffer, destino?: { ancho: number; alto: number }, fuente = decodificadorJpegMicroPython): { ok: boolean; pixeles?: Buffer; error?: string } {
   const resultado = spawnSync('python3', ['-c', arnesPython], {
-    input: JSON.stringify({ fuente: decodificadorJpegMicroPython, jpeg: jpeg.toString('base64'), ...destino }),
+    input: JSON.stringify({ fuente, jpeg: jpeg.toString('base64'), ...destino }),
     encoding: 'utf8', maxBuffer: 4 * 1024 * 1024, timeout: 60_000,
   });
   if (resultado.status !== 0) throw new Error(resultado.stderr || 'Falló el proceso Python de prueba');
@@ -76,6 +89,28 @@ describe.skipIf(!pythonDisponible)('decodificador JPEG compatible con MicroPytho
       const pixel = salida.pixeles!.readUInt16BE((y! * 128 + x!) * 2);
       expect(Math.max(...diferenciaRgb565(pixel, rgb[origen]!, rgb[origen + 1]!, rgb[origen + 2]!))).toBeLessThanOrEqual(18);
     }
+  }, 70_000);
+
+  it('conserva byte por byte la salida RGB565 completa de la foto 320×240 de referencia', async () => {
+    const { jpeg } = await jpegDeColores(320, 240);
+    const salida = ejecutar(jpeg, { ancho: 128, alto: 96 });
+    expect(salida.ok).toBe(true);
+    expect(salida.pixeles).toHaveLength(128 * 96 * 2);
+    expect(createHash('sha256').update(salida.pixeles!).digest('hex')).toBe('b57ff0d080b7deaa5f046f173fd94180e3c10a3baac95a5b8abaca67be373038');
+  });
+
+  it('produce los mismos 128×96 RGB565 que el recorrido previo en una foto texturada', async () => {
+    const jpeg = await jpegTexturado();
+    const salidaDirecta = ejecutar(jpeg, { ancho: 128, alto: 96 });
+    const fuentePrevio = decodificadorJpegMicroPython.replace(
+      'reducido_dc = frecuencias_u == 1 and frecuencias_v == 1',
+      'reducido_dc = False',
+    );
+    expect(fuentePrevio).not.toBe(decodificadorJpegMicroPython);
+    const salidaCaracterizada = ejecutar(jpeg, { ancho: 128, alto: 96 }, fuentePrevio);
+    expect(salidaDirecta.ok).toBe(true);
+    expect(salidaCaracterizada.ok).toBe(true);
+    expect(salidaDirecta.pixeles).toEqual(salidaCaracterizada.pixeles);
   }, 70_000);
 
   it('rechaza JPEG progresivo y dimensiones fuera del límite antes de decodificar', async () => {

@@ -1,5 +1,6 @@
 import { it, expect, vi } from 'vitest';
 import { ControladorCamara } from '../../web/camera.js';
+import { crearControladorCamara } from '../../web/camera.js';
 import type { CameraSession } from '../../shared/src/camera.js';
 const fake = () => {
   const stop = vi.fn();
@@ -31,6 +32,38 @@ it('cierra una sesión creada después de cancelar la activación', async () => 
 it('muestra permisos denegados sin abrir sesión', async () => {
   const c = new ControladorCamara('/camera', { media: { getUserMedia: async () => { throw new Error('Permiso denegado'); }, enumerateDevices: async () => [] }, fetch: vi.fn() });
   await c.activar(); expect(c.snapshot.error).toContain('Permiso denegado');
+});
+
+it('reanuda la cámara automáticamente cuando el navegador ya guardó el permiso', async () => {
+  const f = fake(), pedir = vi.fn().mockResolvedValue({ state: 'granted' });
+  const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify({ id: 's', expiresAt: Date.now() + 45000 })));
+  const media = { getUserMedia: vi.fn(async () => f.stream), enumerateDevices: async () => [] };
+  const c = new ControladorCamara('/camera', { media, permissions: { query: pedir }, fetch: fetcher });
+  await c.reanudarSiAutorizada();
+  expect(pedir).toHaveBeenCalledWith({ name: 'camera' });
+  expect(media.getUserMedia).toHaveBeenCalledOnce();
+  expect(c.snapshot.phase).toBe('active');
+  await c.destruir();
+});
+
+it('reutiliza una sesión de cámara al desmontar y volver a montar el panel', () => {
+  const primera = crearControladorCamara('persistencia-test', 'camera', '/camera', {
+    media: { getUserMedia: async () => fake().stream, enumerateDevices: async () => [] }, fetch: vi.fn(),
+  });
+  const segunda = crearControladorCamara('persistencia-test', 'camera', '/camera');
+  expect(segunda).toBe(primera);
+  primera.destruir();
+});
+
+it('respeta Detener y no reanuda automáticamente hasta que el usuario la active de nuevo', async () => {
+  const f = fake(), media = { getUserMedia: vi.fn(async () => f.stream), enumerateDevices: async () => [] };
+  const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify({ id: 's', expiresAt: Date.now() + 45000 })));
+  const c = new ControladorCamara('/camera', { media, permissions: { query: async () => ({ state: 'granted' }) as PermissionStatus }, fetch: fetcher });
+  await c.activar();
+  await c.detener(true);
+  await c.reanudarSiAutorizada();
+  expect(media.getUserMedia).toHaveBeenCalledOnce();
+  c.destruir();
 });
 
 it('fallo de heartbeat detiene pistas y no reactiva la cámara', async () => {
