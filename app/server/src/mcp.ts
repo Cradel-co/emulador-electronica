@@ -1,6 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { DEFAULT_BOARD, LANGUAGES, type Language, type Project } from '@emu/shared';
+import { DEFAULT_BOARD, LANGUAGES, placaDelProyecto, type Language, type Project } from '@emu/shared';
 import type { ModuloCatalogo } from './catalog.js';
 import type { ProjectStore } from './projectStore.js';
 import type { EmulatorStatus } from './emulator.js';
@@ -10,6 +10,7 @@ import type { ReporteCertificacion } from './certificacion.js';
 import { nombreDePin } from '@emu/shared';
 import type { Depurador } from './debug/depurador.js';
 import { INSTRUCCIONES_DEBUG, registrarHerramientasDepuracion } from './debug/mcpDepuracion.js';
+import { CanalRfSchema, transmitirPorCanalRf } from './rf/canalRf.js';
 import {
   agregarModulo,
   cableadosConRol,
@@ -67,7 +68,8 @@ export interface McpContexto {
   esperarEstado: (estados: string[], timeoutMs: number) => Promise<string | null>;
   /** false si la simulación no está corriendo con el puente listo. */
   ponerPin: (gpio: number, nivel: 0 | 1) => boolean;
-  enviarRf: (bits: string, protocolo: number) => boolean;
+  /** Valida transporte y, para un canal declarado, destino/alimentación con el análisis vigente. */
+  enviarRf: (bits: string, protocolo: number, canalRf?: unknown) => boolean | Promise<boolean>;
   niveles: () => Record<number, 0 | 1>;
   logs: (fuente: 'build' | 'emu', n: number) => string[];
   esperarLog: (re: RegExp, timeoutMs: number) => Promise<string | null>;
@@ -544,8 +546,9 @@ export function crearServidorMcp(ctx: McpContexto): McpServer {
       accion: z.enum(['presionar', 'soltar', 'pulsar', 'encender', 'apagar', 'boton_A', 'boton_B', 'boton_C', 'boton_D', 'abrir', 'cerrar', 'transmitir']),
       duracion_ms: z.number().int().min(10).max(10_000).default(200).describe('Solo para pulsar'),
       proyecto: z.string().optional().describe('Por defecto, el que está corriendo'),
+      canalRf: CanalRfSchema.optional().describe('Opcional, solo RF: presupuesto de enlace declarado en espacio libre. Sin él se usa RF funcional sin acreditar alcance.'),
     },
-  }, seguro(async ({ id, accion, duracion_ms, proyecto: nombre }) => {
+  }, seguro(async ({ id, accion, duracion_ms, proyecto: nombre, canalRf }) => {
     const corriendo = ctx.proyectoCorriendo();
     const energizado = ctx.proyectoEnergizado();
     const cual = nombre ?? corriendo ?? energizado;
@@ -605,8 +608,15 @@ export function crearServidorMcp(ctx: McpContexto): McpServer {
     }
 
     if (rol === 'air') {
-      if (cableadosConRol(p, 'rf-rx', buscar).length === 0) {
+      const receptores = cableadosConRol(p, 'rf-rx', buscar, placaDelProyecto(p)?.id);
+      if (receptores.length === 0) {
         return falla('Nadie recibe la señal: agregá un Receptor RF RXB6 y conectá su DATA a un GPIO del ESP32.');
+      }
+      if (canalRf && (canalRf.transmisor.id !== id || !receptores.some(r => r.id === canalRf.receptor.id))) {
+        return falla('El canal RF debe identificar este transmisor y un receptor cableado y alimentado del proyecto.');
+      }
+      if (canalRf && receptores.length !== 1) {
+        return falla('El puente RF actual no dirige tramas a receptores individuales: este perfil requiere un único receptor cableado.');
       }
       let bits: unknown;
       if (accion.startsWith('boton_')) bits = inst.props[`code${accion.slice(-1)}`];
@@ -616,8 +626,9 @@ export function crearServidorMcp(ctx: McpContexto): McpServer {
         return falla(`"${def.name}" no tiene un código válido para "${accion}" (props: ${JSON.stringify(inst.props)}).`);
       }
       const protocolo = Number(inst.props.protocol ?? 1);
-      if (!ctx.enviarRf(bits, protocolo)) return falla(noCorre);
-      return texto(`${id} transmitió ${bits} (protocolo ${protocolo}).`);
+      const r = await transmitirPorCanalRf(bits, protocolo, canalRf, (b, protocolo, canal) => ctx.enviarRf(b, protocolo, canal));
+      if (r.evaluacion.permitirRecepcion && !r.entregado) return falla(noCorre);
+      return json(`${id}: transmisión RF ${r.entregado ? 'entregada' : 'no entregada'} al firmware.`, r);
     }
 
     if (rol === 'output') return falla(`"${def.name}" es una salida: se lee con leer_pines.`);
@@ -656,9 +667,13 @@ export function crearServidorMcp(ctx: McpContexto): McpServer {
 
   server.registerTool('enviar_rf', {
     title: 'Enviar código RF 433',
-    description: 'Bajo nivel: hace llegar un código RF al receptor del ESP32 (como un control remoto).',
-    inputSchema: { bits: z.string().regex(/^[01]{1,64}$/), protocolo: z.number().int().min(1).max(12).default(1) },
-  }, seguro(async ({ bits, protocolo }) => (ctx.enviarRf(bits, protocolo) ? texto(`Enviado ${bits} (protocolo ${protocolo}).`) : falla(noCorre))));
+    description: 'Bajo nivel: inyecta RF funcional al ESP32. Con canalRf evalúa un presupuesto ideal declarado y solo entrega la trama si supera el umbral; no acredita alcance ni BER/PER.',
+    inputSchema: { bits: z.string().regex(/^[01]{1,64}$/), protocolo: z.number().int().min(1).max(12).default(1), canalRf: CanalRfSchema.optional() },
+  }, seguro(async ({ bits, protocolo, canalRf }) => {
+    const r = await transmitirPorCanalRf(bits, protocolo, canalRf, (b, protocolo, canal) => ctx.enviarRf(b, protocolo, canal));
+    if (r.evaluacion.permitirRecepcion && !r.entregado) return falla(noCorre);
+    return json(`RF ${r.entregado ? 'entregada' : 'no entregada'} al firmware.`, r);
+  }));
 
   server.registerTool('leer_pines', {
     title: 'Leer pines y salidas',

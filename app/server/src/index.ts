@@ -1,5 +1,8 @@
 import { crearActualizadorElectrico } from './actualizadorElectrico.js';
 import { VigenciaElectrica } from './vigenciaElectrica.js';
+import { transmitirPorCanalRf } from './rf/canalRf.js';
+import { validarDestinoRf } from './rf/destinoRf.js';
+import { enviarTramaRf, validarTramaRf } from './rf/transporteRf.js';
 import { pararPlacasSinEnergia } from './pararPlacasSinEnergia.js';
 import { estadoAlimentacion, motivoSinArranque, type EstadoAlimentacion as EstadoPlaca } from './estadoAlimentacion.js';
 import { leerFuentesMicroPython } from './micropythonSources.js';
@@ -26,6 +29,7 @@ import { ServicioCamara } from './camera/servicio.js';
 import { registrarRutasCamara } from './camera/rutas.js';
 import { registrarRutasAnalisisFisico } from './rutasAnalisisFisico.js';
 import { estadoAnalogicoDesdeCircuito } from './analogicoAvr.js';
+import { estadoAnalogicoEspDesdeCircuito } from './analogicoEsp.js';
 import { ProjectStore, ProjectError } from './projectStore.js';
 import { BuildService, type BuildArtifacts, type BuildError as BuildErrorLike, type BuildResult } from './buildService.js';
 import { EmulatorManager, type EmulatorEvents } from './emulator.js';
@@ -1044,6 +1048,9 @@ async function recargarCodigo(nombre: string, boardId?: string): Promise<Recarga
           depuradorDe(b.id).alIniciarCorrida({ proyecto: nombre, placa: b.board, lenguaje: b.language, motor: placa.desc.backend.engine, artefactos: artifacts });
           await target.start(nombre, artifacts, { ...ENGINES[placa.desc.backend.engine]!.opcionesArranque(placa.desc, artifacts), chips, arranqueMs: placa.desc.arranqueMs,
             analogicoAvr: estadoAnalogicoDesdeCircuito(full, b.id, placa.desc, electrico),
+            perfilAnalogicoAvr: full.sim.analogicoAvr?.[b.id],
+            analogicoEsp: estadoAnalogicoEspDesdeCircuito(b.id, placa.desc, electrico),
+            perfilAnalogicoEsp: full.sim.analogicoEsp?.[b.id],
           });
           if (generation !== runGeneration || runningProject !== nombre) { await target.stop(); return { ok: false, motivo: 'se detuvo la ejecución durante la recarga' }; }
           void depuradorDe(b.id).alArrancado();
@@ -1201,6 +1208,9 @@ async function ejecutarProyecto(
       if (cancelled()) throw new Error('La ejecución fue cancelada.');
       await s.target.start(full.name, artifacts, { ...ENGINES[s.engine]!.opcionesArranque(s.placa.desc, artifacts), chips: enBus.chips, arranqueMs: s.placa.desc.arranqueMs,
         analogicoAvr: estadoAnalogicoDesdeCircuito(full, s.boardId, s.placa.desc, electricoArranque),
+        perfilAnalogicoAvr: full.sim.analogicoAvr?.[s.boardId],
+        analogicoEsp: estadoAnalogicoEspDesdeCircuito(s.boardId, s.placa.desc, electricoArranque),
+        perfilAnalogicoEsp: full.sim.analogicoEsp?.[s.boardId],
       });
       if (cancelled()) { await s.target.stop(); throw new Error('La ejecución fue cancelada.'); }
       if (artifacts.repl && !await subirPorRepl(selected, artifacts, s.boardId, s.target)) throw new Error(`No se pudo cargar el código de ${s.boardId}.`);
@@ -1358,7 +1368,11 @@ async function actualizarEntradasDelCircuito(nombre: string): Promise<void> {
       for (const target of corridas.values()) target.actualizarAlimentacionChips(alimentacionChips);
       for (const b of placasDelProyecto(original)) {
         const descriptor = buscar(b.board)?.board;
-        if (descriptor) corridas.get(b.id)?.actualizarAnalogicoAvr?.(estadoAnalogicoDesdeCircuito(original, b.id, descriptor, r));
+        if (descriptor) {
+          const target = corridas.get(b.id);
+          target?.actualizarAnalogicoAvr?.(estadoAnalogicoDesdeCircuito(original, b.id, descriptor, r));
+          target?.actualizarAnalogicoEsp?.(estadoAnalogicoEspDesdeCircuito(b.id, descriptor, r));
+        }
       }
       const placa = original.board ? await buscarPlaca(original.board) : undefined;
       if (!vigente()) return;
@@ -1637,12 +1651,7 @@ const contextoMcp: McpContexto = {
     depurador.alEntrada(gpio, nivel, 'mcp');
     return true;
   },
-  enviarRf(bits, protocolo) {
-    const bridge = emulator.getBridge();
-    if (!bridge || emulator.getStatus().state !== 'bridge') return false;
-    bridge.sendRf(bits, protocolo);
-    return true;
-  },
+  enviarRf: (bits, protocolo, canalRf) => entregarRf(bits, protocolo, canalRf),
   niveles: () => Object.fromEntries(niveles) as Record<number, 0 | 1>,
   logs: (fuente, n) => (fuente === 'build' ? logCompilacion.slice(-n) : emulator.getRecentLog(n)),
   esperarLog: (re, timeoutMs) => esperar(oyentesLog, (l) => re.test(l), timeoutMs),
@@ -1719,7 +1728,12 @@ function attachWebSocket(server: import('node:http').Server): void {
           target.getBridge()?.watch(m.pin);
           break;
         case 'rf.send':
-          target.getBridge()?.sendRf(m.bits, m.protocol);
+          void transmitirPorCanalRf(m.bits, m.protocol, m.canalRf, (bits, protocolo, canalRf) => entregarRf(bits, protocolo, canalRf, boardId)).then(r => {
+            if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'rf.result', boardId, bits: m.bits, protocol: m.protocol, entregado: r.entregado, evaluacion: { ...r.evaluacion } } satisfies ServerEvent));
+            if (!r.entregado && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'error', message: `RF sin entrega: ${r.evaluacion.estado}. ${r.evaluacion.advertencias.join(' ')}` }));
+          }).catch(error => {
+            if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'error', message: `RF: ${error instanceof Error ? error.message : String(error)}` }));
+          });
           break;
         case 'console.input':
           target.writeConsole(m.data);
@@ -1729,6 +1743,31 @@ function attachWebSocket(server: import('node:http').Server): void {
     ws.on('close', () => clients.delete(ws));
     ws.on('error', () => clients.delete(ws));
   });
+}
+
+/** La misma guarda protege inyección MCP y WebSocket, también en modo funcional. */
+async function entregarRf(bits: string, protocolo: number, canalRf?: unknown, boardId = primaryBoardId): Promise<boolean> {
+  const target = corridas.get(boardId) ?? (boardId === primaryBoardId ? emulator : undefined);
+  if (!target || target.getStatus().state !== 'bridge' || !target.getBridge()) return false;
+  validarTramaRf(target, bits, protocolo);
+  if (canalRf === undefined) return enviarTramaRf(target, bits, protocolo);
+  const nombre = runningProject, generacion = runGeneration;
+  if (!nombre) return false;
+  let entregado = false;
+  await vigenciaElectrica.consultar(async () => {
+    const catalogo = await loadCatalog();
+    const buscar = (tipo: string) => catalogo.find(m => m.type === tipo);
+    const proyecto = conPlaca(await store.read(nombre));
+    const analisis = await analizarCircuito(proyecto, buscar, {
+      nivelesReales: true, nivelesPorPlaca, direccionesPorPlaca: await direccionesTodas(proyecto), cerrados: cerradosDe(nombre),
+    });
+    return { proyecto, buscar, analisis };
+  }, ({ proyecto, buscar, analisis }, vigente) => {
+    const destino = validarDestinoRf(proyecto, buscar, boardId, analisis, canalRf);
+    if (!destino.permitirRecepcion) throw new Error(`Destino RF no acreditado: ${destino.problemas.join('; ')}`);
+    if (vigente()) entregado = enviarTramaRf(target, bits, protocolo);
+  }, () => generacion === runGeneration && nombre === runningProject && corridas.get(boardId) === target);
+  return entregado;
 }
 
 // --- Arranque ---------------------------------------------------------------
