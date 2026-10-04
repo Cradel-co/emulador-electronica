@@ -339,6 +339,7 @@ test('la numeración permanece dentro de una ventana angosta con líneas largas'
   const first = page.locator('.cm-lineNumbers .cm-gutterElement').filter({ hasText: /^1$/ });
   await expect(first).toBeVisible();
   await page.locator('.cm-content').press('Control+Home');
+  await expect.poll(async () => (await page.locator('.cm-gutters').boundingBox())?.width ?? Infinity).toBeLessThanOrEqual(52);
   await expect.poll(async () => {
     const panel = await page.locator('#ventana-codigo').boundingBox();
     const wrap = await page.locator('.editor-wrap').boundingBox();

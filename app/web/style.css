@@ -813,7 +813,9 @@ body.depuracion-parada .punto-estado { background: var(--azul); box-shadow: 0 0 
 .editor-wrap.con-micropython > .gutter, .editor-wrap.con-micropython > .editor-area { display: none; }
 #editor-micropython { height: 100%; min-height: 0; overflow: hidden; }
 #editor-micropython[hidden] { display: none; }
-.cm-breakpointGutter { cursor: pointer; min-width: 16px; }
+/* Los diagnósticos reservan una columna sólo cuando hay un marcador visible. */
+.cm-editor .cm-gutter-lint:not(:has(.cm-lint-marker)) { display: none !important; }
+.cm-breakpointGutter { cursor: pointer; min-width: 12px; }
 .cm-breakpoint { color: #e85d65; opacity: .55; }
 .cm-breakpoint.verified { opacity: 1; }
 .cm-debug-stopped { background: rgba(242,197,92,.2) !important; box-shadow: inset 3px 0 #f2c55c; }
