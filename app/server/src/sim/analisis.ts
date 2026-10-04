@@ -1,5 +1,6 @@
 import {
   BOARD_MODULE_ID,
+  placasDelProyecto,
   corrienteRecomendada,
   nombreDePin,
   type BoardDescriptor,
@@ -25,6 +26,8 @@ import type { AlimentacionPlaca, AvisoElectrico, EstadoLed, FuenteElectrica, Led
 export type BuscarDef = (type: string) => (ModuleDef & { modeloCodigo?: string }) | undefined;
 
 export interface OpcionesAnalisis {
+  nivelesPorPlaca?: Map<string, Map<number, 0 | 1>>;
+  direccionesPorPlaca?: Map<string, Map<number, DireccionPin>>;
   /** Nivel de cada GPIO que el firmware maneja como salida. Los que falten: en alto (peor caso). */
   niveles?: Map<number, 0 | 1>;
   /** Forzar todas las salidas del firmware a un nivel (0: "lo que no depende del código"). */
@@ -53,6 +56,7 @@ export interface DireccionPin {
 
 /** Lo que lee el programa en un pin de entrada. */
 export interface EntradaLeida {
+  boardId?: string;
   gpio: number;
   /** Tensión del pin (V). */
   v: number;
@@ -68,6 +72,7 @@ export interface ModuloResuelto {
 }
 
 export interface AnalisisCircuito {
+  alimentacionesPorPlaca?: Record<string, AlimentacionPlaca>;
   avisos: AvisoElectrico[];
   leds: LedElectrico[];
   fuentes: FuenteElectrica[];
@@ -112,6 +117,8 @@ const limpio = (s: string): string => s.replace(/[^A-Za-z0-9_]/g, '_').toLowerCa
 
 /** Todo lo que no cambia entre pasadas (el dibujo, las redes, los nodos). */
 interface Contexto {
+  boardId: string;
+  otras: Contexto[];
   project: Project;
   buscar: BuscarDef;
   opciones: OpcionesAnalisis;
@@ -129,32 +136,35 @@ interface Contexto {
   instancias: { id: string; def: ModuleDef & { modeloCodigo?: string }; props: Record<string, string | number | boolean> }[];
 }
 
-function preparar(project: Project, buscar: BuscarDef, opciones: OpcionesAnalisis): Contexto {
-  const hayPlaca = Boolean(project.board);
-  const placaDef = project.board ? buscar(project.board) : undefined;
+function preparar(project: Project, buscar: BuscarDef, opciones: OpcionesAnalisis, boardId = placasDelProyecto(project)[0]?.id ?? BOARD_MODULE_ID, secundaria = false): Contexto {
+  const placas = placasDelProyecto(project);
+  const seleccionada = placas.find(p => p.id === boardId);
+  const hayPlaca = Boolean(seleccionada);
+  const placaDef = seleccionada ? buscar(seleccionada.board) : undefined;
+  opciones = { ...opciones, niveles: opciones.nivelesPorPlaca?.get(boardId) ?? (boardId === placas[0]?.id ? opciones.niveles : undefined), direcciones: opciones.direccionesPorPlaca?.get(boardId) ?? (boardId === placas[0]?.id ? opciones.direcciones : undefined) };
   const desc = placaDef?.board;
   const uf = new UnionFind();
   for (const w of project.wires) uf.unir(w.from, w.to);
 
-  // Los pines de alimentación de la placa son rieles: todos los GND son uno, los 5V son uno...
-  if (hayPlaca) {
-    const logica5 = (desc?.logicVoltage ?? 3.3) >= 4.5;
-    uf.buscar('#gnd');
-    uf.buscar('#5v');
-    uf.buscar('#3v3');
-    uf.buscar('#vin');
-    for (const p of placaDef?.pins ?? []) {
-      const ref = `${BOARD_MODULE_ID}.${p.name}`;
-      if (/^GND(_\d+)?$/.test(p.name)) uf.unir(ref, '#gnd');
-      else if (/^5V(_\d+)?$/.test(p.name)) uf.unir(ref, '#5v');
-      else if (/^3V3(_\d+)?$/.test(p.name)) uf.unir(ref, '#3v3');
-      else if (/^VIN(_\d+)?$/.test(p.name)) uf.unir(ref, '#vin');
-      else if (/^IOREF$/.test(p.name)) uf.unir(ref, logica5 ? '#5v' : '#3v3');
+  // Rieles separados por placa; sólo los cables unen las alimentaciones.
+  for (const placa of placas) {
+    const def = buscar(placa.board);
+    const logica5 = (def?.board?.logicVoltage ?? 3.3) >= 4.5;
+    const rail = (name: string) => `#${placa.id}_${name}`;
+    for (const name of ['gnd', '5v', '3v3', 'vin']) uf.buscar(rail(name));
+    if (placa.id === placas[0]?.id) uf.unir(rail('gnd'), '#gnd');
+    for (const pin of def?.pins ?? []) {
+      const ref = `${placa.id}.${pin.name}`;
+      if (/^GND(_\d+)?$/.test(pin.name)) uf.unir(ref, rail('gnd'));
+      else if (/^5V(_\d+)?$/.test(pin.name)) uf.unir(ref, rail('5v'));
+      else if (/^3V3(_\d+)?$/.test(pin.name)) uf.unir(ref, rail('3v3'));
+      else if (/^VIN(_\d+)?$/.test(pin.name)) uf.unir(ref, rail('vin'));
+      else if (pin.name === 'IOREF') uf.unir(ref, rail(logica5 ? '5v' : '3v3'));
     }
   }
 
   const instancias = project.modules
-    .filter((m) => m.id !== BOARD_MODULE_ID)
+    .filter((m) => !placas.some(p => p.id === m.id))
     .flatMap((m) => {
       const def = buscar(m.type);
       if (!def) return [];
@@ -188,8 +198,9 @@ function preparar(project: Project, buscar: BuscarDef, opciones: OpcionesAnalisi
     return n;
   };
   const nodo = (ref: string): string => (uf.tiene(ref) ? nodoDeRed(uf.buscar(ref)) : `f_${limpio(ref)}`);
+  for (const placa of placas) for (const rail of ['gnd', '5v', '3v3', 'vin']) nodo(`#${placa.id}_${rail}`);
   const rieles: RielesPlaca = hayPlaca
-    ? { n5v: nodo('#5v'), n3v3: nodo('#3v3'), nvin: nodo('#vin') }
+    ? { n5v: nodo(`#${boardId}_5v`), n3v3: nodo(`#${boardId}_3v3`), nvin: nodo(`#${boardId}_vin`), ngnd: nodo(`#${boardId}_gnd`) }
     : { n5v: 'p5v', n3v3: 'p3v3', nvin: 'pvin' };
 
   const refsDeNodo = new Map<string, string[]>();
@@ -208,7 +219,7 @@ function preparar(project: Project, buscar: BuscarDef, opciones: OpcionesAnalisi
   const gpios = new Map<number, string>();
   if (hayPlaca) {
     for (const ref of vistos) {
-      const g = gpioDeRef(ref, desc);
+      const g = ref.startsWith(`${boardId}.`) ? gpioDeRef(`board.${ref.slice(boardId.length + 1)}`, desc) : null;
       if (g !== null) gpios.set(g, nodo(ref));
     }
   }
@@ -228,13 +239,14 @@ function preparar(project: Project, buscar: BuscarDef, opciones: OpcionesAnalisi
   for (const ins of instancias) {
     const b = ins.def.bridge;
     if (!b || !hayPlaca) continue;
-    const g = gpioDe(project, ins.id, b.pin, buscar);
+    const g = gpioDe(project, ins.id, b.pin, buscar, boardId);
     if (g === null || direcciones.has(g)) continue;
     if (b.role === 'output') salidas.add(g);
     if (b.role === 'input' && b.pull === 'up' && !salidas.has(g)) pullups.add(g);
   }
 
   return {
+    boardId, otras: secundaria ? [] : placas.filter(p => p.id !== boardId).map(p => preparar(project, buscar, opciones, p.id, true)),
     project, buscar, opciones, hayPlaca, placaDef, desc,
     etiquetaPlaca: placaDef?.name ?? (project.board ? project.board : 'la placa'),
     nodo, refsDeNodo, rieles, gpios, salidas, pullups, pulldowns, instancias,
@@ -256,6 +268,7 @@ interface Pasada {
   elementos: ElementoResuelto[];
   modulos: PorModulo[];
   placa?: PlacaArmada;
+  placas: Map<string, PlacaArmada>;
   avisosModelos: AvisoElectrico[];
 }
 
@@ -265,7 +278,7 @@ function varsDe(def: ModuleDef, props: Record<string, string | number | boolean>
   return out;
 }
 
-async function pasada(c: Contexto, chipEncendido: boolean, propsExtra: Map<string, Record<string, number>>): Promise<Pasada> {
+async function pasada(c: Contexto, chipEncendido: boolean, propsExtra: Map<string, Record<string, number>>, apagadas: Set<string> = new Set()): Promise<Pasada> {
   const n = new Netlist(`proyecto ${c.project.name}`);
   const avisosModelos: AvisoElectrico[] = [];
   const modulos: PorModulo[] = [];
@@ -299,19 +312,21 @@ async function pasada(c: Contexto, chipEncendido: boolean, propsExtra: Map<strin
     modulos.push({ id, def, props, control, vars, prims, elementos: new Map() });
   }
 
-  let placa: PlacaArmada | undefined;
-  if (c.hayPlaca) {
-    const inst = c.project.modules.find((m) => m.id === BOARD_MODULE_ID);
-    const usb = (inst?.props?.usb ?? c.placaDef?.props.usb?.default) === true;
+  const placas = new Map<string, PlacaArmada>();
+  for (const ctx of [c, ...c.otras]) {
+    if (!ctx.hayPlaca) continue;
+    const inst = ctx.project.modules.find(m => m.id === ctx.boardId);
+    const usb = (inst?.props?.usb ?? ctx.placaDef?.props.usb?.default) === true;
     const niveles = new Map<number, 0 | 1>();
-    for (const g of c.salidas) niveles.set(g, c.opciones.salidasForzadas ?? c.opciones.niveles?.get(g) ?? 1);
-    placa = armarPlaca(n, { desc: c.desc, rieles: c.rieles, usb, vinCableado: c.refsDeNodo.has(c.rieles.nvin), chipEncendido, salidas: niveles, pullups: c.pullups, pulldowns: c.pulldowns, gpios: c.gpios });
+    for (const g of ctx.salidas) niveles.set(g, ctx.opciones.salidasForzadas ?? ctx.opciones.niveles?.get(g) ?? 1);
+    placas.set(ctx.boardId, armarPlaca(n, { id: ctx.boardId, desc: ctx.desc, rieles: ctx.rieles, usb, vinCableado: ctx.refsDeNodo.has(ctx.rieles.nvin), chipEncendido: !apagadas.has(ctx.boardId) && (ctx === c ? chipEncendido : true), salidas: niveles, pullups: ctx.pullups, pulldowns: ctx.pulldowns, gpios: ctx.gpios }));
   }
+  const placa = placas.get(c.boardId);
 
   const res = await correrSpice(n.texto());
   const elementos = n.resolver(res);
   for (const el of elementos) modulos.find((m) => m.id === el.dueno)?.elementos.set(el.local, el);
-  return { res, elementos, modulos, placa, avisosModelos };
+  return { res, elementos, modulos, placa, placas, avisosModelos };
 }
 
 const tension = (p: Pasada, nodo: string): number => (nodo === '0' ? 0 : (p.res.valores.get(`v(${nodo})`) ?? 0));
@@ -323,11 +338,14 @@ export async function analizarCircuito(project: Project, buscar: BuscarDef, opci
   let chipEncendido = c.hayPlaca;
   try {
     p = await pasada(c, chipEncendido, new Map());
-    // Brownout: si con el chip andando su riel cae por debajo del umbral, se resetea (se apaga).
-    if (c.hayPlaca && p.placa && tension(p, p.placa.riel) < p.placa.brownout) {
-      chipEncendido = false;
-      p = await pasada(c, false, new Map());
+    // Cada chip pierde sus salidas cuando su propio riel cae por brownout.
+    const apagadas = new Set<string>();
+    for (const [id, placa] of p.placas) if (tension(p, placa.riel) - tension(p, [c, ...c.otras].find(ctx => ctx.boardId === id)?.rieles.ngnd ?? '0') < placa.brownout) apagadas.add(id);
+    if (apagadas.size) {
+      chipEncendido = !apagadas.has(c.boardId) && c.hayPlaca;
+      p = await pasada(c, chipEncendido, new Map(), apagadas);
     }
+
   } catch (err) {
     return fallido(c, err);
   }
@@ -369,14 +387,21 @@ export async function analizarCircuito(project: Project, buscar: BuscarDef, opci
   }
 
   const fuentes = await calcularFuentes(c, p, chipEncendido, avisos);
-  const alimentacion = c.hayPlaca ? calcularAlimentacion(c, p, chipEncendido, fuentes) : sinPlaca();
-  if (alimentacion.estado !== 'ok') {
-    avisos.unshift({ severidad: alimentacion.estado === 'quema' ? 'peligro' : 'advertencia', pin: -1, mensaje: alimentacion.mensaje });
+  const alimentacionesPorPlaca: Record<string, AlimentacionPlaca> = {};
+  const entradas: EntradaLeida[] = [];
+  for (const ctx of [c, ...c.otras]) {
+    if (!ctx.hayPlaca) continue;
+    const placa = p.placas.get(ctx.boardId);
+    const vista = { ...p, placa };
+    const encendida = Boolean(placa && tension(p, placa.riel) - tension(p, ctx.rieles.ngnd ?? '0') >= placa.brownout);
+    const alimentacion = calcularAlimentacion(ctx, vista, encendida, fuentes);
+    alimentacionesPorPlaca[ctx.boardId] = alimentacion;
+    if (alimentacion.estado !== 'ok') avisos.unshift({ severidad: alimentacion.estado === 'quema' ? 'peligro' : 'advertencia', pin: -1, mensaje: alimentacion.mensaje });
+    if (placa) avisosPlaca(ctx, vista, avisos, alimentacion);
+    if (placa && encendida) entradas.push(...leerEntradas(ctx, vista, avisos));
   }
-  if (c.hayPlaca && p.placa) avisosPlaca(c, p, avisos, alimentacion);
-  const entradas = c.hayPlaca && p.placa && chipEncendido ? leerEntradas(c, p, avisos) : [];
-
-  return { avisos, leds, fuentes, alimentacion, tensiones, modulos, elementos: p.elementos, chipEncendido, entradas };
+  const alimentacion = alimentacionesPorPlaca[c.boardId] ?? sinPlaca();
+  return { avisos, leds, fuentes, alimentacion, alimentacionesPorPlaca, tensiones, modulos, elementos: p.elementos, chipEncendido, entradas };
 }
 
 /**
@@ -387,12 +412,13 @@ export async function analizarCircuito(project: Project, buscar: BuscarDef, opci
  * (ni pull, ni algo conectado que conduzca) "flota": lee ruido, y si el programa lo usa se avisa.
  */
 function leerEntradas(c: Contexto, p: Pasada, avisos: AvisoElectrico[]): EntradaLeida[] {
-  const vdd = tension(p, p.placa!.riel);
+  const tierra = tension(p, c.rieles.ngnd ?? '0');
+  const vdd = tension(p, p.placa!.riel) - tierra;
   const umbral = c.desc?.inputThresholds ?? { low: 0.25, high: 0.75 };
   const out: EntradaLeida[] = [];
   for (const [g, nodo] of c.gpios) {
     if (c.salidas.has(g)) continue;
-    const v = tension(p, nodo);
+    const v = tension(p, nodo) - tierra;
     const nivel = v <= umbral.low * vdd ? 0 : v >= umbral.high * vdd ? 1 : null;
     // ¿Algo fija la tensión del nodo? Los diodos de protección del propio pin no (casi no conducen
     // entre los rieles), ni un interruptor abierto; un pull interno, una resistencia, una fuente, sí.
@@ -400,7 +426,7 @@ function leerEntradas(c: Contexto, p: Pasada, avisos: AvisoElectrico[]): Entrada
       && !/^prot_(alto|bajo)_/.test(e.local)
       && !(e.ohms !== undefined && e.ohms >= 1e8));
     const flotante = !fija;
-    out.push({ gpio: g, v, nivel: flotante ? null : nivel, flotante });
+    out.push({ boardId: c.boardId, gpio: g, v, nivel: flotante ? null : nivel, flotante });
     if (flotante && c.opciones.direcciones?.get(g)?.salida === false) {
       const nombre = nombreDePin(c.desc, g);
       avisos.push({
@@ -535,7 +561,7 @@ function calcularAlimentacion(c: Contexto, p: Pasada, chipEncendido: boolean, fu
   // Sobretensión o polaridad invertida en una entrada: se quema.
   for (const ent of power.inputs) {
     const nodo = nodoEntrada(ent.feeds);
-    const v = tension(p, nodo);
+    const v = tension(p, nodo) - tension(p, c.rieles.ngnd ?? '0');
     if (v > ent.max + 0.05 || v < -0.3) {
       const f = fuenteEn(nodo);
       const quien = f ? f.id : 'Algo';
@@ -548,7 +574,7 @@ function calcularAlimentacion(c: Contexto, p: Pasada, chipEncendido: boolean, fu
     }
   }
 
-  const inst = c.project.modules.find((m) => m.id === BOARD_MODULE_ID);
+  const inst = c.project.modules.find((m) => m.id === c.boardId);
   const usb = (inst?.props?.usb ?? c.placaDef?.props.usb?.default) === true;
   // La entrada que efectivamente la alimenta: una fuente regulable entregando en ella.
   let porFuente: { ent: (typeof power.inputs)[number]; id: string } | null = null;
@@ -563,21 +589,21 @@ function calcularAlimentacion(c: Contexto, p: Pasada, chipEncendido: boolean, fu
 
   if (chipEncendido) {
     if (porFuente) {
-      const v = tension(p, nodoEntrada(porFuente.ent.feeds));
+      const v = tension(p, nodoEntrada(porFuente.ent.feeds)) - tension(p, c.rieles.ngnd ?? '0');
       return {
         ...base, estado: 'ok', via: 'fuente', pin: porFuente.ent.pin, entrada: porFuente.ent.feeds, fuenteId: porFuente.id, v,
         consumeDe: porFuente.id, mensaje: `${et} alimentada por ${porFuente.id} (${fmt(v, 2)} V en ${porFuente.ent.pin}).`,
       };
     }
-    return { ...base, estado: 'ok', via: usb ? 'usb' : null, entrada: usb ? '5v' : null, v: tension(p, c.rieles.n5v), mensaje: usb ? `${et} alimentada por USB.` : `${et} alimentada.` };
+    return { ...base, estado: 'ok', via: usb ? 'usb' : null, entrada: usb ? '5v' : null, v: tension(p, c.rieles.n5v) - tension(p, c.rieles.ngnd ?? '0'), mensaje: usb ? `${et} alimentada por USB.` : `${et} alimentada.` };
   }
 
   // No arranca: por qué.
   if (porFuente) {
     const f = fuentes.find((x) => x.id === porFuente!.id)!;
-    const v = tension(p, nodoEntrada(porFuente.ent.feeds));
+    const v = tension(p, nodoEntrada(porFuente.ent.feeds)) - tension(p, c.rieles.ngnd ?? '0');
     const datos = { ...base, via: 'fuente' as const, pin: porFuente.ent.pin, entrada: porFuente.ent.feeds, fuenteId: porFuente.id, v };
-    if (gndDe(porFuente.id) !== '0') {
+    if (gndDe(porFuente.id) !== (c.rieles.ngnd ?? '0')) {
       return { ...datos, estado: 'sin-energia', mensaje: `${porFuente.id} llega a ${et} · ${porFuente.ent.pin}, pero su GND no está unido al GND de la placa: el circuito no cierra y la placa no arranca.` };
     }
     if (f.modo === 'CC' || f.modo === 'corto') {
@@ -607,17 +633,18 @@ function avisosPlaca(c: Contexto, p: Pasada, avisos: AvisoElectrico[], alimentac
   const max = desc?.maxPinCurrentMa ?? 40;
   const recomendado = desc ? corrienteRecomendada(desc) : 20;
   const chip = desc?.chipName ?? desc?.chip ?? 'chip';
-  const el = (local: string) => p.elementos.find((e) => e.dueno === 'board' && e.local === local);
+  const el = (local: string) => p.elementos.find((e) => e.dueno === c.boardId && e.local === local);
   const riel = p.placa!.riel;
-  const vRiel = tension(p, riel);
+  const tierra = tension(p, c.rieles.ngnd ?? '0');
+  const vRiel = tension(p, riel) - tierra;
 
   for (const [g, nodo] of c.gpios) {
     const nombre = nombreDePin(desc, g);
-    const refPin = `${BOARD_MODULE_ID}.${nombre}`;
+    const refPin = `${c.boardId}.${nombre}`;
     const salida = el(`gpio${g}`);
     if (salida) {
       const mA = Math.abs(salida.i) * 1000;
-      const vPin = tension(p, nodo);
+      const vPin = tension(p, nodo) - tierra;
       const alto = salida.a === riel;
       // Contra la tensión opuesta, sin nada de por medio: un corto (p. ej. un GPIO en alto a GND).
       if (mA > 2 * max && Math.abs(vPin - (alto ? 0 : vRiel)) < 0.2) {
@@ -637,7 +664,7 @@ function avisosPlaca(c: Contexto, p: Pasada, avisos: AvisoElectrico[], alimentac
     const bajo = el(`prot_bajo_${g}`);
     const iny = Math.max(alto?.i ?? 0, bajo?.i ?? 0) * 1000;
     if (iny > 1) {
-      const vPin = tension(p, nodo);
+      const vPin = tension(p, nodo) - tierra;
       avisos.push({
         severidad: 'peligro', pin: g,
         mensaje: (alto?.i ?? 0) > (bajo?.i ?? 0)
@@ -659,14 +686,14 @@ function avisosPlaca(c: Contexto, p: Pasada, avisos: AvisoElectrico[], alimentac
 
   // Rieles de la placa en corto (el regulador o el USB que lo alimenta entregan su límite con ~0 V).
   const ldo = el('ldo');
-  const corto3v3 = ldo !== undefined && Math.abs(ldo.i) > 0.3 && tension(p, c.rieles.n3v3) < 0.3;
+  const corto3v3 = ldo !== undefined && Math.abs(ldo.i) > 0.3 && tension(p, c.rieles.n3v3) - tierra < 0.3;
   if (corto3v3) {
     const refs = (c.refsDeNodo.get(c.rieles.n3v3) ?? []).slice(0, 2);
     avisos.push({ severidad: 'peligro', pin: -1, refs: refs.length === 2 ? refs : undefined, mensaje: `La salida 3V3 de ${c.etiquetaPlaca} está en cortocircuito: su regulador entrega todo lo que puede (~${fmt(Math.abs(ldo!.i) * 1000, 0)} mA) con ~0 V. Se recalienta. Revisá el cableado de 3V3.` });
   }
   const usb = el('usb');
   if (usb && Math.abs(usb.i) > 0.48) {
-    const v5 = tension(p, c.rieles.n5v);
+    const v5 = tension(p, c.rieles.n5v) - tierra;
     if (corto3v3) {
       // Es consecuencia del corto del 3V3: el USB no da abasto y su 5V también cae.
     } else if (v5 < 0.5) {

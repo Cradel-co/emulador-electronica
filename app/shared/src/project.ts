@@ -33,6 +33,15 @@ export const SimConfigSchema = z.object({
 
 export type SimConfig = z.infer<typeof SimConfigSchema>;
 
+/** Identidad de una placa en el circuito y en su carpeta de código. */
+export const PROJECT_BOARD_ID_RE = /^[a-z][a-z0-9-]{0,39}$/;
+export const ProjectBoardSchema = z.object({
+  id: z.string().regex(PROJECT_BOARD_ID_RE, 'id de instancia de placa inválido'),
+  board: BoardSchema,
+  language: LanguageSchema,
+});
+export type ProjectBoard = z.infer<typeof ProjectBoardSchema>;
+
 export const ProjectSchema = z.object({
   schemaVersion: z.literal(1).default(1),
   name: z.string().min(1),
@@ -44,14 +53,41 @@ export const ProjectSchema = z.object({
   board: BoardSchema.nullable().default(DEFAULT_BOARD),
   /** Lenguaje del código de la placa; `null` sin placa. */
   language: LanguageSchema.nullable(),
+  /** Todas las placas; ausente conserva el formato histórico de una sola placa. */
+  boards: z.array(ProjectBoardSchema).refine((boards) => new Set(boards.map((board) => board.id)).size === boards.length, 'ids de placa duplicados').optional(),
   modules: z.array(ModuleInstanceSchema).default([]),
   wires: z.array(WireSchema).default([]),
   sim: SimConfigSchema,
+}).superRefine((project, context) => {
+  if (project.boards === undefined) return;
+  const first = project.boards[0];
+  if (project.board !== (first?.board ?? null) || project.language !== (first?.language ?? null)) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['boards'], message: 'La placa principal debe coincidir con la primera instancia' });
+  }
+  for (const board of project.boards) {
+    const modules = project.modules.filter((module) => module.id === board.id);
+    if (modules.length !== 1 || modules[0]?.type !== board.board) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ['modules'], message: `La placa "${board.id}" debe tener un módulo con su tipo declarado` });
+    }
+  }
 });
 
 export type Project = z.infer<typeof ProjectSchema>;
 
-/** Id fijo de la placa dentro del dibujo: los cables la referencian como "board.GPIO6". */
+/** Lee el formato nuevo sin obligar a migrar los proyectos históricos. */
+export function placasDelProyecto(project: Pick<Project, 'board' | 'language' | 'boards'>): ProjectBoard[] {
+  if (project.boards !== undefined) return project.boards;
+  if (!project.board || !project.language) return [];
+  return [{ id: BOARD_MODULE_ID, board: project.board, language: project.language }];
+}
+
+/** Sin id se elige la primera placa; con id no hay fallback a otra placa. */
+export function placaDelProyecto(project: Pick<Project, 'board' | 'language' | 'boards'>, id?: string): ProjectBoard | undefined {
+  const boards = placasDelProyecto(project);
+  return id === undefined ? boards[0] : boards.find((board) => board.id === id);
+}
+
+/** Id histórico de la primera placa: conserva referencias como "board.GPIO6". */
 export const BOARD_MODULE_ID = 'board';
 
 /** Un proyecto con placa, y por lo tanto con código y lenguaje. */

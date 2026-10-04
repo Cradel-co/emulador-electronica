@@ -125,3 +125,48 @@ describe('sim.autoReload', () => {
     expect(proyectoSinPlaca('n').sim.autoReload).toBe(false);
   });
 });
+
+describe('placas múltiples', () => {
+  it('interpreta proyectos históricos sin escribir campos nuevos', async () => {
+    const { placasDelProyecto, placaDelProyecto } = await import('./project.js');
+    const project = defaultProject('legacy', 'micropython');
+    expect(placasDelProyecto(project)).toEqual([{ id: 'board', board: project.board, language: 'micropython' }]);
+    expect(placaDelProyecto(project)?.id).toBe('board');
+    expect(placaDelProyecto(project, 'board2')).toBeUndefined();
+    expect(project.boards).toBeUndefined();
+    expect(placasDelProyecto(proyectoSinPlaca('circuito'))).toEqual([]);
+  });
+
+  it('preserva identidad y lenguaje independientes al guardar', async () => {
+    const { placasDelProyecto, placaDelProyecto } = await import('./project.js');
+    const boards = [
+      { id: 'board', board: 'esp32-s3-devkitc-1', language: 'micropython' },
+      { id: 'board2', board: 'arduino-uno', language: 'arduino' },
+    ];
+    const base = defaultProject('multi', 'micropython');
+    const parsed = ProjectSchema.parse({ ...base, boards, modules: [...base.modules, { id: 'board2', type: 'arduino-uno', x: 260, y: 0, props: {} }] });
+    expect(placasDelProyecto(parsed)).toEqual(boards);
+    expect(placaDelProyecto(parsed, 'board2')).toEqual(boards[1]);
+  });
+
+  it('rechaza ids duplicados, traversal y lenguajes inválidos', () => {
+    const base = defaultProject('multi', 'micropython');
+    const board = { id: 'board', board: base.board, language: base.language };
+    expect(ProjectSchema.safeParse({ ...base, boards: [board, board] }).success).toBe(false);
+    expect(ProjectSchema.safeParse({ ...base, boards: [{ ...board, id: '../escape' }] }).success).toBe(false);
+    expect(ProjectSchema.safeParse({ ...base, boards: [{ ...board, language: 'rust' }] }).success).toBe(false);
+  });
+});
+
+
+describe('consistencia entre placas y dibujo', () => {
+  it('rechaza quitar o cambiar el módulo de una placa declarada', () => {
+    const base = defaultProject('multi', 'micropython');
+    const boards = [{ id: 'board', board: base.board, language: base.language }];
+    expect(ProjectSchema.safeParse({ ...base, boards }).success).toBe(true);
+    expect(ProjectSchema.safeParse({ ...base, boards, modules: base.modules.filter((module) => module.id !== 'board') }).success).toBe(false);
+    expect(ProjectSchema.safeParse({ ...base, boards, modules: base.modules.map((module) => module.id === 'board' ? { ...module, type: 'arduino-uno' } : module) }).success).toBe(false);
+    expect(ProjectSchema.safeParse({ ...base, boards, language: 'arduino' }).success).toBe(false);
+    expect(ProjectSchema.safeParse({ ...base, boards: [] }).success).toBe(false);
+  });
+});

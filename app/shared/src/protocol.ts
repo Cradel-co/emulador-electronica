@@ -1,5 +1,8 @@
 import { z } from 'zod';
 import { CameraStatusSchema } from './camera.js';
+import { PROJECT_BOARD_ID_RE } from './project.js';
+
+const BoardEventFields = { boardId: z.string().regex(PROJECT_BOARD_ID_RE).optional(), project: z.string().optional() };
 
 export const BRIDGE_PROTOCOL_VERSION = 1;
 
@@ -168,9 +171,9 @@ export type EmuStatus = z.infer<typeof EmuStatusSchema>;
 
 export const ServerEventSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('camera.state'), project: z.string(), instance: z.string(), state: CameraStatusSchema }),
-  z.object({ type: z.literal('build.log'), line: z.string() }),
+  z.object({ type: z.literal('build.log'), ...BoardEventFields, line: z.string() }),
   z.object({
-    type: z.literal('build.done'),
+    type: z.literal('build.done'), ...BoardEventFields,
     ok: z.boolean(),
     durationMs: z.number(),
     errors: z
@@ -183,16 +186,16 @@ export const ServerEventSchema = z.discriminatedUnion('type', [
       )
       .default([]),
   }),
-  z.object({ type: z.literal('emu.state'), state: EmulatorState, status: EmuStatusSchema }),
-  z.object({ type: z.literal('emu.log'), line: z.string() }),
-  z.object({ type: z.literal('emu.exit'), code: z.number().int().nullable() }),
-  z.object({ type: z.literal('pin.out'), pin: z.number().int(), level: PinLevel }),
-  z.object({ type: z.literal('rf.tx'), bits: z.string(), protocol: z.number().int() }),
-  z.object({ type: z.literal('bridge.state'), connected: z.boolean() }),
-  z.object({ type: z.literal('bridge.ready'), version: z.number().int(), esphomeVersion: z.string().optional() }),
-  z.object({ type: z.literal('bridge.pong'), n: z.number().int() }),
-  z.object({ type: z.literal('bridge.error'), code: z.string(), message: z.string() }),
-  z.object({ type: z.literal('build.start'), project: z.string() }),
+  z.object({ type: z.literal('emu.state'), ...BoardEventFields, state: EmulatorState, status: EmuStatusSchema }),
+  z.object({ type: z.literal('emu.log'), ...BoardEventFields, line: z.string() }),
+  z.object({ type: z.literal('emu.exit'), ...BoardEventFields, code: z.number().int().nullable() }),
+  z.object({ type: z.literal('pin.out'), ...BoardEventFields, pin: z.number().int(), level: PinLevel }),
+  z.object({ type: z.literal('rf.tx'), ...BoardEventFields, bits: z.string(), protocol: z.number().int() }),
+  z.object({ type: z.literal('bridge.state'), ...BoardEventFields, connected: z.boolean() }),
+  z.object({ type: z.literal('bridge.ready'), ...BoardEventFields, version: z.number().int(), esphomeVersion: z.string().optional() }),
+  z.object({ type: z.literal('bridge.pong'), ...BoardEventFields, n: z.number().int() }),
+  z.object({ type: z.literal('bridge.error'), ...BoardEventFields, code: z.string(), message: z.string() }),
+  z.object({ type: z.literal('build.start'), ...BoardEventFields, project: z.string() }),
   /** Se importó o quitó un módulo: la UI recarga el catálogo. */
   z.object({ type: z.literal('catalog.changed') }),
   /**
@@ -201,14 +204,14 @@ export const ServerEventSchema = z.discriminatedUnion('type', [
    * `origin` es el id del cliente que hizo el cambio, para que no se recargue a sí mismo.
    */
   z.object({
-    type: z.literal('project.changed'),
+    type: z.literal('project.changed'), ...BoardEventFields,
     project: z.string(),
     what: z.enum(['diagram', 'file', 'electrico']),
     file: z.string().optional(),
     origin: z.string().optional(),
   }),
   z.object({
-    type: z.literal('build.artifacts'),
+    type: z.literal('build.artifacts'), ...BoardEventFields,
     firmware: z.string(),
     elf: z.string().nullable(),
   }),
@@ -218,28 +221,28 @@ export const ServerEventSchema = z.discriminatedUnion('type', [
     message: z.string(),
   }),
   z.object({
-    type: z.literal('diagnostics'),
+    type: z.literal('diagnostics'), ...BoardEventFields,
     problems: z.array(z.object({ severity: z.enum(['info', 'warning', 'error']), message: z.string(), line: z.number().int().optional() })),
   }),
   /** Un chip del dibujo publicó algo para mostrar (pantalla, valores): `id` de la instancia. */
-  z.object({ type: z.literal('chip.salida'), project: z.string(), id: z.string(), salida: z.record(z.string(), z.unknown()) }),
+  z.object({ type: z.literal('chip.salida'), ...BoardEventFields, project: z.string(), id: z.string(), salida: z.record(z.string(), z.unknown()) }),
   /** Se movió el entorno de un chip (temperatura...): valores ya aplicados. */
-  z.object({ type: z.literal('chip.entorno'), project: z.string(), id: z.string(), entorno: z.record(z.string(), z.number()) }),
+  z.object({ type: z.literal('chip.entorno'), ...BoardEventFields, project: z.string(), id: z.string(), entorno: z.record(z.string(), z.number()) }),
   // --- Modo debug (server/src/debug, docs/depuracion.md). Formas de DAP: se dejan pasar los campos. ---
   /** El depurador frenó el programa: reason, description, pc, function, source {name,path}, line, hitBreakpointIds. */
-  z.object({ type: z.literal('debug.stopped'), reason: z.string().optional(), threadId: z.number().int().optional() }).passthrough(),
-  z.object({ type: z.literal('debug.continued'), threadId: z.number().int().optional() }).passthrough(),
+  z.object({ type: z.literal('debug.stopped'), ...BoardEventFields, reason: z.string().optional(), threadId: z.number().int().optional() }).passthrough(),
+  z.object({ type: z.literal('debug.continued'), ...BoardEventFields, threadId: z.number().int().optional() }).passthrough(),
   /** Lo nuevo de la grabadora (cada ~250 ms, como mucho 300 eventos). */
-  z.object({ type: z.literal('debug.trace'), eventos: z.array(z.record(z.string(), z.unknown())), ultimoSeq: z.number().int() }),
+  z.object({ type: z.literal('debug.trace'), ...BoardEventFields, eventos: z.array(z.record(z.string(), z.unknown())), ultimoSeq: z.number().int() }),
   /** Se detectó un error en la consola (Traceback, Guru Meditation, abort, assert...). */
-  z.object({ type: z.literal('debug.exception'), error: z.record(z.string(), z.unknown()) }),
+  z.object({ type: z.literal('debug.exception'), ...BoardEventFields, error: z.record(z.string(), z.unknown()) }),
 ]);
 export type ServerEvent = z.infer<typeof ServerEventSchema>;
 
 export const ClientEventSchema = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('pin.in'), pin: z.number().int(), level: PinLevel }),
-  z.object({ type: z.literal('pin.watch'), pin: z.number().int() }),
-  z.object({ type: z.literal('rf.send'), bits: z.string().regex(bits), protocol: z.number().int().min(0) }),
-  z.object({ type: z.literal('console.input'), data: z.string().max(4096) }),
+  z.object({ type: z.literal('pin.in'), ...BoardEventFields, pin: z.number().int(), level: PinLevel }),
+  z.object({ type: z.literal('pin.watch'), ...BoardEventFields, pin: z.number().int() }),
+  z.object({ type: z.literal('rf.send'), ...BoardEventFields, bits: z.string().regex(bits), protocol: z.number().int().min(0) }),
+  z.object({ type: z.literal('console.input'), ...BoardEventFields, data: z.string().max(4096) }),
 ]);
 export type ClientEvent = z.infer<typeof ClientEventSchema>;

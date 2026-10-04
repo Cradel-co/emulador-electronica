@@ -78,7 +78,7 @@ test('permiso denegado se informa sin abrir sesión', async ({ page, request }) 
   await page.evaluate(() => Object.defineProperty(navigator.mediaDevices, 'getUserMedia', { value: async () => { throw new DOMException('Denegado', 'NotAllowedError'); } }));
   const instance = await agregar(page);
   await page.getByRole('button', { name: 'Activar', exact: true }).click();
-  await expect(page.getByRole('alert')).toContainText('Permiso de cámara denegado');
+  await expect(page.getByRole('region', { name: 'Cámara virtual' }).getByRole('alert')).toContainText('Permiso de cámara denegado');
   expect((await (await request.get(`/api/projects/${project}/cameras/${instance}/status`)).json()).active).toBe(false);
 });
 
@@ -94,7 +94,7 @@ test('otra pestaña no toma la sesión y seleccionar otro módulo detiene', asyn
   });
   await other.goto('/#' + project); await seleccionarModulo(other, instance);
   await other.getByRole('button', { name: 'Activar', exact: true }).click();
-  await expect(other.getByRole('alert')).toContainText('otra sesión');
+  await expect(other.getByRole('region', { name: 'Cámara virtual' }).getByRole('alert')).toContainText('otra sesión');
   await seleccionarModulo(page, 'btn1');
   await expect.poll(async () => (await (await request.get(`/api/projects/${project}/cameras/${instance}/status`)).json()).active).toBe(false);
 });
