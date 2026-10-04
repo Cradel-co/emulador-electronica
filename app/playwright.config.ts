@@ -6,7 +6,11 @@ import path from 'node:path';
 // Server propio para los e2e: otro puerto y una carpeta de proyectos temporal,
 // así los tests no tocan los proyectos reales ni el server de desarrollo (5180).
 const PORT = 5191;
+const proyectosPredeterminados = !process.env.EMU_E2E_PROJECTS;
 const proyectos = (process.env.EMU_E2E_PROJECTS ??= mkdtempSync(path.join(os.tmpdir(), 'emu-e2e-')));
+if (proyectosPredeterminados) {
+  cpSync(path.resolve(import.meta.dirname, '../projects/_template'), path.join(proyectos, '_template'), { recursive: true });
+}
 // Copia del catálogo de fábrica: los tests importan y quitan módulos sin tocar el real.
 if (!process.env.EMU_E2E_MODULES) {
   process.env.EMU_E2E_MODULES = mkdtempSync(path.join(os.tmpdir(), 'emu-e2e-mod-'));

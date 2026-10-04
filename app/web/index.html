@@ -28,6 +28,7 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg>
         Proyectos
       </button>
+      <button id="volver-aprendizaje" class="widget solo-proyecto" type="button" title="Volver a la lección" hidden>Volver a la lección</button>
       <span class="crece"></span>
       <div class="run-widgets">
         <span id="dispositivo" class="widget solo-proyecto" title="Placa que se emula">
@@ -114,7 +115,7 @@
           </span>
           <div><b>Emulador de electrónica</b><small>Prototipado de placas programables</small></div>
         </div>
-        <button class="activa" type="button">Proyectos</button>
+        <button id="bienvenida-proyectos" class="activa" type="button">Proyectos</button>
         <button id="bienvenida-importar" type="button">Importar módulos</button>
         <button id="bienvenida-acerca" type="button">Aprender</button>
       </aside>
@@ -130,6 +131,8 @@
           <div id="lista-proyectos" class="lista-proyectos"></div>
       </div>
     </section>
+
+    <section id="pantalla-aprender" aria-label="Aprender"></section>
 
     <!-- Área de trabajo: "islas" como en el tema Islands de Android Studio -->
     <div id="dock-layout" class="workspace"></div>
