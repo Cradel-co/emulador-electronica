@@ -1,7 +1,7 @@
 // Orquestación del frontend: componentes persistentes y efectos contra la API local.
 import { resolveWorkspaceSelection } from './navigation-selection.js';
 import { createWorkspaceNavigation, type WorkspaceRoute } from './navigation.js';
-import { ControladorCamara, desconectarCamara, eventoCamara, solicitarCaptura, errorCamara } from './camera.js';
+import { crearControladorCamara, detenerCamarasDeOtrosProyectos, desconectarCamara, eventoCamara, solicitarCaptura, errorCamara } from './camera.js';
 // Frontend sin bundler: ES modules nativos contra la API local (sección 11).
 import { miniatura, ponerImagenPantalla } from './modulos.js';
 import { lenguajeDeArchivo, NOMBRE_LENGUAJE, resaltar } from './editor.js';
@@ -198,13 +198,14 @@ window.addEventListener('storage', event => {
 // Lo que los componentes de React necesitan disparar (#9). Van por el puente y no importándose,
 // para no armar un ciclo entre app.ts y los componentes.
 registrarAcciones({
-  crearCamara: (project, instance, camera) => new ControladorCamara(`/api/projects/${encodeURIComponent(project)}/cameras/${encodeURIComponent(instance)}`, {
+  crearCamara: (project, instance, camera) => crearControladorCamara(project, instance, `/api/projects/${encodeURIComponent(project)}/cameras/${encodeURIComponent(instance)}`, {
     media: navigator.mediaDevices,
+    permissions: navigator.permissions,
     fetch: async (url, init) => {
       if (String(url).endsWith('/status') || String(url).endsWith('/session')) await esperarDiagramaCamara(project);
       return fetch(url, init);
     },
-  }, camera, project, instance),
+  }, camera),
   agregarModulo: (type) => agregarModulo(type),
   quitarDelCatalogo: (m) => void quitarDelCatalogo(m),
   filtrarModulos: (texto) => {
@@ -1998,6 +1999,7 @@ async function cargarProyectos(seleccionarNombre?: string) {
 // --- Pantalla de inicio: lista de proyectos ----------------------------------
 
 function mostrarInicio() {
+  detenerCamarasDeOtrosProyectos(null);
   document.body.classList.add('inicio');
   document.body.classList.remove('aprender');
   $('bienvenida-proyectos').classList.add('activa');
@@ -2125,6 +2127,7 @@ async function abrirProyecto(nombre) {
   if (mia !== aperturas) return;
   document.body.classList.remove('inicio');
   const cambioProyecto = state.proyecto?.name !== nombre;
+  if (cambioProyecto) detenerCamarasDeOtrosProyectos(nombre);
   if (cambioProyecto) state.exploradorPlacas = [];
   state.proyecto = project;
   if (cambioProyecto) {

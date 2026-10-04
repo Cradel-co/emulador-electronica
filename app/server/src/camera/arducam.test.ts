@@ -14,6 +14,8 @@ it('solicita una foto nueva y entrega los mismos bytes normalizados que conserva
   const input = await sharp({ create: { width: 120, height: 240, channels: 3, background: 'red' } }).jpeg().toBuffer();
   const meta = await s.capturar('p', 'a', session.id, input, undefined, requestId);
   expect(meta).toMatchObject({ width: 320, height: 240, requestId });
+  expect(meta.timings?.backendValidateMs).toBeGreaterThanOrEqual(0);
+  expect(meta.timings?.backendNormalizeMs).toBeGreaterThanOrEqual(0);
   expect(fifo).toEqual(s.imagen('p', 'a').bytes);
   const pixels = await sharp(s.imagen('p','a').bytes).raw().toBuffer();
   expect(pixels[0]).toBeLessThan(10);

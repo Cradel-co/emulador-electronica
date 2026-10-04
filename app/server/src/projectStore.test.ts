@@ -57,6 +57,35 @@ describe('archivos propios de cada placa', () => {
   });
 });
 
+describe('plantilla ArduCAM con TFT', () => {
+  it('genera el driver de cámara, el decodificador y el programa que pinta por ST7735', async () => {
+    await fs.mkdir(store.templatesDir, { recursive: true });
+    await fs.cp(
+      path.resolve(import.meta.dirname, '../../../projects/_template/arducam-tft-esp32-s3'),
+      path.join(store.templatesDir, 'arducam-tft-esp32-s3'),
+      { recursive: true },
+    );
+    const proyecto = await store.createFromTemplate('camara-pantalla', 'arducam-tft-esp32-s3');
+    expect(proyecto.modules.map((m) => m.type)).toContain('arducam-mini-2mp-plus');
+    expect(proyecto.modules.map((m) => m.type)).toContain('tft-st7735-128x160');
+    const camara = await store.readFile('camara-pantalla', 'arducam.py', 'micropython');
+    const jpeg = await store.readFile('camara-pantalla', 'jpeg.py', 'micropython');
+    const tft = await store.readFile('camara-pantalla', 'st7735.py', 'micropython');
+    const main = await store.readFile('camara-pantalla', 'main.py', 'micropython');
+    expect(camara).toContain('class ArduCAM');
+    expect(jpeg).toContain('def decodificar_rgb565');
+    expect(tft).toContain('class ST7735');
+    expect(main).toContain('decodificar_rgb565');
+    expect(main).toContain('dibujar_rgb565');
+    expect(main).toContain('Pin(14');
+    expect(main).not.toContain("input('Enter para solicitar otra foto");
+    expect(main).toContain('time.sleep_ms(1000)');
+    expect(main).toContain('Tiempos ms: captura=');
+    expect(main).toContain('decodificacion=');
+    expect(main).toContain('time.ticks_us()');
+  });
+});
+
 describe('aislamiento de enlaces simbólicos y plantillas', () => {
   it('rechaza leer, escribir o borrar un archivo enlazado', async () => {
     const outside = path.join(root, 'outside.py');
