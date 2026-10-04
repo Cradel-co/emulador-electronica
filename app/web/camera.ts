@@ -5,11 +5,14 @@ export interface EstadoCamara { phase: 'inactive' | 'starting' | 'active'; pendi
 const limitesIniciales: CameraDescriptor = { maxWidth: 640, maxHeight: 480, maxBytes: 1048576, quality: 0.8 };
 let actual: ControladorCamara | null = null;
 export function desconectarCamara() { actual?.fallar('Se perdió la conexión con el servidor. Activá nuevamente la cámara.'); }
+export function errorCamara(project: string, instance: string, mensaje: string) { actual?.errorFirmware(project, instance, mensaje); }
+export function solicitarCaptura(project: string, instance: string, requestId: string) { void actual?.solicitud(project, instance, requestId); }
 export function eventoCamara(project: string, instance: string, state: CameraStatus) { actual?.evento(project, instance, state); }
 
 /** Controla recursos del navegador y descarta resultados de operaciones canceladas. */
 export class ControladorCamara {
   snapshot: EstadoCamara = { phase: 'inactive', pending: false, error: '', stream: null, image: '', capture: null, devices: [] };
+  video: HTMLVideoElement | null = null;
   private oyentes = new Set<() => void>();
   private generation = 0;
   private session: CameraSession | null = null;
@@ -93,7 +96,16 @@ export class ControladorCamara {
     if (this.snapshot.image) URL.revokeObjectURL(this.snapshot.image);
     this.cambiar({ image, capture: meta });
   }
-  async capturar(video: HTMLVideoElement) {
+  errorFirmware(project: string, instance: string, error: string) { if (project === this.project && instance === this.instance) this.cambiar({ error }); }
+  async solicitud(project: string, instance: string, requestId: string) {
+    if (project !== this.project || instance !== this.instance || !this.session) return;
+    if (!this.video || this.video.readyState < 2 || this.snapshot.pending) {
+      await this.pedir('/session/' + this.session.id + '/requests/' + encodeURIComponent(requestId) + '/error', { method: 'POST' }).catch(() => {});
+      this.cambiar({ error: 'No se pudo tomar la fotografía solicitada por el firmware.' }); return;
+    }
+    await this.capturar(this.video, requestId);
+  }
+  async capturar(video: HTMLVideoElement, requestId?: string) {
     if (!this.session || this.snapshot.pending || video.readyState < 2 || !video.videoWidth || !video.videoHeight) return;
     const g = this.generation, session = this.session;
     this.cambiar({ pending: true, error: '' });
@@ -109,10 +121,11 @@ export class ControladorCamara {
       if (g !== this.generation) return;
       if (blob.size > this.limites.maxBytes) throw new Error('La fotografía supera el tamaño permitido.');
       enviado = true;
-      const meta = await (await this.pedir('/session/' + session.id + '/captures', { method: 'POST', headers: { 'content-type': 'image/jpeg' }, body: blob })).json() as CameraCapture;
+      const meta = await (await this.pedir('/session/' + session.id + '/captures' + (requestId ? '?requestId=' + encodeURIComponent(requestId) : ''), { method: 'POST', headers: { 'content-type': 'image/jpeg' }, body: blob })).json() as CameraCapture;
       if (g === this.generation) await this.recuperar(meta, g);
     } catch (err) {
       if (g === this.generation) {
+        if (requestId) await this.pedir('/session/' + session.id + '/requests/' + encodeURIComponent(requestId) + '/error', { method: 'POST' }).catch(() => {});
         if (enviado) this.fallar(mensaje(err)); else this.cambiar({ error: mensaje(err) });
       }
     } finally { if (g === this.generation) this.cambiar({ pending: false }); }

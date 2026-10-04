@@ -9,6 +9,7 @@ export function SeccionCamara({ project, instance, camera }: { project: string; 
   const [device, setDevice] = useState('');
   const [listo, setListo] = useState(false);
   useEffect(() => {
+    control.video = video.current;
     void control.dispositivos(); void control.cargarUltima();
     const salir = () => { void control.detener(); };
     window.addEventListener('pagehide', salir);
@@ -21,14 +22,14 @@ export function SeccionCamara({ project, instance, camera }: { project: string; 
       if (s.stream) void video.current.play().catch(() => {});
     }
   }, [s.stream]);
-  return <section className="camara-panel" aria-label="Cámara virtual">
+  return <section className="camara-panel" aria-label={camera.hardware ? "ArduCAM" : "Cámara virtual"}>
     <h3>Cámara del computador</h3>
     <label>Dispositivo <select aria-label="Dispositivo de cámara" value={device} disabled={s.phase !== 'inactive'} onChange={e => setDevice(e.target.value)}>
       <option value="">Cámara predeterminada</option>
       {s.devices.map((d, i) => <option key={d.deviceId || i} value={d.deviceId}>{d.label || `Cámara ${i + 1}`}</option>)}
     </select></label>
     <div className="insp-control">
-      <button type="button" disabled={s.phase !== 'inactive'} onClick={() => void control.activar(device)}>Activar</button>
+      <button type="button" disabled={s.phase !== 'inactive'} onClick={() => void control.activar(device)}>{camera.hardware ? "Activar webcam" : "Activar"}</button>
       <button type="button" disabled={s.phase !== 'active' || s.pending || !listo} onClick={() => { if (video.current) void control.capturar(video.current); }}>Capturar</button>
       <button type="button" disabled={s.phase === 'inactive'} onClick={() => void control.detener()}>Detener</button>
     </div>
@@ -38,7 +39,8 @@ export function SeccionCamara({ project, instance, camera }: { project: string; 
     <h3>Última captura recibida</h3>
     {s.image && s.capture ? <>
       <img src={s.image} alt="Fotografía recuperada del servidor" />
-      <p>Captura {s.capture.number} · {s.capture.width} × {s.capture.height} · {new Date(s.capture.receivedAt).toLocaleTimeString()}</p>
+      <p>{s.capture.requestId ? "Solicitada por el firmware · " : ""}Captura {s.capture.number} · {s.capture.width} × {s.capture.height} · {new Date(s.capture.receivedAt).toLocaleTimeString()}</p>
+      {s.capture.sha256 && <p>SHA-256: <code>{s.capture.sha256}</code> · {s.capture.size} bytes</p>}
     </> : <p>Todavía no hay una fotografía recibida.</p>}
   </section>;
 }
