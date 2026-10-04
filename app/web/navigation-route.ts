@@ -3,6 +3,7 @@ export interface WorkspaceRoute {
   project: string | null;
   board?: string;
   file?: string;
+  leccion?: string;
   aprender?: { leccion?: string; paso?: string };
 }
 
@@ -33,10 +34,12 @@ export function normalizeWorkspaceRoute(route: WorkspaceRoute): WorkspaceRoute {
   if (!segment(route.project)) throw new WorkspaceRouteError('El nombre del proyecto en la dirección no es válido.');
   if (route.board !== undefined && !segment(route.board)) throw new WorkspaceRouteError('La placa en la dirección no es válida.');
   if (route.file !== undefined && !route.file.split('/').every(segment)) throw new WorkspaceRouteError('La ruta del archivo en la dirección no es válida.');
+  if (route.leccion !== undefined && !segment(route.leccion)) throw new WorkspaceRouteError('El identificador de la lección no es válido.');
   return {
     project: route.project,
     ...(route.board === undefined ? {} : { board: route.board }),
     ...(route.file === undefined ? {} : { file: route.file }),
+    ...(route.leccion === undefined ? {} : { leccion: route.leccion }),
   };
 }
 
@@ -51,6 +54,7 @@ export function workspaceRoutePath(route: WorkspaceRoute): string {
   const search = new URLSearchParams();
   if (normalized.board !== undefined) search.set('board', normalized.board);
   if (normalized.file !== undefined) search.set('file', normalized.file);
+  if (normalized.leccion !== undefined) search.set('leccion', normalized.leccion);
   const query = search.toString();
   return `/projects/${encodeURIComponent(normalized.project)}${query ? `?${query}` : ''}`;
 }
@@ -86,11 +90,12 @@ export function parseWorkspaceRoute(pathOrHash: string): WorkspaceRoute {
     const match = /^\/projects\/([^/]+)\/?$/.exec(pathname);
     if (!match?.[1] || path.includes('#')) throw new WorkspaceRouteError('La página solicitada no existe.');
     const search = new URLSearchParams(query);
-    if (search.getAll('board').length > 1 || search.getAll('file').length > 1) throw new WorkspaceRouteError();
+    if (search.getAll('board').length > 1 || search.getAll('file').length > 1 || search.getAll('leccion').length > 1) throw new WorkspaceRouteError();
     return normalizeWorkspaceRoute({
       project: decodeURIComponent(match[1]),
       ...(search.has('board') ? { board: search.get('board') as string } : {}),
       ...(search.has('file') ? { file: search.get('file') as string } : {}),
+      ...(search.has('leccion') ? { leccion: search.get('leccion') as string } : {}),
     });
   } catch (error) {
     if (error instanceof WorkspaceRouteError) throw error;
@@ -99,7 +104,7 @@ export function parseWorkspaceRoute(pathOrHash: string): WorkspaceRoute {
 }
 
 export function sameWorkspaceRoute(left: WorkspaceRoute, right: WorkspaceRoute): boolean {
-  return left.project === right.project && left.board === right.board && left.file === right.file
+  return left.project === right.project && left.board === right.board && left.file === right.file && left.leccion === right.leccion
     && Boolean(left.aprender) === Boolean(right.aprender)
     && left.aprender?.leccion === right.aprender?.leccion && left.aprender?.paso === right.aprender?.paso;
 }

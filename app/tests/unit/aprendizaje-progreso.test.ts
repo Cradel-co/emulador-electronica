@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { completarLeccion, leerProgreso, progresoDeLeccion, registrarPaso } from '../../web/aprendizaje/progreso.js';
+import { asociarProyecto, completarLeccion, leerProgreso, progresoDeLeccion, quitarAsociacionProyecto, registrarPaso } from '../../web/aprendizaje/progreso.js';
 
 class AlmacenMemoria {
   datos = new Map<string, string>();
@@ -36,5 +36,34 @@ describe('progreso local de Aprender', () => {
     expect(progresoDeLeccion(almacen, 'encender-un-led', 2)).toEqual({ revision: 2, ultimoPasoId: 'identificar', completada: false });
     almacen.datos.set('emu.aprendizaje.v1', JSON.stringify({ version: 1, lecciones: { mal: { revision: 0, completada: 'sí' } } }));
     expect(leerProgreso(almacen)).toEqual({ version: 1, lecciones: {} });
+  });
+
+  it('asocia una práctica sin perder progreso y limpia la asociación si se borró el proyecto', () => {
+    const almacen = new AlmacenMemoria();
+    registrarPaso(almacen, 'encender-un-led', 1, 'invertir-led');
+    asociarProyecto(almacen, 'encender-un-led', 1, 'practica-led');
+    completarLeccion(almacen, 'encender-un-led', 1, 'invertir-led');
+    expect(progresoDeLeccion(almacen, 'encender-un-led', 1)).toEqual({
+      revision: 1, ultimoPasoId: 'invertir-led', completada: true,
+      completadaEn: expect.any(String), proyectoNombre: 'practica-led',
+    });
+    quitarAsociacionProyecto(almacen, 'encender-un-led', 1);
+    expect(progresoDeLeccion(almacen, 'encender-un-led', 1)).toMatchObject({
+      ultimoPasoId: 'invertir-led', completada: true,
+    });
+    expect(progresoDeLeccion(almacen, 'encender-un-led', 1)?.proyectoNombre).toBeUndefined();
+  });
+
+  it('conserva la práctica al cambiar la revisión y descarta nombres corruptos', () => {
+    const almacen = new AlmacenMemoria();
+    asociarProyecto(almacen, 'encender-un-led', 1, 'practica-led');
+    registrarPaso(almacen, 'encender-un-led', 2, 'identificar');
+    expect(progresoDeLeccion(almacen, 'encender-un-led', 2)).toMatchObject({
+      revision: 2, ultimoPasoId: 'identificar', completada: false, proyectoNombre: 'practica-led',
+    });
+    almacen.datos.set('emu.aprendizaje.v1', JSON.stringify({
+      version: 1, lecciones: { 'encender-un-led': { revision: 2, completada: false, proyectoNombre: 4 } },
+    }));
+    expect(leerProgreso(almacen).lecciones['encender-un-led']).toBeUndefined();
   });
 });

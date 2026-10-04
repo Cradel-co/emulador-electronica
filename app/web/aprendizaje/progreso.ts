@@ -10,6 +10,7 @@ export interface ProgresoLeccion {
   ultimoPasoId?: string;
   completada: boolean;
   completadaEn?: string;
+  proyectoNombre?: string;
 }
 
 export interface ProgresoAprendizaje {
@@ -37,11 +38,13 @@ export function leerProgreso(almacen: AlmacenAprendizaje | null | undefined): Pr
       if (!Number.isInteger(dato.revision) || (dato.revision as number) < 1 || typeof dato.completada !== 'boolean') continue;
       if (dato.ultimoPasoId !== undefined && typeof dato.ultimoPasoId !== 'string') continue;
       if (dato.completadaEn !== undefined && typeof dato.completadaEn !== 'string') continue;
+      if (dato.proyectoNombre !== undefined && typeof dato.proyectoNombre !== 'string') continue;
       lecciones[id] = {
         revision: dato.revision as number,
         ...(typeof dato.ultimoPasoId === 'string' ? { ultimoPasoId: dato.ultimoPasoId } : {}),
         completada: dato.completada,
         ...(typeof dato.completadaEn === 'string' ? { completadaEn: dato.completadaEn } : {}),
+        ...(typeof dato.proyectoNombre === 'string' ? { proyectoNombre: dato.proyectoNombre } : {}),
       };
     }
     return { version: 1, lecciones };
@@ -68,6 +71,7 @@ export function registrarPaso(
     ultimoPasoId: pasoId,
     completada: previo?.revision === revision && previo.completada,
     ...(previo?.revision === revision && previo.completadaEn ? { completadaEn: previo.completadaEn } : {}),
+    ...(previo?.proyectoNombre ? { proyectoNombre: previo.proyectoNombre } : {}),
   };
   guardar(almacen, documento);
 }
@@ -80,7 +84,46 @@ export function completarLeccion(
   completadaEn = new Date().toISOString(),
 ): void {
   const documento = leerProgreso(almacen);
-  documento.lecciones[id] = { revision, ultimoPasoId: pasoId, completada: true, completadaEn };
+  const proyectoNombre = documento.lecciones[id]?.proyectoNombre;
+  documento.lecciones[id] = {
+    revision, ultimoPasoId: pasoId, completada: true, completadaEn,
+    ...(proyectoNombre ? { proyectoNombre } : {}),
+  };
+  guardar(almacen, documento);
+}
+
+export function asociarProyecto(
+  almacen: AlmacenAprendizaje | null | undefined,
+  id: string,
+  revision: number,
+  proyectoNombre: string,
+): void {
+  const documento = leerProgreso(almacen);
+  const previo = documento.lecciones[id];
+  documento.lecciones[id] = {
+    revision,
+    ...(previo?.ultimoPasoId ? { ultimoPasoId: previo.ultimoPasoId } : {}),
+    completada: previo?.revision === revision && previo.completada,
+    ...(previo?.revision === revision && previo.completadaEn ? { completadaEn: previo.completadaEn } : {}),
+    proyectoNombre,
+  };
+  guardar(almacen, documento);
+}
+
+export function quitarAsociacionProyecto(
+  almacen: AlmacenAprendizaje | null | undefined,
+  id: string,
+  revision: number,
+): void {
+  const documento = leerProgreso(almacen);
+  const previo = documento.lecciones[id];
+  if (!previo?.proyectoNombre) return;
+  documento.lecciones[id] = {
+    revision,
+    ...(previo.ultimoPasoId ? { ultimoPasoId: previo.ultimoPasoId } : {}),
+    completada: previo.revision === revision && previo.completada,
+    ...(previo.revision === revision && previo.completadaEn ? { completadaEn: previo.completadaEn } : {}),
+  };
   guardar(almacen, documento);
 }
 

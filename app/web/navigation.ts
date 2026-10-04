@@ -74,9 +74,10 @@ export function createWorkspaceNavigation(options: WorkspaceNavigationOptions): 
   const project = createRoute({
     getParentRoute: () => root,
     path: '/projects/$project',
-    validateSearch: (search: Record<string, unknown>): { board?: string; file?: string } => ({
+    validateSearch: (search: Record<string, unknown>): { board?: string; file?: string; leccion?: string } => ({
       ...(typeof search.board === 'string' ? { board: search.board } : {}),
       ...(typeof search.file === 'string' ? { file: search.file } : {}),
+      ...(typeof search.leccion === 'string' ? { leccion: search.leccion } : {}),
     }),
   });
   const router = createRouter({
@@ -193,7 +194,7 @@ export function createWorkspaceNavigation(options: WorkspaceNavigationOptions): 
         await router.navigate({
           to: '/projects/$project',
           params: { project: normalized.project },
-          search: { board: normalized.board, file: normalized.file },
+          search: { board: normalized.board, file: normalized.file, leccion: normalized.leccion },
           replace: navigationOptions.replace,
           ignoreBlocker: true,
         });

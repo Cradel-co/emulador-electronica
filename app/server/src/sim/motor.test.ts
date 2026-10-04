@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest';
-import type { ModuleInstance, Project, Wire } from '@emu/shared';
+import { ProjectSchema, type ModuleInstance, type Project, type Wire } from '@emu/shared';
+import { readFileSync } from 'node:fs';
 import { loadCatalog, type ModuloCatalogo } from '../catalog.js';
 import { analizarCircuito, type AnalisisCircuito, type OpcionesAnalisis } from './analisis.js';
 import { precalentar } from './spice.js';
@@ -84,6 +85,32 @@ function resolverLineal(A: number[][], y: number[]): number[] {
 const TOL_V = 0.006;
 
 describe('leyes fundamentales (Ohm, Kirchhoff, mallas, superposición)', () => {
+  it('práctica aprender-led: apagada no conduce, encendida con polaridad correcta sí, invertida no', async () => {
+    const correcta = ProjectSchema.parse(JSON.parse(readFileSync(
+      new URL('../../../../projects/_template/aprender-led/project.json', import.meta.url), 'utf8',
+    )));
+
+    const apagada = await analizar(correcta, { fuentesApagadas: true });
+    expect(Math.abs(apagada.leds[0]!.mA)).toBeLessThan(0.001);
+    expect(apagada.modulos.led1!.ui?.on).toBe(false);
+
+    const encendida = await analizar(correcta);
+    expect(encendida.leds[0]!.mA).toBeGreaterThan(8);
+    expect(encendida.leds[0]!.mA).toBeLessThan(12);
+    expect(encendida.leds[0]!.estado).toBe('ok');
+    expect(encendida.modulos.led1!.ui?.on).toBe(true);
+
+    const invertida: Project = {
+      ...correcta,
+      wires: [
+        w('fuente1.V', 'r1.1'), w('r1.2', 'led1.GND'), w('led1.IN', 'fuente1.GND'),
+      ],
+    };
+    const alReves = await analizar(invertida);
+    expect(Math.abs(alReves.leds[0]!.mA)).toBeLessThan(0.001);
+    expect(alReves.modulos.led1!.ui?.on).toBe(false);
+  });
+
   it('divisor resistivo: V(medio) = V·R2/(R1+R2), I = V/(R1+R2)', async () => {
     const r = await analizar(sinPlaca([fuente('f', 9), R('r1', 1000), R('r2', 2000)],
       [w('f.V', 'r1.1'), w('r1.2', 'r2.1'), w('r2.2', 'f.GND')]));

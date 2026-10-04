@@ -54,21 +54,19 @@ Start ni TanStack Query para este alcance. La versión compatible está fijada e
 | `/#/` | Inicio y proyectos | No abre automáticamente un proyecto previo. |
 | `/#/aprender` | Índice | Solo lecciones publicadas, en orden editorial explícito. |
 | `/#/aprender/$leccion?paso=<id>` | Lección | ID estable; paso desconocido se normaliza al primero. |
-| `/#/projects/$project?board=<id>&file=<ruta>` | Editor | Contrato implementado por la PR #49. |
+| `/#/projects/$project?board=<id>&file=<ruta>&leccion=<id>` | Editor | `leccion` conserva el vínculo de una práctica con su lección. |
 | Hash desconocido o inválido | Inicio o salida de error | El adaptador conserva la aplicación operativa y normaliza rutas no válidas. |
 
 Las rutas visibles son hashes: `/#/aprender/encender-un-led?paso=identificar` y
-`/#/projects/$project?board=<id>&file=<ruta>`. La PR #50 guarda y restaura el paso local cuando
-no viene en la URL. La asociación `?leccion=<id>` en el proyecto y el regreso explícito a la
-guía siguen pendientes; deben añadirse al contrato de búsqueda del adaptador antes de completar
-la práctica conectada. Los nombres de proyecto se codifican como un único segmento usando las
+`/#/projects/$project?board=<id>&file=<ruta>&leccion=<id>`. La PR #50 guarda y restaura el
+paso local cuando no viene en la URL. Al crear una práctica se guarda localmente la asociación,
+la URL del proyecto incluye `leccion`, y desde el editor se puede volver a la guía y continuar
+la práctica existente. Los nombres de proyecto se codifican como un único segmento usando las
 utilidades del router; no se concatenan URLs a mano.
 
-Elegir otra pantalla o lección agrega una entrada de historial. La navegación actual entre
-pasos también agrega entradas; el criterio acordado es que cambiar de paso use `replace` para
-que Atrás vuelva a la pantalla anterior sin recorrer cada paso (**pendiente en la PR #50**).
-La URL válida prevalece sobre el paso local; si no hay paso en la URL se recupera el último
-paso válido guardado.
+Elegir otra pantalla o lección agrega una entrada de historial. Cambiar de paso usa `replace`
+para que Atrás vuelva a la pantalla anterior sin recorrer cada paso. La URL válida prevalece
+sobre el paso local; si no hay paso en la URL se recupera el último paso válido guardado.
 
 ### Enlaces anteriores
 
@@ -132,12 +130,12 @@ Ubicaciones vigentes y siguientes extensiones:
 
 | Responsabilidad | Ubicación | Prueba |
 |---|---|---|
-| Contrato y normalización de rutas | `app/web/navigation-route.ts` | Vitest; ampliar para `leccion` al asociar prácticas. |
+| Contrato y normalización de rutas | `app/web/navigation-route.ts` | Vitest; incluye `leccion` en proyectos asociados. |
 | Adaptador de TanStack Router e historial | `app/web/navigation.ts` | Vitest/E2E de navegación; entregado en #49. |
 | Catálogo y primera lección | `app/web/aprendizaje/contenido.ts` | Vitest; base entregada en #50. |
 | Persistencia local de progreso | `app/web/aprendizaje/progreso.ts` | Vitest; base entregada en #50. |
 | Índice y vista de lección | `app/web/react/Aprendizaje.tsx` | Playwright; base entregada en #50. |
-| Acciones entre React y efectos | `app/web/react/puente.ts`, `app/web/app.ts` | E2E; ampliar con regreso/continuación de práctica. |
+| Acciones entre React y efectos | `app/web/react/puente.ts`, `app/web/app.ts` | E2E; regreso y continuación de práctica implementados. |
 | Plantilla práctica | `projects/_template/aprender-led/` | E2E de estructura; falta validar el recorrido eléctrico real. |
 
 Todo código fuente nuevo o modificado será `.ts` o `.tsx`; se conservan imports `.js` cuando
@@ -153,10 +151,10 @@ modelan como unión discriminada de párrafo, lista, aviso, código y figura; se
 con React, sin HTML arbitrario ni `dangerouslySetInnerHTML`. Las figuras necesitan texto
 alternativo. `Practica` referencia un `templateId` estable y sus instrucciones de observación.
 
-La definición vigente de la lección en #50 cubre metadatos básicos, pasos, bloques y plantilla;
-objetivos, requisitos, materiales y errores frecuentes todavía no tienen campos propios.
-Agregar esos campos y validación de catálogo es parte de completar el contenido de la lección.
-IDs de lección y paso son únicos y estables; `revision` es un entero positivo. No se guardan
+La definición vigente de la lección en #50 ya incluye objetivos, requisitos, materiales y
+errores frecuentes, además de metadatos, pasos, bloques y plantilla. El catálogo valida los
+campos requeridos antes de publicar las lecciones. IDs de lección y paso son únicos y estables;
+`revision` es un entero positivo. No se guardan
 índices de array como identidad. La validación exige pasos no vacíos, duración positiva,
 orden determinista y referencias de plantilla existentes. No se publica contenido inválido.
 El catálogo inicial se compila con el frontend; no necesita acceso al servidor para leer
@@ -188,20 +186,18 @@ significa que la persona declara haber terminado: encender el LED no otorga cert
 
 La PR #50 implementa “Abrir práctica” con nombre editable y reutiliza `POST /api/projects`
 con `{ name, template }`; la plantilla `aprender-led` contiene fuente, resistencia y LED.
-La lista de plantillas se sirve desde el catálogo existente. La integración pendiente debe
-evitar doble envío y conservar mensajes de error recuperables.
+La lista de plantillas se sirve desde el catálogo existente. La integración evita crear otra
+práctica al continuar la existente y conserva mensajes de error recuperables.
 La API conserva su validación y sus errores; el frontend no necesita conocer rutas de disco.
 Cada creación produce un proyecto independiente, sin sobrescribir proyectos ni modificar
 la plantilla. Un nombre ocupado permite corregirlo. Mientras se crea, el botón queda deshabilitado.
 
-Hoy la creación abre un proyecto independiente y el progreso de la lección se mantiene local,
-pero no se guarda una asociación lección/proyecto ni aparece una acción para volver desde el
-editor. Completar el recorrido debe agregar `?leccion=encender-un-led` a la ruta hash del
-proyecto, guardar localmente la asociación y ofrecer “Volver a la lección” pasando por la
-misma protección de guardado. “Continuar práctica” debe abrir la asociación existente sin
-crear otra. Si el proyecto fue borrado, ofrecer crear una práctica nueva. Si la respuesta de
-creación se pierde, consultar el proyecto por el nombre solicitado antes de reintentar; no
-inventar otro nombre y duplicar la práctica automáticamente.
+La creación abre un proyecto independiente, guarda localmente la asociación lección/proyecto,
+agrega `?leccion=<id>` a la ruta y ofrece “Volver a la lección” bajo la misma protección de
+guardado. “Continuar práctica” abre la asociación existente sin crear otra. Si el proyecto fue
+borrado, se quita la asociación y se ofrece crear otra práctica desde el último paso. Si la
+respuesta de creación se pierde, consultar el proyecto por el nombre solicitado antes de
+reintentar; no inventar otro nombre y duplicar la práctica automáticamente.
 
 Una plantilla ausente o módulos faltantes dejan la lectura disponible, explican por qué la
 práctica no puede abrirse y permiten reintentar. Los proyectos siguen usando su formato actual:
@@ -251,9 +247,9 @@ la presencia de TanStack Router o reproduzcan su implementación interna.
 | 0. Caracterización | `/#nombre`, recarga, Atrás, selector, inicio, archivo sucio, debounce del diagrama, fallo de guardado y montaje del lienzo. | Congelar el comportamiento vigente y probar pérdidas de datos antes de migrar. | Cubierta por #49; sus pruebas regresivas pasan. |
 | 1. Router | Historial hash, codificación, enlaces antiguos, recarga, assets/API conservan sus respuestas. | Router tipado y rutas de inicio/proyecto estables. | Implementada en #49; no necesita fallback SPA. |
 | 2. Transiciones | Guardado retardado o rechazado, diagrama pendiente, A→B→C con respuestas desordenadas y Atrás cancelado. | Una respuesta vieja no pinta otro proyecto y ningún fallo pierde cambios. | Implementada en #49; regresiones pasan. |
-| 3. Catálogo y lectura | IDs duplicados, paso inválido, lección inexistente, orden y deep link a paso. | Tipos, contenido y pantallas de índice/lección. | Parcial en #50; completar campos editoriales y foco accesible. |
+| 3. Catálogo y lectura | IDs duplicados, paso inválido, lección inexistente, orden y deep link a paso. | Tipos, contenido y pantallas de índice/lección. | Implementada en #50; revisar foco accesible al cambiar de pantalla/paso. |
 | 4. Progreso | Primera lectura, completar, recarga, revisión nueva, JSON corrupto y fallos de almacenamiento. | Persistencia tolerante a fallos; solo acción explícita completa. | Base implementada en #50; ampliar casos de revisión/migración. |
-| 5. Práctica LED | Plantilla válida y circuito eléctrico; creación, duplicado, fallo de red, volver, continuar y proyecto borrado. | Recorrido asociado, editable y sin duplicados; verificación con motor real. | Parcial en #50; asociación, acciones de retorno/continuación y validación eléctrica pendientes. |
+| 5. Práctica LED | Plantilla válida y circuito eléctrico; creación, duplicado, fallo de red, volver, continuar y proyecto borrado. | Recorrido asociado, editable y sin duplicados; verificación con motor real. | Asociación, retorno, continuación, copia y borrado cubiertos por E2E; motor real verifica apagada/encendida/invertida. Falta recuperación de creación ambigua. |
 | 6. Integración y publicación | Recorrido completo, historial, recarga, vista estrecha, teclado y regresiones del editor. | Lección disponible con contenido y práctica verificados. | Pendiente tras completar la etapa 5. |
 
 Tests puros en `app/tests/unit/aprendizaje*.test.ts` y `navigation-route.test.ts`; UI en
@@ -275,9 +271,10 @@ que CI lo provea; no convertir su ausencia en una prueba eléctrica falsamente a
    permanecer y reintentar sin perder código ni diagrama. Cancelar restaura ubicación y pantalla.
 5. Navegación rápida termina en el último destino elegido; el editor conserva una sola instancia.
 6. La lección recuerda el paso tras recarga y solo se completa mediante la acción explícita.
-7. La práctica crea una copia editable, permite volver y continuar sin duplicar, y no modifica la plantilla. **Pendiente.**
+7. La práctica crea una copia editable, permite volver y continuar sin duplicar, y no modifica la plantilla. E2E cubre creación, vínculo, regreso, continuación y unicidad del proyecto; la copia no modifica la plantilla.
 8. Fuente apagada: LED apagado. Circuito correcto encendido: LED conduce dentro de los límites
-   del modelo. LED invertido: no conduce significativamente. La explicación coincide con el motor.
+   del modelo. LED invertido: no conduce significativamente. **Verificado con ngspice sobre la
+   plantilla de la práctica**; revisar tolerancias si cambia el modelo.
 9. El recorrido completo funciona con teclado y en viewport estrecho; no rompe scroll del catálogo,
    edición, consola ni dibujo del circuito.
 
@@ -310,10 +307,11 @@ respecto de este SDD. Las etapas no se marcan completas hasta cumplir sus criter
 | Cambios en contenido dejan progreso inválido | Revisiones explícitas, IDs estables y validación del almacenamiento. |
 | Bundle crece al agregar router y contenido | Comparar build antes/después; diferir carga de contenido si la medición lo justifica. |
 
-Las decisiones pendientes son de implementación: ampliar el contrato de ruta con la lección
-asociada a una práctica, cerrar el retorno/continuación, verificar IDs/pines y tolerancia
-eléctrica con el motor y llevar el foco al contenido al cambiar de paso. El historial hash,
-la versión de TanStack Router y el host `#pantalla-aprender` ya están definidos en #49/#50.
+Las brechas pendientes son verificar IDs/pines y tolerancia eléctrica con el motor, comprobar
+el foco accesible al cambiar de pantalla y paso, y ampliar los casos de progreso de revisión y
+almacenamiento. El contrato de ruta con lección asociada y el retorno/continuación ya están
+implementados. El historial hash, la versión de TanStack Router y el host `#pantalla-aprender`
+ya están definidos en #49/#50.
 
 ## Referencias
 

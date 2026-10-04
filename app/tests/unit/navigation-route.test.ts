@@ -25,6 +25,13 @@ describe('contrato de rutas del espacio de trabajo', () => {
     expect(parseWorkspaceRoute(`#${workspaceRoutePath(route)}`)).toEqual(route);
   });
 
+  it('conserva la lección asociada a la ruta de una práctica', () => {
+    const route = { project: 'practica led', board: 'board', leccion: 'encender-un-led' };
+    expect(parseWorkspaceRoute('#/projects/practica%20led?board=board&leccion=encender-un-led')).toEqual(route);
+    expect(workspaceRoutePath(route)).toBe('/projects/practica%20led?board=board&leccion=encender-un-led');
+    expect(sameWorkspaceRoute(route, { ...route, leccion: undefined })).toBe(false);
+  });
+
   it('permite enlaces parciales y descarta parámetros ajenos al contrato', () => {
     expect(parseWorkspaceRoute('/projects/casa?board=1&otro=valor')).toEqual({ project: 'casa', board: '1' });
     expect(parseWorkspaceRoute('/projects/casa?file=lib%2Fsensor.py')).toEqual({ project: 'casa', file: 'lib/sensor.py' });

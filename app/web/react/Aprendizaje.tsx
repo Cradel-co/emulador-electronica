@@ -38,6 +38,7 @@ export function Aprendizaje() {
                 <button className="primario" type="button" onClick={() => acciones().navegarAprendizaje(leccion.id)}>
                   {progreso ? 'Continuar lección' : 'Empezar lección'}
                 </button>
+                {progreso?.proyectoNombre && <button type="button" onClick={() => acciones().continuarPracticaAprendizaje(leccion.id)}>Continuar práctica</button>}
               </article>
             );
           })}
