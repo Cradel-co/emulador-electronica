@@ -1,4 +1,6 @@
-// Frontend sin bundler: ES modules nativos contra la API local (sección 11).
+// Orquestación del frontend: componentes persistentes y efectos contra la API local.
+import { resolveWorkspaceSelection } from './navigation-selection.js';
+import { createWorkspaceNavigation, type WorkspaceRoute } from './navigation.js';
 import { miniatura, ponerImagenPantalla } from './modulos.js';
 import { lenguajeDeArchivo, NOMBRE_LENGUAJE, resaltar } from './editor.js';
 import { crearDepuracion } from './depuracion.js';
@@ -211,9 +213,9 @@ registrarAcciones({
     controlModulo(inst, 'momentary', 0, 'down');
   },
   reemplazarQuemado: (id) => reemplazarQuemado(id),
-  abrirArchivo: (ruta) => { seleccionar(null); void abrirArchivo(ruta); },
+  abrirArchivo: (ruta) => { seleccionar(null); void navegarArchivo(ruta); },
   abrirArchivoDePlaca: async (boardId, path) => {
-    await seleccionarPlaca(boardId, path);
+    await navegarArchivo(path, boardId);
     if (state.placaActivaId === boardId && state.activo === path) seleccionar(null);
   },
   cargarExplorador: () => cargarExplorador(),
@@ -792,7 +794,7 @@ async function irALinea(archivo, linea) {
   mostrarVentana('der', true);
   seleccionar(null);
   const destino = archivo && state.archivos.some((f) => f.path === archivo) ? archivo : state.activo;
-  if (destino && destino !== state.activo) await abrirArchivo(destino);
+  if (destino && destino !== state.activo) await navegarArchivo(destino);
   if (microPythonActivo) { microPython.go(linea); return; }
   const t = ta('editor');
   const lineas = t.value.split('\n');
@@ -845,7 +847,14 @@ async function abrirArchivo(ruta) {
   // Si mientras cargaba se cambió de proyecto, este contenido es de otro: no se muestra
   // (si no, el autoguardado lo escribiría en el proyecto equivocado).
   if (version !== aperturasArchivo || state.proyecto?.name !== proyecto || state.placaActivaId !== boardId) return;
+  if (state.editorSucio && state.activo !== ruta && (!await guardar(true) || state.editorSucio)) return;
+  if (version !== aperturasArchivo || state.proyecto?.name !== proyecto || state.placaActivaId !== boardId) return;
   const preservarErrores = proyectoEditor === proyecto && placaEditor === boardId && Boolean(state.activo) && state.activo !== ruta;
+  mostrarContenidoArchivo(ruta, content, preservarErrores);
+}
+
+/** Aplica contenido que ya se cargó: no deja una selección parcial si falla la red. */
+function mostrarContenidoArchivo(ruta: string, content: string, preservarErrores = false): void {
   state.activo = ruta;
   editor.lenguaje = lenguajeDeArchivo(ruta);
   $('lenguaje-status').textContent = NOMBRE_LENGUAJE[editor.lenguaje];
@@ -870,14 +879,19 @@ async function seleccionarPlaca(boardId: string, archivo?: string) {
     if (state.editorSucio && !await guardar(true)) return;
     if (version !== seleccionPlacaVersion || state.proyecto?.name !== nombre || state.placaActivaId !== anterior) return;
     if (state.editorSucio) { nota('El archivo sigue cambiando: guardalo antes de cambiar de placa.'); return; }
+    const files = resultado.files.filter(f => !/(^|\/)(secrets\.yaml|project\.json)$/.test(f.path));
+    const main = archivo ? files.find(f => f.path === archivo) : files.find(f => /(^|\/)main\.py$/.test(f.path)) ?? files[0];
+    const loaded = main ? await api(urlArchivo(nombre, main.path, boardId)) : null;
+    if (version !== seleccionPlacaVersion || state.proyecto?.name !== nombre || state.placaActivaId !== anterior) return;
+    if (state.editorSucio && (!await guardar(true) || state.editorSucio)) return;
+    if (version !== seleccionPlacaVersion || state.proyecto?.name !== nombre || state.placaActivaId !== anterior) return;
     state.placaActivaId = boardId;
     depuracion?.alCambiarContexto();
     state.placa = resultado.placa ?? null;
     state.carpetas = resultado.directories ?? [];
-    state.archivos = resultado.files.filter(f => !/(^|\/)(secrets\.yaml|project\.json)$/.test(f.path));
+    state.archivos = files;
     state.activo = null;
-    const main = archivo ? state.archivos.find(f => f.path === archivo) : state.archivos.find(f => /(^|\/)main\.py$/.test(f.path)) ?? state.archivos[0];
-    if (main) await abrirArchivo(main.path);
+    if (main && loaded) mostrarContenidoArchivo(main.path, loaded.content);
     else editarContenido('');
     pintarPanelDerecho(); pintarWidgetsProyecto(); pintarAlimentacion(); lienzo.render();
     const status = state.sim.estadosPorPlaca.get(boardId);
@@ -915,7 +929,7 @@ async function crearEntrada(name: string, kind: EntryKind): Promise<void> {
   await cargarExplorador(true);
   if (state.proyecto?.name !== context.project) return;
   if (kind === 'file') {
-    await seleccionarPlaca(context.boardId, path);
+    await navegarArchivo(path, context.boardId);
     if (state.placaActivaId === context.boardId && state.activo === path) seleccionar(null);
   } else if (state.placaActivaId === context.boardId) {
     const summary = state.exploradorPlacas.find(board => board.id === context.boardId);
@@ -1003,19 +1017,23 @@ function cableadosConRol(rol) {
 
 // --- Dibujo: cambios --------------------------------------------------------
 
+let revisionDiagrama = 0;
 function guardarDiagrama() {
+  revisionDiagrama++;
   // Todos los cambios del dibujo pasan por acá: es el lugar para avisarle a React, que no ve
   // las mutaciones de adentro de `wires`/`modules` (ver react/estado.ts).
   notificar();
   clearTimeout(state.timerDiagrama);
   const proyecto = state.proyecto?.name;
   if (!proyecto) return;
+  // La tarea pendiente pertenece a esta versión, aunque se cambie de proyecto antes de ejecutarla.
+  const contenido = JSON.stringify(state.diagrama);
   state.timerDiagrama = setTimeout(async () => {
     state.timerDiagrama = null;
     try {
       await api(`/api/projects/${proyecto}/diagram`, {
         method: 'PUT',
-        body: JSON.stringify(state.diagrama),
+        body: contenido,
       });
       if (state.proyecto?.name === proyecto) await refrescarAvisos();
     } catch (e: any) {
@@ -1129,7 +1147,7 @@ dlgPlaca().addEventListener('close', async () => {
   try {
     if (!await guardar(true)) return;
     await api(`/api/projects/${nombre}/board`, { method: 'POST', body: JSON.stringify({ board, language, ...posPlacaNueva }) });
-    await abrirProyecto(nombre);
+    await recargarProyecto(nombre);
     nota(`${nombrePlaca()} agregada (${NOMBRE_LENGUAJE_PROYECTO[language] ?? language}): ya podés programarla. ▶ ahora compila y ejecuta.`);
   } catch (e: any) {
     nota(String((e as Error)?.message ?? e));
@@ -1145,7 +1163,7 @@ async function quitarPlaca(boardId = state.placaActivaId) {
   try {
     if (!await guardar(true)) return;
     await api(`/api/projects/${nombre}/board${queryPlaca(boardId)}`, { method: 'DELETE' });
-    await abrirProyecto(nombre);
+    await recargarProyecto(nombre);
     nota(`${placa} quitada: ${sinPlaca() ? 'el proyecto queda como circuito sin placa' : 'las demás placas siguen en el circuito'}.`);
   } catch (e: any) {
     nota(String((e as Error)?.message ?? e));
@@ -1667,7 +1685,7 @@ function girarSeleccion(delta) {
 // --- Selección y panel derecho ------------------------------------------------
 
 function seleccionar(s) {
-  if (s?.tipo === 'modulo' && placasDelProyecto(state.proyecto).some(b => b.id === s.id) && s.id !== state.placaActivaId) void seleccionarPlaca(s.id);
+  if (s?.tipo === 'modulo' && placasDelProyecto(state.proyecto).some(b => b.id === s.id) && s.id !== state.placaActivaId) void navegarPlaca(s.id);
   state.seleccion = s;
   pintarPanelDerecho();
   lienzo.render();
@@ -1729,7 +1747,7 @@ async function aplicarCambioExterno(msg) {
   if (state.proyecto?.name !== nombre) return;
   // Se agregó o se quitó la placa (otra pestaña, el MCP): cambian el código, la barra y el modo de ▶.
   if (JSON.stringify(placasDelProyecto(project)) !== JSON.stringify(placasDelProyecto(state.proyecto))) {
-    await abrirProyecto(nombre);
+    await recargarProyecto(nombre);
     return;
   }
   if (msg.what !== 'diagram' && state.placaActivaId && state.placaActivaId !== placasDelProyecto(project)[0]?.id) {
@@ -1905,24 +1923,10 @@ async function refrescarAvisos() {
 // --- Proyectos --------------------------------------------------------------
 
 async function cargarProyectos(seleccionarNombre?: string) {
-  const apertura = aperturas;
   const { projects } = await api('/api/projects');
-  // Las opciones las rinde <OpcionesProyectos> (#9). `ahora`: abajo se fija el value, y para
-  // eso las opciones tienen que existir ya.
   ahora(() => { state.proyectos = projects; });
-  const s = sel('proyecto');
-  // Mientras llegaba la lista se abrió un proyecto (p. ej. por la URL): no se lo pisa.
-  if (aperturas !== apertura && seleccionarNombre === undefined) {
-    s.value = state.proyecto?.name ?? '';
-    return;
-  }
-  // Al recargar se vuelve al proyecto que estaba abierto (queda en la URL: #nombre).
-  // Sin eso (primera visita, o volviste a la lista a propósito): la pantalla de inicio.
-  const enUrl = decodeURIComponent(location.hash.slice(1));
-  const desdeUrl = projects.some((p) => p.name === enUrl) ? enUrl : undefined;
-  const nombre = seleccionarNombre ?? state.proyecto?.name ?? desdeUrl;
-  if (nombre) await abrirProyecto(nombre);
-  else mostrarInicio();
+  sel('proyecto').value = state.proyecto?.name ?? '';
+  if (seleccionarNombre) await navegacion.navigate({ project: seleccionarNombre });
 }
 
 // --- Pantalla de inicio: lista de proyectos ----------------------------------
@@ -1932,7 +1936,6 @@ function mostrarInicio() {
   state.proyecto = null;
   state.placaActivaId = null;
   state.activo = null;
-  history.replaceState(null, '', location.pathname + location.search);
   sel('proyecto').value = '';
   pintarWidgetsProyecto();
   cerrarMenus();
@@ -1996,8 +1999,8 @@ async function eliminarProyecto(nombre) {
     // Si era el proyecto abierto (p.ej. desde la barra de iconos), hay que soltarlo antes de
     // recargar la lista: si no, cargarProyectos() intenta reabrir un proyecto que ya no existe.
     if (state.proyecto?.name === nombre) {
-      state.proyecto = null;
-      history.replaceState(null, '', location.pathname + location.search);
+      mostrarInicio();
+      navegacion.replace({ project: null });
     }
     await cargarProyectos();
   } catch (e: any) {
@@ -2006,12 +2009,7 @@ async function eliminarProyecto(nombre) {
 }
 
 async function irAInicio() {
-  guardarDiagramaYa();
-  await guardar(true);
-  // Si no se limpia antes, cargarProyectos() vuelve a abrir este mismo proyecto (es su primer candidato).
-  state.proyecto = null;
-  history.replaceState(null, '', location.pathname + location.search);
-  await cargarProyectos();
+  await navegacion.navigate({ project: null });
 }
 
 /** Cuenta las aperturas: si se pide otro proyecto mientras uno carga, la carga vieja se descarta. */
@@ -2044,7 +2042,14 @@ async function actualizarExplorador(): Promise<void> {
 
 async function abrirProyecto(nombre) {
   const mia = ++aperturas;
-  const { project, files, directories, placa } = await api(`/api/projects/${nombre}`);
+  const { project, files, directories, placa } = await api(`/api/projects/${encodeURIComponent(nombre)}`);
+  const visibles = files.filter((f) => !/(^|\/)(secrets\.yaml|project\.json)$/.test(f.path));
+  const board = placasDelProyecto(project)[0];
+  const main = visibles.find(f => /^(main\.(yaml|c|cpp|py)|sketch\.cpp)$/.test(f.path)) ?? visibles[0];
+  const loaded = board && main ? await api(urlArchivo(nombre, main.path, board.id)) : null;
+  if (mia !== aperturas) return;
+  // Se puede seguir escribiendo mientras llega el proyecto: guardar también esa versión.
+  if (state.editorSucio && (!await guardar(true) || state.editorSucio)) return;
   if (mia !== aperturas) return;
   document.body.classList.remove('inicio');
   const cambioProyecto = state.proyecto?.name !== nombre;
@@ -2057,10 +2062,9 @@ async function abrirProyecto(nombre) {
   state.placaActivaId = placasDelProyecto(project)[0]?.id ?? null;
   depuracion?.alCambiarContexto();
   state.placa = placa ?? null;
-  history.replaceState(null, '', `#${encodeURIComponent(nombre)}`);
   // project.json lo edita el canvas; secrets.yaml no se muestra.
   state.carpetas = directories ?? [];
-  state.archivos = files.filter((f) => !/(^|\/)(secrets\.yaml|project\.json)$/.test(f.path));
+  state.archivos = visibles;
   sel('proyecto').value = nombre;
   state.diagrama = { modules: [...project.modules], wires: [...project.wires] };
   for (const board of placasDelProyecto(project)) {
@@ -2071,8 +2075,7 @@ async function abrirProyecto(nombre) {
   state.seleccion = null;
   state.activo = null;
   editarContenido('');
-  const main = state.archivos.find((f) => /main\.(yaml|c|cpp|py)$|sketch\.cpp$/.test(f.path));
-  if (main) await abrirArchivo(main.path);
+  if (main && loaded) mostrarContenidoArchivo(main.path, loaded.content);
   if (mia !== aperturas) return;
   pintarPanelDerecho();
   pintarWidgetsProyecto();
@@ -2124,41 +2127,11 @@ $('zoom-mas').onclick = () => lienzo.zoom(1.2);
 $('zoom-menos').onclick = () => lienzo.zoom(1 / 1.2);
 $('zoom-ajustar').onclick = () => lienzo.ajustar();
 
-/** A qué proyecto se está yendo (mientras se guarda el actual): gana el último pedido. */
-let destino: string | null = null;
-
-async function cambiarDeProyecto(nombre) {
-  if (!nombre || nombre === (destino ?? state.proyecto?.name)) return;
-  destino = nombre;
-  try {
-    guardarDiagramaYa();
-    await guardar(true);
-    if (destino !== nombre) return; // mientras se guardaba, se pidió otro
-    await abrirProyecto(nombre);
-  } finally {
-    if (destino === nombre) destino = null;
-  }
+async function cambiarDeProyecto(nombre: string) {
+  if (nombre) await navegacion.navigate({ project: nombre });
 }
 
 sel('proyecto').addEventListener('change', () => void cambiarDeProyecto(sel('proyecto').value));
-
-// La URL (#proyecto) también elige el proyecto: atrás/adelante o editarla a mano.
-window.addEventListener('hashchange', async () => {
-  const nombre = decodeURIComponent(location.hash.slice(1));
-  if (!nombre) {
-    // "Atrás" del navegador hasta antes de abrir un proyecto: vuelve a la lista.
-    if (state.proyecto) await irAInicio();
-    return;
-  }
-  if (nombre === state.proyecto?.name) return;
-  if (state.proyectos.some((p) => p.name === nombre)) return cambiarDeProyecto(nombre);
-  // Puede ser un proyecto creado después de abrir la página (otra pestaña): se refresca la lista.
-  const { projects } = await api('/api/projects');
-  if (!projects.some((p) => p.name === nombre)) return;
-  guardarDiagramaYa();
-  await guardar(true);
-  await cargarProyectos(nombre);
-});
 
 $('ir-inicio').onclick = () => void irAInicio();
 $('act-proyectos').onclick = () => void irAInicio();
@@ -2697,7 +2670,7 @@ function candidatosPaleta() {
   }
   if (state.proyecto) {
     for (const f of state.archivos) {
-      out.push({ tipo: 'Archivo', titulo: f.path, hacer: () => { mostrarVentana('der', true); seleccionar(null); void abrirArchivo(f.path); } });
+      out.push({ tipo: 'Archivo', titulo: f.path, hacer: () => { mostrarVentana('der', true); seleccionar(null); void navegarArchivo(f.path); } });
     }
     for (const inst of state.diagrama.modules) {
       const def = state.catalogo.get(inst.type);
@@ -2756,6 +2729,110 @@ const depuracion = crearDepuracion({
   pintarEditorDebug: (marks) => { if (!microPythonActivo) return false; microPython.debug(marks); return true; },
 });
 
+/** El estado visible es la fuente para canonicalizar rutas resueltas o recuperadas. */
+function rutaActual(): WorkspaceRoute {
+  return state.proyecto ? {
+    project: state.proyecto.name,
+    ...(state.placaActivaId ? { board: state.placaActivaId } : {}),
+    ...(state.activo ? { file: state.activo } : {}),
+  } : { project: null };
+}
+
+async function navegarArchivo(file: string, board = state.placaActivaId): Promise<void> {
+  if (state.proyecto && board) await navegacion.navigate({ project: state.proyecto.name, board, file });
+}
+
+async function navegarPlaca(board: string): Promise<void> {
+  if (state.proyecto) await navegacion.navigate({ project: state.proyecto.name, board });
+}
+
+/** Una actualización de metadatos conserva la selección válida y no agrega historial. */
+async function recargarProyecto(nombre: string): Promise<void> {
+  const anterior = rutaActual();
+  const apertura = aperturas + 1;
+  await abrirProyecto(nombre);
+  if (aperturas !== apertura || state.proyecto?.name !== nombre) return;
+  await aplicarContextoRuta({ ...anterior, project: nombre });
+  if (aperturas !== apertura || state.proyecto?.name !== nombre) return;
+  navegacion.replace(rutaActual());
+}
+
+async function aplicarContextoRuta(route: WorkspaceRoute): Promise<void> {
+  if (state.proyecto?.name !== route.project) return;
+  await cargarExplorador();
+  if (state.proyecto?.name !== route.project) return;
+  const target = resolveWorkspaceSelection(route, placasDelProyecto(state.proyecto), state.exploradorPlacas);
+  if (!target.board) return;
+  if (state.placaActivaId !== target.board || (target.file && state.activo !== target.file)) {
+    await seleccionarPlaca(target.board, target.file);
+  }
+}
+
+async function aplicarRuta(route: WorkspaceRoute): Promise<WorkspaceRoute> {
+  try {
+    if (!route.project) {
+      mostrarInicio();
+      await cargarProyectos();
+      return rutaActual();
+    }
+    if (!state.proyectos.some(project => project.name === route.project)) await cargarProyectos();
+    if (!state.proyectos.some(project => project.name === route.project)) {
+      nota('El proyecto de la dirección no existe.');
+      mostrarInicio();
+      return rutaActual();
+    }
+    if (state.proyecto?.name !== route.project) await abrirProyecto(route.project);
+    if (state.proyecto?.name !== route.project) return rutaActual();
+    await aplicarContextoRuta(route);
+    return rutaActual();
+  } catch (error) {
+    // Una parte del contexto puede haberse cargado: la URL debe describir lo visible.
+    sel('proyecto').value = state.proyecto?.name ?? '';
+    nota(`No se pudo abrir la dirección: ${String((error as Error)?.message ?? error)}`);
+    if (!state.proyecto) mostrarInicio();
+    return rutaActual();
+  }
+}
+
+/** Espera el circuito pendiente y el editor antes de cualquier cambio de ruta. */
+async function guardarAntesDeNavegar(): Promise<boolean> {
+  const revision = revisionDiagrama;
+  if (state.timerDiagrama && state.proyecto) {
+    clearTimeout(state.timerDiagrama);
+    state.timerDiagrama = null;
+    try {
+      await api(`/api/projects/${encodeURIComponent(state.proyecto.name)}/diagram`, {
+        method: 'PUT', body: JSON.stringify(state.diagrama),
+      });
+    } catch (error) {
+      guardarDiagrama();
+      nota(`No se pudo guardar el circuito: ${String((error as Error).message)}`);
+      sel('proyecto').value = state.proyecto?.name ?? '';
+      return false;
+    }
+  }
+  if (!await guardar(true)) {
+    sel('proyecto').value = state.proyecto?.name ?? '';
+    nota('No se pudo guardar el archivo. La navegación quedó pendiente; reintentá cuando se recupere la conexión.');
+    return false;
+  }
+  if (state.editorSucio || revisionDiagrama !== revision || state.timerDiagrama) {
+    sel('proyecto').value = state.proyecto?.name ?? '';
+    nota('Hubo cambios durante el guardado. Reintentá la navegación para conservarlos.');
+    return false;
+  }
+  return true;
+}
+
+const navegacion = createWorkspaceNavigation({
+  apply: aplicarRuta,
+  canLeave: guardarAntesDeNavegar,
+  onError: error => {
+    sel('proyecto').value = state.proyecto?.name ?? '';
+    nota(`No se pudo abrir la dirección: ${String((error as Error)?.message ?? error)}`);
+  },
+});
+
 (async function main() {
   // Antes que nada: React monta el lienzo (sincrónico, ver montarReact) y todo lo que viene
   // después ya puede dibujar en él.
@@ -2768,6 +2845,7 @@ const depuracion = crearDepuracion({
   conectarWS();
   await cargarPlacas();
   await cargarProyectos();
+  await navegacion.start();
   const emu = await api('/api/emulator').catch(() => null);
   if (emu?.status) {
     aplicarEstadoEmulador(emu.status);

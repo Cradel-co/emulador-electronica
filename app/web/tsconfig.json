@@ -14,8 +14,10 @@
     "sourceMap": true,
     "rootDir": ".",
     "outDir": "dist",
-    "types": []
+    "types": [],
+    "disableSourceOfProjectReferenceRedirect": true
   },
   "include": ["*.ts", "*.tsx", "react/**/*.ts", "react/**/*.tsx"],
-  "exclude": ["dist"]
+  "exclude": ["dist", ".types", "navigation.ts", "navigation-route.ts"],
+  "references": [{ "path": "./tsconfig.navigation.json" }]
 }
