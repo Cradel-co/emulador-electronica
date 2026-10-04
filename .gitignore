@@ -21,3 +21,6 @@ test-results/
 # Proyectos del usuario: cada uno trabaja los suyos. Solo se versionan las plantillas.
 projects/*
 !projects/_template/
+
+# Biblioteca educativa compartida, separada de las plantillas.
+!projects/_learning/

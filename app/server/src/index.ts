@@ -535,6 +535,19 @@ async function registerRoutes(): Promise<void> {
   // Proyectos plantilla (projects/_template/<id>/), para "Nuevo proyecto".
   app.get('/api/templates', async () => store.listTemplates());
 
+  app.get('/api/learning/examples', async (_req, reply) => {
+    try { return await store.listLearning(); } catch (err) { fail(reply, err); }
+  });
+
+  app.post('/api/learning/examples/:id/projects', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const { name } = (req.body ?? {}) as { name?: string };
+    try {
+      const project = await store.createFromLearning(String(name ?? ''), id);
+      reply.code(201).send({ project });
+    } catch (err) { fail(reply, err); }
+  });
+
   app.post('/api/projects', async (req, reply) => {
     const body = (req.body ?? {}) as { name?: string; language?: string; board?: string | null; template?: string };
     try {
