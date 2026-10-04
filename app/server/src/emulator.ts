@@ -6,7 +6,7 @@ import type { ChipEnBus } from './bus/proyectoChips.js';
 import { BridgeClient } from './bridgeClient.js';
 import { lineIterator, which } from './dockerRunner.js';
 import { detectState, extractIp, HANG_TIMEOUT_MS, HangWatchdog, stripAnsi } from './logParser.js';
-import { reservePorts, PORTS_PER_INSTANCE } from './ports.js';
+import { reservePorts, releasePorts, PORTS_PER_INSTANCE } from './ports.js';
 import type { BuildArtifacts } from './buildService.js';
 import type { Emulador, OpcionesArranque } from './emulatorBackend.js';
 
@@ -48,6 +48,7 @@ export interface EmulatorEvents {
  */
 export class EmulatorManager implements Emulador {
   private child: ReturnType<typeof import('node:child_process').spawn> | null = null;
+  private heldPorts: number[] = [];
   private bridge: BridgeClient | null = null;
   private watchdog: HangWatchdog | null = null;
   private status: EmulatorStatus = EmulatorManager.emptyStatus();
@@ -120,6 +121,7 @@ export class EmulatorManager implements Emulador {
     // esp-emu lo abre en 0.0.0.0 (solo acepta el número): el depurador se conecta enseguida y lo
     // deja ocupado (atiende un cliente a la vez). Base 30000 para no chocar con los de arriba.
     this.gdbPort = artifacts.elf && process.env.EMU_DEBUG_GDB !== '0' ? ((await reservePorts(1, 30000))[0] ?? null) : null;
+    if (this.gdbPort) this.heldPorts.push(this.gdbPort);
     if (this.gdbPort) args.push('--gdb', String(this.gdbPort));
 
     // Web/API del dispositivo emulado: solo si el proyecto las usa (9.1).
@@ -422,12 +424,17 @@ export class EmulatorManager implements Emulador {
     const escrituras = files
       .map((f) => `_w(${JSON.stringify(f.path)}, b'${Buffer.from(f.content, 'utf8').toString('base64')}')`)
       .join('\n');
-    const code = `import ubinascii\ndef _w(p,b):\n f=open(p,'wb')\n f.write(ubinascii.a2b_base64(b))\n f.close()\n${escrituras}\n`;
+    const code = `import ubinascii\nimport uos\ndef _w(p,b):\n d=''\n for part in p.split('/')[:-1]:\n  d=(d+'/' if d else '')+part\n  try:\n   uos.mkdir(d)\n  except OSError:\n   pass\n f=open(p,'wb')\n f.write(ubinascii.a2b_base64(b))\n f.close()\n${escrituras}\n`;
     let resultado: { stdout: string; stderr: string };
     // Lo que va y viene durante la subida son bytes del protocolo (ventanas de raw-paste,
     // \x01, \x04): no es salida del programa, así que no se muestra en la consola.
     this.subiendoRepl = true;
     try {
+      // Ctrl-A sólo abre el REPL cuando no hay un programa ejecutándose. Interrumpir
+      // primero el main.py permite recargar bucles while True sin reiniciar QEMU.
+      socket.write('\x03\x03');
+      await new Promise(resolve => setTimeout(resolve, 150));
+      if (socket.destroyed || this.replSocket !== socket || !this.status.running) throw new Error('La ejecución se detuvo durante la subida.');
       resultado = await this.sendRawRepl(socket, code, 15000);
     } catch (err) {
       this.subiendoRepl = false;
@@ -452,6 +459,7 @@ export class EmulatorManager implements Emulador {
   private async pickPorts(artifacts: BuildArtifacts): Promise<EmuPorts> {
     // 4 puertos por instancia (9.3); el REPL de MicroPython reutiliza el de web.
     const reserved = await reservePorts(PORTS_PER_INSTANCE);
+    this.heldPorts = reserved;
     const [bridge = 0, control = 0, api = 0, web = 0] = reserved;
     return { bridge, control, api, web };
   }
@@ -573,6 +581,8 @@ export class EmulatorManager implements Emulador {
   }
 
   private teardown(exitInfo: string): void {
+    releasePorts(this.heldPorts); this.heldPorts = [];
+    this.gdbPort = null;
     this.chips?.apagar();
     this.chips = null;
     this.bridge?.close();

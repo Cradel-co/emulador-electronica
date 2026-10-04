@@ -1,9 +1,12 @@
+import { leerFuentesMicroPython } from './micropythonSources.js';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import Fastify from 'fastify';
 import { WebSocketServer, type WebSocket } from 'ws';
 import {
   DEFAULT_BOARD,
+  placaDelProyecto,
+  placasDelProyecto,
   lenguajesDe,
   ClientEventSchema,
   LanguageSchema,
@@ -73,16 +76,27 @@ const clients = new Set<WebSocket>();
 /** Últimas líneas de compilación (para el MCP; las del emulador las guarda EmulatorManager). */
 const logCompilacion: string[] = [];
 /** Último nivel de salida reportado por el firmware para cada GPIO. */
-const niveles = new Map<number, 0 | 1>();
+let niveles = new Map<number, 0 | 1>();
+const nivelesPorPlaca = new Map<string, Map<number, 0 | 1>>([['board', niveles]]);
+const corridas = new Map<string, Emulador>();
+let primaryBoardId = 'board';
+let runGeneration = 0;
+let runQueue: Promise<unknown> = Promise.resolve();
+let executingProject: string | null = null;
+const nivelesDePlaca = (id: string) => {
+  let levels = nivelesPorPlaca.get(id);
+  if (!levels) { levels = new Map(); nivelesPorPlaca.set(id, levels); }
+  return levels;
+};
 const oyentesLog = new Set<(line: string) => void>();
 const oyentesEstado = new Set<(state: string) => void>();
 
 const instalador = new ModuleInstaller(PATHS.modules);
 
-function logBuild(line: string): void {
+function logBuild(line: string, boardId?: string): void {
   logCompilacion.push(line);
   if (logCompilacion.length > 2000) logCompilacion.shift();
-  broadcast({ type: 'build.log', line });
+  broadcast({ type: 'build.log', line, boardId });
 }
 
 /** Espera a que se cumpla algo que avisan los oyentes, con tiempo límite. */
@@ -134,61 +148,63 @@ function broadcast(msg: ServerEvent): void {
 // Un motor por familia de chip (registro de placas): esp-emu para los ESP32, avr8js
 // para el Arduino Uno. `emulator` es el que está en uso; runProject lo cambia según
 // la placa del proyecto. Los eventos son los mismos para los dos.
-const eventosEmulador: EmulatorEvents = {
+function eventosDePlaca(boardId: string): EmulatorEvents { return {
   onLog: (line) => {
-    broadcast({ type: 'emu.log', line });
-    for (const o of oyentesLog) o(line);
-    depurador.alLog(line);
+    broadcast({ type: 'emu.log', line, boardId, project: runningProject ?? undefined });
+    for (const o of boardId === primaryBoardId ? oyentesLog : []) o(line);
+    depuradorDe(boardId).alLog(line);
   },
   onState: (status) => {
-    if (status.state === 'stopped' || status.state === 'starting') { niveles.clear(); sensados.clear(); }
-    depurador.alEstado(status);
-    broadcast({ type: 'emu.state', state: status.state, status: { ...status, paused: depurador.pausado() } });
-    for (const o of oyentesEstado) o(status.state);
+    if (status.state === 'stopped' || status.state === 'starting') { nivelesDePlaca(boardId).clear(); sensadosPorPlaca.delete(boardId); }
+    depuradorDe(boardId).alEstado(status);
+    broadcast({ type: 'emu.state', boardId, project: runningProject ?? undefined, state: status.state, status: { ...status, paused: depuradorDe(boardId).pausado() } });
+    if (boardId === primaryBoardId) for (const o of oyentesEstado) o(status.state);
   },
-  onBridgeState: (connected) => broadcast({ type: 'bridge.state', connected }),
+  onBridgeState: (connected) => broadcast({ type: 'bridge.state', connected, boardId }),
   onBridgeMessage: (msg) => {
-    depurador.alMensajePuente(msg);
+    depuradorDe(boardId).alMensajePuente(msg);
     switch (msg.type) {
       case 'READY':
-        emulator.markBridgeReady();
-        broadcast({ type: 'bridge.ready', version: msg.version });
+        corridas.get(boardId)?.markBridgeReady();
+        broadcast({ type: 'bridge.ready', version: msg.version, boardId, project: runningProject ?? undefined });
         // Con el puente listo, el programa lee por primera vez lo que hay en el circuito.
-        sensados.clear();
+        sensadosPorPlaca.delete(boardId);
         if (runningProject) void refrescarEntradasDelCircuito(runningProject);
         break;
       case 'OUT':
-        niveles.set(msg.pin, msg.level);
-        broadcast({ type: 'pin.out', pin: msg.pin, level: msg.level });
+        nivelesDePlaca(boardId).set(msg.pin, msg.level);
+        broadcast({ type: 'pin.out', pin: msg.pin, level: msg.level, boardId, project: runningProject ?? undefined });
         // Un pin que cambia de estado mueve los voltajes del circuito: lo que leen las
         // entradas cableadas a esa red cambia con él.
         if (runningProject) void refrescarEntradasDelCircuito(runningProject);
         break;
       case 'TX':
-        broadcast({ type: 'rf.tx', bits: msg.bits, protocol: msg.protocol });
+        broadcast({ type: 'rf.tx', bits: msg.bits, protocol: msg.protocol, boardId, project: runningProject ?? undefined });
         break;
       case 'PONG':
-        broadcast({ type: 'bridge.pong', n: msg.n });
+        broadcast({ type: 'bridge.pong', n: msg.n, boardId, project: runningProject ?? undefined });
         break;
       case 'ERR':
-        broadcast({ type: 'bridge.error', code: msg.code, message: msg.message });
+        broadcast({ type: 'bridge.error', code: msg.code, message: msg.message, boardId, project: runningProject ?? undefined });
         break;
       default:
         break;
     }
   },
-};
+}; }
+const eventosEmulador = eventosDePlaca('board');
 
 /** Una instancia por motor (plugin de engines/), creada la primera vez que se usa. */
 const instancias = new Map<string, Emulador>();
-function emuladorDe(motor: string): Emulador {
-  let e = instancias.get(motor);
+function emuladorDe(motor: string, boardId = 'board'): Emulador {
+  const key = `${boardId}:${motor}`;
+  let e = instancias.get(key);
   if (!e) {
     const m = ENGINES[motor];
     if (!m) throw new ProjectError(`El motor de emulación "${motor}" no existe en este server.`, 400);
     if (!m.disponible) throw new ProjectError(`El motor de emulación "${motor}" todavía no está implementado.`, 400);
-    e = m.crear(eventosEmulador);
-    instancias.set(motor, e);
+    e = m.crear(eventosDePlaca(boardId));
+    instancias.set(key, e);
     // Motores con chips en un bus (avr8js): lo que publican (una pantalla, valores) va a la UI.
     const conChips = e as Emulador & { oyenteChips?: ((id: string, salida: Record<string, unknown>) => void) | null };
     if ('oyenteChips' in conChips) {
@@ -213,13 +229,32 @@ function emuladorDe(motor: string): Emulador {
 let emulator: Emulador = emuladorDe('esp-emu');
 
 /** Modo debug (debug/, docs/depuracion.md): grabadora + instantánea + depurador por motor, siempre activo. */
-const depurador = new Depurador({
-  emitir: (e) => broadcast(e as ServerEvent),
-  emulador: () => emulator,
-  catalogo: loadCatalog,
-  leerProyecto: (n) => store.read(n),
-  direcciones: async (n) => direccionesDe(await store.read(n)),
-});
+const depuradores = new Map<string, Depurador>();
+function depuradorDe(boardId: string): Depurador {
+  let d = depuradores.get(boardId);
+  if (!d) {
+    d = new Depurador({
+      emitir: e => broadcast({ ...e, boardId, project: runningProject ?? undefined } as ServerEvent),
+      emulador: () => corridas.get(boardId) ?? emulator,
+      catalogo: loadCatalog,
+      leerProyecto: async name => {
+        const project = await store.read(name);
+        const selected = placaDelProyecto(project, boardId);
+        return selected ? { ...project, board: selected.board, language: selected.language, boards: [selected, ...placasDelProyecto(project).filter(b => b.id !== boardId)] } : project;
+      },
+      direcciones: async name => {
+        const project = await store.read(name);
+        const selected = placaDelProyecto(project, boardId);
+        return direccionesDe({ name, language: selected?.language ?? project.language }, boardId);
+      },
+      boardId,
+      nivelesPorPlaca: () => nivelesPorPlaca,
+    });
+    depuradores.set(boardId, d);
+  }
+  return d;
+}
+let depurador = depuradorDe('board');
 
 export { store, builder, emulator };
 
@@ -229,8 +264,9 @@ const depsChips: DepsChips = {
   guardar: (p) => store.save(p),
   catalogo: loadCatalog,
   corrida: (n) => {
-    const e = emulator as Emulador & Partial<CorridaChips>;
-    return runningProject === n && emulator.getStatus().running && e.chipsEnCorrida && e.ponerEntorno ? (e as Emulador & CorridaChips) : null;
+    if (runningProject !== n) return null;
+    const targets = [...corridas.values()].filter(e => e.getStatus().running && 'chipsEnCorrida' in e && 'ponerEntorno' in e) as (Emulador & CorridaChips)[];
+    return targets.length ? { chipsEnCorrida: () => targets.flatMap(e => e.chipsEnCorrida()), ponerEntorno: (id, valores) => targets.map(e => e.ponerEntorno(id, valores)).some(Boolean) } : null;
   },
   emitir: (e) => broadcast(e),
 };
@@ -330,22 +366,23 @@ async function agregarPlaca(nombre: string, board: string, lenguaje: Language, p
   const nuevo = { ...puesta, sim: { ...puesta.sim, autoReload: true } };
   // Con placa, ▶ vuelve a significar "correr el firmware": el circuito deja de estar energizado aparte.
   if (proyectoEnergizado === nombre) energizar(nombre, false);
-  await store.escribirSiFalta(nombre, lenguaje, archivos);
+  const agregada = placasDelProyecto(nuevo).find((p) => !placasDelProyecto(actual).some((a) => a.id === p.id));
+  await store.escribirSiFalta(nombre, lenguaje, archivos, agregada?.id);
   const guardado = await store.save(nuevo);
   return guardado;
 }
 
 /** Quita la placa (y sus cables). El código queda en disco: si se vuelve a poner la placa, sigue ahí. */
-async function quitarPlaca(nombre: string): Promise<Project> {
+async function quitarPlaca(nombre: string, boardId?: string): Promise<Project> {
   const actual = await store.read(nombre);
   if (runningProject === nombre && emulator.getStatus().running) {
     eventosEmulador.onLog('[placa] Se quitó la placa: se detuvo la simulación.');
-    await emulator.stop();
+    await pararCorridas();
     runningProject = null;
     controlesCerrados.clear();
   }
   placasQuemadas.delete(nombre);
-  return store.save(sacarPlaca(actual));
+  return store.save(sacarPlaca(actual, boardId));
 }
 
 // --- Utilidades -------------------------------------------------------------
@@ -361,6 +398,22 @@ function fail(reply: { code: (n: number) => { send: (b: unknown) => void } }, er
 async function requireProject(name: string) {
   const project = await store.read(name);
   return project;
+}
+
+/** Valida el contexto antes de resolver una ruta de código. */
+function placaParaArchivo(project: Project, boardId?: string) {
+  const placa = placaDelProyecto(project, boardId);
+  if (!placa) throw new ProjectError('Elegí una placa del circuito para acceder a sus archivos.', boardId ? 404 : 400);
+  return placa;
+}
+
+async function validarModulosPlacas(project: Project, modules: unknown[]): Promise<void> {
+  if (!Array.isArray(modules) || modules.some(m => m === null || typeof m !== 'object' || typeof (m as { id?: unknown }).id !== 'string' || typeof (m as { type?: unknown }).type !== 'string')) throw new ProjectError('El dibujo debe incluir una lista de módulos válidos.', 400);
+  const boards = placasDelProyecto(project);
+  const items = modules as { id?: string; type?: string }[];
+  for (const b of boards) if (items.filter(m => m.id === b.id && m.type === b.board).length !== 1) throw new ProjectError(`El dibujo debe conservar la placa ${b.id}. Agregá o quitá placas desde sus controles.`, 400);
+  const catalog = await loadCatalog();
+  for (const m of items) if (catalog.find(def => def.type === m.type)?.programmable && !boards.some(b => b.id === m.id && b.board === m.type)) throw new ProjectError('No se puede agregar una placa desde la actualización del dibujo.', 400);
 }
 
 // --- Rutas ------------------------------------------------------------------
@@ -501,11 +554,38 @@ async function registerRoutes(): Promise<void> {
     const { name } = req.params as { name: string };
     try {
       const project = await requireProject(name);
-      const files = await store.listFiles(name, project.language);
-      const placa = project.board ? await buscarPlaca(project.board) : undefined;
-      reply.send({ project, files, placa: placa ? await placaParaUi(placa) : null });
+      const boardId = (req.query as { boardId?: string }).boardId;
+      const elegida = placaDelProyecto(project, boardId);
+      if (boardId && !elegida) throw new ProjectError('La placa no existe en este proyecto.', 404);
+      const [files, directories] = await Promise.all([
+        store.listFiles(name, elegida?.language ?? null, elegida?.id),
+        store.listDirectories(name, elegida?.language ?? null, elegida?.id),
+      ]);
+      const placa = elegida ? await buscarPlaca(elegida.board) : undefined;
+      reply.send({ project, files, directories, placa: placa ? await placaParaUi(placa) : null });
     } catch (err) {
       fail(reply, err);
+    }
+  });
+
+  // El árbol del proyecto enumera todas las placas sin cambiar el contexto del editor.
+  app.get('/api/projects/:name/explorer', async (req, reply) => {
+    const { name } = req.params as { name: string };
+    try {
+      const project = await requireProject(name);
+      const boards = await Promise.all(placasDelProyecto(project).map(async (board) => {
+        const [files, directories, placa] = await Promise.all([
+          store.listFiles(name, board.language, board.id),
+          store.listDirectories(name, board.language, board.id),
+          buscarPlaca(board.board),
+        ]);
+        const descriptor = placa ? await placaParaUi(placa) : null;
+        return { id: board.id, name: descriptor?.nombre ?? board.board,
+          files: files.filter(file => !/(^|\/)(secrets\.yaml|project\.json)$/.test(file.path)), directories };
+      }));
+      reply.send({ boards });
+    } catch (err) {
+      fail(reply, (err as NodeJS.ErrnoException)?.code === 'ENOENT' ? new ProjectError('El proyecto no existe.', 404) : err);
     }
   });
 
@@ -534,7 +614,10 @@ async function registerRoutes(): Promise<void> {
         reply.code(400).send({ error: 'El lenguaje se elige al crear el proyecto.' });
         return;
       }
-      const updated = await store.save({ ...project, ...body });
+      if (body.boards !== undefined && JSON.stringify(body.boards) !== JSON.stringify(project.boards)) throw new ProjectError('Las placas se administran desde las rutas de placas del proyecto.', 400);
+      if (body.name !== undefined && body.name !== name) throw new ProjectError('No se puede cambiar el nombre por esta ruta.', 400);
+      if (body.modules !== undefined) await validarModulosPlacas(project, body.modules);
+      const updated = await store.save({ ...project, ...body, name });
       reply.send({ project: updated });
     } catch (err) {
       fail(reply, err);
@@ -546,8 +629,41 @@ async function registerRoutes(): Promise<void> {
     const file = (req.params as Record<string, string>)['*'] ?? '';
     try {
       const project = await requireProject(name);
-      const content = await store.readFile(name, file, project.language);
+      const elegida = placaParaArchivo(project, (req.query as { boardId?: string }).boardId);
+      const content = await store.readFile(name, file, elegida.language, elegida.id);
       reply.send({ path: file, content });
+    } catch (err) {
+      fail(reply, err);
+    }
+  });
+
+  app.post('/api/projects/:name/directories', async (req, reply) => {
+    const { name } = req.params as { name: string };
+    const body = (req.body ?? {}) as { path?: unknown };
+    try {
+      if (typeof body.path !== 'string') throw new ProjectError('Indicá la ruta de la carpeta.', 400);
+      const project = await requireProject(name);
+      const elegida = placaParaArchivo(project, (req.query as { boardId?: string }).boardId);
+      const directory = await store.createDirectory(name, body.path, elegida.language, elegida.id);
+      broadcast({ type: 'project.changed', project: name, what: 'file', file: directory, boardId: elegida.id, origin: clienteDe(req) });
+      reply.code(201).send({ ok: true, path: directory });
+    } catch (err) {
+      fail(reply, err);
+    }
+  });
+
+  app.post('/api/projects/:name/files/*', async (req, reply) => {
+    const { name } = req.params as { name: string };
+    const file = (req.params as Record<string, string>)['*'] ?? '';
+    const body = (req.body ?? {}) as { content?: unknown };
+    try {
+      if (body.content !== undefined && typeof body.content !== 'string') throw new ProjectError('El contenido debe ser texto.', 400);
+      const project = await requireProject(name);
+      const elegida = placaParaArchivo(project, (req.query as { boardId?: string }).boardId);
+      const created = await store.createFile(name, file, elegida.language, body.content ?? '', elegida.id);
+      broadcast({ type: 'project.changed', project: name, what: 'file', file: created, boardId: elegida.id, origin: clienteDe(req) });
+      agendarAutoReload(project, elegida.id);
+      reply.code(201).send({ ok: true, path: created });
     } catch (err) {
       fail(reply, err);
     }
@@ -559,10 +675,11 @@ async function registerRoutes(): Promise<void> {
     const body = (req.body ?? {}) as { content?: string };
     try {
       const project = await requireProject(name);
-      await store.writeFile(name, file, project.language, String(body.content ?? ''));
-      broadcast({ type: 'project.changed', project: name, what: 'file', file, origin: clienteDe(req) });
+      const elegida = placaParaArchivo(project, (req.query as { boardId?: string }).boardId);
+      await store.writeFile(name, file, elegida.language, String(body.content ?? ''), elegida.id);
+      broadcast({ type: 'project.changed', project: name, what: 'file', file, boardId: elegida.id, origin: clienteDe(req) });
       // No se espera: guardar tiene que contestar al toque, la recarga va por la consola.
-      agendarAutoReload(project);
+      agendarAutoReload(project, elegida.id);
       reply.send({ ok: true, path: file });
     } catch (err) {
       fail(reply, err);
@@ -574,7 +691,8 @@ async function registerRoutes(): Promise<void> {
     const file = (req.params as Record<string, string>)['*'] ?? '';
     try {
       const project = await requireProject(name);
-      await store.deleteFile(name, file, project.language);
+      const elegida = placaParaArchivo(project, (req.query as { boardId?: string }).boardId);
+      await store.deleteFile(name, file, elegida.language, elegida.id);
       reply.send({ ok: true });
     } catch (err) {
       fail(reply, err);
@@ -586,6 +704,7 @@ async function registerRoutes(): Promise<void> {
     try {
       const project = await requireProject(name);
       const body = (req.body ?? {}) as { modules?: unknown[]; wires?: unknown[] };
+      if (body.modules !== undefined) await validarModulosPlacas(project, body.modules);
       const updated = await store.save({
         ...project,
         modules: (body.modules ?? project.modules) as never,
@@ -666,7 +785,7 @@ async function registerRoutes(): Promise<void> {
     const { name } = req.params as { name: string };
     try {
       await requireProject(name);
-      const project = await quitarPlaca(name);
+      const project = await quitarPlaca(name, (req.query as { boardId?: string }).boardId);
       broadcast({ type: 'project.changed', project: name, what: 'diagram', origin: clienteDe(req) });
       reply.send({ project });
     } catch (err) {
@@ -677,8 +796,9 @@ async function registerRoutes(): Promise<void> {
   app.post('/api/projects/:name/board/replace', async (req, reply) => {
     const { name } = req.params as { name: string };
     try {
-      await requireProject(name);
-      const habia = reemplazarPlaca(name);
+      const project = await requireProject(name);
+      const elegida = placaParaArchivo(project, (req.query as { boardId?: string }).boardId);
+      const habia = reemplazarPlaca(name, elegida.id);
       broadcast({ type: 'project.changed', project: name, what: 'diagram', origin: clienteDe(req) });
       reply.send({ ok: true, estabaQuemada: habia });
     } catch (err) {
@@ -698,7 +818,13 @@ async function registerRoutes(): Promise<void> {
     }
   });
 
-  registrarRutasDepuracion(app, depurador);
+  registrarRutasDepuracion(app, async (boardId, projectName) => {
+    if (!boardId) return depurador;
+    const name = projectName ?? runningProject;
+    if (name && !placaDelProyecto(await store.read(name), boardId)) throw new ProjectError('No existe esa placa en el proyecto.', 404);
+    if (!name && !depuradores.has(boardId)) throw new ProjectError('La placa no está disponible para depuración.', 404);
+    return depuradorDe(boardId);
+  });
 
   app.get('/api/emulator', async () => ({
     status: { ...emulator.getStatus(), paused: depurador.pausado() },
@@ -710,11 +836,13 @@ async function registerRoutes(): Promise<void> {
     // forma de saber cómo está el circuito ahora: sin esto, un LED encendido antes de la caída del
     // WebSocket queda pintado encendido para siempre (issue #8).
     niveles: Object.fromEntries(niveles),
+    nivelesPorPlaca: Object.fromEntries([...nivelesPorPlaca].map(([id, levels]) => [id, Object.fromEntries(levels)])),
+    boards: Object.fromEntries([...corridas].map(([id, e]) => [id, e.getStatus()])),
     cerrados: runningProject ? [...cerradosDe(runningProject)] : [],
   }));
 
   app.post('/api/emulator/stop', async (req, reply) => {
-    await emulator.stop();
+    await pararCorridas();
     runningProject = null;
     controlesCerrados.clear();
     if (proyectoEnergizado) energizar(proyectoEnergizado, false);
@@ -725,7 +853,7 @@ async function registerRoutes(): Promise<void> {
     const { name } = req.params as { name: string };
     try {
       await requireProject(name);
-      const r = await recargarCodigo(name);
+      const r = await recargarCodigo(name, (req.body as { boardId?: string } | undefined)?.boardId);
       reply.send(r);
     } catch (err) {
       fail(reply, err);
@@ -734,7 +862,8 @@ async function registerRoutes(): Promise<void> {
 
   app.post('/api/emulator/reset', async (req, reply) => {
     try {
-      const out = await emulator.reset();
+      const boardId = (req.body as { boardId?: string } | undefined)?.boardId;
+      const out = await resetearCorridas(boardId);
       reply.send({ ok: true, output: out });
     } catch (err) {
       fail(reply, err);
@@ -773,7 +902,9 @@ async function registerRoutes(): Promise<void> {
 async function runBuild(project: { name: string }): Promise<BuildResult> {
   const full = await store.read(project.name);
   broadcast({ type: 'build.start', project: full.name });
-  const result = await builder.build(full, { onLine: logBuild, onNotice: logBuild });
+  const result = await builder.buildBoards(full, boardId => ({
+    onLine: line => logBuild(line, boardId), onNotice: line => logBuild(line, boardId),
+  }));
   lastBuild = { project: full.name, result };
   depurador.alCompilacion(full.name, result);
   broadcast({
@@ -789,6 +920,10 @@ async function runBuild(project: { name: string }): Promise<BuildResult> {
       elf: result.artifacts.elf ? path.basename(result.artifacts.elf) : null,
     });
   }
+  for (const [boardId, boardResult] of Object.entries(result.boardResults ?? {})) {
+    depuradorDe(boardId).alCompilacion(full.name, boardResult);
+    if (placasDelProyecto(full).length > 1) broadcast({ type: 'build.done', boardId, ok: boardResult.ok, durationMs: boardResult.durationMs, errors: eventErrors(boardResult.errors) });
+  }
   return result;
 }
 
@@ -802,17 +937,26 @@ async function runBuild(project: { name: string }): Promise<BuildResult> {
 async function subirPorRepl(
   full: { name: string; language: Language | null },
   artifacts: BuildArtifacts,
+  boardId = primaryBoardId,
+  target: Emulador | undefined = corridas.get(boardId),
 ): Promise<boolean> {
-  if (!artifacts.repl || !(emulator instanceof EmulatorManager)) return false;
-  logBuild('Subiendo el código por el REPL…');
-  const delProyecto = await Promise.all(
-    artifacts.repl.delProyecto.map(async (ruta: string) => ({
-      path: ruta,
-      content: await store.readFile(full.name, ruta, full.language).catch(() => ''),
-    })),
-  );
-  const subida = await emulator.uploadMicroPython([...artifacts.repl.generados, ...delProyecto]);
-  logBuild(subida.ok ? `Código subido (${subida.output}).` : `[error] no se pudo subir el código: ${subida.output}`);
+  const generation = runGeneration;
+  if (!artifacts.repl || !(target instanceof EmulatorManager) || !target.getStatus().running || runningProject !== full.name) return false;
+  logBuild('Subiendo el código por el REPL…', boardId);
+  let delProyecto: { path: string; content: string }[];
+  try {
+    delProyecto = full.language === 'micropython'
+      ? (await leerFuentesMicroPython(store.projectCodeDir(full.name, boardId))).files
+      : await Promise.all(artifacts.repl.delProyecto.map(async ruta => ({
+        path: ruta, content: await store.readFile(full.name, ruta, full.language, boardId),
+      })));
+  } catch (error) {
+    logBuild(`[error] no se pudo preparar el código: ${(error as Error).message}`, boardId);
+    return false;
+  }
+  if (generation !== runGeneration || !target.getStatus().running || corridas.get(boardId) !== target || runningProject !== full.name) return false;
+  const subida = await target.uploadMicroPython([...artifacts.repl.generados, ...delProyecto]);
+  logBuild(subida.ok ? `Código subido (${subida.output}).` : `[error] no se pudo subir el código: ${subida.output}`, boardId);
   return subida.ok;
 }
 
@@ -831,28 +975,45 @@ type Recarga = { ok: boolean; modo?: 'repl' | 'relanzado'; motivo?: string };
  * Solo actúa si el emulador está corriendo *este* proyecto: no arranca nada por su
  * cuenta (si no corre nada, el próximo ▶ ya va a tomar el código nuevo).
  */
-async function recargarCodigo(nombre: string): Promise<Recarga> {
+async function recargarCodigo(nombre: string, boardId?: string): Promise<Recarga> {
   const full = await store.read(nombre);
-  if (!tienePlaca(full)) return { ok: false, motivo: 'el proyecto no tiene placa: no hay código que recargar' };
-  if (runningProject !== nombre || !emulator.getStatus().running) {
-    return { ok: false, motivo: 'el emulador no está corriendo este proyecto' };
+  const all = placasDelProyecto(full);
+  const selected = boardId ? all.filter(b => b.id === boardId) : all;
+  if (!selected.length) return { ok: false, motivo: boardId ? 'el proyecto no tiene la placa solicitada' : 'el proyecto no tiene placa' };
+  const generation = runGeneration;
+  const targets = new Map(selected.map(b => [b.id, corridas.get(b.id)]));
+  if (runningProject !== nombre || selected.some(b => !targets.get(b.id)?.getStatus().running)) return { ok: false, motivo: 'el emulador no está corriendo este proyecto' };
+  const results = await Promise.all(selected.map(async b => [b.id, await builder.build(full, { onLine: line => logBuild(line, b.id), onNotice: line => logBuild(line, b.id) }, b.id)] as const));
+  if (generation !== runGeneration || runningProject !== nombre) return { ok: false, motivo: 'la ejecución fue detenida durante la recarga' };
+  for (const [id, result] of results) if (!result.ok || !result.artifacts) return { ok: false, motivo: `el código de ${id} no compila` };
+  const combined = { ...(lastBuild?.project === nombre ? lastBuild.result.boardResults : {}), ...Object.fromEntries(results) };
+  const primary = combined[all[0]!.id] ?? results[0]![1];
+  lastBuild = { project: nombre, result: { ...primary, boardResults: combined } };
+  let compiled = false;
+  for (const b of selected) {
+    const target = targets.get(b.id)!;
+    if (generation !== runGeneration || corridas.get(b.id) !== target || !target.getStatus().running) return { ok: false, motivo: 'la ejecución cambió durante la recarga' };
+    const artifacts = combined[b.id]!.artifacts!;
+    const project = { ...full, board: b.board, language: b.language };
+    if (artifacts.repl) {
+      if (!await subirPorRepl(project, artifacts, b.id, target)) return { ok: false, motivo: `no se pudo subir el código de ${b.id}` };
+    } else {
+      compiled = true;
+      const placa = await buscarPlaca(b.board);
+      if (!placa) return { ok: false, motivo: 'la placa no está en el catálogo' };
+      const catalog = await loadCatalog();
+      const chips = chipsDelProyecto(project, t => catalog.find(m => m.type === t), placa.desc, undefined, undefined, b.id).chips;
+      await target.stop();
+      if (generation !== runGeneration) return { ok: false, motivo: 'se detuvo la ejecución durante la recarga' };
+      depuradorDe(b.id).alIniciarCorrida({ proyecto: nombre, placa: b.board, lenguaje: b.language, motor: placa.desc.backend.engine, artefactos: artifacts });
+      await target.start(nombre, artifacts, { ...ENGINES[placa.desc.backend.engine]!.opcionesArranque(placa.desc, artifacts), chips, arranqueMs: placa.desc.arranqueMs });
+      if (generation !== runGeneration) { await target.stop(); return { ok: false, motivo: 'se detuvo la ejecución durante la recarga' }; }
+      void depuradorDe(b.id).alArrancado();
+    }
+    for (const pin of await pinsDeCodigo(project, b.id)) target.getBridge()?.watch(pin);
+    broadcast({ type: 'project.changed', project: nombre, what: 'file', boardId: b.id, origin: 'server' });
   }
-  const result = await runBuild(full);
-  if (!result.ok || !result.artifacts) return { ok: false, motivo: 'el código no compila' };
-  if (await subirPorRepl(full, result.artifacts)) {
-    // El soft reboot volvió a ejecutar el código: los pines vigilados se rearman solos
-    // porque el puente los vuelve a anunciar, pero los que salen del código pueden haber cambiado.
-    const pins = await pinsDeCodigo(full).catch(() => []);
-    for (const pin of pins) emulator.getBridge()?.watch(pin);
-    logBuild('Código recargado en el chip (sin reiniciar el emulador).');
-    broadcast({ type: 'project.changed', project: nombre, what: 'file', origin: 'server' });
-    return { ok: true, modo: 'repl' };
-  }
-  if (result.artifacts.repl) return { ok: false, motivo: 'no se pudo subir el código por el REPL' };
-  // Compilado: el firmware nuevo ya está, se relanza con él (`forceBuild: false` reusa este build).
-  logBuild('Firmware nuevo: se relanza la corrida (los lenguajes compilados no recargan en caliente).');
-  const r = await runProject(full, false);
-  return r.ok ? { ok: true, modo: 'relanzado' } : { ok: false, motivo: 'no se pudo relanzar la corrida' };
+  return { ok: true, modo: compiled ? 'relanzado' : 'repl' };
 }
 
 /**
@@ -865,17 +1026,18 @@ const autoReloadPendiente = new Map<string, NodeJS.Timeout>();
 let autoReloadEnCurso: Promise<unknown> = Promise.resolve();
 
 /** Agenda la recarga del proyecto si tiene `sim.autoReload` y el emulador lo está corriendo. */
-function agendarAutoReload(project: Project): void {
+function agendarAutoReload(project: Project, boardId?: string): void {
   if (!project.sim.autoReload) return;
   if (runningProject !== project.name || !emulator.getStatus().running) return;
-  clearTimeout(autoReloadPendiente.get(project.name));
+  const key = `${project.name}:${boardId ?? '*'}`;
+  clearTimeout(autoReloadPendiente.get(key));
   autoReloadPendiente.set(
-    project.name,
+    key,
     setTimeout(() => {
-      autoReloadPendiente.delete(project.name);
+      autoReloadPendiente.delete(key);
       // En fila: dos recargas a la vez se pelearían por el REPL y por el emulador.
       autoReloadEnCurso = autoReloadEnCurso.then(async () => {
-        const r = await recargarCodigo(project.name).catch((err: unknown) => ({
+        const r = await recargarCodigo(project.name, boardId).catch((err: unknown) => ({
           ok: false,
           motivo: (err as Error).message,
         }));
@@ -885,83 +1047,113 @@ function agendarAutoReload(project: Project): void {
   );
 }
 
-async function runProject(
+async function pararCorridas(invalidar = true): Promise<void> {
+  if (invalidar) { runGeneration++; if (executingProject) builder.cancel(executingProject); }
+  const targets = new Set([...corridas.values(), emulator]);
+  await Promise.all([...targets].map(e => e.stop()));
+  corridas.clear();
+  nivelesPorPlaca.clear();
+  niveles.clear();
+  sensadosPorPlaca.clear();
+  if (invalidar) { await runQueue.catch(() => {}); await pararCorridas(false); }
+}
+
+async function resetearCorridas(boardId?: string): Promise<string> {
+  if (boardId && !corridas.has(boardId)) throw new ProjectError('La placa no está ejecutándose.', 404);
+  const targets = boardId ? [corridas.get(boardId)!] : [...new Set([...corridas.values(), emulator])];
+  return (await Promise.all(targets.map(e => e.reset()))).join('\n');
+}
+
+function runProject(project: { name: string }, forceBuild: boolean) {
+  const generation = ++runGeneration;
+  const job = runQueue.catch(() => {}).then(async () => {
+    executingProject = project.name;
+    try { return await ejecutarProyecto(project, forceBuild, generation); }
+    finally { executingProject = null; }
+  });
+  runQueue = job;
+  return job;
+}
+
+async function ejecutarProyecto(
   project: { name: string },
   forceBuild: boolean,
+  generation: number,
 ): Promise<{ ok: boolean; errors: BuildErrorLike[]; sinAlimentacion?: boolean; energizado?: boolean }> {
+  const cancelled = () => generation !== runGeneration;
+  const cancelledResult = () => ({ ok: false, errors: [{ line: null, file: null, message: 'La ejecución fue cancelada.' }] });
+  if (cancelled()) return cancelledResult();
   const full = await store.read(project.name);
-  // Sin placa no hay firmware: ▶ energiza el circuito (prende las fuentes regulables).
-  if (!tienePlaca(full)) {
+  if (cancelled()) return cancelledResult();
+  const boards = placasDelProyecto(full);
+  if (!boards.length) {
+    await pararCorridas(false); runningProject = null;
     energizar(full.name, true);
     logBuild(`Circuito "${full.name}" energizado: las fuentes regulables entregan tensión. ⏹ lo apaga.`);
     return { ok: true, errors: [], energizado: true };
   }
-  // Como en la vida real: sin la alimentación adecuada la placa no arranca.
-  const sinArranque = motivoSinArranque(await alimentacionDe(full));
-  if (sinArranque) {
-    logBuild(`[error] ${sinArranque}`);
-    broadcast({ type: 'project.changed', project: full.name, what: 'diagram', origin: 'server' });
-    return { ok: false, errors: [{ line: null, file: null, message: sinArranque }], sinAlimentacion: true };
-  }
-  if (builder.isBuilding(full.name)) {
-    logBuild('Ya se está compilando; se espera a que termine.');
-  }
-  let artifacts = lastBuild?.project === full.name && !forceBuild ? lastBuild.result.artifacts : null;
-  if (!artifacts) {
-    logBuild('Compilando antes de arrancar…');
-    const result = await builder.build(full, { onLine: logBuild, onNotice: logBuild });
-    lastBuild = { project: full.name, result };
-    depurador.alCompilacion(full.name, result);
-    broadcast({ type: 'build.done', ok: result.ok, durationMs: result.durationMs, errors: eventErrors(result.errors) });
-    if (!result.ok || !result.artifacts) return { ok: false, errors: result.errors };
-    artifacts = result.artifacts;
-  }
-  // El motor sale de la placa (`board.backend` del module.json): esp-emu, avr8js...
-  const placa = await buscarPlaca(full.board);
-  if (!placa) {
-    logBuild(`[error] la placa "${full.board}" no está en el catálogo`);
-    return { ok: false, errors: [{ line: null, file: null, message: `La placa "${full.board}" no está en el catálogo.` }] };
-  }
-  const motor = ENGINES[placa.desc.backend.engine];
-  let siguiente: Emulador;
-  try {
-    siguiente = emuladorDe(placa.desc.backend.engine);
-  } catch (err) {
-    logBuild(`[error] ${(err as Error).message}`);
-    return { ok: false, errors: [{ line: null, file: null, message: (err as Error).message }] };
-  }
-  // Se para la corrida anterior ANTES de cambiar de proyecto: al pararse, sus chips guardan su
-  // memoria (EEPROM, la hora) y tiene que ir al proyecto de ellos, no al que arranca ahora.
-  if (emulator.getStatus().running) await emulator.stop();
-  emulator = siguiente;
-  runningProject = full.name;
-  controlesCerrados.clear();
-  depurador.alIniciarCorrida({ proyecto: full.name, placa: full.board, lenguaje: full.language, motor: placa.desc.backend.engine, artefactos: artifacts });
-  // Chips del dibujo (sensores, relojes...) en el bus I2C de la placa, si el motor lo emula.
   const catalogo = await loadCatalog();
-  const buscarDef = (t: string): ModuloCatalogo | undefined => catalogo.find((m) => m.type === t);
-  // Si cada chip está alimentado lo dice el motor eléctrico (su modelo: VDD en rango).
+  const buscarDef = (t: string): ModuloCatalogo | undefined => catalogo.find(m => m.type === t);
+  const directions = await direccionesTodas(full);
   const electrico = await analizarCircuito(conPlaca(full), buscarDef, {
-    direcciones: await direccionesDe(full), niveles, cerrados: cerradosDe(full.name), fuentesApagadas: fuentesApagadasDe(full),
-  }).catch(() => null);
-  const enBus = chipsDelProyecto(full, buscarDef, placa.desc, undefined, (id) => electrico?.modulos[id]?.ui?.on);
-  for (const aviso of enBus.avisos) logBuild(`[chips] ${aviso}`);
-  for (const c of enBus.chips) c.guardado = await leerMemoria(store.projectDir(full.name), c.id);
-  if (enBus.chips.length) logBuild(`[chips] en el bus: ${enBus.chips.map((c) => `${c.nombre} (${c.spi ? 'SPI' : 'I2C'})`).join(', ')}`);
-  await emulator.start(full.name, artifacts, {
-    ...motor!.opcionesArranque(placa.desc, artifacts),
-    chips: enBus.chips,
-    arranqueMs: placa.desc.arranqueMs,
+    direccionesPorPlaca: directions, nivelesPorPlaca: runningProject === full.name ? nivelesPorPlaca : new Map(), cerrados: cerradosDe(full.name), fuentesApagadas: fuentesApagadasDe(full),
   });
-  void depurador.alArrancado();
-
-  // Sin esto, el chip arranca a un REPL vacío: nada ejecuta el código del usuario (8.8).
-  await subirPorRepl(full, artifacts);
-
-  // Al arrancar se vigilan los pines que usa el código, así la UI muestra los
-  // LED/salidas sin que el usuario tenga que seleccionarlos uno por uno.
-  const pins = await pinsDeCodigo(full).catch(() => []);
-  for (const pin of pins) emulator.getBridge()?.watch(pin);
+  const starts: { boardId: string; board: string; language: Language; placa: Placa; engine: string; target: Emulador }[] = [];
+  for (const b of boards) {
+    if (cancelled()) return cancelledResult();
+    const power = electrico.alimentacionesPorPlaca?.[b.id] ?? electrico.alimentacion;
+    const sinArranque = motivoSinArranque(conQuemadura(full, power, b.id));
+    if (sinArranque) {
+      logBuild(`[${b.id}] [error] ${sinArranque}`);
+      return { ok: false, errors: [{ line: null, file: null, message: `[${b.id}] ${sinArranque}` }], sinAlimentacion: true };
+    }
+    const placa = await buscarPlaca(b.board);
+    if (!placa) return { ok: false, errors: [{ line: null, file: null, message: `La placa "${b.board}" no está en el catálogo.` }] };
+    try { starts.push({ boardId: b.id, board: b.board, language: b.language, placa, engine: placa.desc.backend.engine, target: emuladorDe(placa.desc.backend.engine, b.id) }); }
+    catch (error) { return { ok: false, errors: [{ line: null, file: null, message: (error as Error).message }] }; }
+  }
+  let result = lastBuild?.project === full.name && !forceBuild ? lastBuild.result : null;
+  if (!result?.ok || !result.boardResults || boards.some(b => !result?.boardResults?.[b.id]?.artifacts)) {
+    logBuild('Compilando las placas antes de arrancar…');
+    result = await runBuild(full);
+  }
+  if (cancelled()) return cancelledResult();
+  if (!result.ok) return { ok: false, errors: result.errors };
+  await pararCorridas(false);
+  if (cancelled()) return cancelledResult();
+  runningProject = full.name;
+  primaryBoardId = boards[0]!.id;
+  emulator = starts[0]!.target;
+  depurador = depuradorDe(primaryBoardId);
+  niveles = nivelesDePlaca(primaryBoardId);
+  controlesCerrados.clear();
+  for (const s of starts) depuradorDe(s.boardId).alIniciarCorrida({ proyecto: full.name, placa: s.board, lenguaje: s.language, motor: s.engine, artefactos: result.boardResults![s.boardId]!.artifacts! });
+  // Instancias registradas antes de arrancar: sus callbacks READY resuelven su propio puente.
+  for (const s of starts) corridas.set(s.boardId, s.target);
+  try {
+    const settled = await Promise.allSettled(starts.map(async s => {
+      const artifacts = result!.boardResults![s.boardId]!.artifacts!;
+      const selected = { ...full, board: s.board, language: s.language };
+      const enBus = chipsDelProyecto(selected, buscarDef, s.placa.desc, undefined, id => electrico.modulos[id]?.ui?.on, s.boardId);
+      for (const aviso of enBus.avisos) logBuild(`[chips] ${aviso}`, s.boardId);
+      for (const c of enBus.chips) c.guardado = await leerMemoria(store.projectDir(full.name), c.id);
+      if (cancelled()) throw new Error('La ejecución fue cancelada.');
+      await s.target.start(full.name, artifacts, { ...ENGINES[s.engine]!.opcionesArranque(s.placa.desc, artifacts), chips: enBus.chips, arranqueMs: s.placa.desc.arranqueMs });
+      if (cancelled()) { await s.target.stop(); throw new Error('La ejecución fue cancelada.'); }
+      if (artifacts.repl && !await subirPorRepl(selected, artifacts, s.boardId, s.target)) throw new Error(`No se pudo cargar el código de ${s.boardId}.`);
+      if (cancelled()) { await s.target.stop(); throw new Error('La ejecución fue cancelada.'); }
+      for (const pin of await pinsDeCodigo(selected, s.boardId)) s.target.getBridge()?.watch(pin);
+    }));
+    const failure = settled.find((r): r is PromiseRejectedResult => r.status === 'rejected');
+    if (failure) throw failure.reason;
+  } catch (error) {
+    await pararCorridas(false); runningProject = null;
+    const message = (error as Error).message;
+    logBuild(`[error] ${message}`);
+    return { ok: false, errors: [{ line: null, file: null, message }] };
+  }
+  for (const s of starts) void depuradorDe(s.boardId).alArrancado();
+  void refrescarEntradasDelCircuito(full.name);
   return { ok: true, errors: [] };
 }
 
@@ -970,23 +1162,27 @@ async function runProject(
  * Cómo configura el programa cada pin (pinMode, Pin.OUT, output: de ESPHome...): es lo que decide,
  * como en la placa real, si un pin entrega corriente o solo escucha. Ver direccionesDeCodigo.
  */
-async function direccionesDe(project: { name: string; language: Language | null }): Promise<Map<number, DireccionPin>> {
+async function direccionesDe(project: { name: string; language: Language | null }, boardId = placasDelProyecto(project as Project)[0]?.id ?? 'board'): Promise<Map<number, DireccionPin>> {
   const d = new Map<number, DireccionPin>();
   if (!project.language) return d;
-  for (const f of await store.listFiles(project.name, project.language)) {
-    const content = await store.readFile(project.name, f.path, project.language).catch(() => '');
+  for (const f of await store.listFiles(project.name, project.language, boardId)) {
+    const content = await store.readFile(project.name, f.path, project.language, boardId).catch(() => '');
     for (const [g, x] of direccionesDeCodigo(project.language, content)) d.set(g, x);
   }
   return d;
 }
 
-async function pinsDeCodigo(project: { name: string; language: Language | null; board: string | null }): Promise<number[]> {
+async function direccionesTodas(project: Project): Promise<Map<string, Map<number, DireccionPin>>> {
+  return new Map(await Promise.all(placasDelProyecto(project).map(async b => [b.id, await direccionesDe({ name: project.name, language: b.language }, b.id)] as const)));
+}
+
+async function pinsDeCodigo(project: { name: string; language: Language | null; board: string | null }, boardId = placasDelProyecto(project as Project)[0]?.id ?? 'board'): Promise<number[]> {
   if (!project.language) return []; // sin placa no hay código
-  const files = await store.listFiles(project.name, project.language);
+  const files = await store.listFiles(project.name, project.language, boardId);
   const desc = project.board ? (await buscarPlaca(project.board))?.desc : undefined;
   const pines = new Set<number>();
   for (const f of files) {
-    const content = await store.readFile(project.name, f.path, project.language).catch(() => '');
+    const content = await store.readFile(project.name, f.path, project.language, boardId).catch(() => '');
     for (const pin of scanPins(project.language, content, desc)) pines.add(pin);
   }
   return [...pines].sort((a, b) => a - b);
@@ -1045,7 +1241,7 @@ async function fijarControl(nombre: string, id: string, cerrado: boolean): Promi
 }
 
 /** Último nivel que cada GPIO de entrada leyó del circuito (para no repetirle lo mismo al puente). */
-const sensados = new Map<number, 0 | 1>();
+const sensadosPorPlaca = new Map<string, Map<number, 0 | 1>>();
 let timerSensado = 0;
 
 /**
@@ -1077,22 +1273,27 @@ function refrescarEntradasDelCircuito(nombre: string): Promise<void> {
       timerSensado = 0;
       void (async () => {
         try {
-          const bridge = emulator.getBridge();
-          if (!bridge || emulator.getStatus().state !== 'bridge' || runningProject !== nombre) return;
+          if (runningProject !== nombre || ![...corridas.values()].some(e => e.getStatus().state === 'bridge')) return;
           const catalogo = await loadCatalog();
           const buscar = (t: string): ModuloCatalogo | undefined => catalogo.find((m) => m.type === t);
           const original = await store.read(nombre);
           const r = await analizarCircuito(conPlaca(original), buscar, {
-            niveles, cerrados: cerradosDe(nombre), direcciones: await direccionesDe(original),
+            nivelesPorPlaca, cerrados: cerradosDe(nombre), direccionesPorPlaca: await direccionesTodas(original),
           });
           const placa = original.board ? await buscarPlaca(original.board) : undefined;
           const chips = chipsDelProyecto(original, buscar, placa?.desc, undefined, id => r.modulos[id]?.ui?.on);
           (emulator as Emulador & { actualizarCamaras?: (cs: import('./bus/proyectoChips.js').ChipEnBus[]) => void }).actualizarCamaras?.(chips.chips);
           for (const e of r.entradas) {
+            const boardId = e.boardId ?? primaryBoardId;
+            const target = corridas.get(boardId);
+            const bridge = target?.getBridge();
+            if (!bridge || target?.getStatus().state !== 'bridge') continue;
+            const sensados = sensadosPorPlaca.get(boardId) ?? new Map<number, 0 | 1>();
+            sensadosPorPlaca.set(boardId, sensados);
             if (e.nivel === null || sensados.get(e.gpio) === e.nivel) continue;
             sensados.set(e.gpio, e.nivel);
             bridge.setInput(e.gpio, e.nivel);
-            depurador.alEntrada(e.gpio, e.nivel, 'circuito');
+            depuradorDe(boardId).alEntrada(e.gpio, e.nivel, 'circuito');
           }
         } catch (err) {
           console.error(`[entradas] no se pudo leer el circuito: ${(err as Error).message}`);
@@ -1108,16 +1309,17 @@ async function alimentacionDe(project: Project): Promise<EstadoPlaca> {
   const catalogo = await loadCatalog();
   const buscar = (t: string): ModuloCatalogo | undefined => catalogo.find((m) => m.type === t);
   const { alimentacion } = await analizarCircuito(conPlaca(project), buscar, {
-    direcciones: await direccionesDe(project),
-    niveles, cerrados: cerradosDe(project.name), fuentesApagadas: fuentesApagadasDe(project),
+    direccionesPorPlaca: await direccionesTodas(project),
+    nivelesPorPlaca, cerrados: cerradosDe(project.name), fuentesApagadas: fuentesApagadasDe(project),
   });
   return conQuemadura(project, alimentacion);
 }
 
 /** La quemadura de la placa se recuerda (queda muerta hasta reemplazarla), aunque se arregle el cableado. */
-function conQuemadura(project: Project, alimentacion: AlimentacionPlaca): EstadoPlaca {
-  if (alimentacion.estado === 'quema') placasQuemadas.add(project.name);
-  return { ...alimentacion, quemada: placasQuemadas.has(project.name) };
+function conQuemadura(project: Project, alimentacion: AlimentacionPlaca, boardId = placasDelProyecto(project)[0]?.id ?? 'board'): EstadoPlaca {
+  const key = boardId === 'board' ? project.name : `${project.name}:${boardId}`;
+  if (alimentacion.estado === 'quema') placasQuemadas.add(key);
+  return { ...alimentacion, quemada: placasQuemadas.has(key) };
 }
 
 /** Por qué no puede correr la placa (o null si puede). */
@@ -1130,17 +1332,28 @@ function motivoSinArranque(a: EstadoPlaca): string | null {
 async function revisarAlimentacion(nombre: string): Promise<void> {
   const p = await store.read(nombre);
   if (!p.board) return; // sin placa no hay nada que se quede sin energía
-  const estado = await alimentacionDe(p);
-  const motivo = motivoSinArranque(estado);
-  if (!motivo || runningProject !== nombre || !emulator.getStatus().running) return;
+  const catalogo = await loadCatalog();
+  const r = await analizarCircuito(conPlaca(p), t => catalogo.find(m => m.type === t), {
+    nivelesPorPlaca: runningProject === nombre ? nivelesPorPlaca : undefined, direccionesPorPlaca: await direccionesTodas(p),
+    cerrados: cerradosDe(nombre), fuentesApagadas: fuentesApagadasDe(p),
+  });
+  const motivos = placasDelProyecto(p).flatMap(b => {
+    const motivo = motivoSinArranque(conQuemadura(p, r.alimentacionesPorPlaca?.[b.id] ?? r.alimentacion, b.id));
+    return motivo ? [`[${b.id}] ${motivo}`] : [];
+  });
+  const motivo = motivos.join(' ');
+  if (!motivo || runningProject !== nombre || ![...corridas.values()].some(e => e.getStatus().running)) return;
   eventosEmulador.onLog(`[alimentación] ${motivo} Se detuvo la simulación.`);
-  await emulator.stop();
+  await pararCorridas();
   runningProject = null;
   controlesCerrados.clear();
 }
 
-function reemplazarPlaca(nombre: string): boolean {
-  return placasQuemadas.delete(nombre);
+function reemplazarPlaca(nombre: string, boardId?: string): boolean {
+  if (boardId) return placasQuemadas.delete(boardId === 'board' ? nombre : `${nombre}:${boardId}`);
+  let replaced = false;
+  for (const key of placasQuemadas) if (key === nombre || key.startsWith(`${nombre}:`)) { placasQuemadas.delete(key); replaced = true; }
+  return replaced;
 }
 
 /** Avisos de circuito ↔ código (11.6) + Ley de Ohm (cortocircuitos, sobrecorriente): lo que ve la UI y el MCP. */
@@ -1157,6 +1370,7 @@ async function avisosDelProyecto(
     leds: LedElectrico[];
     fuentes: FuenteElectrica[];
     placa: EstadoPlaca | null;
+    placas: Record<string, EstadoPlaca>;
     energizado: boolean;
     tensiones: Record<string, number>;
     mediciones: { modulo: string; moduloNombre: string; elemento: string; tipo: string; tensionV: number; corrienteMa: number; potenciaMw: number; resistenciaOhm: number | null }[];
@@ -1172,8 +1386,10 @@ async function avisosDelProyecto(
   const fuentesApagadas = fuentesApagadasDe(project);
   // Con los niveles reales de la simulación: avisos, lo que entrega cada fuente, si la placa tiene energía.
   const estados = estadosModulos.get(project.name) ?? new Map<string, Record<string, unknown>>();
-  const direcciones = await direccionesDe(project);
-  const vivo = await analizarCircuito(conLaPlaca, buscar, { niveles, cerrados, fuentesApagadas, estados, direcciones });
+  const direccionesPorPlaca = await direccionesTodas(project);
+  const direcciones = direccionesPorPlaca.get(placasDelProyecto(project)[0]?.id ?? 'board') ?? new Map<number, DireccionPin>();
+  const levels = project.name === runningProject ? nivelesPorPlaca : new Map<string, Map<number, 0 | 1>>();
+  const vivo = await analizarCircuito(conLaPlaca, buscar, { nivelesPorPlaca: levels, cerrados, fuentesApagadas, estados, direccionesPorPlaca });
   // Lo que cada modelo quiere recordar vuelve en el próximo cálculo (solo del vivo: los otros son hipotéticos).
   for (const [id, m] of Object.entries(vivo.modulos)) if (m.estado) estados.set(id, m.estado);
   estadosModulos.set(project.name, estados);
@@ -1182,8 +1398,8 @@ async function avisosDelProyecto(
   // para "quemarlo" cuando la simulación lo prende. Y con las salidas en bajo: la corriente que le
   // llega sin depender del código (mAFijo), para prenderlo aunque ningún GPIO lo maneje.
   // Sin placa no hay salidas del código: alcanza con un solo cálculo.
-  const peor = project.board ? await analizarCircuito(conLaPlaca, buscar, { cerrados, fuentesApagadas, direcciones }) : vivo;
-  const fijo = project.board ? await analizarCircuito(conLaPlaca, buscar, { cerrados, fuentesApagadas, salidasForzadas: 0, direcciones }) : vivo;
+  const peor = project.board ? await analizarCircuito(conLaPlaca, buscar, { cerrados, fuentesApagadas, direccionesPorPlaca }) : vivo;
+  const fijo = project.board ? await analizarCircuito(conLaPlaca, buscar, { cerrados, fuentesApagadas, salidasForzadas: 0, direccionesPorPlaca }) : vivo;
   const leds = peor.leds.map((l) => ({ ...l, mAFijo: fijo.leds.find((x) => x.id === l.id)?.mA ?? 0 }));
   const { avisos: electricos, fuentes } = vivo;
   // Quemada de antes (ya sin la sobretensión): el motor no lo sabe, se avisa acá.
@@ -1194,6 +1410,7 @@ async function avisosDelProyecto(
     pins,
     electrico: {
       leds, fuentes, placa, energizado: proyectoEnergizado === project.name, tensiones: vivo.tensiones,
+      placas: Object.fromEntries(Object.entries(vivo.alimentacionesPorPlaca ?? {}).map(([id, a]) => [id, conQuemadura(project, a, id)])),
       mediciones: vivo.elementos.map((e) => {
         const inst = project.modules.find((m) => m.id === e.dueno);
         const def = inst ? buscar(inst.type) : undefined;
@@ -1325,12 +1542,12 @@ const contextoMcp: McpContexto = {
   compilar: (nombre) => runBuild({ name: nombre }),
   ejecutar: (nombre, recompilar) => runProject({ name: nombre }, recompilar),
   async parar() {
-    await emulator.stop();
+    await pararCorridas();
     runningProject = null;
     controlesCerrados.clear();
     if (proyectoEnergizado) energizar(proyectoEnergizado, false);
   },
-  resetear: () => emulator.reset(),
+  resetear: () => resetearCorridas(),
   estadoEmulador: () => emulator.getStatus(),
   proyectoCorriendo: () => (emulator.getStatus().running ? runningProject : null),
   async esperarEstado(estados, timeoutMs) {
@@ -1415,19 +1632,22 @@ function attachWebSocket(server: import('node:http').Server): void {
         return;
       }
       const m = msg.data;
+      const boardId = m.boardId ?? primaryBoardId;
+      const target = m.boardId ? corridas.get(boardId) : emulator;
+      if (!target) { ws.send(JSON.stringify({ type: 'error', message: 'La placa no está ejecutándose.' })); return; }
       switch (m.type) {
         case 'pin.in':
-          emulator.getBridge()?.setInput(m.pin, m.level);
-          depurador.alEntrada(m.pin, m.level, 'ui');
+          target.getBridge()?.setInput(m.pin, m.level);
+          depuradorDe(boardId).alEntrada(m.pin, m.level, 'ui');
           break;
         case 'pin.watch':
-          emulator.getBridge()?.watch(m.pin);
+          target.getBridge()?.watch(m.pin);
           break;
         case 'rf.send':
-          emulator.getBridge()?.sendRf(m.bits, m.protocol);
+          target.getBridge()?.sendRf(m.bits, m.protocol);
           break;
         case 'console.input':
-          emulator.writeConsole(m.data);
+          target.writeConsole(m.data);
           break;
       }
     });
@@ -1452,17 +1672,21 @@ export async function startServer(): Promise<{ close: () => Promise<void>; port:
   // El motor eléctrico (ngspice) tarda ~0,7 s en arrancar: mejor ahora que en el primer cálculo.
   void precalentar().catch((err) => console.error(`[motor eléctrico] no arrancó: ${(err as Error).message}`));
 
-  const shutdown = async (): Promise<void> => {
-    await emulator.shutdown();
+  const close = async (): Promise<void> => {
+    await pararCorridas();
+    await Promise.all([...new Set(instancias.values())].map(e => e.shutdown()));
     // Sin esto, close() espera a que el navegador suelte el WebSocket: nunca termina.
     for (const ws of clients) ws.terminate();
     await logger.close();
+  };
+  const shutdown = async (): Promise<void> => {
+    await close();
     process.exit(0);
   };
   process.on('SIGINT', () => void shutdown());
   process.on('SIGTERM', () => void shutdown());
 
-  return { close: () => logger.close(), port: PORT };
+  return { close, port: PORT };
 }
 
 if (process.argv[1]?.endsWith('index.ts') || process.argv[1]?.endsWith('index.js')) {

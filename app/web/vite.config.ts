@@ -29,6 +29,7 @@ export default defineConfig({
       entry: 'app.ts',
       formats: ['es'],
       fileName: () => 'app.js',
+      cssFileName: 'app',
     },
   },
 });

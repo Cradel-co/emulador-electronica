@@ -160,6 +160,16 @@ límites: [`chips/README.md`](chips/README.md). Pantallas disponibles y opciones
 
 ### 3. Escribir el código
 
+Los archivos **MicroPython (`.py`)** usan CodeMirror 6: resaltado Python, indentación de cuatro
+espacios, plegado y diagnósticos de sintaxis mientras escribís. **Ctrl+F** busca dentro del
+archivo, **Ctrl+H** abre buscar/reemplazar y **Ctrl+Espacio** muestra sugerencias de APIs
+MicroPython, incluidas importaciones con alias. **Ctrl+Shift+I** formatea Python localmente con
+Ruff en un worker, sin Docker; el resultado se puede deshacer con **Ctrl+Z**. El botón **Ajustes**
+permite elegir tema, fuente e indentación y recuerda las preferencias en el navegador.
+Los diagnósticos son sintácticos; no verifican
+tipos ni que todas las APIs estén disponibles en la placa emulada. Se conservan el autoguardado,
+**Ctrl+S**, las pestañas, los errores de compilación y los breakpoints del margen.
+
 Editor con pestañas en el panel central. Para ESPHome, la app **inyecta el componente `sim_bridge`** automáticamente: es el puente que le lleva al firmware los eventos de los pines (qué botón se apretó, qué pin se puso en 1).
 
 ### 4. Compilar y ejecutar

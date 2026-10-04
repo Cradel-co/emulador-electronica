@@ -151,3 +151,23 @@ el navegador selecciona una por su cuenta (#36).
 
 **Un límite de líneas por archivo.** Es arbitrario y lleva a cortar donde no corresponde. Un módulo
 se separa por responsabilidad: si se puede describir en una frase sin "y además".
+
+## Componentes propios y adaptadores
+
+El criterio permanente pedido por el usuario es desarrollo **custom y escalable**: componentes
+propios, reutilizables y configurables, con responsabilidades y contratos explícitos.
+
+Una biblioteca puede resolver una capacidad especializada, como docking o edición de código.
+Se integra detrás de un adaptador propio: sus tipos y eventos quedan en ese límite, mientras
+el resto del emulador trabaja con modelos propios. Así se puede actualizar o reemplazar el motor
+sin reescribir los componentes, la persistencia ni las acciones del producto.
+
+En las ventanas, el modelo `docking-layout.ts` describe grupos, divisiones, pestañas y visibilidad.
+`docking-storage.ts` guarda ese contrato por proyecto y como predeterminado. Los contenidos de
+Explorador, Componentes, Circuito, Código y Consola siguen siendo componentes propios: mover una
+ventana conserva sus nodos, la selección del circuito y el historial del editor.
+
+Un componente compartido recibe contenido y acciones por parámetros; no incorpora condiciones
+por cada pantalla que lo utiliza. Los efectos se conectan por el puente y las decisiones puras
+se prueban por separado. Agregar una ventana debe extender su registro y aportar su contenido,
+sin duplicar la infraestructura de arrastre, guardado o configuración.

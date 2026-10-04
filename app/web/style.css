@@ -138,6 +138,7 @@ button.widget:hover, label.widget:hover { background: rgba(255, 255, 255, .08); 
 .menu-item:hover:not(:disabled), .menu-item:focus-visible, .menu-item.abierto { background: var(--sel-menu); outline: none; }
 .menu-item .atajo { margin-left: auto; color: var(--tenue); font-size: 12px; }
 .menu-item.sub::after { content: "›"; margin-left: auto; color: var(--tenue); font-size: 15px; line-height: 1; }
+.menu-item > svg { width: 18px; height: 18px; flex-shrink: 0; }
 .submenu { display: none; position: absolute; left: calc(100% + 4px); top: -5px; min-width: 250px; }
 .menu-item.sub:hover > .submenu, .menu-item.sub.abierto > .submenu { display: block; }
 .menu-sep { height: 1px; margin: 4px 8px; background: var(--borde2); }
@@ -447,7 +448,8 @@ body.modo-mover #lienzo .pin { cursor: move; } /* modo mover: los pines no arran
 #avisos-dibujo:empty { display: none; }
 
 /* --- Panel derecho: código o propiedades del módulo (como "Attributes") --------- */
-.derecha { display: flex; flex-direction: column; }
+.derecha { display: flex; flex-direction: column; gap: 6px; }
+.editor-window { flex: 1; min-height: 0; }
 .panel-codigo { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-height: 0; height: 100%; }
 .panel-codigo[hidden], .panel-modulo[hidden] { display: none; }
 .panel-modulo { overflow: auto; height: 100%; }
@@ -810,3 +812,66 @@ body.depuracion-parada .punto-estado { background: var(--azul); box-shadow: 0 0 
 .camara-panel { display: grid; gap: 10px; }
 .camara-panel video, .camara-panel img { width: 100%; max-height: 240px; object-fit: contain; background: #152231; border-radius: 6px; }
 .camara-panel [role="alert"] { color: #f3b0b0; }
+/* MicroPython: CodeMirror ocupa toda la fila; los otros lenguajes usan el editor legacy. */
+.editor-wrap.con-micropython { display: block; }
+.editor-wrap.con-micropython > .gutter, .editor-wrap.con-micropython > .editor-area { display: none; }
+#editor-micropython { height: 100%; min-height: 0; overflow: hidden; }
+#editor-micropython[hidden] { display: none; }
+.cm-breakpointGutter { cursor: pointer; min-width: 16px; }
+.cm-breakpoint { color: #e85d65; opacity: .55; }
+.cm-breakpoint.verified { opacity: 1; }
+.cm-debug-stopped { background: rgba(242,197,92,.2) !important; box-shadow: inset 3px 0 #f2c55c; }
+.cm-search input, .cm-search button { font: inherit; }
+
+.editor-preferences { display: grid; grid-template-columns: 1fr 150px; gap: 14px; min-width: 420px; }
+.editor-preferences h2, .editor-preferences p, .editor-preferences-actions { grid-column: 1 / -1; }
+.editor-preferences p { margin: 0; color: var(--tenue); }
+.editor-preferences-actions { display: flex; justify-content: flex-end; }
+
+.tool-window { flex: 1 1 0; min-height: 100px; }
+.tool-window[hidden] { display: none; }
+.tool-window .panel-header { flex-shrink: 0; }
+.explorador-archivos { --explorer-indent: 12px; --explorer-row-height: 22px; display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: auto; padding: 4px 3px; }
+.explorador-archivos ul { list-style: none; margin: 0; padding: 0 0 0 var(--explorer-indent); }
+.explorador-archivos li { margin: 0; padding: 0; }
+.explorador-archivos button { border: 0; background: transparent; border-radius: 3px; font-size: 12px; }
+.explorador-archivos li > button { display: flex; align-items: center; justify-content: flex-start; gap: 6px; width: 100%; height: var(--explorer-row-height); text-align: left; padding: 0 4px 0 18px; }
+.explorador-archivos li > button.activa { background: var(--seleccion, #264faa); }
+.explorador-archivos summary { display: flex; align-items: center; gap: 5px; height: var(--explorer-row-height); padding: 0 4px; cursor: pointer; font-size: 12px; border-radius: 3px; white-space: nowrap; }
+.explorador-archivos summary::marker, .explorador-archivos summary::-webkit-details-marker { display: none; content: ''; }
+.explorador-archivos summary:hover { background: var(--hover); }
+.explorador-archivos summary.activa { background: var(--sel); outline: 1px solid #47768c; outline-offset: -1px; }
+.explorador-archivos p { font-size: 12px; color: var(--tenue); padding: 0 6px; }
+.file-entry-icon { width: 15px; height: 15px; flex-shrink: 0; vertical-align: middle; }
+.tree-chevron { width: 12px; height: 12px; color: var(--tenue); flex: none; }
+.explorador-archivos details[open] > summary > .tree-chevron { transform: rotate(90deg); }
+.explorer-entry-name, .explorer-root-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.explorer-toolbar { display: flex; align-items: center; gap: 3px; flex-shrink: 0; color: var(--tenue); }
+.explorer-toolbar button { display: inline-flex; align-items: center; justify-content: center; width: 19px; height: 19px; padding: 2px; color: inherit; }
+.explorer-toolbar button:hover { background: var(--hover); }
+.explorer-toolbar button:focus-visible, .explorador-archivos summary:focus-visible { outline: 1px solid var(--acento); outline-offset: -1px; }
+
+#tabs-archivos > .nuevo-archivo { position: sticky; right: -6px; margin-left: auto; z-index: 4; background: var(--isla); min-width: 38px; justify-content: center; box-shadow: -8px 0 10px var(--isla); }
+#tabs-archivos > .nuevo-archivo::before { display: none; }
+
+#tabs-archivos > button:not(.nuevo-archivo) { max-width: 260px; overflow: hidden; text-overflow: ellipsis; scroll-margin-right: 44px; }
+
+/* Distribución acoplable: cada división conserva sus proporciones por proyecto. */
+.workspace { display: block; }
+.dock-workspace { width: 100%; height: 100%; position: relative; min-width: 0; min-height: 0; }
+.dock-workspace [hidden] { display: none !important; }
+.window-grip { cursor: grab; touch-action: none; flex-shrink: 0; min-width: 22px; padding: 1px 4px; border: 0; background: transparent; color: var(--tenue); font-size: 19px; line-height: 1; }
+.editor-tabs > .window-grip { min-height: 30px; align-self: center; }
+.editor-tabs > .window-grip::before { display: none; }
+.window-code-header { flex-shrink: 0; background: var(--isla); border-radius: var(--radio-isla); margin: 0; }
+.layout-settings-actions { display: flex; flex-direction: column; gap: 10px; grid-column: 1 / -1; }
+.layout-settings-actions button { text-align: left; }
+.editor-tabs > .tw-ocultar::before { display: none; }
+
+.file-explorer-tree { flex: 1; min-height: 0; }
+.explorer-root-row { display: flex; align-items: center; gap: 4px; flex: 1; min-width: 0; }
+.explorer-root-name { flex: 1; }
+.explorer-project-root > summary .explorer-root-name { font-weight: 600; }
+.explorer-group-children { padding-left: var(--explorer-indent); }
+.explorer-board-root > summary { color: #c5a65b; }
+.explorer-board-root > .explorer-group-children > ul { padding-left: 0; }

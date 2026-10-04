@@ -1,5 +1,8 @@
 import {
   BOARD_MODULE_ID,
+  PROJECT_BOARD_ID_RE,
+  placasDelProyecto,
+  placaDelProyecto,
   gpioDePin,
   motivoReservado,
   nombreDePin,
@@ -35,8 +38,9 @@ export const PINES_RESERVADOS = new Map<number, string>([
 type BuscarDef = (type: string) => ModuleDef | undefined;
 
 /** Descriptor de la placa del proyecto (del catálogo), o undefined si no hay catálogo a mano. */
-export function descriptorDe(project: Project, buscar?: BuscarDef): BoardDescriptor | undefined {
-  return project.board ? buscar?.(project.board)?.board : undefined;
+export function descriptorDe(project: Project, buscar?: BuscarDef, boardId?: string): BoardDescriptor | undefined {
+  const placa = placaDelProyecto(project, boardId);
+  return placa ? buscar?.(placa.board)?.board : undefined;
 }
 
 /**
@@ -44,9 +48,9 @@ export function descriptorDe(project: Project, buscar?: BuscarDef): BoardDescrip
  * "board.D13" → 13 y "board.A0" → 14 en el Uno (según `board.pins` del descriptor).
  * Sin descriptor, entiende "GPIOn" (proyectos y pruebas viejas).
  */
-export function gpioDeRef(ref: string, desc?: BoardDescriptor): number | null {
-  if (!ref.startsWith(`${BOARD_MODULE_ID}.`)) return null;
-  return gpioDePin(desc, ref.slice(BOARD_MODULE_ID.length + 1));
+export function gpioDeRef(ref: string, desc?: BoardDescriptor, boardId = BOARD_MODULE_ID): number | null {
+  if (!ref.startsWith(`${boardId}.`)) return null;
+  return gpioDePin(desc, ref.slice(boardId.length + 1));
 }
 
 export function partirRef(ref: string): { id: string; pin: string } {
@@ -80,38 +84,50 @@ export function normalizarRef(ref: string, desc?: BoardDescriptor): string {
   return r;
 }
 
-/** Proyectos anteriores al canvas no tienen la placa en el dibujo. Sin placa, no hay nada que agregar. */
+/** Agrega al dibujo las placas declaradas que todavía no tengan un módulo. */
 export function conPlaca(project: Project): Project {
-  if (!project.board || project.modules.some((m) => m.id === BOARD_MODULE_ID)) return project;
-  return { ...project, modules: [{ id: BOARD_MODULE_ID, type: project.board, x: 0, y: 0, props: {} }, ...project.modules] };
+  const faltantes = placasDelProyecto(project).filter((placa) => !project.modules.some((module) => module.id === placa.id));
+  if (faltantes.length === 0) return project;
+  const modules = faltantes.map((placa, index) => ({ id: placa.id, type: placa.board, x: index * 260, y: 0, props: {} }));
+  return { ...project, modules: [...modules, ...project.modules] };
 }
 
-/**
- * Pone una placa en un proyecto sin placa (la placa es un módulo más, que se agrega y se
- * quita). El código lo maneja quien llama (index.ts): acá solo cambia el dibujo.
- */
-export function ponerPlaca(project: Project, def: ModuleDef, lenguaje: Language, opciones: { x?: number; y?: number } = {}): Project {
+/** Incorpora otra placa sin reemplazar las existentes ni tocar sus archivos. */
+export function ponerPlaca(project: Project, def: ModuleDef, lenguaje: Language, opciones: { id?: string; x?: number; y?: number } = {}): Project {
   if (!def.programmable || !def.board) throw new DiagramError(`"${def.name}" no es una placa`);
-  if (project.board) {
-    throw new DiagramError(`el proyecto ya tiene su placa (${project.board}): la simulación corre un solo microcontrolador. Quitala primero.`);
-  }
   if (!def.board.languages[lenguaje]) {
     throw new DiagramError(`${def.name} no se programa en ${lenguaje}. Lenguajes: ${Object.keys(def.board.languages).join(', ')}`);
   }
-  const placa = { id: BOARD_MODULE_ID, type: def.type, x: opciones.x ?? 0, y: opciones.y ?? 0, props: {} };
-  return { ...project, board: def.type, language: lenguaje, modules: [placa, ...project.modules.filter((m) => m.id !== BOARD_MODULE_ID)] };
+  const anteriores = placasDelProyecto(project);
+  const usados = new Set([...project.modules.map((module) => module.id), ...anteriores.map((placa) => placa.id)]);
+  let id = opciones.id;
+  if (id === undefined) {
+    id = BOARD_MODULE_ID;
+    let n = 2;
+    while (usados.has(id)) id = `board${n++}`;
+  }
+  if (!PROJECT_BOARD_ID_RE.test(id)) throw new DiagramError('id de placa inválido');
+  if (usados.has(id)) throw new DiagramError(`ya hay un módulo con id "${id}"`);
+  const boards = [...anteriores, { id, board: def.type, language: lenguaje }];
+  const primera = boards[0];
+  const placa = { id, type: def.type, x: opciones.x ?? anteriores.length * 260, y: opciones.y ?? 0, props: {} };
+  return { ...project, boards, board: primera?.board ?? null, language: primera?.language ?? null, modules: [...conPlaca(project).modules, placa] };
 }
 
-/** Saca la placa y sus cables: el proyecto queda sin placa (solo circuito). El código no se toca. */
-export function sacarPlaca(project: Project): Project {
-  if (!project.board) throw new DiagramError('el proyecto no tiene placa');
-  const prefijo = `${BOARD_MODULE_ID}.`;
+/** Quita únicamente la placa elegida y sus cables; conserva los archivos en disco. */
+export function sacarPlaca(project: Project, id = BOARD_MODULE_ID): Project {
+  const anteriores = placasDelProyecto(project);
+  if (!anteriores.some((placa) => placa.id === id)) throw new DiagramError(`el proyecto no tiene placa "${id}"`);
+  const boards = anteriores.filter((placa) => placa.id !== id);
+  const primera = boards[0];
+  const prefijo = `${id}.`;
   return {
     ...project,
-    board: null,
-    language: null,
-    modules: project.modules.filter((m) => m.id !== BOARD_MODULE_ID),
-    wires: project.wires.filter((w) => !w.from.startsWith(prefijo) && !w.to.startsWith(prefijo)),
+    boards,
+    board: primera?.board ?? null,
+    language: primera?.language ?? null,
+    modules: project.modules.filter((module) => module.id !== id),
+    wires: project.wires.filter((wire) => !wire.from.startsWith(prefijo) && !wire.to.startsWith(prefijo)),
   };
 }
 
@@ -158,7 +174,7 @@ export function agregarModulo(
 ): { project: Project; id: string } {
   if (def.programmable) {
     throw new DiagramError(project.board
-      ? `el proyecto ya tiene su placa (${project.board}): la simulación corre un solo microcontrolador`
+      ? `el proyecto ya tiene su placa (${project.board}): agregá otra eligiendo su lenguaje (ponerPlaca)`
       : `"${def.name}" es una placa: se agrega eligiendo su lenguaje (ponerPlaca)`);
   }
   const base = conPlaca(project);
@@ -176,7 +192,7 @@ export function agregarModulo(
 }
 
 export function quitarModulo(project: Project, id: string): Project {
-  if (id === BOARD_MODULE_ID) return sacarPlaca(project);
+  if (placasDelProyecto(project).some((placa) => placa.id === id) || id === BOARD_MODULE_ID) return sacarPlaca(project, id);
   instancia(project, id);
   const prefijo = `${id}.`;
   return {
@@ -214,8 +230,9 @@ function validarPin(project: Project, ref: string, buscar: BuscarDef): void {
   if (!def.pins.some((p) => p.name === pin)) {
     throw new DiagramError(`"${def.name}" (${id}) no tiene el pin "${pin}". Pines: ${def.pins.map((p) => p.name).join(', ') || '(ninguno: es inalámbrico)'}`);
   }
-  const desc = descriptorDe(project, buscar);
-  const g = gpioDeRef(ref, desc);
+  const placa = placaDelProyecto(project, id);
+  const desc = descriptorDe(project, buscar, id);
+  const g = placa ? gpioDeRef(ref, desc, id) : null;
   const motivo = g === null ? null : desc ? motivoReservado(desc, g) : PINES_RESERVADOS.get(g) ?? null;
   if (motivo) throw new DiagramError(`${nombreDePin(desc, g!)} no se puede usar: ${motivo}`);
 }
@@ -232,7 +249,7 @@ export function conectar(project: Project, a: string, b: string, buscar: BuscarD
     throw new DiagramError('esos dos pines ya están conectados');
   }
   // Convención de la guía (6.1): el módulo en `from`, la placa en `to`.
-  const wire = partirRef(ra).id === BOARD_MODULE_ID ? { from: rb, to: ra } : { from: ra, to: rb };
+  const wire = placasDelProyecto(base).some((placa) => placa.id === partirRef(ra).id) ? { from: rb, to: ra } : { from: ra, to: rb };
   return { project: { ...base, wires: [...base.wires, wire] }, wire };
 }
 
@@ -253,14 +270,14 @@ export function desconectar(project: Project, a: string, b?: string, buscar?: Bu
  * para la lógica digital (qué GPIO prende qué salida) es como si el cable
  * siguiera derecho, aunque eléctricamente sí tengan su resistencia (Ley de Ohm).
  */
-export function gpioDe(project: Project, id: string, pin: string, buscar?: BuscarDef, visitados = new Set<string>()): number | null {
+export function gpioDe(project: Project, id: string, pin: string, buscar?: BuscarDef, boardId = BOARD_MODULE_ID, visitados = new Set<string>()): number | null {
   const ref = `${id}.${pin}`;
   if (visitados.has(ref)) return null; // corta un lazo (dos resistencias entre sí, etc.)
   visitados.add(ref);
   for (const w of project.wires) {
     if (w.from !== ref && w.to !== ref) continue;
     const otro = w.from === ref ? w.to : w.from;
-    const g = gpioDeRef(otro, descriptorDe(project, buscar));
+    const g = gpioDeRef(otro, descriptorDe(project, buscar, boardId), boardId);
     if (g !== null) return g;
     if (!buscar) continue;
     const { id: otroId, pin: otroPin } = partirRef(otro);
@@ -269,7 +286,7 @@ export function gpioDe(project: Project, id: string, pin: string, buscar?: Busca
     if (!otroDef?.passthrough || otroDef.pins.length !== 2) continue;
     const siguientePin = otroDef.pins.find((p) => p.name !== otroPin);
     if (siguientePin) {
-      const g2 = gpioDe(project, otroId, siguientePin.name, buscar, visitados);
+      const g2 = gpioDe(project, otroId, siguientePin.name, buscar, boardId, visitados);
       if (g2 !== null) return g2;
     }
   }
@@ -295,11 +312,11 @@ export function pinesSinAlimentar(project: Project, instId: string, def: ModuleD
 }
 
 /** Módulos de un rol del puente, cableados a un GPIO y alimentados (p. ej. el receptor RF listo para recibir). */
-export function cableadosConRol(project: Project, rol: string, buscar: BuscarDef): ModuleInstance[] {
+export function cableadosConRol(project: Project, rol: string, buscar: BuscarDef, boardId = BOARD_MODULE_ID): ModuleInstance[] {
   return project.modules.filter((inst) => {
     const def = buscar(inst.type);
     if (def?.bridge?.role !== rol) return false;
-    if (gpioDe(project, inst.id, def.bridge.pin, buscar) === null) return false;
+    if (gpioDe(project, inst.id, def.bridge.pin, buscar, boardId) === null) return false;
     return pinesSinAlimentar(project, inst.id, def).length === 0;
   });
 }

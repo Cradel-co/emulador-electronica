@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Emulador de electrónica</title>
     <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="/dist/app.css" />
     <link rel="stylesheet" href="/style.css" />
     <!-- Un solo bundle: Vite junta app.ts y todo lo que importa en dist/app.js (issue #9). -->
     <link rel="modulepreload" href="/dist/app.js" />
@@ -66,7 +67,7 @@
       <button id="buscar-todo" class="tb-icono" title="Buscar en todo (Shift doble · Ctrl+Shift+P)" aria-label="Buscar en todo">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
       </button>
-      <button id="act-ajustes" class="tb-icono" title="Acerca de" aria-label="Acerca de">
+      <button id="act-ajustes" class="tb-icono" title="Configuración" aria-label="Configuración">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
       </button>
     </header>
@@ -76,7 +77,8 @@
 
     <!-- Franja izquierda de ventanas de herramientas -->
     <nav class="stripe stripe-izq" aria-label="Ventanas de herramientas">
-      <button id="tw-catalogo" class="act activa" title="Catálogo de módulos (Alt+1)">
+      <button id="tw-explorador" class="act" title="Explorador de archivos (Ctrl+Shift+E)" aria-label="Explorador de archivos" aria-controls="ventana-explorador" aria-expanded="false"></button>
+      <button id="tw-catalogo" class="act activa" title="Componentes (Alt+1)" aria-label="Componentes" aria-expanded="true" aria-controls="ventana-componentes">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4a2 2 0 0 0 1-1.73Z"/><path d="M3.3 7 12 12l8.7-5"/><path d="M12 22V12"/></svg>
       </button>
       <button id="act-proyectos" class="act" title="Proyectos">
@@ -85,6 +87,7 @@
       <button id="act-mover" class="act" title="Mover / seleccionar: los pines no arrancan cables (M)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/><path d="M13 13l6 6"/></svg>
       </button>
+      <button id="tw-circuito" class="act activa" title="Circuito" aria-label="Circuito" aria-controls="ventana-circuito"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="6" cy="6" r="3"/><circle cx="18" cy="18" r="3"/><path d="M9 6h6v12"/></svg></button>
       <span class="crece"></span>
       <button id="tw-build" class="act" data-tw-tab="build" title="Compilación (Alt+0)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 12-8.4 8.4a2.1 2.1 0 0 1-3-3L12 9"/><path d="M17.6 15 22 10.6M20.9 11.7l-1.3-1.3a2 2 0 0 1 0-2.8l.1-.1-4-4-.2.1a2 2 0 0 1-2.8 0L11.4 2.3 9 4.7l1.3 1.3a2 2 0 0 1 0 2.8"/></svg>
@@ -129,30 +132,16 @@
     </section>
 
     <!-- Área de trabajo: "islas" como en el tema Islands de Android Studio -->
-    <div class="workspace">
+    <div id="dock-layout" class="workspace"></div>
+    <div id="dock-source" hidden>
+      <section id="ventana-explorador" class="panel isla tool-window" aria-label="Explorador"></section>
+      <section id="ventana-componentes" class="panel isla tool-window paleta" aria-label="Componentes"></section>
       <main>
-        <aside class="panel isla paleta">
-          <h2 class="panel-header">
-            Catálogo
-            <span class="crece"></span>
-            <button id="importar-modulo" class="btn-chico" title="Importar módulos (carpeta, zip, chip de Wokwi, URL o GitHub)">+ Importar</button>
-            <button class="tw-ocultar" data-ocultar="izq" title="Ocultar (Alt+1)" aria-label="Ocultar catálogo">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/></svg>
-            </button>
-          </h2>
-          <label class="buscar">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-            <input id="buscar-modulos" placeholder="Buscar módulo…" />
-          </label>
-          <p class="ayuda-paleta">Arrastrá un módulo al circuito, o hacé click para agregarlo.</p>
-          <!-- El contenido lo rinde React (issue #9), montado sobre este mismo nodo. -->
-          <div id="lista-modulos" class="lista-modulos"></div>
-        </aside>
 
-        <div class="resizer-v" data-resize="izq" title="Arrastrar para redimensionar"></div>
 
-        <section class="panel isla lienzo-panel">
+        <section id="ventana-circuito" class="panel isla lienzo-panel" aria-label="Circuito">
           <div class="editor-tabs">
+            <button type="button" class="window-grip" data-window-drag="circuito" aria-label="Mover ventana Circuito" title="Mantener presionado y arrastrar">⠿</button>
             <span class="editor-tab activa">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M8.5 6H13a3 3 0 0 1 3 3v6.5"/></svg>
               Circuito
@@ -161,6 +150,7 @@
             <!-- Envuelto: como hijo directo heredaría el estilo (e ícono) de las pestañas de archivo. -->
             <span class="alim-wrap"><button id="badge-alimentacion" type="button" class="badge-alim" hidden disabled></button></span>
             <span id="ayuda-lienzo" class="ayuda-lienzo">Para cablear: click en un pin y después en otro.</span>
+            <button type="button" class="tw-ocultar" data-close-window="circuito" aria-label="Ocultar Circuito">−</button>
           </div>
           <div class="lienzo-wrap">
             <!-- El <svg id="lienzo"> lo rinde React (issue #9); canvas.ts lo maneja igual que siempre. -->
@@ -175,12 +165,14 @@
           <div id="avisos-dibujo" class="avisos"></div>
         </section>
 
-        <div class="resizer-v" data-resize="der" title="Arrastrar para redimensionar"></div>
 
-        <aside class="panel isla derecha">
+        <aside id="ventana-codigo" class="panel derecha" aria-label="Código">
+          <h2 class="panel-header window-code-header"><button type="button" class="window-grip" data-window-drag="codigo" aria-label="Mover ventana Código" title="Mantener presionado y arrastrar">⠿</button>Código<span class="crece"></span><button type="button" class="tw-ocultar" data-close-window="codigo" aria-label="Ocultar Código">−</button></h2>
+          <div class="panel isla editor-window">
           <section id="panel-codigo" class="panel-codigo">
             <div class="tabs editor-tabs" id="tabs-archivos"></div>
             <div class="editor-wrap">
+              <div id="editor-micropython" hidden></div>
               <div id="gutter" class="gutter" title="Click en un número de línea: poner o sacar un breakpoint"><div id="gutter-num"></div><div id="bp-capa" class="bp-capa"></div></div>
               <div class="editor-area">
                 <div id="linea-actual" class="linea-actual"></div>
@@ -193,13 +185,14 @@
             <div id="avisos" class="avisos"></div>
           </section>
           <section id="panel-modulo" class="panel-modulo" hidden></section>
+          </div>
         </aside>
       </main>
 
-      <div class="resizer-h" data-resize="consola" title="Arrastrar para redimensionar"></div>
 
-      <section class="isla consola-panel">
+      <section id="ventana-consola" class="isla consola-panel" aria-label="Consola">
         <div class="consola-tabs">
+          <button type="button" class="window-grip" data-window-drag="consola" aria-label="Mover ventana Consola" title="Mantener presionado y arrastrar">⠿</button>
           <button data-tab="build" class="activa">Compilación</button>
           <button data-tab="emu">Emulador</button>
           <button data-tab="problemas">Problemas <span id="cuenta-problemas-tab" class="cuenta"></span></button>
@@ -209,7 +202,7 @@
           <button id="limpiar" class="tw-accion" title="Limpiar la consola" aria-label="Limpiar">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m5.6 5.6 12.8 12.8"/></svg>
           </button>
-          <button class="tw-ocultar" data-ocultar="abajo" title="Ocultar (Shift+Esc)" aria-label="Ocultar consola">
+          <button class="tw-ocultar" data-close-window="consola" title="Ocultar (Shift+Esc)" aria-label="Ocultar Consola">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/></svg>
           </button>
         </div>
@@ -289,6 +282,11 @@
     <!-- Buscar en todo / paleta de comandos -->
     <!-- El contenido lo rinde React (issue #9). Abrirlo y cerrarlo lo maneja app.ts. -->
     <dialog id="dlg-buscar" class="paleta-comandos"></dialog>
+
+    <dialog id="dlg-nuevo-archivo" aria-label="Nuevo archivo MicroPython"></dialog>
+    <dialog id="dlg-editor-preferences" aria-label="Ajustes del editor MicroPython"></dialog>
+    <dialog id="dlg-layout-settings" aria-label="Distribución de ventanas"></dialog>
+    <dialog id="dlg-ajustes" aria-label="Configuración"></dialog>
 
     <dialog id="dlg-acerca">
       <form method="dialog">
@@ -402,6 +400,7 @@
       </form>
     </dialog>
 
+    <div id="tool-windows" hidden></div>
     <script type="module" src="/dist/app.js"></script>
   </body>
 </html>

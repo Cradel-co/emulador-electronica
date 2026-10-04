@@ -9,6 +9,8 @@ import type { ControladorCamara } from '../camera.js';
  * creado; `Lienzo.tsx` toma el contexto, crea el lienzo contra su propio `<svg>` y lo entrega.
  */
 
+import type { DockLayout } from '../docking-layout.js';
+import type { EntryKind } from '../file-tree.js';
 type Ctx = Record<string, unknown>;
 type Lienzo = Record<string, unknown>;
 
@@ -39,8 +41,20 @@ export interface Acciones {
   reemplazarQuemado: (id: string) => void;
   moverEntorno: (id: string, valores: Record<string, number>) => void;
   abrirArchivo: (ruta: string) => void;
+  abrirArchivoDePlaca: (boardId: string, path: string) => Promise<void>;
+  cargarExplorador: () => Promise<void>;
   irALinea: (archivo: string | null, linea: number) => void;
   agregarPlaca: () => void;
+  nuevoArchivo: (parent?: string, boardId?: string) => void;
+  nuevaCarpeta: (parent?: string, boardId?: string) => void;
+  actualizarExplorador: () => Promise<void>;
+  crearEntrada: (name: string, kind: EntryKind) => Promise<void>;
+  importarModulos: () => void;
+  mostrarHerramienta: (id: 'explorador' | 'componentes', visible?: boolean) => void;
+  aplicarDistribucion: (layout: DockLayout) => void;
+  guardarDistribucionPredeterminada: () => void;
+  restaurarDistribucionProyecto: () => void;
+  restaurarDistribucionOriginal: () => void;
 }
 
 /**

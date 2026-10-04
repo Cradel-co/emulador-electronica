@@ -264,3 +264,108 @@ describe('GET /api/emulator expone el estado en vivo', () => {
     expect(Array.isArray(body.cerrados)).toBe(true);
   });
 });
+
+describe('contexto de archivos multiplaca', () => {
+  it('expone el árbol completo con nombres y carpetas aisladas sin cambiar los archivos seleccionados', async () => {
+    const name = 'explorador-proyecto-completo';
+    await pedir('/api/projects', { method: 'POST', body: { name, language: 'micropython' } });
+    const added = await pedir(`/api/projects/${name}/board`, { method: 'POST', body: { board: 'esp32-c3-devkitm-1', language: 'micropython' } });
+    const secondary = added.body.project.boards[1].id as string;
+    await pedir(`/api/projects/${name}/directories`, { method: 'POST', body: { path: 'primaria/vacia' } });
+    await pedir(`/api/projects/${name}/directories?boardId=${secondary}`, { method: 'POST', body: { path: 'secundaria/vacia' } });
+    await pedir(`/api/projects/${name}/files/primaria/modulo.py`, { method: 'POST', body: { content: 'value = 1\n' } });
+    await pedir(`/api/projects/${name}/files/secundaria/modulo.py?boardId=${secondary}`, { method: 'POST', body: { content: 'value = 2\n' } });
+
+    const { status, body } = await pedir(`/api/projects/${name}/explorer`);
+    expect(status).toBe(200);
+    expect(body.boards.map((board: { id: string }) => board.id)).toEqual(['board', secondary]);
+    expect(body.boards[0]).toMatchObject({ id: 'board', name: 'ESP32-S3 DevKitC-1', directories: ['primaria', 'primaria/vacia'] });
+    expect(body.boards[1]).toMatchObject({ id: secondary, name: 'ESP32-C3 DevKitM-1', directories: ['secundaria', 'secundaria/vacia'] });
+    expect(body.boards[0].files.map((file: { path: string }) => file.path)).toEqual(['main.py', 'primaria/modulo.py']);
+    expect(body.boards[1].files.map((file: { path: string }) => file.path)).toEqual(['main.py', 'secundaria/modulo.py']);
+    expect(body.boards[1].files.find((file: { path: string }) => file.path === 'secundaria/modulo.py')).toMatchObject({ size: 10, modified: expect.any(Number) });
+    expect((await pedir(`/api/projects/${name}/files/primaria/modulo.py`)).body.content).toBe('value = 1\n');
+    expect((await pedir(`/api/projects/${name}/files/secundaria/modulo.py?boardId=${secondary}`)).body.content).toBe('value = 2\n');
+    expect((await pedir('/api/projects/no-existe-explorer/explorer')).status).toBe(404);
+  });
+
+  it('aísla las rutas y conserva la instancia sobreviviente al quitar la primaria', async () => {
+    const name = 'archivos-multiplaca';
+    await pedir('/api/projects', { method: 'POST', body: { name, language: 'micropython' } });
+    const added = await pedir(`/api/projects/${name}/board`, { method: 'POST', body: { board: 'esp32-c3-devkitm-1', language: 'micropython' } });
+    const secondId = added.body.project.boards[1].id;
+    await pedir(`/api/projects/${name}/files/main.py`, { method: 'PUT', body: { content: 'primary\n' } });
+    await pedir(`/api/projects/${name}/files/main.py?boardId=${secondId}`, { method: 'PUT', body: { content: 'secondary\n' } });
+    expect((await pedir(`/api/projects/${name}?boardId=${secondId}`)).body.files.map((f: any) => f.path)).toEqual(['main.py']);
+    expect((await pedir(`/api/projects/${name}/files/main.py?boardId=missing`)).status).toBe(404);
+    expect((await pedir(`/api/projects/${name}/files/boards/${secondId}/main.py`)).status).toBe(403);
+    for (const modules of [null, 'wrong', [null]]) expect((await pedir(`/api/projects/${name}/diagram`, { method: 'PUT', body: { modules } })).status).toBe(400);
+    expect((await pedir(`/api/projects/${name}`, { method: 'PUT', body: { boards: [], board: added.body.project.board } })).status).toBe(400);
+    await pedir(`/api/projects/${name}/board?boardId=board`, { method: 'DELETE' });
+    const surviving = await pedir(`/api/projects/${name}`);
+    expect(surviving.body.project.boards.map((b: any) => b.id)).toEqual([secondId]);
+    expect(surviving.body.project.modules.some((m: any) => m.id === 'board')).toBe(false);
+    expect((await pedir(`/api/projects/${name}/files/main.py`)).body.content).toBe('secondary\n');
+  });
+});
+
+describe('creación de archivos y carpetas del explorador', () => {
+  it('lista carpetas vacías, crea archivos una sola vez y conserva PUT para guardar', async () => {
+    const name = 'explorador-crear';
+    expect((await pedir('/api/projects', { method: 'POST', body: { name, language: 'micropython' } })).status).toBe(201);
+    const folder = await pedir(`/api/projects/${name}/directories`, { method: 'POST', body: { path: 'sensores/vacios' } });
+    expect(folder).toMatchObject({ status: 201, body: { ok: true, path: 'sensores/vacios' } });
+    expect((await pedir(`/api/projects/${name}`)).body.directories).toEqual(['sensores', 'sensores/vacios']);
+    expect((await pedir(`/api/projects/${name}/directories`, { method: 'POST', body: { path: 'sensores/vacios' } })).status).toBe(409);
+    const file = `/api/projects/${name}/files/sensores/temperatura.py`;
+    expect(await pedir(file, { method: 'POST', body: { content: 'value = 1\n' } })).toMatchObject({ status: 201, body: { path: 'sensores/temperatura.py' } });
+    expect((await pedir(file, { method: 'POST', body: { content: 'replacement' } })).status).toBe(409);
+    expect((await pedir(file)).body.content).toBe('value = 1\n');
+    expect((await pedir(file, { method: 'PUT', body: { content: 'value = 2\n' } })).status).toBe(200);
+    expect((await pedir(file)).body.content).toBe('value = 2\n');
+    const detail = await pedir(`/api/projects/${name}`);
+    expect(detail.body.files.map((item: { path: string }) => item.path)).toContain('sensores/temperatura.py');
+    expect(detail.body.directories).toEqual(['sensores', 'sensores/vacios']);
+  });
+
+  it('aplica boardId a creación y listado sin mezclar carpetas ni archivos de las placas', async () => {
+    const name = 'explorador-placas';
+    await pedir('/api/projects', { method: 'POST', body: { name, language: 'micropython' } });
+    const added = await pedir(`/api/projects/${name}/board`, { method: 'POST', body: { board: 'esp32-c3-devkitm-1', language: 'micropython' } });
+    const secondary = added.body.project.boards[1].id as string;
+    expect(secondary).toBeTypeOf('string');
+    for (const board of ['', `?boardId=${secondary}`]) {
+      expect((await pedir(`/api/projects/${name}/directories${board}`, { method: 'POST', body: { path: 'sensores' } })).status).toBe(201);
+      expect((await pedir(`/api/projects/${name}/files/sensores/temperatura.py${board}`, { method: 'POST', body: { content: board ? 'second' : 'first' } })).status).toBe(201);
+    }
+    expect((await pedir(`/api/projects/${name}/directories?boardId=${secondary}`, { method: 'POST', body: { path: 'solo-segunda' } })).status).toBe(201);
+    const first = await pedir(`/api/projects/${name}`);
+    const second = await pedir(`/api/projects/${name}?boardId=${secondary}`);
+    expect(first.body.directories).toEqual(['sensores']);
+    expect(second.body.directories).toEqual(['sensores', 'solo-segunda']);
+    expect((await pedir(`/api/projects/${name}/files/sensores/temperatura.py`)).body.content).toBe('first');
+    expect((await pedir(`/api/projects/${name}/files/sensores/temperatura.py?boardId=${secondary}`)).body.content).toBe('second');
+    expect(first.body.files.some((item: { path: string }) => item.path.startsWith('boards/'))).toBe(false);
+    expect(second.body.files.some((item: { path: string }) => item.path.includes('__init__.py'))).toBe(false);
+  });
+
+  it('rechaza placas inexistentes, rutas privadas, traversal y cuerpos inválidos', async () => {
+    const name = 'explorador-seguro';
+    await pedir('/api/projects', { method: 'POST', body: { name, language: 'micropython' } });
+    expect((await pedir(`/api/projects/${name}/directories?boardId=missing`, { method: 'POST', body: { path: 'folder' } })).status).toBe(404);
+    expect((await pedir(`/api/projects/${name}/files/extra.py?boardId=missing`, { method: 'POST', body: { content: '' } })).status).toBe(404);
+    for (const forbidden of ['boards/board2', '.privado/hijo', 'safe/.hidden/child']) {
+      expect((await pedir(`/api/projects/${name}/directories`, { method: 'POST', body: { path: forbidden } })).status).toBe(403);
+    }
+    for (const invalid of ['../outside', '/outside', 'safe//child', './folder', null, 12]) {
+      expect((await pedir(`/api/projects/${name}/directories`, { method: 'POST', body: { path: invalid } })).status).toBe(400);
+    }
+    expect((await pedir(`/api/projects/${name}/files/project.json`, { method: 'POST', body: { content: '{}' } })).status).toBe(403);
+    expect((await pedir(`/api/projects/${name}/files/boards/board2/code.py`, { method: 'POST', body: { content: '' } })).status).toBe(403);
+    expect((await pedir(`/api/projects/${name}/files/extra.py`, { method: 'POST', body: { content: {} } })).status).toBe(400);
+    expect((await pedir(`/api/projects/${name}`)).body.directories).toEqual([]);
+    expect(existsSync(path.join(proyectos, name, 'boards', 'missing'))).toBe(false);
+    expect(existsSync(path.join(proyectos, name, '.privado'))).toBe(false);
+    expect((await pedir(`/api/projects/${name}`)).body.project.name).toBe(name);
+  });
+});

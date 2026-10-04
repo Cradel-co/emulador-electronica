@@ -112,11 +112,18 @@ test.describe('código por módulo', () => {
     await expect(panel.locator('input[data-prop="codeA"]')).toHaveValue(/^[01]{24}$/);
   });
 
-  test('no se puede agregar un segundo ESP32', async ({ page, request }) => {
-    await abrirProyectoNuevo(page, request);
+  test('agrega un segundo ESP32 con su lenguaje sin modificar el código de la primera placa', async ({ page, request }) => {
+    const name = await abrirProyectoNuevo(page, request);
+    const original = (await (await request.get(`/api/projects/${name}/files/main.yaml`)).json()).content;
     await page.locator('.modulo-card[data-type="esp32-s3-devkitc-1"]').click();
-    await expect(page.locator('#nota')).toContainText('un solo microcontrolador');
-    await expect(page.locator('#lienzo .modulo.programable')).toHaveCount(1);
+    await expect(page.locator('#dlg-placa')).toBeVisible();
+    await page.locator('#placa-lenguaje').selectOption('micropython');
+    await page.locator('#dlg-placa button[value="agregar"]').click();
+    await expect(page.locator('#lienzo .modulo.programable')).toHaveCount(2);
+    const { project } = await (await request.get(`/api/projects/${name}`)).json();
+    expect(project.boards.map((b: { language: string }) => b.language)).toEqual(['esphome', 'micropython']);
+    expect((await (await request.get(`/api/projects/${name}/files/main.yaml`)).json()).content).toBe(original);
+    expect((await request.get(`/api/projects/${name}/files/main.py?boardId=board2`)).ok()).toBeTruthy();
   });
 });
 
@@ -335,11 +342,21 @@ test.describe('propiedades y controles', () => {
 test.describe('paneles', () => {
   test('el separador redimensiona el catálogo', async ({ page, request }) => {
     await abrirProyectoNuevo(page, request);
-    const antes = (await page.locator('.paleta').boundingBox())!.width;
-    const sep = (await page.locator('[data-resize="izq"]').boundingBox())!;
-    await page.mouse.move(sep.x + 3, sep.y + 200);
+    const palette = (await page.locator('.paleta').boundingBox())!;
+    const antes = palette.width;
+    const separators = page.getByRole('separator', { name: 'Redimensionar ventanas', exact: true });
+    const candidates = await separators.evaluateAll(elements => elements.map(element => {
+      const rect = element.getBoundingClientRect();
+      return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+    }));
+    const centerY = palette.y + palette.height / 2;
+    const sep = candidates.find(rect => Math.abs(rect.x + rect.width / 2 - (palette.x + palette.width)) < 12
+      && rect.y < centerY && rect.y + rect.height > centerY);
+    expect(sep, 'el catálogo debe tener un separador en su borde derecho').toBeTruthy();
+    const x = sep!.x + sep!.width / 2;
+    await page.mouse.move(x, centerY);
     await page.mouse.down();
-    await page.mouse.move(sep.x + 83, sep.y + 200, { steps: 4 });
+    await page.mouse.move(x + 80, centerY, { steps: 4 });
     await page.mouse.up();
     expect((await page.locator('.paleta').boundingBox())!.width).toBeGreaterThan(antes + 60);
   });

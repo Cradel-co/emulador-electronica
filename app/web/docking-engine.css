@@ -1,0 +1,15 @@
+/* El tema propio envuelve la biblioteca: su DOM y sus variables quedan dentro del adaptador. */
+.dockview-adapter { --dv-background-color: var(--fondo); --dv-group-view-background-color: var(--isla); --dv-activegroup-visiblepanel-tab-background-color: var(--isla2); --dv-inactivegroup-visiblepanel-tab-background-color: var(--isla2); --dv-activegroup-hiddenpanel-tab-background-color: var(--isla); --dv-inactivegroup-hiddenpanel-tab-background-color: var(--isla); --dv-tabs-and-actions-container-background-color: var(--isla); --dv-tab-divider-color: transparent; --dv-activegroup-visiblepanel-tab-color: var(--texto); --dv-inactivegroup-visiblepanel-tab-color: var(--texto); --dv-activegroup-hiddenpanel-tab-color: var(--tenue); --dv-inactivegroup-hiddenpanel-tab-color: var(--tenue); --dv-separator-border: var(--borde); --dv-sash-color: var(--link); --dv-tabs-and-actions-container-height: 30px; }
+.dock-original-content { width: 100%; height: 100%; min-width: 0; min-height: 0; display: flex; }
+.dock-original-content > .panel, .dock-original-content > .consola-panel { width: 100%; height: 100%; flex: 1; min-width: 0; min-height: 0; }
+.dock-original-content [data-window-drag] { display: none; }
+.dock-window-tab { display: flex; align-items: center; gap: 5px; font-size: 12px; height: 100%; }
+.dockview-adapter .dv-tab:has(.dock-window-tab[hidden]) { display: none !important; }
+.dock-tab-close { padding: 0 4px; background: transparent; border: 0; font-size: 17px; color: var(--tenue); }
+.dock-tab-close:hover { color: var(--texto); background: var(--isla2); }
+.dockview-adapter .dv-tab[aria-selected="true"] { box-shadow: inset 0 -2px var(--link); }
+.dock-original-content .tw-ocultar { display: none; }
+/* Los overlays permanentes no reenvían DnD de puntero en Dockview 8.4;
+   durante el gesto se exponen los destinos nativos situados debajo. */
+.dockview-adapter[data-dock-dragging] .dv-render-overlay,
+.dockview-adapter[data-dock-dragging] .dv-render-overlay * { pointer-events: none !important; }
