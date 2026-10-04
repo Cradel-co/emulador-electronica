@@ -1,17 +1,173 @@
-/** Datos de muestra para diseñar la navegación; las lecciones se incorporarán en MDX. */
+/**
+ * Programa editorial: títulos y descripciones, sin lecciones desarrolladas ni promesas
+ * sobre los fenómenos que puede simular el emulador. El orden de los temas va de
+ * historia y fundamentos a dispositivos, sistemas y validación experimental.
+ * Referencias para el alcance, sin reproducir sus contenidos:
+ * https://www.rigb.org/explore-science/explore/collection/history-research-ri
+ * https://www.computerhistory.org/siliconengine/timeline/
+ * https://openstax.org/books/university-physics-volume-2/pages/16-1-maxwells-equations-and-electromagnetic-waves
+ * https://ocw.mit.edu/courses/6-002-circuits-and-electronics-spring-2007/pages/syllabus/
+ * https://ocw.mit.edu/courses/6-012-microelectronic-devices-and-circuits-spring-2009/
+ * Ver también docs/PLAN-FIDELIDAD-FISICA.md para los límites actuales del motor.
+ */
 export const temasAprendizaje = [
-  { id: 'fundamentos', titulo: 'Fundamentos de electrónica', detalle: 'Voltaje, corriente y componentes', icono: 'circuito' },
-  { id: 'circuitos', titulo: 'Circuitos y conexiones', detalle: 'Del esquema a la simulación', icono: 'circuito' },
-  { id: 'arduino', titulo: 'Arduino', detalle: 'Programación y entradas digitales', icono: 'placa' },
-  { id: 'esp32', titulo: 'ESP32', detalle: 'Microcontroladores y conectividad', icono: 'placa' },
-  { id: 'micropython', titulo: 'MicroPython', detalle: 'Código para tus placas', icono: 'codigo' },
-  { id: 'sensores', titulo: 'Sensores y actuadores', detalle: 'Medir e interactuar con el entorno', icono: 'circuito' },
-  { id: 'comunicacion', titulo: 'Protocolos de comunicación', detalle: 'I²C, SPI y UART', icono: 'codigo' },
-  { id: 'depuracion', titulo: 'Simulación y depuración', detalle: 'Observar, probar y resolver', icono: 'placa' },
+  { id: 'historia', titulo: 'Historia de la electrónica', detalle: 'De la electricidad estática a las válvulas, el transistor y los sistemas integrados.', icono: 'placa' },
+  { id: 'matematicas', titulo: 'Matemáticas para la electrónica', detalle: 'Unidades, ecuaciones, funciones y herramientas para describir los circuitos.', icono: 'codigo' },
+  { id: 'fundamentos', titulo: 'Fundamentos de electrónica', detalle: 'Carga, tensión, corriente, energía y leyes básicas para empezar a experimentar.', icono: 'circuito' },
+  { id: 'campos-electricos', titulo: 'Cargas y campos eléctricos', detalle: 'Coulomb, Gauss, potencial eléctrico, materiales y almacenamiento de carga.', icono: 'circuito' },
+  { id: 'electromagnetismo', titulo: 'Magnetismo y electromagnetismo', detalle: 'Campos magnéticos, inducción, fuerzas y ecuaciones de Maxwell.', icono: 'circuito' },
+  { id: 'circuitos', titulo: 'Análisis de circuitos', detalle: 'Kirchhoff, redes, equivalentes y conservación de carga y energía.', icono: 'circuito' },
+  { id: 'componentes', titulo: 'Componentes y transitorios', detalle: 'Resistencias, capacitores, inductores y evolución de los circuitos en el tiempo.', icono: 'circuito' },
+  { id: 'corriente-alterna', titulo: 'Corriente alterna y frecuencia', detalle: 'Fasores, impedancia, resonancia, filtros y transferencia de potencia.', icono: 'circuito' },
+  { id: 'semiconductores', titulo: 'Física de semiconductores', detalle: 'Bandas de energía, portadores, uniones y dispositivos que hacen posible la electrónica.', icono: 'placa' },
+  { id: 'transistores', titulo: 'Transistores y conmutación', detalle: 'BJT, MOSFET y modelos para amplificar señales y controlar cargas.', icono: 'placa' },
+  { id: 'analogica', titulo: 'Electrónica analógica', detalle: 'Amplificadores, realimentación, osciladores y acondicionamiento de señales.', icono: 'circuito' },
+  { id: 'digital', titulo: 'Electrónica digital', detalle: 'Lógica, memoria, máquinas de estados y el comportamiento eléctrico de los bits.', icono: 'codigo' },
+  { id: 'senales', titulo: 'Señales, ruido y conversión', detalle: 'Muestreo, ADC, DAC, espectros e información en señales reales.', icono: 'circuito' },
+  { id: 'potencia', titulo: 'Alimentación y electrónica de potencia', detalle: 'Fuentes, baterías, convertidores, protecciones y gestión de energía.', icono: 'circuito' },
+  { id: 'termica', titulo: 'Calor y confiabilidad', detalle: 'Disipación, temperatura, tolerancias y mecanismos físicos de degradación.', icono: 'circuito' },
+  { id: 'sensores', titulo: 'Sensores y actuadores', detalle: 'Transformar fenómenos físicos en medidas y señales eléctricas en acciones.', icono: 'circuito' },
+  { id: 'control', titulo: 'Control y automatización', detalle: 'Modelos dinámicos, realimentación y regulación de sistemas físicos.', icono: 'codigo' },
+  { id: 'comunicacion', titulo: 'Comunicación y radiofrecuencia', detalle: 'Buses digitales, transmisión, antenas y propagación de señales.', icono: 'codigo' },
+  { id: 'arduino', titulo: 'Arduino', detalle: 'Arquitectura AVR, entradas y salidas, temporización y programación de placas.', icono: 'placa' },
+  { id: 'esp32', titulo: 'ESP32', detalle: 'Microcontroladores, periféricos y aplicaciones conectadas con límites eléctricos reales.', icono: 'placa' },
+  { id: 'micropython', titulo: 'MicroPython y firmware', detalle: 'Programación de dispositivos, control de periféricos y organización del software embebido.', icono: 'codigo' },
+  { id: 'depuracion', titulo: 'Medición, simulación y depuración', detalle: 'Instrumentos, modelos, incertidumbre y contraste entre cálculos y hardware.', icono: 'placa' },
+  { id: 'construccion', titulo: 'Diseño y construcción electrónica', detalle: 'Esquemáticos, hojas de datos, placas de circuito impreso y puesta en marcha.', icono: 'placa' },
+  { id: 'fronteras', titulo: 'Microelectrónica y nuevas tecnologías', detalle: 'Fabricación de chips, nuevos materiales y límites físicos de la integración.', icono: 'placa' },
 ] as const;
 
-export const rutasAprendizaje = [
-  { id: 'primer-circuito', titulo: 'Tu primer circuito', detalle: 'De los componentes a un circuito que funciona.', tema: 'fundamentos', nivel: 'Inicial', icono: 'circuito' },
-  { id: 'programar-placas', titulo: 'Programá tu primera placa', detalle: 'Conectá el código con el mundo de la electrónica.', tema: 'micropython', nivel: 'Inicial', icono: 'codigo' },
-  { id: 'sensores-en-accion', titulo: 'Sensores en acción', detalle: 'Explorá entradas, mediciones y respuestas.', tema: 'sensores', nivel: 'Intermedio', icono: 'placa' },
-] as const;
+type TemaId = (typeof temasAprendizaje)[number]['id'];
+export interface RutaAprendizaje {
+  id: string;
+  titulo: string;
+  detalle: string;
+  tema: TemaId;
+  nivel: 'Inicial' | 'Intermedio' | 'Avanzado';
+  icono: 'circuito' | 'placa' | 'codigo';
+}
+
+/** Los tres primeros recorridos son accesos iniciales; el resto se explora por tema. */
+export const rutasAprendizaje: readonly RutaAprendizaje[] = [
+  { id: 'primer-circuito', titulo: 'Tu primer circuito', detalle: 'Reconocer fuente, carga y retorno; conectar una resistencia y un LED y anticipar qué magnitudes observar.', tema: 'fundamentos', nivel: 'Inicial', icono: 'circuito' },
+  { id: 'programar-placas', titulo: 'Programá tu primera placa', detalle: 'Pasar de un programa sencillo al control de una salida y la lectura de una entrada, respetando los límites de los pines.', tema: 'micropython', nivel: 'Inicial', icono: 'codigo' },
+  { id: 'sensores-en-accion', titulo: 'Sensores en acción', detalle: 'Relacionar una magnitud física con una señal eléctrica y diseñar el recorrido desde la lectura hasta una respuesta.', tema: 'sensores', nivel: 'Intermedio', icono: 'placa' },
+
+  // Historia: descubrimientos, herramientas y cambios de escala.
+  { id: 'historia-electricidad-estatica', titulo: 'De la atracción del ámbar al estudio de la carga', detalle: 'Recorrer las observaciones de electricidad estática, los trabajos de Gilbert, las máquinas electrostáticas y la botella de Leyden.', tema: 'historia', nivel: 'Inicial', icono: 'circuito' },
+  { id: 'historia-pilas-corriente', titulo: 'Galvani, Volta y el nacimiento de la corriente continua', detalle: 'Explorar cómo los experimentos con electricidad animal y las primeras pilas permitieron estudiar corrientes sostenidas y electroquímica.', tema: 'historia', nivel: 'Inicial', icono: 'circuito' },
+  { id: 'historia-electromagnetismo', titulo: 'De Ørsted y Ampère a Faraday y Maxwell', detalle: 'Conectar el descubrimiento de los efectos magnéticos de la corriente, la inducción y la unificación de electricidad, magnetismo y luz.', tema: 'historia', nivel: 'Inicial', icono: 'circuito' },
+  { id: 'historia-comunicaciones', titulo: 'Telégrafo, teléfono y radio: electricidad que comunica', detalle: 'Seguir la evolución de señales por cable, transmisión de voz y ondas de radio, junto con los problemas que impulsaron nuevos circuitos.', tema: 'historia', nivel: 'Inicial', icono: 'codigo' },
+  { id: 'historia-electron-valvulas', titulo: 'El electrón y la era de las válvulas', detalle: 'Relacionar los rayos catódicos y el estudio del electrón con diodos y triodos de vacío, amplificación, radio y primeras computadoras electrónicas.', tema: 'historia', nivel: 'Inicial', icono: 'placa' },
+  { id: 'historia-transistor', titulo: 'El transistor y el cambio al estado sólido', detalle: 'Recorrer los rectificadores de cristal, la unión p-n y el transistor de 1947, hasta los dispositivos de unión y de efecto de campo.', tema: 'historia', nivel: 'Inicial', icono: 'placa' },
+  { id: 'historia-integracion', titulo: 'Del circuito integrado al microprocesador', detalle: 'Explorar los aportes de Kilby y Noyce, el proceso planar, CMOS y la integración de cálculo y memoria; distinguir la observación de Moore de una ley física.', tema: 'historia', nivel: 'Inicial', icono: 'placa' },
+  { id: 'historia-sistemas-conectados', titulo: 'De la computadora personal a los sistemas conectados', detalle: 'Seguir la expansión de microcontroladores, procesamiento digital, dispositivos móviles y sistemas embebidos hacia objetos que miden, deciden y se comunican.', tema: 'historia', nivel: 'Inicial', icono: 'codigo' },
+
+  // Herramientas matemáticas y magnitudes físicas.
+  { id: 'unidades-y-escalas', titulo: 'Unidades, prefijos y órdenes de magnitud', detalle: 'Interpretar el Sistema Internacional, convertir escalas y comprobar dimensiones para evitar confusiones entre carga, corriente, energía y potencia.', tema: 'matematicas', nivel: 'Inicial', icono: 'codigo' },
+  { id: 'algebra-para-circuitos', titulo: 'Álgebra, gráficas y sistemas de ecuaciones', detalle: 'Despejar relaciones eléctricas, leer curvas características y resolver sistemas lineales para interpretar nodos, mallas y puntos de operación.', tema: 'matematicas', nivel: 'Inicial', icono: 'codigo' },
+  { id: 'calculo-y-dinamica', titulo: 'Derivadas, integrales y ecuaciones diferenciales', detalle: 'Describir cambios y acumulaciones de carga y energía, y conectar condiciones iniciales con la evolución temporal de un circuito.', tema: 'matematicas', nivel: 'Intermedio', icono: 'codigo' },
+  { id: 'complejos-fourier-laplace', titulo: 'Números complejos, Fourier y Laplace', detalle: 'Representar amplitud y fase, descomponer señales en frecuencias y estudiar respuestas temporales, polos y ceros.', tema: 'matematicas', nivel: 'Avanzado', icono: 'codigo' },
+  { id: 'carga-corriente-tension', titulo: 'Carga, corriente y diferencia de potencial', detalle: 'Distinguir movimiento de carga, corriente convencional y tensión entre puntos, incluyendo polaridad y referencias de medida.', tema: 'fundamentos', nivel: 'Inicial', icono: 'circuito' },
+  { id: 'ley-ohm', titulo: 'Ley de Ohm y sus condiciones de uso', detalle: 'Relacionar tensión, corriente y resistencia en elementos óhmicos y reconocer cuándo temperatura o comportamiento no lineal impiden usar un valor constante.', tema: 'fundamentos', nivel: 'Inicial', icono: 'circuito' },
+  { id: 'energia-potencia-joule', titulo: 'Energía, potencia y efecto Joule', detalle: 'Relacionar trabajo eléctrico y disipación resistiva, distinguir potencia instantánea de energía acumulada y seguir el balance entre fuentes y cargas.', tema: 'fundamentos', nivel: 'Inicial', icono: 'circuito' },
+  { id: 'fuentes-referencias-masa', titulo: 'Fuentes, masa y circuitos abiertos o cerrados', detalle: 'Distinguir fuentes ideales y reales, referencias locales, cortocircuitos y nodos flotantes sin confundir masa con tierra de protección.', tema: 'fundamentos', nivel: 'Inicial', icono: 'circuito' },
+
+  // Campos: fundamentos de las aproximaciones usadas por los circuitos.
+  { id: 'coulomb-campo-electrico', titulo: 'Ley de Coulomb y campo eléctrico', detalle: 'Estudiar fuerza entre cargas y superposición de campos para comprender interacciones eléctricas más allá de un esquema de conexiones.', tema: 'campos-electricos', nivel: 'Intermedio', icono: 'circuito' },
+  { id: 'gauss-potencial', titulo: 'Ley de Gauss, flujo y potencial', detalle: 'Relacionar carga y flujo eléctrico, aprovechar simetrías y conectar campo, trabajo y diferencia de potencial.', tema: 'campos-electricos', nivel: 'Intermedio', icono: 'circuito' },
+  { id: 'materiales-dielectricos', titulo: 'Conductores, aislantes y polarización', detalle: 'Explorar distribución de carga, permitividad, dieléctricos y ruptura eléctrica para interpretar capacitores y aislamiento.', tema: 'campos-electricos', nivel: 'Intermedio', icono: 'circuito' },
+  { id: 'biot-savart-ampere', titulo: 'Biot–Savart y la ley de Ampère', detalle: 'Relacionar corrientes con campos magnéticos en conductores y bobinas, identificando las condiciones de las aproximaciones magnetostáticas.', tema: 'electromagnetismo', nivel: 'Intermedio', icono: 'circuito' },
+  { id: 'lorentz-motores', titulo: 'Fuerza de Lorentz y conversión electromecánica', detalle: 'Conectar el movimiento de cargas y conductores en campos magnéticos con motores, actuadores y conversión entre energía eléctrica y mecánica.', tema: 'electromagnetismo', nivel: 'Intermedio', icono: 'circuito' },
+  { id: 'faraday-lenz', titulo: 'Faraday y Lenz: inducción y sentido de la respuesta', detalle: 'Estudiar cómo un flujo magnético variable induce una fuerza electromotriz y cómo su sentido respeta la conservación de energía.', tema: 'electromagnetismo', nivel: 'Intermedio', icono: 'circuito' },
+  { id: 'maxwell-ondas', titulo: 'Ecuaciones de Maxwell y ondas electromagnéticas', detalle: 'Unificar campos, fuentes y corriente de desplazamiento para explicar propagación y los límites del modelo de componentes concentrados.', tema: 'electromagnetismo', nivel: 'Avanzado', icono: 'circuito' },
+  { id: 'magnetismo-materiales', titulo: 'Materiales magnéticos, saturación e histéresis', detalle: 'Interpretar permeabilidad, ciclos magnéticos y pérdidas en núcleos de bobinas y transformadores.', tema: 'electromagnetismo', nivel: 'Avanzado', icono: 'circuito' },
+
+  // Redes, almacenamiento, transitorios y frecuencia.
+  { id: 'kirchhoff-nodos-mallas', titulo: 'Leyes de Kirchhoff: nodos y mallas', detalle: 'Aplicar conservación de carga y relaciones de tensión a redes concentradas, con signos coherentes y límites cuando existe flujo magnético variable.', tema: 'circuitos', nivel: 'Inicial', icono: 'circuito' },
+  { id: 'serie-paralelo-divisores', titulo: 'Serie, paralelo y divisores con carga', detalle: 'Simplificar redes resistivas y estudiar por qué conectar una carga modifica el resultado de un divisor de tensión.', tema: 'circuitos', nivel: 'Inicial', icono: 'circuito' },
+  { id: 'thevenin-norton-superposicion', titulo: 'Thévenin, Norton y superposición', detalle: 'Reemplazar redes lineales por equivalentes, separar contribuciones de fuentes y reconocer las condiciones de cada teorema.', tema: 'circuitos', nivel: 'Intermedio', icono: 'circuito' },
+  { id: 'analisis-nodal-puentes', titulo: 'Análisis nodal, fuentes dependientes y puentes', detalle: 'Resolver redes con varias fuentes, estudiar puentes de Wheatstone y verificar residuos de corriente y balance de potencia.', tema: 'circuitos', nivel: 'Intermedio', icono: 'circuito' },
+  { id: 'resistencias-reales', titulo: 'Resistencias reales y redes de resistencias', detalle: 'Interpretar valores, tolerancias, coeficientes de temperatura y potencia nominal, incluyendo potenciómetros y efectos parásitos.', tema: 'componentes', nivel: 'Inicial', icono: 'circuito' },
+  { id: 'capacitores-carga-energia', titulo: 'Capacitores: carga, energía y corriente', detalle: 'Relacionar capacitancia, tensión y corriente; distinguir almacenamiento ideal de fugas, resistencia serie y comportamiento dieléctrico.', tema: 'componentes', nivel: 'Intermedio', icono: 'circuito' },
+  { id: 'inductores-transformadores', titulo: 'Inductores, acoplamiento y transformadores', detalle: 'Explorar energía magnética, oposición a cambios de corriente e inductancia mutua, incluyendo pérdidas y límites del núcleo.', tema: 'componentes', nivel: 'Intermedio', icono: 'circuito' },
+  { id: 'transitorios-rc-rl', titulo: 'Transitorios RC y RL', detalle: 'Estudiar carga y descarga, constantes de tiempo y continuidad de tensión o corriente ante cambios de excitación.', tema: 'componentes', nivel: 'Intermedio', icono: 'circuito' },
+  { id: 'transitorios-rlc', titulo: 'Circuitos RLC, amortiguamiento y condiciones iniciales', detalle: 'Comparar respuestas sobreamortiguadas, críticas y oscilatorias, siguiendo el intercambio de energía entre campo eléctrico y magnético.', tema: 'componentes', nivel: 'Avanzado', icono: 'circuito' },
+  { id: 'alternas-fasores-impedancia', titulo: 'Señales alternas, fasores e impedancia', detalle: 'Representar ondas sinusoidales, desfase, reactancia y valores eficaces para analizar el régimen permanente de redes lineales.', tema: 'corriente-alterna', nivel: 'Intermedio', icono: 'circuito' },
+  { id: 'potencia-alterna', titulo: 'Potencia activa, reactiva y aparente', detalle: 'Distinguir energía consumida e intercambiada, factor de potencia y adaptación de carga en corriente alterna.', tema: 'corriente-alterna', nivel: 'Intermedio', icono: 'circuito' },
+  { id: 'filtros-respuesta-frecuencia', titulo: 'Filtros y respuesta en frecuencia', detalle: 'Interpretar ganancia, fase, frecuencia de corte y diagramas de Bode en filtros pasivos y redes de primer y segundo orden.', tema: 'corriente-alterna', nivel: 'Intermedio', icono: 'circuito' },
+  { id: 'resonancia-selectividad', titulo: 'Resonancia, selectividad y factor de calidad', detalle: 'Estudiar circuitos sintonizados, ancho de banda y pérdidas para relacionar resonancia ideal con componentes reales.', tema: 'corriente-alterna', nivel: 'Avanzado', icono: 'circuito' },
+
+  // Del material a los dispositivos y sus modelos.
+  { id: 'cuantica-bandas', titulo: 'Del átomo a las bandas de energía', detalle: 'Introducir cuantización, principio de exclusión y ocupación de estados para distinguir metales, aislantes y semiconductores.', tema: 'semiconductores', nivel: 'Avanzado', icono: 'placa' },
+  { id: 'portadores-dopaje', titulo: 'Electrones, huecos, dopaje y transporte', detalle: 'Relacionar movilidad, deriva, difusión, generación y recombinación con temperatura y conducción en un semiconductor.', tema: 'semiconductores', nivel: 'Avanzado', icono: 'placa' },
+  { id: 'union-pn-shockley', titulo: 'Unión p-n y ecuación de Shockley', detalle: 'Interpretar región de agotamiento, polarización y curva corriente–tensión, reconociendo las aproximaciones del modelo ideal de diodo.', tema: 'semiconductores', nivel: 'Intermedio', icono: 'placa' },
+  { id: 'diodos-rectificacion-ruptura', titulo: 'Diodos, rectificación y ruptura inversa', detalle: 'Comparar diodos de señal, Schottky y Zener; explorar avalancha, recuperación inversa y aplicaciones de rectificación y protección.', tema: 'semiconductores', nivel: 'Intermedio', icono: 'circuito' },
+  { id: 'luz-semiconductores', titulo: 'LED, fotodiodos y conversión fotovoltaica', detalle: 'Relacionar fotones y portadores con emisión y detección de luz, efecto fotoeléctrico y generación de energía en células solares.', tema: 'semiconductores', nivel: 'Intermedio', icono: 'placa' },
+  { id: 'bjt-polarizacion', titulo: 'Transistor bipolar: regiones y polarización', detalle: 'Interpretar corte, región activa y saturación de un BJT, y elegir un punto de operación considerando variación de ganancia y temperatura.', tema: 'transistores', nivel: 'Intermedio', icono: 'placa' },
+  { id: 'mosfet-campo', titulo: 'MOSFET: del campo eléctrico al control de corriente', detalle: 'Explorar formación del canal, umbral, regiones de operación y diferencias entre tensión de umbral y condiciones de conducción útil.', tema: 'transistores', nivel: 'Intermedio', icono: 'placa' },
+  { id: 'transistor-pequena-senal', titulo: 'Modelos de pequeña señal y amplificadores discretos', detalle: 'Linealizar alrededor del punto de operación y relacionar transconductancia, impedancias y ganancia con el comportamiento del dispositivo.', tema: 'transistores', nivel: 'Avanzado', icono: 'circuito' },
+  { id: 'conmutacion-cargas', titulo: 'Conmutar cargas y proteger el transistor', detalle: 'Analizar drivers, carga de compuerta, pérdidas de conmutación y protección frente a energía inductiva en relés y motores.', tema: 'transistores', nivel: 'Intermedio', icono: 'circuito' },
+  { id: 'operacionales-modelos', titulo: 'Amplificadores operacionales y límites reales', detalle: 'Comparar el modelo ideal con alimentación, rango de entrada, excursión de salida, corriente disponible, offset y velocidad de respuesta.', tema: 'analogica', nivel: 'Intermedio', icono: 'circuito' },
+  { id: 'realimentacion-estabilidad', titulo: 'Realimentación, ganancia y estabilidad', detalle: 'Estudiar lazo abierto y cerrado, ancho de banda y márgenes de estabilidad para entender cuándo una realimentación regula o produce oscilación.', tema: 'analogica', nivel: 'Avanzado', icono: 'circuito' },
+  { id: 'acondicionamiento-instrumentacion', titulo: 'Acondicionamiento e instrumentación analógica', detalle: 'Explorar amplificadores diferenciales, rechazo de modo común, referencias y filtros para adaptar señales pequeñas a una etapa de medida.', tema: 'analogica', nivel: 'Intermedio', icono: 'circuito' },
+  { id: 'comparadores-osciladores', titulo: 'Comparadores, histéresis y osciladores', detalle: 'Distinguir comparación de amplificación y estudiar disparadores Schmitt, temporizadores y generación de señales periódicas.', tema: 'analogica', nivel: 'Intermedio', icono: 'circuito' },
+
+  // Lógica, señales e información.
+  { id: 'boole-puertas', titulo: 'Álgebra de Boole y puertas lógicas', detalle: 'Construir expresiones, tablas de verdad y circuitos combinacionales; aplicar leyes booleanas para simplificar funciones.', tema: 'digital', nivel: 'Inicial', icono: 'codigo' },
+  { id: 'logica-electrica-cmos', titulo: 'TTL, CMOS y los voltajes detrás de los bits', detalle: 'Interpretar umbrales, márgenes de ruido, capacidad de carga y salidas push-pull u open-drain sin reducir una señal real a un bit ideal.', tema: 'digital', nivel: 'Intermedio', icono: 'placa' },
+  { id: 'gpio-fisica-del-pin', titulo: 'La física de un pin de entrada y salida', detalle: 'Estudiar curvas de salida, fugas, capacitancia, diodos de protección y alimentación inversa para distinguir una configuración lógica de una señal eléctrica válida.', tema: 'digital', nivel: 'Intermedio', icono: 'placa' },
+  { id: 'memoria-maquinas-estados', titulo: 'Memoria, flip-flops y máquinas de estados', detalle: 'Pasar de lógica combinacional a secuencial mediante registros, contadores, memorias y estados que evolucionan con eventos.', tema: 'digital', nivel: 'Intermedio', icono: 'codigo' },
+  { id: 'relojes-metastabilidad', titulo: 'Relojes, tiempos y metastabilidad', detalle: 'Estudiar propagación, restricciones de setup y hold, entradas asíncronas y sincronización entre dominios de reloj.', tema: 'digital', nivel: 'Avanzado', icono: 'placa' },
+  { id: 'muestreo-nyquist-shannon', titulo: 'Muestreo, Nyquist–Shannon y aliasing', detalle: 'Relacionar frecuencia de muestreo y ancho de banda, reconocer señales indistinguibles y comprender la necesidad del filtrado antialias.', tema: 'senales', nivel: 'Intermedio', icono: 'circuito' },
+  { id: 'adc-dac-cuantizacion', titulo: 'ADC, DAC y cuantización', detalle: 'Interpretar resolución, referencia, tiempo de adquisición, error de cuantización y conversión entre señales continuas y representaciones digitales.', tema: 'senales', nivel: 'Intermedio', icono: 'placa' },
+  { id: 'ruido-johnson-shot', titulo: 'Ruido térmico, de disparo y de baja frecuencia', detalle: 'Distinguir Johnson–Nyquist, ruido shot y ruido 1/f, y relacionar ancho de banda, temperatura y relación señal–ruido.', tema: 'senales', nivel: 'Avanzado', icono: 'circuito' },
+  { id: 'procesamiento-informacion', titulo: 'Procesamiento digital e información', detalle: 'Explorar espectros, filtros digitales, reconstrucción y capacidad de canal, diferenciando resolución, precisión y cantidad de información.', tema: 'senales', nivel: 'Avanzado', icono: 'codigo' },
+
+  // Energía, temperatura y efectos físicos que no son solo lógica funcional.
+  { id: 'fuentes-regulacion', titulo: 'Fuentes reales, regulación y límites de corriente', detalle: 'Estudiar resistencia interna, reparto entre fuentes, modos de tensión y corriente constantes y respuesta ante sobrecarga.', tema: 'potencia', nivel: 'Intermedio', icono: 'circuito' },
+  { id: 'rectificadores-ldo', titulo: 'Rectificadores, filtrado y reguladores lineales', detalle: 'Seguir la conversión a continua y analizar rizado, dropout, corriente de reposo, disipación y condiciones de estabilidad de un regulador.', tema: 'potencia', nivel: 'Intermedio', icono: 'circuito' },
+  { id: 'convertidores-conmutados', titulo: 'Convertidores buck, boost e inversores', detalle: 'Relacionar conmutación y almacenamiento de energía con ciclo de trabajo, rizado, eficiencia y modos de conducción.', tema: 'potencia', nivel: 'Avanzado', icono: 'circuito' },
+  { id: 'arranque-brownout-desacoplo', titulo: 'Arranque, desacoplo y caídas de alimentación', detalle: 'Relacionar demanda transitoria, impedancia de fuente y carga de capacitores con secuencias de encendido, reinicios y detección de baja tensión.', tema: 'potencia', nivel: 'Intermedio', icono: 'circuito' },
+  { id: 'electroquimica-nernst-faraday', titulo: 'Electroquímica: Nernst y las leyes de Faraday', detalle: 'Conectar potencial electroquímico, concentración y transferencia de carga con pilas, electrólisis y los procesos que permiten almacenar energía.', tema: 'potencia', nivel: 'Avanzado', icono: 'circuito' },
+  { id: 'baterias-protecciones', titulo: 'Baterías, carga y protecciones eléctricas', detalle: 'Explorar modelos de batería, energía disponible, carga, fusibles, PPTC y protección ante polaridad inversa, sobretensión y retroalimentación.', tema: 'potencia', nivel: 'Intermedio', icono: 'placa' },
+  { id: 'transferencia-calor', titulo: 'Conservación de energía y transferencia de calor', detalle: 'Conectar disipación eléctrica con capacidad térmica, conducción de Fourier, convección y radiación para seguir la evolución de temperatura.', tema: 'termica', nivel: 'Avanzado', icono: 'circuito' },
+  { id: 'disipadores-modelos-termicos', titulo: 'Resistencia térmica, disipadores y reducción de carga', detalle: 'Interpretar temperaturas de unión, ambiente y encapsulado, redes térmicas y curvas de reducción de capacidad con temperatura.', tema: 'termica', nivel: 'Intermedio', icono: 'placa' },
+  { id: 'tolerancias-envejecimiento-fallas', titulo: 'Tolerancias, envejecimiento y mecanismos de falla', detalle: 'Separar máximos absolutos, vida útil y daño acumulado; explorar deriva, fatiga térmica, electromigración y diferencias entre componentes.', tema: 'termica', nivel: 'Avanzado', icono: 'placa' },
+
+  // Interacción con el entorno y sistemas completos.
+  { id: 'transduccion-calibracion', titulo: 'Transducción, sensibilidad y calibración', detalle: 'Relacionar entrada física y respuesta eléctrica, incluyendo offset, no linealidad, histéresis, resolución e incertidumbre.', tema: 'sensores', nivel: 'Intermedio', icono: 'circuito' },
+  { id: 'fisica-sensores', titulo: 'Temperatura, luz, presión y movimiento', detalle: 'Comparar efectos resistivos, capacitivos, piezoeléctricos, Hall y estructuras MEMS que permiten medir distintas magnitudes.', tema: 'sensores', nivel: 'Intermedio', icono: 'placa' },
+  { id: 'contactos-rebote', titulo: 'Contactos, rebote y respuesta mecánica', detalle: 'Estudiar por qué un pulsador no produce un cambio ideal, y relacionar movimiento, contactos y filtrado con una lectura estable.', tema: 'sensores', nivel: 'Inicial', icono: 'circuito' },
+  { id: 'actuadores-motores', titulo: 'Relés, motores y actuadores', detalle: 'Conectar fuerza, movimiento y energía con etapas de potencia, puentes H, cargas inductivas y señales de control.', tema: 'sensores', nivel: 'Intermedio', icono: 'placa' },
+  { id: 'control-modelos-dinamicos', titulo: 'Modelos dinámicos y funciones de transferencia', detalle: 'Representar sensores, actuadores y procesos mediante estados, respuestas temporales y funciones de transferencia.', tema: 'control', nivel: 'Avanzado', icono: 'codigo' },
+  { id: 'control-pid', titulo: 'Control proporcional, integral y derivativo', detalle: 'Relacionar error, perturbaciones y acción de control con respuesta, estabilidad, saturación y acumulación del término integral.', tema: 'control', nivel: 'Avanzado', icono: 'codigo' },
+  { id: 'control-tiempo-real', titulo: 'Control digital y temporización de sistemas', detalle: 'Explorar período de muestreo, latencia y variación temporal para integrar medidas y acciones en una aplicación embebida.', tema: 'control', nivel: 'Avanzado', icono: 'codigo' },
+  { id: 'uart-i2c-spi', titulo: 'UART, I²C y SPI: del protocolo al cable', detalle: 'Comparar tramas, sincronización y topología, incluyendo pull-ups, capacitancia, velocidad, niveles eléctricos y arbitraje.', tema: 'comunicacion', nivel: 'Intermedio', icono: 'codigo' },
+  { id: 'transmision-diferencial', titulo: 'Comunicación diferencial, CAN y RS-485', detalle: 'Explorar rechazo de perturbaciones, terminación, referencias y topología en enlaces utilizados por sistemas distribuidos.', tema: 'comunicacion', nivel: 'Avanzado', icono: 'circuito' },
+  { id: 'lineas-transmision-emi', titulo: 'Líneas de transmisión e integridad de señal', detalle: 'Relacionar tiempo de propagación y flancos con impedancia característica, reflexiones, diafonía y compatibilidad electromagnética.', tema: 'comunicacion', nivel: 'Avanzado', icono: 'circuito' },
+  { id: 'radio-antenas-propagacion', titulo: 'Radio, antenas y propagación', detalle: 'Explorar modulación, radiación, adaptación y presupuesto de enlace, distinguiendo una trama funcional de un canal electromagnético físico.', tema: 'comunicacion', nivel: 'Avanzado', icono: 'placa' },
+
+  // Plataformas de práctica: arquitectura, electricidad y software.
+  { id: 'arduino-arquitectura', titulo: 'Arduino y la arquitectura de un microcontrolador', detalle: 'Reconocer CPU, memorias, registros y periféricos de una placa AVR y relacionarlos con el programa que ejecuta.', tema: 'arduino', nivel: 'Inicial', icono: 'placa' },
+  { id: 'arduino-gpio-temporizadores', titulo: 'Entradas, salidas, interrupciones y temporizadores', detalle: 'Controlar eventos y señales temporizadas, considerando rebote, pull-ups, PWM y límites de corriente por pin y agrupación.', tema: 'arduino', nivel: 'Intermedio', icono: 'placa' },
+  { id: 'arduino-perifericos', titulo: 'Medidas y periféricos con Arduino', detalle: 'Planear la lectura analógica y la comunicación con módulos, conectando referencias, código y condiciones eléctricas.', tema: 'arduino', nivel: 'Intermedio', icono: 'codigo' },
+  { id: 'esp32-arquitectura-pines', titulo: 'Arquitectura y mapa de pines de ESP32', detalle: 'Interpretar memorias, periféricos, pines de arranque y diferencias entre familias antes de elegir conexiones y alimentación.', tema: 'esp32', nivel: 'Inicial', icono: 'placa' },
+  { id: 'esp32-perifericos-tiempo', titulo: 'GPIO, ADC, PWM y temporización', detalle: 'Relacionar configuración de periféricos con umbrales, carga, adquisición analógica y generación de señales.', tema: 'esp32', nivel: 'Intermedio', icono: 'placa' },
+  { id: 'esp32-conectividad-consumo', titulo: 'Conectividad, concurrencia y consumo', detalle: 'Planear aplicaciones con Wi-Fi o Bluetooth según la familia, atendiendo a tareas concurrentes, modos de energía y demanda de alimentación.', tema: 'esp32', nivel: 'Intermedio', icono: 'codigo' },
+  { id: 'micropython-lenguaje', titulo: 'Python aplicado a dispositivos', detalle: 'Organizar variables, funciones, estados y manejo de errores para construir programas que interactúan con hardware.', tema: 'micropython', nivel: 'Inicial', icono: 'codigo' },
+  { id: 'micropython-drivers', titulo: 'Drivers, periféricos y código reutilizable', detalle: 'Separar acceso al dispositivo y lógica de aplicación, interpretar registros y gestionar comunicación, errores y recursos.', tema: 'micropython', nivel: 'Intermedio', icono: 'codigo' },
+  { id: 'firmware-eventos-pruebas', titulo: 'Firmware por eventos y pruebas de dispositivos', detalle: 'Diseñar máquinas de estados, evitar bloqueos y controlar tiempos, reinicios y condiciones de error sin depender solo del caso exitoso.', tema: 'micropython', nivel: 'Intermedio', icono: 'codigo' },
+
+  // Medir, validar y construir sin confundir un modelo con el mundo físico.
+  { id: 'instrumentos-medicion', titulo: 'Multímetro, osciloscopio y analizador lógico', detalle: 'Elegir qué instrumento usar y comprender cómo impedancia de entrada, ancho de banda, sondas y referencias afectan la medida.', tema: 'depuracion', nivel: 'Inicial', icono: 'placa' },
+  { id: 'incertidumbre-experimentos', titulo: 'Error, incertidumbre y diseño de experimentos', detalle: 'Distinguir repetibilidad y exactitud, preparar presupuestos de incertidumbre y contrastar predicciones con medidas independientes.', tema: 'depuracion', nivel: 'Intermedio', icono: 'codigo' },
+  { id: 'spice-modelos-analisis', titulo: 'SPICE: punto de operación, AC y transitorios', detalle: 'Elegir un análisis adecuado al fenómeno, interpretar convergencia y condiciones iniciales y reconocer parámetros ausentes o modelos no válidos.', tema: 'depuracion', nivel: 'Intermedio', icono: 'circuito' },
+  { id: 'limites-simulacion', titulo: 'Qué demuestra una simulación y qué falta medir', detalle: 'Separar lógica funcional, física calculada y evidencia de laboratorio; revisar conservación, tolerancias, ruido, temperatura y propagación.', tema: 'depuracion', nivel: 'Intermedio', icono: 'circuito' },
+  { id: 'hojas-datos-esquematicos', titulo: 'De la hoja de datos al esquemático', detalle: 'Interpretar condiciones de ensayo, valores típicos y límites garantizados para seleccionar componentes y documentar conexiones.', tema: 'construccion', nivel: 'Inicial', icono: 'placa' },
+  { id: 'pcb-retornos-desacoplo', titulo: 'PCB, retorno de corriente y desacoplo', detalle: 'Planear alimentación, planos, recorridos de retorno y ubicación de componentes teniendo en cuenta efectos parásitos y señales sensibles.', tema: 'construccion', nivel: 'Intermedio', icono: 'placa' },
+  { id: 'montaje-puesta-marcha', titulo: 'Montaje, soldadura y puesta en marcha', detalle: 'Organizar inspección, comprobaciones de continuidad y encendido por etapas para localizar errores de fabricación y conexión.', tema: 'construccion', nivel: 'Inicial', icono: 'placa' },
+  { id: 'fabricacion-chips', titulo: 'Cómo se fabrica un circuito integrado', detalle: 'Recorrer obleas, oxidación, litografía, dopaje, interconexiones y encapsulado para relacionar proceso físico y comportamiento eléctrico.', tema: 'fronteras', nivel: 'Avanzado', icono: 'placa' },
+  { id: 'limites-integracion', titulo: 'Escalamiento y límites físicos de la integración', detalle: 'Explorar fugas, efectos de canal corto, túnel cuántico, calor e interconexiones que condicionan densidad, velocidad y consumo.', tema: 'fronteras', nivel: 'Avanzado', icono: 'placa' },
+  { id: 'nuevos-materiales-fotonica', titulo: 'Nuevos materiales, fotónica e integración heterogénea', detalle: 'Introducir semiconductores de banda ancha, dispositivos optoelectrónicos y combinación de tecnologías para distintas necesidades de energía y comunicación.', tema: 'fronteras', nivel: 'Avanzado', icono: 'placa' },
+];

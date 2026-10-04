@@ -1,5 +1,5 @@
 import { useState, type CSSProperties } from 'react';
-import { temasAprendizaje, rutasAprendizaje } from '../aprendizaje-catalogo.js';
+import { temasAprendizaje, rutasAprendizaje, type RutaAprendizaje } from '../aprendizaje-catalogo.js';
 import { useEstado } from './estado.js';
 import { aprendizaje } from './aprendizaje-estado.js';
 
@@ -28,13 +28,13 @@ export function Aprender() {
   const [busqueda, setBusqueda] = useState('');
   const filtro = busqueda.trim().toLocaleLowerCase('es');
   const temas = temasAprendizaje.filter(tema => `${tema.titulo} ${tema.detalle}`.toLocaleLowerCase('es').includes(filtro));
-  const rutas = rutasAprendizaje.filter(ruta => `${ruta.titulo} ${ruta.detalle}`.toLocaleLowerCase('es').includes(filtro));
+  const rutas = rutasAprendizaje.filter(ruta => `${ruta.titulo} ${ruta.detalle} ${temasAprendizaje.find(tema => tema.id === ruta.tema)?.titulo ?? ''}`.toLocaleLowerCase('es').includes(filtro));
   const tema = temasAprendizaje.find(item => item.id === route.slug);
   const ruta = rutasAprendizaje.find(item => item.id === route.slug);
   const detalle = route.learning === 'temas' ? tema : ruta;
   const rutasTema = rutasAprendizaje.filter(item => item.tema === tema?.id);
 
-  function tarjetasRutas(items: readonly (typeof rutasAprendizaje)[number][]) {
+  function tarjetasRutas(items: readonly RutaAprendizaje[]) {
     return <div className="aprender-rutas-grid">{items.map((item, index) => <a className="aprender-ruta-card" href={`#/aprender/rutas/${item.id}`} key={item.id} style={color(index)}>
       <div className="aprender-ruta-visual"><div className="aprender-hoja hoja-atras" /><div className="aprender-hoja hoja-medio" /><div className="aprender-hoja hoja-frente"><Icono tipo={item.icono} /><span>{item.nivel}</span></div><span className="aprender-ruta-etiqueta">RUTA DE APRENDIZAJE</span></div>
       <div className="aprender-card-info"><h3>{item.titulo}</h3><p>{item.detalle}</p><div className="aprender-card-pie"><span>Contenido en preparación</span><span aria-hidden="true">↗</span></div></div>
@@ -54,7 +54,10 @@ export function Aprender() {
       </> : <div className="aprender-vacio"><h1>No encontramos esta página</h1><p>Explorá los temas y rutas disponibles desde el menú.</p></div>}
     </> : <>
       <div className="aprender-intro"><span className="aprender-eyebrow">EXPLORÁ · CONECTÁ · EXPERIMENTÁ</span><h1>{route.learning === 'temas' ? 'Todos los temas' : route.learning === 'rutas' ? 'Rutas de aprendizaje' : 'Aprender'}</h1><p>Construí tu camino en electrónica, programación y simulación.</p></div>
-      {route.learning !== 'temas' && <section className="aprender-seccion" aria-labelledby="aprender-rutas-titulo"><div className="aprender-seccion-titulo"><h2 id="aprender-rutas-titulo">{route.learning === 'rutas' ? 'Elegí tu próximo recorrido' : 'Empezá con una ruta'}</h2>{!route.learning && <a href="#/aprender/rutas">Ver todas las rutas <span aria-hidden="true">→</span></a>}</div>{rutas.length ? tarjetasRutas(rutas) : <div className="aprender-vacio">No hay rutas para esa búsqueda.</div>}</section>}
+      {route.learning !== 'temas' && <section className="aprender-seccion" aria-labelledby="aprender-rutas-titulo"><div className="aprender-seccion-titulo"><h2 id="aprender-rutas-titulo">{route.learning === 'rutas' ? 'Elegí tu próximo recorrido' : 'Empezá con una ruta'}</h2>{!route.learning && <a href="#/aprender/rutas">Ver todas las rutas <span aria-hidden="true">→</span></a>}</div>{rutas.length ? (route.learning === 'rutas' ? temasAprendizaje.map(item => {
+        const recorridos = rutas.filter(recorrido => recorrido.tema === item.id);
+        return recorridos.length ? <section className="aprender-seccion" key={item.id} aria-label={item.titulo}><div className="aprender-seccion-titulo"><h3>{item.titulo}</h3><a href={`#/aprender/temas/${item.id}`}>Explorar tema →</a></div>{tarjetasRutas(recorridos)}</section> : null;
+      }) : tarjetasRutas(filtro ? rutas : rutas.slice(0, 3))) : <div className="aprender-vacio">No hay rutas para esa búsqueda.</div>}</section>}
       {!route.learning && <section className="aprender-seccion" aria-labelledby="aprender-recomendados-titulo"><div className="aprender-seccion-titulo"><h2 id="aprender-recomendados-titulo">Explorá lo que podés crear</h2><span>Un tema, muchas posibilidades</span></div><div className="aprender-destacados-grid">{temas.slice(0, 4).map((item, index) => <a className="aprender-destacado" key={item.id} href={`#/aprender/temas/${item.id}`} style={color(index)}><span className="aprender-badge">Explorar tema</span><div className="aprender-destacado-arte"><div className="aprender-orbita" /><Icono tipo={item.icono} /></div><div><h3>{item.titulo}</h3><p>{item.detalle}</p><span className="aprender-destacado-link">Descubrir <span aria-hidden="true">→</span></span></div></a>)}</div></section>}
       {route.learning !== 'rutas' && <section className="aprender-seccion" aria-labelledby="aprender-temas-titulo"><div className="aprender-seccion-titulo"><h2 id="aprender-temas-titulo">Todos los temas</h2><span>Aprendé a tu ritmo</span></div><div className="aprender-temas-grid">{temas.map((item, index) => <a className="aprender-tema" href={`#/aprender/temas/${item.id}`} key={item.id} style={color(index)}><span className="aprender-tema-icono"><Icono tipo={item.icono} /></span><span><h3>{item.titulo}</h3><p>{item.detalle}</p></span><span className="aprender-tema-flecha" aria-hidden="true">↗</span></a>)}</div>{!temas.length && <div className="aprender-vacio">No hay temas para esa búsqueda.</div>}</section>}
     </>}
