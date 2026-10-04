@@ -169,5 +169,5 @@ actualizar README y reportar los comandos ejecutados y sus resultados en el PR.
 El workspace shared carece del script build que invoca el build general existente. Verificar
 shared con tsc --noEmit y usar build:web; no atribuir ese problema previo a la cámara.
 
-**Prueba física:** pendiente de ejecución en un navegador con webcam real y operador local.
+**Prueba física:** el usuario confirmó que la webcam funciona en localhost («Funciona»). Esto valida la cámara virtual; el recorrido de ArduCAM con webcam real se verificará por separado.
 Los resultados automatizados definitivos se documentan en la descripción del PR.
