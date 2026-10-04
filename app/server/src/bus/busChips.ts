@@ -55,6 +55,8 @@ const DIFERIR_MAX = 16;
 const DIFERIR_US = 10_000;
 
 interface Dispositivo extends Required<Omit<OpcionesDispositivo, 'maxHz' | 'encendidoEnUs' | 'diferirEscrituras' | 'guardado' | 'spi' | 'entradas'>> {
+  guardado?: unknown;
+  generacion: number;
   maxHz?: number;
   spi?: NonNullable<OpcionesDispositivo['spi']>;
   entradas: Record<number, string>;
@@ -111,7 +113,7 @@ export class BusChips {
       id: o.id, chip: o.chip, motor: o.motor, props: o.props ?? {}, entorno: o.entorno ?? {},
       alimentado: o.alimentado ?? true, maxHz: o.maxHz, direcciones: [], ocupadoHasta: 0, pendientes: [], roto: null,
       despertar: null, pines: new Map(), diferir: o.diferirEscrituras ?? false, entregaAgendada: false,
-      spi: o.spi, entradas: o.entradas ?? {}, seleccionado: false,
+      spi: o.spi, entradas: o.entradas ?? {}, seleccionado: false, guardado: o.guardado, generacion: 0,
     };
     this.dispositivos.push(d);
     if (d.alimentado) this.correr(d, [{ tipo: 'encender', t: o.encendidoEnUs ?? this.ev.ahoraUs(), guardado: o.guardado }]);
@@ -122,8 +124,48 @@ export class BusChips {
    * pendiente, para guardar lo último de su memoria no volátil.
    */
   apagar(): void {
+    for (const d of this.dispositivos) this.ponerAlimentacion(d.id, false);
+  }
+
+  /** VCC efectivo. Un corte invalida transacciones y temporizadores anteriores. */
+  ponerAlimentacion(id: string, on: boolean): boolean {
+    const d = this.dispositivos.find((x) => x.id === id);
+    if (!d) return false;
+    if (d.alimentado === on) return true;
     const t = this.ev.ahoraUs();
-    for (const d of this.dispositivos) if (d.alimentado && !d.roto) this.correr(d, [{ tipo: 'apagar', t }]);
+    // Sin STOP, la escritura en curso no constituye una transacción completa.
+    if (this.seg) {
+      this.seg.con = this.seg.con.filter((x) => x !== d);
+      this.seg.leidos.delete(d);
+    }
+    d.generacion++;
+    if (!on) {
+      this.correr(d, [{ tipo: 'apagar', t }]);
+      d.alimentado = false;
+      for (const pin of d.pines.keys()) {
+        d.pines.set(pin, null);
+        this.ev.alPin?.(d.id, pin, null);
+      }
+      d.despertar = null;
+      d.entregaAgendada = false;
+      d.seleccionado = false;
+      d.pendientes = [];
+      d.direcciones = [];
+      d.ocupadoHasta = 0;
+    } else {
+      d.alimentado = true;
+      this.correr(d, [{ tipo: 'encender', t, guardado: d.guardado }]);
+      for (const [gpio, nombre] of Object.entries(d.entradas)) {
+        const nivel = this.nivelesMcu.get(Number(gpio));
+        if (nivel !== undefined) d.pendientes.push({ tipo: 'pin', t, nombre, nivel });
+      }
+      if (d.spi && this.nivelesMcu.get(d.spi.csGpio) === 0) {
+        d.seleccionado = true;
+        d.pendientes.push({ tipo: 'seleccionar', t });
+      }
+      if (d.pendientes.length) this.correr(d, []);
+    }
+    return true;
   }
 
   /** Cambió el entorno de una instancia (la temperatura que mueve el usuario). */
@@ -179,7 +221,7 @@ export class BusChips {
 
   /** Un byte del maestro al chip. ACK si sigue habiendo alguien escuchando. */
   escribirByte(b: number): boolean {
-    if (!this.seg || this.seg.lectura) return false;
+    if (!this.seg || this.seg.lectura || this.seg.con.length === 0) return false;
     this.seg.bytes.push(b & 0xff);
     return true;
   }
@@ -217,7 +259,9 @@ export class BusChips {
         // Se entrega más tarde, en tanda: a los 10 ms del primero como mucho.
         if (!d.entregaAgendada) {
           d.entregaAgendada = true;
+          const generacion = d.generacion;
           this.ev.programar(primero + DIFERIR_US, () => {
+            if (!d.alimentado || d.generacion !== generacion) return;
             d.entregaAgendada = false;
             if (d.pendientes.length > 0) this.correr(d, []);
           });
@@ -305,7 +349,9 @@ export class BusChips {
   private agendarEntrega(d: Dispositivo): void {
     if (d.entregaAgendada || !this.ev.programar || d.pendientes.length === 0) return;
     d.entregaAgendada = true;
+    const generacion = d.generacion;
     this.ev.programar(d.pendientes[0]!.t + DIFERIR_US, () => {
+      if (!d.alimentado || d.generacion !== generacion) return;
       d.entregaAgendada = false;
       if (d.pendientes.length > 0) this.correr(d, []);
     });
@@ -336,12 +382,9 @@ export class BusChips {
     return r?.lecturas.at(-1) ?? Array<number>(PREFETCH).fill(0xff);
   }
 
-  /** Corre lo pendiente del chip más `extra`. Si el chip falla, queda fuera del bus. */
+  /** Compatibilidad con el lifecycle de cámaras: comparte invalidación y restauración de VCC. */
   alimentar(id: string, alimentado: boolean): void {
-    const d = this.dispositivos.find(x => x.id === id);
-    if (!d || d.alimentado === alimentado) return;
-    this.correr(d, [{ tipo: alimentado ? 'encender' : 'apagar', t: this.ev.ahoraUs() }]);
-    d.alimentado = alimentado; d.seleccionado = false; d.pendientes = [];
+    this.ponerAlimentacion(id, alimentado);
   }
 
   externo(id: string, datos: EntradaChip): void {
@@ -352,14 +395,14 @@ export class BusChips {
   private correr(d: Dispositivo, extra: EventoChip[]): ResultadoLote | null {
     const eventos = d.pendientes.concat(extra);
     d.pendientes = [];
-    if (d.roto) return null;
+    if (d.roto || !d.alimentado) return null;
     try {
       const r = d.motor.correr(eventos, d.entorno, d.props);
       d.direcciones = r.direcciones;
       d.ocupadoHasta = r.ocupadoHasta;
       for (const l of r.logs) this.ev.alLog?.(`[${d.id}] ${l}`);
       if (r.salida) this.ev.alSalida?.(d.id, r.salida);
-      if ('guardar' in r) this.ev.alGuardar?.(d.id, r.guardar);
+      if ('guardar' in r) { d.guardado = r.guardar; this.ev.alGuardar?.(d.id, r.guardar); }
       for (const [pin, nivel] of Object.entries(r.pines)) {
         if (d.pines.get(pin) === nivel) continue;
         d.pines.set(pin, nivel);
@@ -378,8 +421,9 @@ export class BusChips {
   private agendar(d: Dispositivo, t: number): void {
     if (!this.ev.programar) return;
     d.despertar = t;
+    const generacion = d.generacion;
     this.ev.programar(t, () => {
-      if (d.despertar !== t) return; // lo reemplazó uno más temprano
+      if (!d.alimentado || d.generacion !== generacion || d.despertar !== t) return; // lo reemplazó uno más temprano
       d.despertar = null;
       this.correr(d, [{ tipo: 'tick', t: this.ev.ahoraUs() }]);
     });
@@ -391,6 +435,7 @@ export class BusChips {
    */
   reengancharHost(): void {
     for (const d of this.dispositivos) {
+      if (!d.alimentado) continue;
       if (d.despertar !== null) {
         const t = d.despertar;
         d.despertar = null;

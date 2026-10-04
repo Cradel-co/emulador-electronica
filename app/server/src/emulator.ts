@@ -225,7 +225,12 @@ export class EmulatorManager implements Emulador {
     }));
   }
 
-  /** El usuario movió el entorno de una instancia: cada chip de esa placa toma lo que mide. */
+  /** Actualiza VCC de los módulos sin reiniciar el firmware. */
+  actualizarAlimentacionChips(porInstancia: Readonly<Record<string, boolean>>): void {
+    this.chips?.actualizarAlimentacion(porInstancia);
+  }
+
+  /** El usuario movió el entorno de una instancia: cada chip toma lo que mide. */
   ponerEntorno(instancia: string, valores: Record<string, number>): boolean {
     let alguno = false;
     for (const c of this.chips?.chips ?? []) {

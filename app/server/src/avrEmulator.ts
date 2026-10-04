@@ -90,6 +90,17 @@ export class AvrEmulator implements Emulador {
     }));
   }
 
+  /** Actualiza VCC también dentro del hilo que ejecuta los periféricos AVR. */
+  actualizarAlimentacionChips(porInstancia: Readonly<Record<string, boolean>>): void {
+    for (const c of this.chips) {
+      const on = porInstancia[c.instancia];
+      if (!Object.hasOwn(porInstancia, c.instancia) || typeof on !== 'boolean') continue;
+      c.alimentado = on;
+      this.busLocal?.ponerAlimentacion(c.id, on);
+    }
+    this.mandar({ t: 'alimentacion-chips', porInstancia: { ...porInstancia } });
+  }
+
   /**
    * El usuario movió el entorno de una instancia (sin reiniciar nada): cada chip de esa placa
    * toma las magnitudes que mide. false si la instancia no tiene chips en el bus.
