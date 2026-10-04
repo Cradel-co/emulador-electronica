@@ -352,7 +352,10 @@ class SPI:
             for i in range(0, len(datos), 1536):
                 _send('@SPI 0 %d %s %s 0' % (utime.ticks_us(), cab, _b64(datos[i:i + 1536])))
             return None
-        return _de64(_pedir('SPI', '%d %s %s 1' % (utime.ticks_us(), cab, _b64(datos))))
+        respuesta = _pedir('SPI', '%d %s %s 1' % (utime.ticks_us(), cab, _b64(datos)))
+        if respuesta == 'E:CONTENCION_MISO':
+            raise OSError(5, 'simulación: contención MISO; soltá los CS hasta seleccionar un solo chip')
+        return _de64(respuesta)
 
     def write(self, buf):
         self._x(bytes(buf), False)

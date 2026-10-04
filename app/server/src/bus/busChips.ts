@@ -97,6 +97,16 @@ export interface TransaccionI2c {
   bytes: number[];
 }
 
+/** Dos salidas SPI conducen niveles opuestos: ese byte no tiene un valor lógico válido. */
+export class ErrorContencionSpi extends Error {
+  override readonly name = 'ErrorContencionSpi';
+  readonly codigo = 'CONTENCION_MISO';
+
+  constructor(readonly dispositivos: string[], readonly bitsEnConflicto: number) {
+    super(`[spi] contención MISO entre ${dispositivos.join(', ')}: bits opuestos 0x${bitsEnConflicto.toString(16).padStart(2, '0')}. Soltá los CS hasta dejar un solo chip seleccionado.`);
+  }
+}
+
 export class BusChips {
   private readonly dispositivos: Dispositivo[] = [];
   /** Segmento en curso: dirección, sentido y quiénes contestaron. */
@@ -309,10 +319,15 @@ export class BusChips {
     }
   }
 
-  /** Un byte por SPI: lo que sale del micro por MOSI. Devuelve lo que entra por MISO (0xFF si nadie contesta). */
+  /**
+   * Un byte por SPI. Sin respuesta conserva 0xFF; dos salidas MISO opuestas producen un error.
+   * Es una detección lógica por byte, sin resolver tensiones, corrientes ni daño eléctrico.
+   */
   spiByte(mosi: number, cfg: { modo: number; lsbPrimero: boolean; hz: number; misoGpio?: number }): number {
     const t = this.ev.ahoraUs();
-    let miso = 0xff;
+    let miso: number | undefined;
+    let unos = 0, ceros = 0;
+    const conducen: string[] = [];
     for (const d of this.dispositivos) {
       if (!d.spi || !d.seleccionado || !d.alimentado || d.roto) continue;
       if (d.spi.maxHz && cfg.hz > d.spi.maxHz * 1.05 && !this.avisadoVelocidad.has(d.id)) {
@@ -340,9 +355,18 @@ export class BusChips {
       }
       const r = this.correr(d, [{ tipo: 'spi', t, mosi: [entra], dc: [dc] }]);
       if (cfg.misoGpio !== undefined && d.spi.miso !== undefined && cfg.misoGpio !== d.spi.miso) continue;
-      miso &= deformar(r?.lecturas.at(-1)?.[0] ?? 0xff, modoMal, ordenMal);
+      const respuesta = r?.lecturas.at(-1)?.[0];
+      // Una respuesta ausente no conduce; 0xFF explícito sí conduce ocho unos.
+      if (respuesta === undefined) continue;
+      const byte = deformar(respuesta, modoMal, ordenMal);
+      miso ??= byte;
+      unos |= byte;
+      ceros |= (~byte & 0xff);
+      conducen.push(d.id);
     }
-    return miso;
+    // Todos los chips reciben MOSI antes de rechazar el byte observado por el maestro.
+    if (unos & ceros) throw new ErrorContencionSpi(conducen, unos & ceros);
+    return miso ?? 0xff;
   }
 
   /** Entrega lo juntado de una pantalla a los 10 ms del primer byte, como mucho. */
