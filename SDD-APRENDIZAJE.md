@@ -1,6 +1,6 @@
 # Módulo de aprendizaje y enrutamiento
 
-> Fecha: 2026-10-03. Estado: **implementación parcial; consultar las etapas y brechas pendientes**.
+> Fecha: 2026-10-04. Estado: **primera entrega implementada y verificada; consultar Evolución posterior para el alcance futuro**.
 > Pedido: aprovechar Aprender, incorporar TanStack Router y preparar el módulo de aprendizaje.
 > La base de enrutamiento está en la PR #49 y la primera entrega de Aprender en la PR #50.
 > Este documento conserva los criterios acordados y registra qué falta para completarlos.
@@ -187,7 +187,9 @@ significa que la persona declara haber terminado: encender el LED no otorga cert
 La PR #50 implementa “Abrir práctica” con nombre editable y reutiliza `POST /api/projects`
 con `{ name, template }`; la plantilla `aprender-led` contiene fuente, resistencia y LED.
 La lista de plantillas se sirve desde el catálogo existente. La integración evita crear otra
-práctica al continuar la existente y conserva mensajes de error recuperables.
+práctica al continuar la existente y conserva mensajes de error recuperables. Si se pierde la
+respuesta del POST, una consulta por el nombre solicitado recupera el proyecto ya creado; los
+errores HTTP no disparan esta recuperación ni adoptan un proyecto preexistente.
 La API conserva su validación y sus errores; el frontend no necesita conocer rutas de disco.
 Cada creación produce un proyecto independiente, sin sobrescribir proyectos ni modificar
 la plantilla. Un nombre ocupado permite corregirlo. Mientras se crea, el botón queda deshabilitado.
@@ -213,10 +215,12 @@ marca en curso; solo “Marcar como completada” finaliza. Se puede desmarcar s
 El adaptador inyecta almacenamiento y reloj para pruebas. Datos ausentes, JSON corrupto,
 versión futura, IDs eliminados y errores de almacenamiento no impiden leer: se usa progreso
 en memoria y se informa si no puede persistirse. Validar los campos antes de usarlos.
-Si cambia la revisión del contenido, conservar la asociación a la práctica, reiniciar el paso
-si ya no existe y mostrar pendiente de revisión; la finalización anterior no cuenta como
-finalización de la revisión nueva. En otras pestañas, el evento `storage` actualiza la vista;
-se usa el último documento persistido, sin prometer resolución colaborativa de conflictos.
+Si cambia la revisión del contenido, conservar la asociación a la práctica, mantener el paso si
+su ID todavía existe o volver al primero si fue eliminado, y mostrar pendiente de revisión; la
+finalización anterior no cuenta como finalización de la revisión nueva. En otras pestañas, el
+evento `storage` actualiza la vista con el último documento persistido, sin prometer resolución
+colaborativa de conflictos. Si el almacenamiento está bloqueado o agotó su cuota, la sesión
+mantiene un respaldo en memoria sin bloquear la lectura.
 
 El progreso pertenece a este navegador y origen. No es un registro del servidor, no se
 sincroniza entre dispositivos y no debe bloquear ni restringir el acceso a las lecciones.
@@ -247,10 +251,10 @@ la presencia de TanStack Router o reproduzcan su implementación interna.
 | 0. Caracterización | `/#nombre`, recarga, Atrás, selector, inicio, archivo sucio, debounce del diagrama, fallo de guardado y montaje del lienzo. | Congelar el comportamiento vigente y probar pérdidas de datos antes de migrar. | Cubierta por #49; sus pruebas regresivas pasan. |
 | 1. Router | Historial hash, codificación, enlaces antiguos, recarga, assets/API conservan sus respuestas. | Router tipado y rutas de inicio/proyecto estables. | Implementada en #49; no necesita fallback SPA. |
 | 2. Transiciones | Guardado retardado o rechazado, diagrama pendiente, A→B→C con respuestas desordenadas y Atrás cancelado. | Una respuesta vieja no pinta otro proyecto y ningún fallo pierde cambios. | Implementada en #49; regresiones pasan. |
-| 3. Catálogo y lectura | IDs duplicados, paso inválido, lección inexistente, orden y deep link a paso. | Tipos, contenido y pantallas de índice/lección. | Implementada en #50; revisar foco accesible al cambiar de pantalla/paso. |
-| 4. Progreso | Primera lectura, completar, recarga, revisión nueva, JSON corrupto y fallos de almacenamiento. | Persistencia tolerante a fallos; solo acción explícita completa. | Base implementada en #50; ampliar casos de revisión/migración. |
-| 5. Práctica LED | Plantilla válida y circuito eléctrico; creación, duplicado, fallo de red, volver, continuar y proyecto borrado. | Recorrido asociado, editable y sin duplicados; verificación con motor real. | Asociación, retorno, continuación, copia y borrado cubiertos por E2E; motor real verifica apagada/encendida/invertida. Falta recuperación de creación ambigua. |
-| 6. Integración y publicación | Recorrido completo, historial, recarga, vista estrecha, teclado y regresiones del editor. | Lección disponible con contenido y práctica verificados. | Pendiente tras completar la etapa 5. |
+| 3. Catálogo y lectura | IDs duplicados, paso inválido, lección inexistente, orden, deep link y foco accesible. | Tipos, contenido y pantallas de índice/lección. | Implementada; E2E verifica foco de pantalla y paso. |
+| 4. Progreso | Primera lectura, completar, recarga, revisión nueva, JSON corrupto, cuota agotada y otras pestañas. | Persistencia tolerante a fallos; solo acción explícita completa. | Implementada y cubierta con Vitest/E2E; revisiones nuevas invalidan finalización y conservan asociaciones. |
+| 5. Práctica LED | Plantilla válida y circuito eléctrico; creación, duplicado, respuesta de red perdida, volver, continuar y proyecto borrado. | Recorrido asociado, editable y sin duplicados; verificación con motor real. | Implementada y cubierta con E2E/Vitest; respuesta perdida se recupera por nombre y no duplica el proyecto. |
+| 6. Integración y publicación | Recorrido completo, historial, recarga, vista estrecha, teclado y regresiones del editor. | Lección disponible con contenido y práctica verificados. | Primera entrega implementada; suite completa requerida antes de publicación. |
 
 Tests puros en `app/tests/unit/aprendizaje*.test.ts` y `navigation-route.test.ts`; UI en
 `app/tests/e2e/aprendizaje.spec.ts` y `routing.spec.ts`. Se usa historial en memoria con
@@ -275,8 +279,9 @@ que CI lo provea; no convertir su ausencia en una prueba eléctrica falsamente a
 8. Fuente apagada: LED apagado. Circuito correcto encendido: LED conduce dentro de los límites
    del modelo. LED invertido: no conduce significativamente. **Verificado con ngspice sobre la
    plantilla de la práctica**; revisar tolerancias si cambia el modelo.
-9. El recorrido completo funciona con teclado y en viewport estrecho; no rompe scroll del catálogo,
-   edición, consola ni dibujo del circuito.
+9. La lección funciona con teclado en viewport de 390 × 844, conserva el foco al cambiar de pantalla
+   y paso, y no genera scroll horizontal. E2E cubre el recorrido; correr la regresión completa del
+   editor, catálogo, consola y dibujo antes de publicar.
 
 ## 11. Verificación y flujo de entrega
 
@@ -307,11 +312,12 @@ respecto de este SDD. Las etapas no se marcan completas hasta cumplir sus criter
 | Cambios en contenido dejan progreso inválido | Revisiones explícitas, IDs estables y validación del almacenamiento. |
 | Bundle crece al agregar router y contenido | Comparar build antes/después; diferir carga de contenido si la medición lo justifica. |
 
-Las brechas pendientes son verificar IDs/pines y tolerancia eléctrica con el motor, comprobar
-el foco accesible al cambiar de pantalla y paso, y ampliar los casos de progreso de revisión y
-almacenamiento. El contrato de ruta con lección asociada y el retorno/continuación ya están
-implementados. El historial hash, la versión de TanStack Router y el host `#pantalla-aprender`
-ya están definidos en #49/#50.
+La primera entrega ya verificó los IDs del catálogo y el circuito con el motor, el foco al
+cambiar de pantalla/paso, el progreso entre revisiones y pestañas, el respaldo ante fallos de
+almacenamiento y la recuperación de una respuesta perdida al crear la práctica. Los siguientes
+riesgos corresponden a contenido nuevo: cada lección debe validar sus materiales y práctica con
+el motor antes de publicarse. El historial hash, la versión de TanStack Router y el host
+`#pantalla-aprender` están implementados en #49/#50.
 
 ## Referencias
 

@@ -1,7 +1,8 @@
+import { useEffect, useRef } from 'react';
 import { acciones, estado } from './puente.js';
 import { useEstado } from './estado.js';
 import { contenidoAprendizaje, leccionPorId, type BloqueAprendizaje } from '../aprendizaje/contenido.js';
-import { almacenLocalAprendizaje, progresoDeLeccion } from '../aprendizaje/progreso.js';
+import { almacenLocalAprendizaje, progresoDeLeccion, registroDeLeccion } from '../aprendizaje/progreso.js';
 
 function Bloque({ bloque }: { bloque: BloqueAprendizaje }) {
   switch (bloque.tipo) {
@@ -15,6 +16,21 @@ function Bloque({ bloque }: { bloque: BloqueAprendizaje }) {
 
 export function Aprendizaje() {
   const ruta = useEstado(() => estado().aprendizajeRuta as { leccion?: string; paso?: string } | null);
+  useEstado(() => estado().revisionProgresoAprendizaje as number);
+  const creandoPractica = useEstado(() => estado().creandoPracticaAprendizaje as boolean);
+  const encabezado = useRef<HTMLHeadingElement>(null);
+  const tituloPaso = useRef<HTMLHeadingElement>(null);
+  const rutaAnterior = useRef<{ leccion?: string; paso?: string } | null>(null);
+  const claveRuta = ruta ? `${ruta.leccion ?? ''}\u0000${ruta.paso ?? ''}` : null;
+
+  useEffect(() => {
+    if (!ruta) return;
+    const anterior = rutaAnterior.current;
+    const cambioDePaso = Boolean(ruta.leccion && anterior?.leccion === ruta.leccion && anterior.paso !== ruta.paso);
+    (cambioDePaso ? tituloPaso.current : encabezado.current)?.focus();
+    rutaAnterior.current = { ...ruta };
+  }, [claveRuta]);
+
   if (!ruta) return null;
 
   if (!ruta.leccion) {
@@ -24,21 +40,25 @@ export function Aprendizaje() {
         <header className="aprendizaje-cabecera">
           <button type="button" onClick={() => acciones().irAInicio()}>‹ Proyectos</button>
           <p>APRENDER</p>
-          <h1>Aprendé electrónica, paso a paso</h1>
+          <h1 ref={encabezado} tabIndex={-1}>Aprendé electrónica, paso a paso</h1>
           <p>Lecciones prácticas para entender circuitos y placas.</p>
         </header>
         <div className="aprendizaje-lista">
           {lecciones.map(leccion => {
             const progreso = progresoDeLeccion(almacenLocalAprendizaje(), leccion.id, leccion.revision);
+            const registro = registroDeLeccion(almacenLocalAprendizaje(), leccion.id);
+            const pendienteRevision = Boolean(registro && registro.revision !== leccion.revision);
             return (
               <article className="aprendizaje-tarjeta" key={leccion.id}>
                 <div><span>{leccion.nivel === 'inicial' ? 'Inicial' : leccion.nivel}</span><span>{leccion.duracionMinutos} min</span>
-                  {progreso?.completada && <span>Completada</span>}{progreso && !progreso.completada && <span>En curso</span>}</div>
+                  {pendienteRevision && <span>Pendiente de revisar</span>}
+                  {!pendienteRevision && progreso?.completada && <span>Completada</span>}
+                  {!pendienteRevision && progreso && !progreso.completada && <span>En curso</span>}</div>
                 <h2>{leccion.titulo}</h2><p>{leccion.resumen}</p>
                 <button className="primario" type="button" onClick={() => acciones().navegarAprendizaje(leccion.id)}>
-                  {progreso ? 'Continuar lección' : 'Empezar lección'}
+                  {pendienteRevision ? 'Revisar lección' : progreso ? 'Continuar lección' : 'Empezar lección'}
                 </button>
-                {progreso?.proyectoNombre && <button type="button" onClick={() => acciones().continuarPracticaAprendizaje(leccion.id)}>Continuar práctica</button>}
+                {registro?.proyectoNombre && <button type="button" onClick={() => acciones().continuarPracticaAprendizaje(leccion.id)}>Continuar práctica</button>}
               </article>
             );
           })}
@@ -49,11 +69,11 @@ export function Aprendizaje() {
 
   const leccion = leccionPorId(ruta.leccion);
   if (!leccion) {
-    return <div className="aprendizaje-pagina"><h1>Lección no encontrada</h1><button onClick={() => acciones().navegarAprendizaje()}>Volver a Aprender</button></div>;
+    return <div className="aprendizaje-pagina"><h1 ref={encabezado} tabIndex={-1}>Lección no encontrada</h1><button onClick={() => acciones().navegarAprendizaje()}>Volver a Aprender</button></div>;
   }
   const indice = Math.max(0, leccion.pasos.findIndex(paso => paso.id === ruta.paso));
   const paso = leccion.pasos[indice];
-  if (!paso) return <div className="aprendizaje-pagina"><h1>Esta lección todavía no tiene pasos.</h1></div>;
+  if (!paso) return <div className="aprendizaje-pagina"><h1 ref={encabezado} tabIndex={-1}>Esta lección todavía no tiene pasos.</h1></div>;
   const anterior = leccion.pasos[indice - 1];
   const siguiente = leccion.pasos[indice + 1];
   const practica = leccion.practica;
@@ -62,7 +82,7 @@ export function Aprendizaje() {
       <header className="aprendizaje-cabecera">
         <button type="button" onClick={() => acciones().navegarAprendizaje()}>‹ Todas las lecciones</button>
         <p>{leccion.nivel === 'inicial' ? 'INICIAL' : leccion.nivel.toUpperCase()} · {leccion.duracionMinutos} MIN</p>
-        <h1>{leccion.titulo}</h1><p>{leccion.resumen}</p>
+        <h1 ref={encabezado} tabIndex={-1}>{leccion.titulo}</h1><p>{leccion.resumen}</p>
       </header>
       <div className="aprendizaje-cuerpo">
         <nav aria-label="Pasos de la lección" className="aprendizaje-pasos">
@@ -75,15 +95,15 @@ export function Aprendizaje() {
         </nav>
         <article className="aprendizaje-contenido">
           <p className="aprendizaje-progreso">Paso {indice + 1} de {leccion.pasos.length}</p>
-          <h2 tabIndex={-1}>{paso.titulo}</h2>
+          <h2 ref={tituloPaso} tabIndex={-1}>{paso.titulo}</h2>
           {paso.bloques.map((bloque, i) => <Bloque key={`${paso.id}-${i}`} bloque={bloque} />)}
           {paso.resultadoEsperado && <aside className="aprendizaje-resultado"><b>Qué observar</b><p>{paso.resultadoEsperado}</p></aside>}
           {siguiente === undefined && practica && (
             <aside className="aprendizaje-practica">
               <h3>Probalo en el emulador</h3>
               <p>Creá un proyecto independiente con el circuito de esta lección.</p>
-              <button className="primario" type="button" onClick={() => acciones().crearPracticaAprendizaje(practica.templateId)}>
-                Abrir práctica
+              <button className="primario" type="button" disabled={creandoPractica} onClick={() => acciones().crearPracticaAprendizaje(practica.templateId)}>
+                {creandoPractica ? 'Creando práctica…' : 'Abrir práctica'}
               </button>
             </aside>
           )}
