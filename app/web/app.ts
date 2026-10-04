@@ -2,13 +2,21 @@
 import { miniatura, ponerImagenPantalla } from './modulos.js';
 import { lenguajeDeArchivo, NOMBRE_LENGUAJE, resaltar } from './editor.js';
 import { crearDepuracion } from './depuracion.js';
+import { crearEditorMicroPython } from './editor-micropython.js';
+import { editorPreferences, subscribeEditorPreferences } from './editor-preferences.js';
+import { destinoGpio, gpioEnPlaca } from './gpio-destination.js';
+import { placasDelProyecto } from './project-boards.js';
+import { carpetaDeArchivo, rutaNuevaEntrada, type EntryCreationContext, type EntryKind, type BoardFileTree } from './file-tree.js';
+import { defaultDockLayout, normalizeDockLayout, setDockWindowOpen, type DockNode, type DockLayout, type WindowId } from './docking-layout.js';
+import { projectDockLayout, saveProjectDockLayout, defaultSavedDockLayout, saveDefaultDockLayout, resetDefaultDockLayout, projectDockFilter, saveProjectDockFilter, clearProjectDockLayout } from './docking-storage.js';
+import { formatMicroPython } from './micropython-format.js';
 import { montarReact } from './react/montar.js';
 import { alLienzoListo, registrarAcciones, registrarCtx, registrarEstado, registrarMenu, registrarPaleta, registrarVistas } from './react/puente.js';
 import { ahora, notificar, observable } from './react/estado.js';
 import { NOMBRE_LENGUAJE_PROYECTO, SIN_PLACA } from './constantes.js';
 import {
   cablesDe as cablesDePuro, esPinSinAlimentar as esPinSinAlimentarPuro, NOMBRE_KIND,
-  gpioDe as gpioDePuro, gpioDeRef as gpioDeRefPuro, nombrePinGpio as nombrePinGpioPuro,
+  nombrePinGpio as nombrePinGpioPuro,
   nombreRef as nombreRefPuro, pinesSinAlimentar as pinesSinAlimentarPuro,
 } from './consultas.js';
 import { fmtMa, fmtV } from './formato.js';
@@ -67,7 +75,13 @@ const state = observable({
   proyectos: [],
   proyecto: null,
   archivos: [],
+  carpetas: [] as string[],
+  exploradorPlacas: [] as BoardFileTree[],
+  creacionEntrada: null as EntryCreationContext | null,
   activo: null,
+  placaActivaId: (null as string | null),
+  distribucion: defaultDockLayout(),
+  distribucionMensaje: '',
   /** @type {Map<string, any>} */
   catalogo: new Map(),
   /** Chips con lógica (GET /api/chips): id → nombre, entorno que miden, hoja de datos, límites. */
@@ -140,6 +154,9 @@ const state = observable({
     listo: false,
     /** Nivel de salida de cada GPIO (pin.out). */
     niveles: new Map(),
+    nivelesPorPlaca: new Map<string, Map<number, unknown>>(),
+    estadosPorPlaca: new Map<string, any>(),
+    placasListas: new Set<string>(),
     /** Estado de cada control por id de módulo (botón apretado, interruptor, puerta). */
     controles: new Map(),
     /** Hasta cuándo parpadea / suena cada módulo (id → timestamp). */
@@ -167,7 +184,10 @@ registrarEstado(state);
 registrarAcciones({
   agregarModulo: (type) => agregarModulo(type),
   quitarDelCatalogo: (m) => void quitarDelCatalogo(m),
-  filtrarModulos: (texto) => { state.filtroModulos = texto; },
+  filtrarModulos: (texto) => {
+    state.filtroModulos = texto;
+    if (state.proyecto) saveProjectDockFilter(state.proyecto.name, texto);
+  },
   abrirProyecto: (nombre) => void cambiarDeProyecto(nombre),
   eliminarProyecto: (nombre) => void eliminarProyecto(nombre),
   eliminarModulo: (id) => eliminarModulo(id),
@@ -191,7 +211,31 @@ registrarAcciones({
     controlModulo(inst, 'momentary', 0, 'down');
   },
   reemplazarQuemado: (id) => reemplazarQuemado(id),
-  abrirArchivo: (ruta) => void abrirArchivo(ruta),
+  abrirArchivo: (ruta) => { seleccionar(null); void abrirArchivo(ruta); },
+  abrirArchivoDePlaca: async (boardId, path) => {
+    await seleccionarPlaca(boardId, path);
+    if (state.placaActivaId === boardId && state.activo === path) seleccionar(null);
+  },
+  cargarExplorador: () => cargarExplorador(),
+  nuevoArchivo: abrirNuevoArchivo,
+  actualizarExplorador,
+  nuevaCarpeta: (parent, boardId) => abrirCreacionEntrada('directory', parent, boardId),
+  crearEntrada,
+  importarModulos: abrirImportador,
+  mostrarHerramienta,
+  aplicarDistribucion: layout => actualizarDistribucion(normalizeDockLayout(layout)),
+  guardarDistribucionPredeterminada: () => {
+    saveDefaultDockLayout(state.distribucion);
+    state.distribucionMensaje = 'Predeterminado guardado. Los proyectos existentes conservan su distribución.';
+  },
+  restaurarDistribucionProyecto: () => {
+    actualizarDistribucion(defaultSavedDockLayout());
+    state.distribucionMensaje = 'Este proyecto usa ahora la distribución predeterminada.';
+  },
+  restaurarDistribucionOriginal: () => {
+    resetDefaultDockLayout();
+    state.distribucionMensaje = 'Predeterminado original restablecido. Los proyectos existentes conservan su distribución.';
+  },
   irALinea: (archivo, linea) => irALinea(archivo, linea),
   moverEntorno: (id, valores) => {
     void api(`/api/projects/${state.proyecto.name}/modules/${encodeURIComponent(id)}/entorno`, {
@@ -333,6 +377,7 @@ function conectarWS() {
   ws = new WebSocket(`ws://${location.host}/ws`);
   ws.onmessage = (ev) => {
     const msg = JSON.parse(ev.data);
+    if (msg.project && state.proyecto?.name !== msg.project && /^(emu\.|bridge\.|pin\.|rf\.|debug\.|build\.)/.test(msg.type)) return;
     switch (msg.type) {
       case 'build.log':
         log('build', msg.line);
@@ -348,30 +393,37 @@ function conectarWS() {
             ? `── compilación OK en ${(msg.durationMs / 1000).toFixed(1)} s ──`
             : `── compilación FALLÓ (${(msg.durationMs / 1000).toFixed(1)} s) ──`,
         );
-        if (!msg.ok) {
+        if (!msg.ok && (msg.boardId ? msg.boardId === state.placaActivaId : placasDelProyecto(state.proyecto).length <= 1)) {
           mostrarErrores(msg.errors ?? []);
           mostrarVentana('der', true);
           seleccionar(null); // los errores son del código: mostrar el editor
         }
         break;
       case 'emu.log':
-        log('emu', msg.line);
+        log('emu', msg.boardId && placasDelProyecto(state.proyecto).length > 1 ? `[${msg.boardId}] ${msg.line}` : msg.line);
         break;
       case 'emu.state':
-        aplicarEstadoEmulador(msg.status ?? { state: msg.state });
-        depuracion?.alMensaje(msg);
+        aplicarEstadoEmulador(msg.status ?? { state: msg.state }, msg.boardId);
+        if (!msg.boardId || msg.boardId === state.placaActivaId) depuracion?.alMensaje(msg);
         break;
       case 'bridge.state':
         $('puente').textContent = `puente: ${msg.connected ? 'conectado' : 'caído'}`;
-        if (!msg.connected) marcarSimulacion(false);
+        if (!msg.connected) {
+          if (msg.boardId) state.sim.placasListas.delete(msg.boardId); else state.sim.placasListas.clear();
+          marcarSimulacion(state.sim.placasListas.size > 0);
+        }
         break;
       case 'bridge.ready':
         log('emu', `puente listo (protocolo ${msg.version})`);
+        state.sim.placasListas.add(msg.boardId ?? placasDelProyecto(state.proyecto)[0]?.id ?? BOARD_ID);
         marcarSimulacion(true);
         break;
       case 'pin.out':
         // Un firmware que parpadea rápido manda muchos: se redibuja una vez por frame.
-        state.sim.niveles.set(msg.pin, msg.level);
+        const idPlaca = msg.boardId ?? placasDelProyecto(state.proyecto)[0]?.id ?? BOARD_ID;
+        if (!state.sim.nivelesPorPlaca.has(idPlaca)) state.sim.nivelesPorPlaca.set(idPlaca, new Map());
+        state.sim.nivelesPorPlaca.get(idPlaca)?.set(msg.pin, msg.level);
+        if (idPlaca === (placasDelProyecto(state.proyecto)[0]?.id ?? BOARD_ID)) state.sim.niveles.set(msg.pin, msg.level);
         revisarQuemaduras();
         lienzo.pedirRender();
         recalcularConsumo();
@@ -413,6 +465,7 @@ function conectarWS() {
       case 'debug.continued':
       case 'debug.trace':
       case 'debug.exception':
+        if (msg.boardId && msg.boardId !== state.placaActivaId) break;
         depuracion?.alMensaje(msg);
         if (msg.type === 'debug.stopped') $('punto-debug').hidden = false;
         if (msg.type === 'debug.continued') $('punto-debug').hidden = true;
@@ -436,6 +489,7 @@ function conectarWS() {
 async function resincronizar() {
   const emu = await api('/api/emulator').catch(() => null);
   if (!emu?.status) return;
+  if (emu.running && emu.running !== state.proyecto?.name) { marcarSimulacion(false); return; }
   aplicarEstadoEmulador(emu.status);
   aplicarEstadoEnVivo(emu);
   if (emu.status.running) vigilarSalidasDelDibujo();
@@ -449,7 +503,21 @@ async function resincronizar() {
  */
 function aplicarEstadoEnVivo(emu) {
   state.sim.niveles.clear();
+  state.sim.nivelesPorPlaca.clear();
+  state.sim.estadosPorPlaca.clear();
+  state.sim.placasListas.clear();
+  for (const [id, status] of Object.entries(emu.boards ?? {})) {
+    state.sim.estadosPorPlaca.set(id, status);
+    if ((status as { state?: string }).state === 'bridge') state.sim.placasListas.add(id);
+  }
+  if (emu.boards && !sinPlaca()) {
+    const actual = state.sim.estadosPorPlaca.get(state.placaActivaId) ?? emu.status;
+    if (actual) aplicarEstadoEmulador(actual, state.placaActivaId ?? undefined);
+  }
+  for (const [id, niveles] of Object.entries(emu.nivelesPorPlaca ?? {})) state.sim.nivelesPorPlaca.set(id, new Map(Object.entries(niveles as Record<string, unknown>).map(([pin, level]) => [Number(pin), level])));
   for (const [pin, nivel] of Object.entries(emu.niveles ?? {})) state.sim.niveles.set(Number(pin), nivel);
+  const principal = placasDelProyecto(state.proyecto)[0]?.id ?? BOARD_ID;
+  if (!state.sim.nivelesPorPlaca.has(principal)) state.sim.nivelesPorPlaca.set(principal, new Map(state.sim.niveles));
   state.sim.controles.clear();
   for (const id of emu.cerrados ?? []) state.sim.controles.set(id, true);
   revisarQuemaduras();
@@ -472,7 +540,7 @@ const NOMBRE_ESTADO = {
 };
 
 /** ¿El proyecto abierto es sin placa (solo circuito)? */
-const sinPlaca = (): boolean => Boolean(state.proyecto) && !state.proyecto.board;
+const sinPlaca = (): boolean => Boolean(state.proyecto) && placasDelProyecto(state.proyecto).length === 0;
 
 /**
  * Proyecto sin placa: ▶/⏹ prenden y apagan el circuito (no hay emulador). Se ve igual que
@@ -490,12 +558,20 @@ function aplicarEnergia() {
   marcarSimulacion(on);
 }
 
-function aplicarEstadoEmulador(status) {
+function aplicarEstadoEmulador(status, boardId?: string) {
+  if (boardId) state.sim.estadosPorPlaca.set(boardId, status);
+  const boardStates = placasDelProyecto(state.proyecto).map(b => state.sim.estadosPorPlaca.get(b.id)).filter(Boolean);
+  if (boardId) {
+    if (status.state === 'bridge') state.sim.placasListas.add(boardId);
+    else state.sim.placasListas.delete(boardId);
+  }
+
+  if (boardId) status = state.sim.estadosPorPlaca.get(state.placaActivaId) ?? status;
   // El emulador es global: en un proyecto sin placa, ▶/⏹ siguen a la energía del circuito.
   if (sinPlaca()) return aplicarEnergia();
   $('estado').textContent = NOMBRE_ESTADO[status.state] ?? status.state;
   $('estado').dataset.s = status.state;
-  const corriendo = Boolean(status.running);
+  const corriendo = boardId && boardStates.length ? boardStates.some(s => s.running) : Boolean(status.running);
   document.body.classList.toggle('corriendo', corriendo);
   btn('ejecutar').disabled = corriendo;
   btn('parar').disabled = !corriendo;
@@ -503,7 +579,7 @@ function aplicarEstadoEmulador(status) {
   btn('recargar').disabled = !corriendo;
   btn('abrir-web').disabled = !(corriendo && web && status.usesWeb !== false);
   btn('abrir-web').dataset.url = web ? `http://127.0.0.1:${web}` : '';
-  marcarSimulacion(status.state === 'bridge');
+  marcarSimulacion(boardId ? state.sim.placasListas.size > 0 : status.state === 'bridge');
   // Por si el panel de un módulo está abierto mostrando "Apretá Ejecutar": que pase a "esperando..." sin
   // que haga falta reseleccionarlo (marcarSimulacion no repinta en los estados intermedios, solo al llegar a "bridge").
   pintarPanelDerecho();
@@ -519,7 +595,8 @@ function vigilarSalidasDelDibujo() {
     const def = state.catalogo.get(inst.type);
     if (def?.bridge?.role !== 'output') continue;
     const gpio = gpioDe(inst.id, def.bridge.pin);
-    if (gpio !== null) enviar({ type: 'pin.watch', pin: gpio });
+    const destino = destinoGpioDe(inst.id, def.bridge.pin);
+    if (destino) enviar({ type: 'pin.watch', pin: gpio, boardId: destino.boardId });
   }
 }
 
@@ -530,6 +607,7 @@ function marcarSimulacion(listo) {
     vigilarSalidasDelDibujo();
   } else {
     state.sim.niveles.clear();
+    state.sim.nivelesPorPlaca.clear();
     state.sim.controles.clear();
     // Sin alimentación las pantallas se apagan (la RAM del controlador se pierde).
     state.salidasChips.clear();
@@ -560,6 +638,56 @@ const editor = {
   lenguaje: 'texto',
 };
 
+let microPythonActivo = false;
+let proyectoEditor: string | null = null;
+let placaEditor: string | null = null;
+const queryPlaca = (id = state.placaActivaId) => id && id !== 'board' ? `?boardId=${encodeURIComponent(id)}` : '';
+const urlArchivo = (proyecto: string, ruta: string, id = state.placaActivaId) => `/api/projects/${encodeURIComponent(proyecto)}/files/${ruta.split('/').map(encodeURIComponent).join('/')}${queryPlaca(id)}`;
+const microPython = crearEditorMicroPython($('editor-micropython'), {
+  change: (text) => {
+    ta('editor').value = text; // puente para integraciones que leen el textarea legacy
+    state.editorSucio = true;
+    state.marcas.clear();
+    state.errores = [];
+    actualizarCuentaProblemas();
+    guardarAuto();
+  },
+  cursor: (line, column) => { $('pos-cursor').textContent = state.activo ? `${line}:${column}` : ''; },
+  breakpoint: (line) => {
+    if (depuracionPlacaDisponible()) depuracion?.alternarBreakpointEnCursor(line);
+    else nota('Seleccioná una placa en el circuito para depurar.');
+  },
+});
+subscribeEditorPreferences(() => microPython.preferences(editorPreferences()));
+
+let formateandoMicroPython = false;
+async function formatearMicroPython() {
+  if (!microPythonActivo || !state.activo || formateandoMicroPython) return;
+  const proyecto = state.proyecto?.name;
+  const archivo = state.activo;
+  const revision = microPython.version();
+  const fuente = microPython.text();
+  const sangria = editorPreferences().indentWidth;
+  formateandoMicroPython = true;
+  notificar();
+  try {
+    const resultado = await formatMicroPython(fuente, archivo, sangria);
+    if (!microPythonActivo || state.proyecto?.name !== proyecto || state.activo !== archivo || microPython.version() !== revision || editorPreferences().indentWidth !== sangria) {
+      nota('El archivo cambió durante el formateo: se conservaron tus cambios.');
+      return;
+    }
+    microPython.format(resultado);
+  } catch (e) { nota(`No se pudo formatear: ${String((e as Error)?.message ?? e)}`); }
+  finally { formateandoMicroPython = false; notificar(); }
+}
+
+const contenidoEditor = () => microPythonActivo ? microPython.text() : ta('editor').value;
+const scrollEditor = () => microPythonActivo ? microPython.scroll() : ta('editor').scrollTop;
+function ponerScrollEditor(scroll: number) {
+  if (microPythonActivo) microPython.setScroll(scroll);
+  else ta('editor').scrollTop = scroll;
+}
+
 function pintarGutter() {
   const n = ta('editor').value.split('\n').length;
   if (n === editor.lineas) return;
@@ -573,6 +701,7 @@ function pedirEditor() {
 }
 
 function pintarEditor() {
+  if (microPythonActivo) return;
   cancelAnimationFrame(editor.frame);
   editor.frame = 0;
   const t = ta('editor');
@@ -583,6 +712,7 @@ function pintarEditor() {
 }
 
 function sincronizarScroll() {
+  if (microPythonActivo) return;
   const t = ta('editor');
   const r = $('resaltado');
   r.scrollTop = t.scrollTop;
@@ -595,6 +725,7 @@ function sincronizarScroll() {
 
 /** Resalta la línea del cursor y muestra "Ln, Col" en la barra de estado, como el IDE. */
 function pintarCursor() {
+  if (microPythonActivo) return;
   const t = ta('editor');
   const antes = t.value.slice(0, t.selectionStart);
   const linea = antes.split('\n').length;
@@ -606,9 +737,15 @@ function pintarCursor() {
 }
 
 function pintarMarcas() {
+  const erroresArchivo = state.errores.flatMap(e => e.line && (!e.file || e.file === state.activo || e.file.endsWith('/' + state.activo))
+    ? [{ line: e.line, message: e.message }] : []);
+  if (microPythonActivo) {
+    microPython.errors(erroresArchivo);
+    return;
+  }
   const cont = $('marcas');
   cont.textContent = '';
-  for (const [linea, msg] of state.marcas) {
+  for (const { line: linea, message: msg } of erroresArchivo) {
     const div = document.createElement('div');
     div.className = 'marca-error';
     div.style.top = `${(linea - 1) * ALTO_LINEA - ta('editor').scrollTop}px`;
@@ -634,11 +771,20 @@ function limpiarMarcas() {
   actualizarCuentaProblemas();
 }
 
-function editarContenido(contenido) {
+function editarContenido(contenido, preservarErrores = false) {
+  proyectoEditor = state.proyecto?.name ?? null;
+  placaEditor = state.placaActivaId;
+  microPythonActivo = /\.py$/i.test(state.activo ?? '');
+  $('editor-micropython').hidden = !microPythonActivo;
+  $('editor-micropython').parentElement.classList.toggle('con-micropython', microPythonActivo);
   ta('editor').value = contenido;
+  if (microPythonActivo) microPython.open(`${state.proyecto?.name}/${state.placaActivaId}/${state.activo}`, contenido);
+  else microPython.hide();
   ta('editor').scrollTop = 0;
-  limpiarMarcas();
+  if (preservarErrores) pintarMarcas();
+  else limpiarMarcas();
   pintarEditor();
+  depuracion?.alCambiarArchivo();
 }
 
 /** Abre el archivo (si hace falta) y lleva el cursor a esa línea. */
@@ -647,6 +793,7 @@ async function irALinea(archivo, linea) {
   seleccionar(null);
   const destino = archivo && state.archivos.some((f) => f.path === archivo) ? archivo : state.activo;
   if (destino && destino !== state.activo) await abrirArchivo(destino);
+  if (microPythonActivo) { microPython.go(linea); return; }
   const t = ta('editor');
   const lineas = t.value.split('\n');
   let pos = 0;
@@ -663,35 +810,117 @@ function guardarAuto() {
 }
 
 async function guardar(silencioso = false) {
-  if (!state.proyecto || !state.activo) return;
+  if (!state.proyecto || !state.activo) return true;
   clearTimeout(state.timerGuardado);
+  const proyecto = state.proyecto.name;
+  const archivo = state.activo;
+  const boardId = state.placaActivaId;
+  const contenido = contenidoEditor();
   try {
-    await api(`/api/projects/${state.proyecto.name}/files/${state.activo}`, {
+    await api(urlArchivo(proyecto, archivo, boardId), {
       method: 'PUT',
-      body: JSON.stringify({ content: ta('editor').value }),
+      body: JSON.stringify({ content: contenido }),
     });
-    state.editorSucio = false;
-    if (!silencioso) log('build', `guardado ${state.activo}`);
+    if (state.proyecto?.name === proyecto && state.placaActivaId === boardId && state.activo === archivo && contenidoEditor() === contenido) state.editorSucio = false;
+    if (!silencioso) log('build', `guardado ${archivo}`);
     void refrescarAvisos();
+    return true;
   } catch (e: any) {
     log('build', `[error] no se pudo guardar: ${String(((e as Error))?.message ?? e)}`);
+    return false;
   }
 }
 
 
+let aperturasArchivo = 0;
 async function abrirArchivo(ruta) {
+  const version = ++aperturasArchivo;
   if (!state.proyecto) return;
   const proyecto = state.proyecto.name;
-  if (state.activo && state.activo !== ruta) await guardar(true);
-  const { content } = await api(`/api/projects/${proyecto}/files/${ruta}`);
+  const boardId = state.placaActivaId;
+  if (!boardId) return;
+  if (state.activo && state.activo !== ruta && !await guardar(true)) return;
+  if (version !== aperturasArchivo) return;
+  const { content } = await api(urlArchivo(proyecto, ruta, boardId));
   // Si mientras cargaba se cambió de proyecto, este contenido es de otro: no se muestra
   // (si no, el autoguardado lo escribiría en el proyecto equivocado).
-  if (state.proyecto?.name !== proyecto) return;
+  if (version !== aperturasArchivo || state.proyecto?.name !== proyecto || state.placaActivaId !== boardId) return;
+  const preservarErrores = proyectoEditor === proyecto && placaEditor === boardId && Boolean(state.activo) && state.activo !== ruta;
   state.activo = ruta;
   editor.lenguaje = lenguajeDeArchivo(ruta);
   $('lenguaje-status').textContent = NOMBRE_LENGUAJE[editor.lenguaje];
-  editarContenido(content);
-  depuracion?.alCambiarArchivo();
+  editarContenido(content, preservarErrores);
+}
+
+let seleccionPlacaVersion = 0;
+/** Cambia el contexto desde el circuito o al abrir un archivo de otra placa. */
+async function seleccionarPlaca(boardId: string, archivo?: string) {
+  if (!state.proyecto) return;
+  const version = ++seleccionPlacaVersion;
+  if (state.placaActivaId === boardId) {
+    if (archivo) await abrirArchivo(archivo);
+    return;
+  }
+  const nombre = state.proyecto.name;
+  try {
+    if (!await guardar(true)) return;
+    const anterior = state.placaActivaId;
+    const resultado = await api(`/api/projects/${encodeURIComponent(nombre)}${queryPlaca(boardId)}`);
+    if (version !== seleccionPlacaVersion || state.proyecto?.name !== nombre || state.placaActivaId !== anterior) return;
+    if (state.editorSucio && !await guardar(true)) return;
+    if (version !== seleccionPlacaVersion || state.proyecto?.name !== nombre || state.placaActivaId !== anterior) return;
+    if (state.editorSucio) { nota('El archivo sigue cambiando: guardalo antes de cambiar de placa.'); return; }
+    state.placaActivaId = boardId;
+    depuracion?.alCambiarContexto();
+    state.placa = resultado.placa ?? null;
+    state.carpetas = resultado.directories ?? [];
+    state.archivos = resultado.files.filter(f => !/(^|\/)(secrets\.yaml|project\.json)$/.test(f.path));
+    state.activo = null;
+    const main = archivo ? state.archivos.find(f => f.path === archivo) : state.archivos.find(f => /(^|\/)main\.py$/.test(f.path)) ?? state.archivos[0];
+    if (main) await abrirArchivo(main.path);
+    else editarContenido('');
+    pintarPanelDerecho(); pintarWidgetsProyecto(); pintarAlimentacion(); lienzo.render();
+    const status = state.sim.estadosPorPlaca.get(boardId);
+    if (status) aplicarEstadoEmulador(status, boardId);
+    await refrescarAvisos();
+    depuracion?.alCambiarArchivo();
+  } catch (e) { nota(`No se pudo abrir la placa: ${String((e as Error)?.message ?? e)}`); }
+}
+
+function abrirNuevoArchivo(parent?: string, boardId?: string) {
+  abrirCreacionEntrada('file', parent, boardId);
+}
+
+function abrirCreacionEntrada(kind: EntryKind, parent = carpetaDeArchivo(state.activo), boardId = state.placaActivaId) {
+  const board = placasDelProyecto(state.proyecto).find(board => board.id === boardId);
+  if (!state.proyecto || !board) return;
+  ahora(() => { state.creacionEntrada = { project: state.proyecto.name, boardId: board.id, parent, kind, language: board.language }; });
+  const dialog = $('dlg-nuevo-archivo') as HTMLDialogElement;
+  dialog.setAttribute('aria-label', kind === 'directory' ? 'Nueva carpeta' : board.language === 'micropython' ? 'Nuevo archivo MicroPython' : 'Nuevo archivo');
+  inp('nuevo-archivo-nombre').value = '';
+  dialog.showModal();
+}
+
+async function crearEntrada(name: string, kind: EntryKind): Promise<void> {
+  const context = state.creacionEntrada;
+  if (!context || context.kind !== kind) throw new Error('No hay una creación pendiente.');
+  const path = rutaNuevaEntrada(context.parent, name, kind, context.language);
+  if (state.proyecto?.name !== context.project || !placasDelProyecto(state.proyecto).some(board => board.id === context.boardId)) throw new Error('Cambió el proyecto o se quitó la placa. Volvé a abrir el formulario.');
+  if (!await guardar(true)) throw new Error('No se pudo guardar el archivo actual.');
+  const endpoint = kind === 'directory'
+    ? `/api/projects/${encodeURIComponent(context.project)}/directories${queryPlaca(context.boardId)}`
+    : urlArchivo(context.project, path, context.boardId);
+  await api(endpoint, { method: 'POST', body: JSON.stringify(kind === 'directory' ? { path } : { content: '' }) });
+  if (state.proyecto?.name !== context.project) return;
+  await cargarExplorador(true);
+  if (state.proyecto?.name !== context.project) return;
+  if (kind === 'file') {
+    await seleccionarPlaca(context.boardId, path);
+    if (state.placaActivaId === context.boardId && state.activo === path) seleccionar(null);
+  } else if (state.placaActivaId === context.boardId) {
+    const summary = state.exploradorPlacas.find(board => board.id === context.boardId);
+    if (summary) { state.archivos = summary.files; state.carpetas = summary.directories; }
+  }
 }
 
 // --- Dibujo: consultas ------------------------------------------------------
@@ -702,34 +931,54 @@ async function abrirArchivo(ruta) {
 // D13 en un Uno), qué GPIO es cada uno, cuáles están reservados y cuáles conviene evitar.
 
 /** Descriptor `board` de la placa del proyecto abierto, o null. */
-const descriptorPlaca = () => state.placa?.board ?? null;
+const descriptorPlaca = (id = state.placaActivaId) => {
+  const board = placasDelProyecto(state.proyecto).find(b => b.id === id);
+  return state.catalogo.get(board?.board ?? '')?.board ?? (id === state.placaActivaId ? state.placa?.board : null) ?? null;
+};
 
 /** Nombre corto para textos: "Arduino Uno R3", "ESP32-S3 DevKitC-1"… */
-const nombrePlaca = () => state.placa?.nombre ?? state.catalogo.get(state.proyecto?.board ?? '')?.name ?? 'la placa';
+const depuracionPlacaDisponible = () => Boolean(state.placaActivaId);
+const placaActiva = () => placasDelProyecto(state.proyecto).find(b => b.id === state.placaActivaId);
+const nombrePlaca = () => state.placa?.nombre ?? state.catalogo.get(placaActiva()?.board ?? state.proyecto?.board ?? '')?.name ?? 'la placa';
 
 /** @param {Record<string, string> | undefined} obj claves = número de GPIO */
 const mapaDePines = (obj) => new Map(Object.entries(obj ?? {}).map(([k, v]) => [Number(k), v]));
 
 /** GPIO → motivo por el que no se puede usar (lo usa la simulación, la consola…). */
-function pinesBloqueados() {
-  const d = descriptorPlaca();
+function pinesBloqueados(id = state.placaActivaId) {
+  const d = descriptorPlaca(id);
   return d ? mapaDePines(d.reservedPins) : PINES_BLOQUEADOS_S3;
 }
 
 /** GPIO → motivo por el que conviene no usarlo (arranque, USB, LED de la placa…). */
-function pinesAdvertencia() {
-  const d = descriptorPlaca();
+function pinesAdvertencia(id = state.placaActivaId) {
+  const d = descriptorPlaca(id);
   return d ? mapaDePines(d.warningPins) : PINES_ADVERTENCIA_S3;
 }
 
-/** Consultas puras de GPIO; app.ts solo aporta el estado actual del proyecto. */
-const gpioDeRef = (ref: string) => gpioDeRefPuro(ref, descriptorPlaca());
+/** GPIO de una punta en la placa ("board.GPIO6" → 6, "board.D13" → 13), o null si no es un GPIO. */
+function gpioDeRef(ref) {
+  return gpioEnPlaca(ref, placasDelProyecto(state.proyecto), state.catalogo)?.gpio ?? null;
+}
+const destinoGpioDe = (id: string, pin: string) => destinoGpio(`${id}.${pin}`, state.diagrama.modules, state.diagrama.wires, placasDelProyecto(state.proyecto), state.catalogo);
+const nivelGpio = (boardId: string, gpio: number) => state.sim.nivelesPorPlaca.get(boardId)?.get(gpio);
+
+/** Nombre del pin de la placa para un GPIO ("D13" en un Uno, "GPIO13" en un ESP32). */
 const nombrePinGpio = (g: number) => nombrePinGpioPuro(g, descriptorPlaca());
-const cablesDe = (ref: string) => cablesDePuro(ref, state.diagrama.wires);
-const gpioDe = (id: string, pin: string) => gpioDePuro(
-  id, pin, state.diagrama.modules, state.diagrama.wires,
-  (type) => state.catalogo.get(type), descriptorPlaca(),
-);
+
+/** Cables que tocan un pin "id.PIN". */
+/** Los cables que llegan a una punta. El cálculo está en consultas.ts (puro y probado). */
+const cablesDe = (ref) => cablesDePuro(ref, state.diagrama.wires);
+
+/**
+ * GPIO del ESP32 al que está cableado un pin de un módulo, o null.
+ * Atraviesa componentes "de paso" (p. ej. una resistencia en serie con un LED):
+ * para la lógica digital es como si el cable siguiera derecho (eléctricamente
+ * sí cuenta su resistencia — eso lo maneja el chequeo de Ley de Ohm aparte).
+ */
+function gpioDe(id, pin) {
+  return destinoGpioDe(id, pin)?.gpio ?? null;
+}
 
 /** Nombre legible de una punta de cable: "ESP32 · GPIO6" / "Pulsador btn1 · OUT". */
 const nombreRef = (ref) =>
@@ -830,11 +1079,7 @@ function agregarModulo(type, x?: number, y?: number) {
   const def = state.catalogo.get(type);
   if (!def || !state.proyecto) return;
   if (def.programmable) {
-    // La placa es un módulo más, pero una sola: sin placa se agrega eligiendo el lenguaje.
-    if (!state.proyecto.board) return abrirAgregarPlaca(type, x, y);
-    nota(`El proyecto ya tiene su placa (${nombrePlaca()}): la simulación corre un solo microcontrolador a la vez. Para cambiarla, quitá esta primero.`);
-    seleccionar({ tipo: 'modulo', id: BOARD_ID });
-    return;
+    return abrirAgregarPlaca(type, x, y);
   }
   const props = {};
   for (const [k, p] of Object.entries(def.props ?? {})) {
@@ -882,6 +1127,7 @@ dlgPlaca().addEventListener('close', async () => {
   const board = sel('placa-nueva').value;
   const language = sel('placa-lenguaje').value;
   try {
+    if (!await guardar(true)) return;
     await api(`/api/projects/${nombre}/board`, { method: 'POST', body: JSON.stringify({ board, language, ...posPlacaNueva }) });
     await abrirProyecto(nombre);
     nota(`${nombrePlaca()} agregada (${NOMBRE_LENGUAJE_PROYECTO[language] ?? language}): ya podés programarla. ▶ ahora compila y ejecuta.`);
@@ -890,23 +1136,25 @@ dlgPlaca().addEventListener('close', async () => {
   }
 });
 
-async function quitarPlaca() {
-  if (!state.proyecto?.board) return;
+async function quitarPlaca(boardId = state.placaActivaId) {
+  if (!state.proyecto || !boardId) return;
   const nombre = state.proyecto.name;
-  const placa = nombrePlaca();
-  if (!confirm(`¿Quitar la ${placa} del proyecto?\nSe borran sus cables; el código queda guardado y vuelve si la agregás de nuevo. El circuito sigue, sin placa: ▶ lo energiza.`)) return;
+  const elegida = placasDelProyecto(state.proyecto).find(b => b.id === boardId);
+  const placa = state.catalogo.get(elegida?.board ?? '')?.name ?? boardId;
+  if (!confirm(`¿Quitar ${placa} (${boardId}) del proyecto?\nSe borran sus cables. Las otras placas y sus archivos se conservan.`)) return;
   try {
-    await api(`/api/projects/${nombre}/board`, { method: 'DELETE' });
+    if (!await guardar(true)) return;
+    await api(`/api/projects/${nombre}/board${queryPlaca(boardId)}`, { method: 'DELETE' });
     await abrirProyecto(nombre);
-    nota(`${placa} quitada: el proyecto queda como circuito sin placa.`);
+    nota(`${placa} quitada: ${sinPlaca() ? 'el proyecto queda como circuito sin placa' : 'las demás placas siguen en el circuito'}.`);
   } catch (e: any) {
     nota(String((e as Error)?.message ?? e));
   }
 }
 
 function eliminarModulo(id) {
-  if (id === BOARD_ID) {
-    void quitarPlaca();
+  if (placasDelProyecto(state.proyecto).some(b => b.id === id)) {
+    void quitarPlaca(id);
     return;
   }
   const prefijo = `${id}.`;
@@ -1032,7 +1280,7 @@ function controlModulo(inst, control, indice, evento) {
     // eléctrico (pull interno, umbrales del chip): si está mal cableado, el programa no ve nada,
     // como en la placa real. Otro módulo de entrada le dice su nivel directo.
     if (esInterruptor) avisarInterruptor(inst.id, presionado);
-    else if (gpio !== null) enviar({ type: 'pin.in', pin: gpio, level: presionado ? activo : 1 - activo });
+    else if (gpio !== null) enviar({ type: 'pin.in', pin: gpio, boardId: destinoGpioDe(inst.id, def.bridge.pin)?.boardId, level: presionado ? activo : 1 - activo });
     lienzo.render();
     return;
   }
@@ -1139,7 +1387,8 @@ function vivoDe(inst) {
   if (def?.bridge?.role === 'output') {
     const gpio = gpioDe(inst.id, def.bridge.pin);
     // Sin GND (y VCC si lo necesita) no prende, aunque el ESP32 ponga el pin en 1: como en la vida real.
-    vivo.on = gpio !== null && state.sim.niveles.get(gpio) === 1 && pinesSinAlimentar(inst, def).length === 0;
+    const destino = destinoGpioDe(inst.id, def.bridge.pin);
+    vivo.on = destino && nivelGpio(destino.boardId, destino.gpio) === 1 && pinesSinAlimentar(inst, def).length === 0;
   }
   // Un LED también prende si le llega corriente sin pasar por el código: una fuente, el 3V3
   // de la placa, un pulsador en serie... (lo calcula el motor eléctrico del server).
@@ -1191,26 +1440,26 @@ function reemplazarQuemado(id) {
 
 function reflejarPlacaQuemada() {
   const quemada = Boolean(state.alimentacion?.quemada);
-  if (quemada && !state.sim.quemados.has(BOARD_ID)) {
-    state.sim.quemados.set(BOARD_ID, { hora: Date.now(), mA: 0 });
+  if (quemada && !state.sim.quemados.has(state.placaActivaId)) {
+    state.sim.quemados.set(state.placaActivaId, { hora: Date.now(), mA: 0 });
     nota(`Se quemó ${nombrePlaca()}: ${state.alimentacion!.mensaje} Queda muerta hasta reemplazarla.`);
     log('emu', `[alimentación] ${state.alimentacion!.mensaje}`);
     setTimeout(() => lienzo.render(), 1450); // termina la explosión, queda el humo
-  } else if (!quemada && state.sim.quemados.has(BOARD_ID)) {
-    state.sim.quemados.delete(BOARD_ID);
+  } else if (!quemada && state.sim.quemados.has(state.placaActivaId)) {
+    state.sim.quemados.delete(state.placaActivaId);
   }
 }
 
 async function reemplazarPlaca() {
   if (!state.proyecto) return;
-  await api(`/api/projects/${state.proyecto.name}/board/replace`, { method: 'POST' });
-  state.sim.quemados.delete(BOARD_ID);
+  await api(`/api/projects/${state.proyecto.name}/board/replace${queryPlaca()}`, { method: 'POST' });
+  state.sim.quemados.delete(state.placaActivaId);
   nota(`${nombrePlaca()} reemplazada por una nueva.`);
   await refrescarAvisos();
 }
 
 function instanciaPlaca() {
-  return state.diagrama.modules.find((m) => m.id === BOARD_ID);
+  return state.diagrama.modules.find((m) => m.id === state.placaActivaId);
 }
 
 /** El "USB conectado" de la placa (prop `usb`), o null si la placa no lo tiene (descriptor sin `power`). */
@@ -1318,9 +1567,9 @@ function descripcionPin(ref) {
   if (g === null) {
     return esPinSinAlimentar(ref) ? 'sin esto el módulo no funciona, como en la vida real' : '';
   }
-  if (pinesBloqueados().has(g)) return `reservado: ${pinesBloqueados().get(g)}`;
-  if (pinesAdvertencia().has(g)) return `ojo: ${pinesAdvertencia().get(g)}`;
-  if (state.codePins.has(g) && cablesDe(ref).length === 0) return 'el código lo usa pero no tiene nada conectado';
+  if (pinesBloqueados(ref.split('.')[0]).has(g)) return `reservado: ${pinesBloqueados(ref.split('.')[0]).get(g)}`;
+  if (pinesAdvertencia(ref.split('.')[0]).has(g)) return `ojo: ${pinesAdvertencia(ref.split('.')[0]).get(g)}`;
+  if (ref.split('.')[0] === state.placaActivaId && state.codePins.has(g) && cablesDe(ref).length === 0) return 'el código lo usa pero no tiene nada conectado';
   return '';
 }
 
@@ -1330,10 +1579,11 @@ function clasePin(ref) {
   if (cablesDe(ref).length > 0) clases.push('conectado');
   const g = gpioDeRef(ref);
   if (g !== null) {
-    if (pinesBloqueados().has(g)) clases.push('bloqueado');
-    else if (pinesAdvertencia().has(g)) clases.push('advertencia');
-    if (state.codePins.has(g)) clases.push(cablesDe(ref).length > 0 ? 'en-codigo' : 'falta-modulo');
-    if (state.sim.niveles.get(g) === 1) clases.push('alto');
+    if (pinesBloqueados(ref.split('.')[0]).has(g)) clases.push('bloqueado');
+    else if (pinesAdvertencia(ref.split('.')[0]).has(g)) clases.push('advertencia');
+    if (ref.split('.')[0] === state.placaActivaId && state.codePins.has(g)) clases.push(cablesDe(ref).length > 0 ? 'en-codigo' : 'falta-modulo');
+    const destino = gpioEnPlaca(ref, placasDelProyecto(state.proyecto), state.catalogo);
+    if (destino && nivelGpio(destino.boardId, g) === 1) clases.push('alto');
   } else if (esPinSinAlimentar(ref)) {
     clases.push('sin-alimentar');
   }
@@ -1417,6 +1667,7 @@ function girarSeleccion(delta) {
 // --- Selección y panel derecho ------------------------------------------------
 
 function seleccionar(s) {
+  if (s?.tipo === 'modulo' && placasDelProyecto(state.proyecto).some(b => b.id === s.id) && s.id !== state.placaActivaId) void seleccionarPlaca(s.id);
   state.seleccion = s;
   pintarPanelDerecho();
   lienzo.render();
@@ -1434,7 +1685,7 @@ function pintarPanelDerecho() {
   const def = inst ? state.catalogo.get(inst.type) : null;
   const muestraCodigo = !s || (s.tipo === 'modulo' && (!inst || def?.programmable));
   // Sin placa no hay código: en su lugar, el panel cuenta qué es un proyecto sin placa.
-  const codigo = muestraCodigo && !sinPlaca();
+  const codigo = muestraCodigo && Boolean(state.placaActivaId);
   $('panel-codigo').hidden = !codigo;
   $('panel-modulo').hidden = codigo;
 }
@@ -1471,20 +1722,29 @@ async function aplicarCambioExterno(msg) {
     lienzo.render();
     return;
   }
-  const { project, files } = await api(`/api/projects/${nombre}`);
+  const resumen = await api(`/api/projects/${nombre}`);
+  const project = resumen.project;
+  let files = resumen.files;
+  let directories = resumen.directories ?? [];
   if (state.proyecto?.name !== nombre) return;
   // Se agregó o se quitó la placa (otra pestaña, el MCP): cambian el código, la barra y el modo de ▶.
-  if (project.board !== state.proyecto.board || project.language !== state.proyecto.language) {
+  if (JSON.stringify(placasDelProyecto(project)) !== JSON.stringify(placasDelProyecto(state.proyecto))) {
     await abrirProyecto(nombre);
     return;
+  }
+  if (msg.what !== 'diagram' && state.placaActivaId && state.placaActivaId !== placasDelProyecto(project)[0]?.id) {
+    const contexto = await api(`/api/projects/${nombre}${queryPlaca()}`);
+    if (state.proyecto?.name !== nombre) return;
+    files = contexto.files;
+    directories = contexto.directories ?? [];
   }
   if (msg.what === 'diagram') {
     // El cambio de afuera gana: lo pendiente de esta pestaña se descarta.
     clearTimeout(state.timerDiagrama);
     state.timerDiagrama = null;
     state.diagrama = { modules: [...project.modules], wires: [...project.wires] };
-    if (project.board && !state.diagrama.modules.some((m) => m.id === BOARD_ID)) {
-      state.diagrama.modules.unshift({ id: BOARD_ID, type: project.board, x: 0, y: 0, props: {} });
+    for (const board of placasDelProyecto(project)) {
+      if (!state.diagrama.modules.some(m => m.id === board.id)) state.diagrama.modules.unshift({ id: board.id, type: board.board, x: 0, y: 0, props: {} });
     }
     const s = state.seleccion;
     if (s?.tipo === 'cable' || (s?.tipo === 'modulo' && !state.diagrama.modules.some((m) => m.id === s.id))) {
@@ -1494,15 +1754,16 @@ async function aplicarCambioExterno(msg) {
     lienzo.render();
     nota(msg.origin === 'mcp' ? 'Circuito actualizado por MCP.' : 'Circuito actualizado desde otra pestaña.');
   } else {
+    state.carpetas = directories ?? [];
     state.archivos = files.filter((f) => !/(^|\/)(secrets\.yaml|project\.json)$/.test(f.path));
     if (msg.file === state.activo) {
       if (state.editorSucio) {
         nota(`${msg.file} cambió afuera, pero tenés cambios sin guardar: se mantienen los tuyos.`);
       } else {
-        const { content } = await api(`/api/projects/${nombre}/files/${msg.file}`);
-        const scroll = ta('editor').scrollTop;
+        const { content } = await api(urlArchivo(nombre, msg.file));
+        const scroll = scrollEditor();
         editarContenido(content);
-        ta('editor').scrollTop = scroll;
+        ponerScrollEditor(scroll);
         nota(`${msg.file} actualizado ${msg.origin === 'mcp' ? 'por MCP' : 'desde otra pestaña'}.`);
       }
     }
@@ -1611,8 +1872,10 @@ async function quitarDelCatalogo(m) {
 
 async function refrescarAvisos() {
   if (!state.proyecto) return;
+  const proyecto = state.proyecto.name;
   try {
-    const respuesta = await api(`/api/projects/${state.proyecto.name}/pins`);
+    const respuesta = await api(`/api/projects/${proyecto}/pins`);
+    if (state.proyecto?.name !== proyecto) return;
     const { pins, warnings } = respuesta;
     state.codePins = new Set(pins);
     state.avisosDibujo = warnings;
@@ -1621,7 +1884,7 @@ async function refrescarAvisos() {
     state.mediciones = respuesta.electrico?.mediciones ?? [];
     state.tensiones = respuesta.electrico?.tensiones ?? {};
     state.uiModulos = new Map(Object.entries(respuesta.electrico?.modulos ?? {}));
-    state.alimentacion = respuesta.electrico?.placa ?? null;
+    state.alimentacion = respuesta.electrico?.placas?.[state.placaActivaId] ?? respuesta.electrico?.placa ?? null;
     const energizado = Boolean(respuesta.electrico?.energizado);
     if (energizado !== state.energizado) {
       state.energizado = energizado;
@@ -1667,6 +1930,7 @@ async function cargarProyectos(seleccionarNombre?: string) {
 function mostrarInicio() {
   document.body.classList.add('inicio');
   state.proyecto = null;
+  state.placaActivaId = null;
   state.activo = null;
   history.replaceState(null, '', location.pathname + location.search);
   sel('proyecto').value = '';
@@ -1696,8 +1960,9 @@ function pintarWidgetsProyecto() {
     raiz.setProperty('--color-proyecto', colorProyecto(p.name));
     raiz.setProperty('--tinte', colorProyecto(p.name).replace(')', ' / .22)'));
     $('insignia-proyecto').textContent = iniciales(p.name);
-    const placa = p.board ? state.catalogo.get(p.board) : null;
-    $('dispositivo-texto').textContent = p.board ? (placa?.name ?? p.board) : 'Sin placa';
+    const contextoPlaca = placaActiva();
+    const placa = contextoPlaca ? state.catalogo.get(contextoPlaca.board) : null;
+    $('dispositivo-texto').textContent = contextoPlaca ? `${placa?.name ?? contextoPlaca.board} · ${contextoPlaca.id}` : 'Sin placa';
     $('dispositivo').title = p.board ? 'Placa que se emula' : 'Proyecto sin placa: solo circuito. Agregá una placa desde el catálogo para programarla.';
     // Sin placa no hay lenguaje, ni reset, ni web del dispositivo: ▶ solo energiza el circuito.
     $('config-run').hidden = !p.board;
@@ -1705,8 +1970,8 @@ function pintarWidgetsProyecto() {
     $('reset').hidden = !p.board;
     $('recargar').hidden = !p.board;
     $('abrir-web').hidden = !p.board;
-    $('config-run-texto').textContent = p.language ? (NOMBRE_LENGUAJE_PROYECTO[p.language] ?? p.language) : '';
-    btn('ejecutar').title = p.board ? 'Compilar y ejecutar (Shift+F10 · Ctrl+Enter)' : 'Energizar el circuito: prende las fuentes regulables (Shift+F10 · Ctrl+Enter)';
+    $('config-run-texto').textContent = contextoPlaca?.language ? (NOMBRE_LENGUAJE_PROYECTO[contextoPlaca.language] ?? contextoPlaca.language) : '';
+    btn('ejecutar').title = p.board ? 'Compilar y ejecutar placas (Shift+F10 · Ctrl+Enter)' : 'Energizar el circuito: prende las fuentes regulables (Shift+F10 · Ctrl+Enter)';
     btn('parar').title = p.board ? 'Parar (Ctrl+F2)' : 'Apagar el circuito (Ctrl+F2)';
     document.title = `${p.name} – Emulador de electrónica`;
   } else {
@@ -1727,6 +1992,7 @@ async function eliminarProyecto(nombre) {
   if (!confirm(`¿Eliminar el proyecto "${nombre}"? No se puede deshacer.`)) return;
   try {
     await api(`/api/projects/${nombre}`, { method: 'DELETE' });
+    clearProjectDockLayout(nombre);
     // Si era el proyecto abierto (p.ej. desde la barra de iconos), hay que soltarlo antes de
     // recargar la lista: si no, cargarProyectos() intenta reabrir un proyecto que ya no existe.
     if (state.proyecto?.name === nombre) {
@@ -1751,25 +2017,60 @@ async function irAInicio() {
 /** Cuenta las aperturas: si se pide otro proyecto mientras uno carga, la carga vieja se descarta. */
 let aperturas = 0;
 
+let cargasExplorador = 0;
+/** Carga metadatos de todas las placas sin cambiar el contexto del editor. */
+async function cargarExplorador(sincronizarActivo = false): Promise<void> {
+  const project = state.proyecto?.name;
+  if (!project) return;
+  const version = ++cargasExplorador;
+  const result = await api(`/api/projects/${encodeURIComponent(project)}/explorer`);
+  if (version !== cargasExplorador || state.proyecto?.name !== project) return;
+  const boards: BoardFileTree[] = result.boards.map((board: BoardFileTree) => ({
+    ...board, files: board.files.filter(file => !/(^|\/)(secrets\.yaml|project\.json)$/.test(file.path)),
+  }));
+  ahora(() => {
+    state.exploradorPlacas = boards;
+    if (sincronizarActivo) {
+      const active = boards.find(board => board.id === state.placaActivaId);
+      if (active) { state.archivos = active.files; state.carpetas = active.directories; }
+    }
+  });
+}
+
+async function actualizarExplorador(): Promise<void> {
+  if (!await guardar(true)) throw new Error('No se pudo guardar el archivo actual.');
+  await cargarExplorador(true);
+}
+
 async function abrirProyecto(nombre) {
   const mia = ++aperturas;
-  const { project, files, placa } = await api(`/api/projects/${nombre}`);
+  const { project, files, directories, placa } = await api(`/api/projects/${nombre}`);
   if (mia !== aperturas) return;
   document.body.classList.remove('inicio');
+  const cambioProyecto = state.proyecto?.name !== nombre;
+  if (cambioProyecto) state.exploradorPlacas = [];
   state.proyecto = project;
+  if (cambioProyecto) {
+    state.filtroModulos = projectDockFilter(nombre);
+    actualizarDistribucion(projectDockLayout(nombre));
+  }
+  state.placaActivaId = placasDelProyecto(project)[0]?.id ?? null;
+  depuracion?.alCambiarContexto();
   state.placa = placa ?? null;
   history.replaceState(null, '', `#${encodeURIComponent(nombre)}`);
   // project.json lo edita el canvas; secrets.yaml no se muestra.
+  state.carpetas = directories ?? [];
   state.archivos = files.filter((f) => !/(^|\/)(secrets\.yaml|project\.json)$/.test(f.path));
   sel('proyecto').value = nombre;
   state.diagrama = { modules: [...project.modules], wires: [...project.wires] };
-  if (project.board && !state.diagrama.modules.some((m) => m.id === BOARD_ID)) {
-    // Proyectos anteriores al canvas: la placa se agrega sola. (Sin placa: solo circuito.)
-    state.diagrama.modules.unshift({ id: BOARD_ID, type: project.board, x: 0, y: 0, props: {} });
+  for (const board of placasDelProyecto(project)) {
+    // Proyectos anteriores al canvas: completar sólo las instancias reales del proyecto.
+    if (!state.diagrama.modules.some(m => m.id === board.id)) state.diagrama.modules.unshift({ id: board.id, type: board.board, x: 0, y: 0, props: {} });
   }
   state.energizado = false; // lo confirma refrescarAvisos (GET /pins)
   state.seleccion = null;
   state.activo = null;
+  editarContenido('');
   const main = state.archivos.find((f) => /main\.(yaml|c|cpp|py)$|sketch\.cpp$/.test(f.path));
   if (main) await abrirArchivo(main.path);
   if (mia !== aperturas) return;
@@ -1813,15 +2114,6 @@ ta('editor').addEventListener('keydown', (e) => {
   }
 });
 
-inp('buscar-modulos').addEventListener('input', () => {
-  // <Catalogo> se entera por el estado observable: no hay que repintar nada a mano.
-  state.filtroModulos = inp('buscar-modulos').value;
-});
-
-$('importar-modulo').onclick = () => {
-  state.importacion = null;
-  ($('dlg-importar') as HTMLDialogElement).showModal();
-};
 for (const b of document.querySelectorAll('.imp-fuentes [data-fuente]')) {
   (b as HTMLElement).onclick = () => elegirFuente((b as HTMLElement).dataset.fuente);
 }
@@ -1974,7 +2266,7 @@ $('dlg-nuevo').addEventListener('close', async () => {
 $('ejecutar').onclick = async () => {
   if (!state.proyecto) return;
   // Como "Run" en el IDE: se abre la consola de compilación si estaba oculta.
-  if (document.body.classList.contains('sin-abajo')) {
+  if (!ventanaVisible('consola')) {
     mostrarVentana('abajo', true);
     elegirTabConsola('build');
   }
@@ -2060,26 +2352,50 @@ $('abrir-web').onclick = () => {
 // --- Ventanas de herramientas (se muestran/ocultan como en Android Studio y VS Code) ---
 
 const VENTANAS = { izq: 'sin-izq', der: 'sin-der', abajo: 'sin-abajo' };
+const VISTA_VENTANA = { izq: 'componentes', der: 'codigo', abajo: 'consola' } as const;
+
+function grupoDeVentana(id: WindowId, node: DockNode = state.distribucion.root) {
+  if (node.kind === 'group') return node.views.includes(id) ? node : null;
+  for (const child of node.children) {
+    const group = grupoDeVentana(id, child);
+    if (group) return group;
+  }
+  return null;
+}
+
+function ventanaVisible(id: WindowId) {
+  const group = grupoDeVentana(id);
+  const active = group && (state.distribucion.open[group.active] ? group.active : group.views.find(view => state.distribucion.open[view]));
+  return state.distribucion.open[id] && active === id;
+}
+
+function actualizarDistribucion(layout: DockLayout) {
+  ahora(() => { state.distribucion = layout; });
+  if (state.proyecto) saveProjectDockLayout(state.proyecto.name, layout);
+  sincronizarFranjas();
+}
+
+function abrirVentana(id: WindowId, visible?: boolean) {
+  actualizarDistribucion(setDockWindowOpen(state.distribucion, id, visible ?? !ventanaVisible(id)));
+}
 
 /** @param {'izq' | 'der' | 'abajo'} cual @param {boolean} [visible] sin valor: alterna */
 function mostrarVentana(cual, visible?: boolean) {
-  const clase = VENTANAS[cual];
-  const ver = visible ?? document.body.classList.contains(clase);
-  document.body.classList.toggle(clase, !ver);
-  try {
-    localStorage.setItem(`ventana-${cual}`, ver ? '1' : '0');
-  } catch {
-    /* no es crítico */
-  }
-  sincronizarFranjas();
-  if (ver && cual === 'abajo') pintarConsola();
+  abrirVentana(VISTA_VENTANA[cual], visible);
+  if (state.distribucion.open.consola && cual === 'abajo') pintarConsola();
 }
 
 function sincronizarFranjas() {
-  const b = document.body.classList;
-  $('tw-catalogo').classList.toggle('activa', !b.contains('sin-izq'));
-  $('act-codigo').classList.toggle('activa', !b.contains('sin-der'));
-  const abajo = !b.contains('sin-abajo');
+  for (const [id, button] of [['componentes', 'tw-catalogo'], ['explorador', 'tw-explorador']] as const) {
+    const visible = state.distribucion.open[id];
+    $(button).classList.toggle('activa', visible);
+    $(button).setAttribute('aria-expanded', String(visible));
+  }
+  $('act-codigo').classList.toggle('activa', state.distribucion.open.codigo);
+  $('act-codigo').setAttribute('aria-expanded', String(state.distribucion.open.codigo));
+  $('tw-circuito').classList.toggle('activa', state.distribucion.open.circuito);
+  $('tw-circuito').setAttribute('aria-expanded', String(state.distribucion.open.circuito));
+  const abajo = state.distribucion.open.consola;
   for (const id of ['tw-build', 'tw-emu', 'tw-debug', 'tw-problemas']) {
     $(id).classList.toggle('activa', abajo && $(id).dataset.twTab === state.tab);
   }
@@ -2096,7 +2412,7 @@ function elegirTabConsola(tab) {
 
 /** Click en la franja: abre la consola en esa pestaña; si ya estaba ahí, la oculta. */
 function alternarConsola(tab) {
-  const visible = !document.body.classList.contains('sin-abajo');
+  const visible = ventanaVisible('consola');
   if (visible && state.tab === tab) return mostrarVentana('abajo', false);
   mostrarVentana('abajo', true);
   elegirTabConsola(tab);
@@ -2109,10 +2425,15 @@ for (const b of document.querySelectorAll('[data-tw-tab]')) {
 for (const b of document.querySelectorAll('[data-ocultar]')) {
   (b as HTMLElement).onclick = () => mostrarVentana(((b as HTMLElement).dataset.ocultar as any), false);
 }
-$('tw-catalogo').onclick = () => mostrarVentana('izq');
+for (const b of document.querySelectorAll('[data-close-window]')) {
+  (b as HTMLElement).onclick = () => abrirVentana((b as HTMLElement).dataset.closeWindow as WindowId, false);
+}
+$('tw-catalogo').onclick = () => mostrarHerramienta('componentes');
+$('tw-explorador').onclick = () => mostrarHerramienta('explorador');
+$('tw-circuito').onclick = () => abrirVentana('circuito');
 $('act-codigo').onclick = () => {
   // Oculto: se abre. Abierto con un módulo elegido: vuelve al código. Abierto con el código: se oculta.
-  if (document.body.classList.contains('sin-der')) mostrarVentana('der', true);
+  if (!ventanaVisible('codigo')) mostrarVentana('der', true);
   else if (state.seleccion) seleccionar(null);
   else mostrarVentana('der', false);
 };
@@ -2126,15 +2447,14 @@ function alternarModoMover() {
 $('act-mover').onclick = alternarModoMover;
 
 function restaurarVentanas() {
-  for (const cual of (['izq', 'der', 'abajo'] as const)) {
-    try {
-      if (localStorage.getItem(`ventana-${cual}`) === '0') document.body.classList.add(VENTANAS[cual]);
-    } catch {
-      /* no es crítico */
-    }
-  }
+  document.body.classList.remove(...Object.values(VENTANAS));
   sincronizarFranjas();
 }
+
+function mostrarHerramienta(id: 'explorador' | 'componentes', visible?: boolean) {
+  abrirVentana(id, visible);
+}
+
 
 inp('filtro').addEventListener('input', () => {
   state.filtro = inp('filtro').value;
@@ -2152,7 +2472,7 @@ inp('entrada-console').addEventListener('keydown', (e) => {
   const data = inp('entrada-console').value;
   inp('entrada-console').value = '';
   log('emu', `> ${data}`);
-  enviar({ type: 'console.input', data: data + '\n' });
+  enviar({ type: 'console.input', data: data + '\n', ...(state.placaActivaId ? { boardId: state.placaActivaId } : {}) });
 });
 inp('buscar-proyectos').addEventListener('input', () => {
   // <Proyectos> se entera por el estado observable.
@@ -2186,7 +2506,7 @@ function borrarSeleccion() {
 }
 
 function buscarModulo() {
-  mostrarVentana('izq', true);
+  mostrarHerramienta('componentes', true);
   inp('buscar-modulos').focus();
   inp('buscar-modulos').select();
 }
@@ -2201,6 +2521,8 @@ const ACCIONES = [
   { id: 'nuevo', titulo: 'Nuevo proyecto…', menu: 'Archivo', hacer: abrirNuevoProyecto },
   { id: 'abrir', titulo: 'Abrir otro proyecto…', menu: 'Archivo', hacer: () => void irAInicio(), habilitada: hayProyecto },
   { id: 'guardar', titulo: 'Guardar', menu: 'Archivo', atajo: 'Ctrl+S', hacer: () => void guardar(false), habilitada: hayProyecto },
+  { id: 'formatear-micropython', titulo: 'Formatear MicroPython', menu: 'Editar', atajo: 'Ctrl+Shift+I', hacer: () => void formatearMicroPython(), habilitada: () => microPythonActivo && !formateandoMicroPython },
+  { id: 'ajustes-editor', titulo: 'Ajustes del editor…', menu: 'Editar', hacer: () => ($('dlg-editor-preferences') as HTMLDialogElement).showModal() },
   { id: 'importar', titulo: 'Importar módulos…', menu: 'Archivo', hacer: abrirImportador },
   {
     id: 'eliminar-proyecto', titulo: 'Eliminar este proyecto…', menu: 'Archivo',
@@ -2226,8 +2548,10 @@ const ACCIONES = [
     habilitada: () => state.seleccion?.tipo === 'modulo',
   },
   { id: 'buscar-modulo', titulo: 'Buscar un módulo en el catálogo', menu: 'Editar', hacer: buscarModulo, habilitada: hayProyecto },
-  { id: 'ver-catalogo', titulo: 'Catálogo', menu: 'Ver', atajo: 'Alt+1', teclas: ['Alt+1', 'Ctrl+B'], hacer: () => mostrarVentana('izq') },
+  { id: 'ver-catalogo', titulo: 'Componentes', menu: 'Ver', atajo: 'Alt+1', teclas: ['Alt+1', 'Ctrl+B'], hacer: () => mostrarHerramienta('componentes') },
+  { id: 'ver-explorador', titulo: 'Explorador de archivos', menu: 'Ver', atajo: 'Ctrl+Shift+E', hacer: () => mostrarHerramienta('explorador', true) },
   { id: 'ver-codigo', titulo: 'Código / propiedades', menu: 'Ver', atajo: 'Alt+2', hacer: () => mostrarVentana('der') },
+  { id: 'ver-circuito', titulo: 'Circuito', menu: 'Ver', hacer: () => abrirVentana('circuito') },
   { id: 'ver-consola', titulo: 'Consola', menu: 'Ver', atajo: 'Ctrl+J', teclas: ['Ctrl+J', 'Ctrl+`'], hacer: () => mostrarVentana('abajo') },
   { id: 'ver-build', titulo: 'Compilación', menu: 'Ver', atajo: 'Alt+0', hacer: () => alternarConsola('build') },
   { id: 'ver-emu', titulo: 'Emulador (consola serie)', menu: 'Ver', atajo: 'Alt+F12', hacer: () => alternarConsola('emu') },
@@ -2268,9 +2592,9 @@ const ACCIONES = [
     id: 'dbg-breakpoint', titulo: 'Poner / sacar breakpoint en esta línea', menu: 'Depurar', atajo: 'Ctrl+F8',
     hacer: () => {
       const t = ta('editor');
-      depuracion.alternarBreakpointEnCursor(t.value.slice(0, t.selectionStart).split('\n').length);
+      depuracion.alternarBreakpointEnCursor(microPythonActivo ? microPython.line() : t.value.slice(0, t.selectionStart).split('\n').length);
     },
-    habilitada: () => Boolean(state.activo),
+    habilitada: () => Boolean(state.activo) && depuracionPlacaDisponible(),
   },
   { id: 'buscar-todo', titulo: 'Buscar en todo…', menu: 'Ayuda', atajo: 'Ctrl+Shift+P', teclas: ['Ctrl+Shift+P', 'Ctrl+K', 'Ctrl+Shift+A'], hacer: () => abrirPaleta() },
   { id: 'acerca', titulo: 'Atajos y acerca de', menu: 'Ayuda', hacer: () => ($('dlg-acerca') as HTMLDialogElement).showModal() },
@@ -2392,100 +2716,50 @@ $('dlg-buscar').addEventListener('click', (e) => {
   if (e.target === e.currentTarget) ($('dlg-buscar') as HTMLDialogElement).close(); // click en el fondo
 });
 $('buscar-todo').onclick = () => abrirPaleta();
-$('act-ajustes').onclick = () => ($('dlg-acerca') as HTMLDialogElement).showModal();
+$('act-ajustes').onclick = () => { state.distribucionMensaje = ''; ($('dlg-ajustes') as HTMLDialogElement).showModal(); };
 $('bienvenida-acerca').onclick = () => ($('dlg-acerca') as HTMLDialogElement).showModal();
 $('bienvenida-importar').onclick = abrirImportador;
-
-// --- Paneles redimensionables -----------------------------------------------
-
-/**
- * Límites y variable CSS de cada separador arrastrable.
- * `izq`/`der` mueven columnas de `main`; `consola` mueve la fila de la consola.
- */
-const LIMITES_REDIMENSION = {
-  izq: { variable: '--col-izq', min: 200, max: 480, selector: '.paleta', prop: 'width' },
-  der: { variable: '--col-der', min: 280, max: 900, selector: '.derecha', prop: 'width' },
-  consola: { variable: '--alto-consola', min: 100, max: 600, selector: '.consola-panel', prop: 'height' },
-};
-
-function iniciarRedimension() {
-  const raiz = document.documentElement;
-
-  // Restaurar tamaños de la última sesión.
-  for (const cfg of Object.values(LIMITES_REDIMENSION)) {
-    try {
-      const guardado = localStorage.getItem(cfg.variable);
-      if (guardado) raiz.style.setProperty(cfg.variable, guardado);
-    } catch {
-      /* localStorage puede no estar disponible; no es crítico */
-    }
-  }
-
-  for (const handle of document.querySelectorAll('[data-resize]')) {
-    const el = (handle as HTMLElement);
-    const tipo = (el.dataset.resize as keyof typeof LIMITES_REDIMENSION);
-    const cfg = LIMITES_REDIMENSION[tipo];
-    const horizontal = tipo !== 'consola';
-    // La consola y el panel derecho crecen hacia el lado contrario al que se arrastra.
-    const signo = tipo === 'izq' ? 1 : -1;
-
-    el.addEventListener('mousedown', (e) => {
-      e.preventDefault();
-      const inicioPos = horizontal ? e.clientX : e.clientY;
-      const panel = (document.querySelector<HTMLElement>(cfg.selector) as HTMLElement);
-      const valorInicial = panel.getBoundingClientRect()[cfg.prop];
-      el.classList.add('arrastrando');
-      document.body.style.userSelect = 'none';
-
-      const mover = (ev) => {
-        const pos = horizontal ? ev.clientX : ev.clientY;
-        const nuevo = Math.min(cfg.max, Math.max(cfg.min, valorInicial + signo * (pos - inicioPos)));
-        raiz.style.setProperty(cfg.variable, `${nuevo}px`);
-      };
-      const soltar = () => {
-        el.classList.remove('arrastrando');
-        document.body.style.userSelect = '';
-        document.removeEventListener('mousemove', mover);
-        document.removeEventListener('mouseup', soltar);
-        try {
-          localStorage.setItem(cfg.variable, raiz.style.getPropertyValue(cfg.variable));
-        } catch {
-          /* no es crítico si no se puede persistir */
-        }
-      };
-      document.addEventListener('mousemove', mover);
-      document.addEventListener('mouseup', soltar);
-    });
-  }
-}
 
 // --- Arranque ---------------------------------------------------------------
 
 // --- Depuración (ventana Debug) ------------------------------------------------------------
 
 const depuracion = crearDepuracion({
-  api, $, escapar, nota, log,
+  api: async (path, opts) => {
+    const boardId = state.placaActivaId;
+    const proyecto = state.proyecto?.name;
+    let scoped = path;
+    if (boardId && boardId !== 'board') {
+      scoped += `${scoped.includes('?') ? '&' : '?'}boardId=${encodeURIComponent(boardId)}`;
+      if (proyecto && !/[?&]project=/.test(scoped)) scoped += `&project=${encodeURIComponent(proyecto)}`;
+    }
+    const resultado = await api(scoped, opts);
+    if (state.placaActivaId !== boardId || state.proyecto?.name !== proyecto) throw new Error('Cambió el contexto de depuración.');
+    return resultado;
+  }, $, escapar, nota, log,
+  contexto: () => `${state.proyecto?.name}/${state.placaActivaId}`,
   proyecto: () => state.proyecto,
-  archivoActivo: () => state.activo,
+  archivoActivo: () => depuracionPlacaDisponible() ? state.activo : null,
+  disponible: depuracionPlacaDisponible,
   archivos: () => state.archivos,
-  irALinea,
+  irALinea: async (archivo, linea) => { if (depuracionPlacaDisponible()) await irALinea(archivo, linea); },
   abrirVentanaDebug: () => {
     mostrarVentana('abajo', true);
     elegirTabConsola('debug');
     mostrarVentana('der', true);
   },
-  debugVisible: () => state.tab === 'debug' && !document.body.classList.contains('sin-abajo'),
+  debugVisible: () => state.tab === 'debug' && ventanaVisible('consola'),
   nombrePin: nombrePinGpio,
   altoLinea: ALTO_LINEA,
   padEditor: PAD_EDITOR,
-  scrollEditor: () => ta('editor').scrollTop,
+  scrollEditor,
+  pintarEditorDebug: (marks) => { if (!microPythonActivo) return false; microPython.debug(marks); return true; },
 });
 
 (async function main() {
   // Antes que nada: React monta el lienzo (sincrónico, ver montarReact) y todo lo que viene
   // después ya puede dibujar en él.
   montarReact();
-  iniciarRedimension();
   restaurarVentanas();
   const { modules } = await api('/api/modules').catch(() => ({ modules: [] }));
   state.catalogo = new Map(modules.map((m) => [m.type, m]));

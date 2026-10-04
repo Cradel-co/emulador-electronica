@@ -1,5 +1,7 @@
+import { useEffect, useRef } from 'react';
 import { useEstado, useVersion } from './estado.js';
 import { acciones, estado } from './puente.js';
+import { placasDelProyecto } from '../project-boards.js';
 import { lenguajeDeArchivo } from '../editor.js';
 
 /**
@@ -11,11 +13,20 @@ import { lenguajeDeArchivo } from '../editor.js';
 export function Pestanas() {
   const archivos = useEstado(() => estado().archivos as { path: string }[]);
   const activo = useEstado(() => estado().activo as string | null);
+  const boardId = useEstado(() => estado().placaActivaId as string | null);
+  const project = useEstado(() => estado().proyecto);
+  const microPython = placasDelProyecto(project).find(b => b.id === boardId)?.language === 'micropython';
+  const activeTab = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => activeTab.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' }));
+    return () => cancelAnimationFrame(frame);
+  }, [activo, archivos]);
   return (
     <>
       {(archivos ?? []).map((f) => (
         <button
           key={f.path}
+          ref={f.path === activo ? activeTab : undefined}
           className={f.path === activo ? 'activa' : undefined}
           data-tipo={lenguajeDeArchivo(f.path)}
           title={f.path}
@@ -24,6 +35,7 @@ export function Pestanas() {
           {f.path}
         </button>
       ))}
+      {boardId && microPython && <button className="nuevo-archivo" aria-label="Nuevo archivo MicroPython" title="Nuevo archivo MicroPython" onClick={() => acciones().nuevoArchivo()}>+</button>}
     </>
   );
 }
