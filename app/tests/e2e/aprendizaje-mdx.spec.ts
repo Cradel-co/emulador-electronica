@@ -24,7 +24,7 @@ test('abre una copia de _learning y vuelve a la lección sin duplicar la prácti
   const nombre = 'practica-mdx-ohm';
   await request.delete(`/api/projects/${nombre}`);
   const ejemplos = await (await request.get('/api/learning/examples')).json();
-  expect(ejemplos).toHaveLength(4);
+  expect(ejemplos).toHaveLength(8);
   await page.goto('/#/aprender/ley-ohm');
   await page.getByRole('button', { name: 'Abrir ejemplo en el emulador' }).click();
   await page.getByRole('textbox', { name: 'Nombre del proyecto' }).fill(nombre);
@@ -53,10 +53,10 @@ test('las seis lecciones cargan sus componentes y no desbordan en móvil', async
   await page.setViewportSize({ width: 390, height: 844 });
   for (const id of ['magnitudes-dc', 'ley-ohm', 'redes-resistivas', 'kirchhoff-corrientes', 'kirchhoff-tensiones', 'tellegen-potencia']) {
     await page.goto(`/#/aprender/${id}`);
-    await expect(page.locator('.mdx-actividad')).toBeVisible();
-    await expect(page.locator('.mdx-formula')).toBeVisible();
+    await expect(page.locator('.mdx-actividad').first()).toBeVisible();
+    await expect(page.locator('.mdx-formula').first()).toBeVisible();
     await expect(page.locator('.mdx-contenido [role="alert"]')).toHaveCount(0);
-    await expect(page.locator('.mdx-circuito svg')).toBeVisible();
+    await expect(page.locator('.mdx-circuito svg').first()).toBeVisible();
     const ancho = await page.locator('#pantalla-aprender').evaluate(element => ({ cliente: element.clientWidth, contenido: element.scrollWidth }));
     expect(ancho.contenido).toBeLessThanOrEqual(ancho.cliente);
   }
@@ -68,4 +68,28 @@ test('la API separa ejemplos de plantillas y rechaza copias inválidas', async (
   expect(plantillas.some((item: { id: string }) => ['ohm', 'serie', 'paralelo', 'divisor-cargado'].includes(item.id))).toBe(false);
   expect((await request.post('/api/learning/examples/ohm/projects', { data: { name: '../escape' } })).status()).toBe(400);
   expect((await request.post('/api/learning/examples/ausente/projects', { data: { name: 'ausente' } })).status()).toBe(404);
+});
+
+
+test('KCL muestra el ejemplo resuelto y abre la variante de una rama abierta', async ({ page, request }) => {
+  const nombre = 'practica-kcl-abierta';
+  await request.delete(`/api/projects/${nombre}`);
+  await page.goto('/#/aprender/kirchhoff-corrientes');
+  await expect(page.getByRole('heading', { name: 'KCL con una rama que no conduce' })).toBeVisible();
+  await expect(page.locator('.mdx-circuito[data-ejemplo="paralelo-rama-abierta"]')).toContainText('Una rama abierta');
+  const variante = page.locator('.mdx-actividad[data-ejemplo="paralelo-rama-abierta"]');
+  await expect(variante).toContainText('0 mA');
+  await variante.getByRole('button', { name: 'Abrir variante en el emulador' }).click();
+  await page.getByRole('textbox', { name: 'Nombre del proyecto' }).fill(nombre);
+  await page.getByRole('button', { name: 'Crear y abrir' }).click();
+  await expect(page.locator('#ventana-circuito')).toBeVisible();
+  const { project } = await (await request.get(`/api/projects/${nombre}`)).json();
+  expect(project.wires.some((wire: { from: string; to: string }) => wire.from === 'r2.1' || wire.to === 'r2.1')).toBe(false);
+  await request.post(`/api/projects/${nombre}/energia`, { data: { encendido: true } });
+  const datos = await (await request.get(`/api/projects/${nombre}/pins`)).json();
+  const r2 = datos.electrico.mediciones.find((item: { modulo: string; elemento: string }) => item.modulo === 'r2' && item.elemento === 'r');
+  expect(Math.abs(r2.corrienteMa)).toBeLessThan(.001);
+  await page.getByRole('button', { name: 'Volver a la lección' }).click();
+  await expect(page.getByRole('heading', { name: 'Kirchhoff: conservación de corriente' })).toBeVisible();
+  await request.delete(`/api/projects/${nombre}`);
 });

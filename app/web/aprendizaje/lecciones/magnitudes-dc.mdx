@@ -24,6 +24,24 @@ Que dos puntos estén a 0 V no significa que por ellos no circule corriente. La 
 
 </Aviso>
 
+## Seguí las conexiones del ejemplo
+
+| Terminal | Se conecta con | Qué representa |
+| --- | --- | --- |
+| fuente1.V | r1.1 | Nodo A, cerca de +5 V |
+| r1.2 | fuente1.GND | Nodo de referencia, 0 V |
+
+La corriente convencional sale del positivo, atraviesa R1 desde el terminal 1 al 2 y regresa al negativo. Los electrones en un conductor metálico se desplazan en sentido opuesto.
+
+<Ejemplo titulo="Leé las medidas sin confundirlas">
+
+1. La tensión del terminal `r1.1` respecto de GND es 5 V.
+2. La tensión de `r1.2` respecto de GND es 0 V.
+3. La caída sobre R1 es 5 − 0 = **5 V**.
+4. La misma corriente de **5 mA** atraviesa los dos terminales: no se consume corriente en el resistor. Se transforma energía en calor.
+
+</Ejemplo>
+
 <Actividad />
 
 <Pregunta titulo="¿Tiene sentido decir que una resistencia tiene 5 mA entre sus terminales?" respuesta="La corriente de 5 mA atraviesa la resistencia. Entre sus terminales medís tensión, que en este ejemplo es 5 V." />

@@ -3,6 +3,8 @@ import type { MDXComponents } from 'mdx/types';
 import { leccionesMdx, type LeccionMdx as DatosLeccion, RUTA_PILOTO } from '../aprendizaje/piloto.js';
 import { almacenLocalAprendizaje, progresoDeLeccion, registroDeLeccion } from '../aprendizaje/progreso.js';
 import { acciones, estado } from './puente.js';
+import { CircuitoAprendizaje as Circuito } from './CircuitoAprendizaje.js';
+import { ejemploPorId, observacionesEjemplo, type EjemploId } from '../aprendizaje/ejemplos.js';
 import { useEstado } from './estado.js';
 
 /** Registro explícito: solamente se compila contenido editorial versionado en el repositorio. */
@@ -28,29 +30,24 @@ function Ejemplo({ titulo, children }: { titulo: string; children: ReactNode }) 
 function Pregunta({ titulo, respuesta }: { titulo: string; respuesta: string }) {
   return <section className="mdx-pregunta"><h3>Comprobá lo aprendido</h3><p>{titulo}</p><details><summary>Ver explicación</summary><p>{respuesta}</p></details></section>;
 }
-function Circuito({ ejemplo = 'ohm' }: { ejemplo?: DatosLeccion['ejemploId'] }) {
-  const paralelo = ejemplo === 'paralelo' || ejemplo === 'divisor-cargado';
-  return <figure className="mdx-circuito"><svg viewBox="0 0 480 230" role="img" aria-label={`Esquema del circuito ${ejemplo}: fuente de 5 V y resistencias conectadas ${paralelo ? 'con ramas en paralelo' : 'en serie'}`}>
-    <g fill="none" stroke="currentColor" strokeWidth="2"><path d={ejemplo === 'paralelo' ? "M65 95V40h355v60m0 65v25H65v-55" : ejemplo === 'ohm' ? "M65 95V40h125m75 0h155v150H65v-55" : "M65 95V40h125m75 0h155v60m0 65v25H65v-55"} /><circle cx="65" cy="115" r="22" /><path d="M57 107h16m-8-8v16m-8 10h16" />{ejemplo !== 'paralelo' && <rect x="190" y="30" width="75" height="20" />}
-    {paralelo && <><path d="M300 40v60m0 65v25" /><rect x="290" y="100" width="20" height="65" /><rect x="410" y="100" width="20" height="65" /></>}
-    {ejemplo === 'serie' && <rect x="410" y="100" width="20" height="65" />}</g>
-    <g fill="currentColor" fontSize="14"><text x="22" y="160">5 V</text>{ejemplo !== 'paralelo' && <text x="196" y="22">R1 · 1 kΩ</text>}{paralelo && <><text x="230" y="140">{ejemplo === 'paralelo' ? 'R1 · 1 kΩ' : 'R2 · 1 kΩ'}</text><text x="353" y="213">{ejemplo === 'paralelo' ? 'R2 · 2 kΩ' : 'R3 · 1 kΩ'}</text></>}{ejemplo === 'serie' && <text x="336" y="140">R2 · 1 kΩ</text>}</g>
-  </svg><figcaption>{ejemplo === 'paralelo' ? 'En paralelo, R1 y R2 comparten ambos nodos. Abrí el ejemplo para ver sus conexiones.' : 'Esquema orientativo. Los identificadores coinciden con la práctica del emulador.'}</figcaption></figure>;
-}
-function Actividad() {
+function Actividad({ ejemplo }: { ejemplo?: EjemploId }) {
   const leccion = useContext(ContextoLeccion);
   const dialogo = useRef<HTMLDialogElement>(null);
   const [nombre, setNombre] = useState('');
   const creando = useEstado(() => estado().creandoPracticaAprendizaje as boolean);
   useEstado(() => estado().revisionProgresoAprendizaje as number);
   if (!leccion) return null;
+  const ejemploId = ejemplo ?? leccion.ejemploId;
+  const circuito = ejemploPorId(ejemploId);
+  const observaciones = circuito ? observacionesEjemplo(circuito) : leccion.observaciones;
   const registro = registroDeLeccion(almacenLocalAprendizaje(), leccion.id);
-  return <section className="mdx-actividad"><span className="aprender-eyebrow">LABORATORIO</span><h3>Predecí, simulá y compará</h3>
+  return <section className="mdx-actividad" data-ejemplo={ejemploId}><span className="aprender-eyebrow">LABORATORIO</span><h3>Predecí, simulá y compará</h3><p><strong>{circuito?.titulo}</strong></p>
     <ol><li>Anotá tu predicción antes de abrir la práctica.</li><li>Presioná ▶ para encender la fuente. Abrí Debug → Alimentación y consumo. Desplegá Componentes para ver ΔV, mA y P, y Tensión por pin para consultar cada nodo.</li><li>Compará con estos valores. Después cambiá una resistencia y repetí el cálculo.</li></ol>
-    <table><caption>Valores esperados del ejemplo original en régimen DC</caption><thead><tr><th>Magnitud</th><th>Predicción</th></tr></thead><tbody>{leccion.observaciones.map(item => <tr key={item.magnitud}><td>{item.magnitud}</td><td>{item.valor}</td></tr>)}</tbody></table>
+    <table><caption>Valores esperados del ejemplo original en régimen DC</caption><thead><tr><th>Magnitud</th><th>Predicción</th></tr></thead><tbody>{observaciones.map(item => <tr key={item.magnitud}><td>{item.magnitud}</td><td>{item.valor}</td></tr>)}</tbody></table>
     <p>Estos valores son ideales: la simulación puede mostrar pequeñas diferencias numéricas por el modelo de la fuente. Compará usando su tensión de salida medida. La fuente comienza apagada y la práctica crea una copia editable en tus proyectos.</p>
-    <div className="mdx-acciones"><button className="primario" disabled={creando} onClick={() => { setNombre(`practica-${leccion.ejemploId}`); dialogo.current?.showModal(); }}>{creando ? 'Creando práctica…' : 'Abrir ejemplo en el emulador'}</button>{registro?.proyectoNombre && <button disabled={creando} onClick={() => acciones().continuarPracticaAprendizaje(leccion.id)}>Continuar práctica</button>}</div>
-    <dialog ref={dialogo} className="mdx-dialogo"><form onSubmit={event => { event.preventDefault(); dialogo.current?.close(); acciones().crearPracticaAprendizaje(leccion.ejemploId, nombre); }}><h3>Crear tu práctica</h3><label>Nombre del proyecto<input autoFocus required pattern="[a-z0-9][a-z0-9-]{0,39}" maxLength={40} value={nombre} onChange={event => setNombre(event.target.value)} /></label><p>Usá letras minúsculas, números y guiones.</p><div className="mdx-acciones"><button type="button" onClick={() => dialogo.current?.close()}>Cancelar</button><button type="submit" className="primario">Crear y abrir</button></div></form></dialog>
+    {!ejemplo && registro?.proyectoNombre && <p>Última práctica de esta lección: <strong>{registro.proyectoNombre}</strong>.</p>}
+    <div className="mdx-acciones"><button className="primario" disabled={creando} onClick={() => { setNombre(`practica-${ejemploId}`); dialogo.current?.showModal(); }}>{creando ? 'Creando práctica…' : ejemplo ? 'Abrir variante en el emulador' : 'Abrir ejemplo en el emulador'}</button>{!ejemplo && registro?.proyectoNombre && <button disabled={creando} onClick={() => acciones().continuarPracticaAprendizaje(leccion.id)}>Continuar práctica</button>}</div>
+    <dialog ref={dialogo} className="mdx-dialogo"><form onSubmit={event => { event.preventDefault(); dialogo.current?.close(); acciones().crearPracticaAprendizaje(ejemploId, nombre); }}><h3>Crear tu práctica</h3><label>Nombre del proyecto<input autoFocus required pattern="[a-z0-9][a-z0-9-]{0,39}" maxLength={40} value={nombre} onChange={event => setNombre(event.target.value)} /></label><p>Usá letras minúsculas, números y guiones.</p><div className="mdx-acciones"><button type="button" onClick={() => dialogo.current?.close()}>Cancelar</button><button type="submit" className="primario">Crear y abrir</button></div></form></dialog>
   </section>;
 }
 const componentes: MDXComponents = { Aviso, Formula, Ejemplo, Pregunta, Circuito, Actividad };
@@ -66,7 +63,8 @@ export function IndiceMdx() {
   const actual = useEstado(() => (estado().aprendizajeRuta as { leccion?: string } | null)?.leccion);
   return <nav className="mdx-indice" aria-label="Lecciones de la ruta">{leccionesMdx.map((leccion, indice) => {
     const progreso = progresoDeLeccion(almacenLocalAprendizaje(), leccion.id, leccion.revision);
-    return <a href={`#/aprender/${leccion.id}`} key={leccion.id} aria-current={actual === leccion.id ? 'page' : undefined}><span>{progreso?.completada ? '✓' : indice + 1}</span><div><strong>{leccion.titulo}</strong><p>{leccion.descripcion}</p><small>{leccion.minutos} min · {progreso?.completada ? 'Completada' : progreso ? 'En curso' : 'Disponible'}</small></div></a>;
+    const registro = registroDeLeccion(almacenLocalAprendizaje(), leccion.id);
+    return <a href={`#/aprender/${leccion.id}`} key={leccion.id} aria-current={actual === leccion.id ? 'page' : undefined}><span>{progreso?.completada ? '✓' : indice + 1}</span><div><strong>{leccion.titulo}</strong><p>{leccion.descripcion}</p><small>{leccion.minutos} min · {progreso?.completada ? 'Completada' : progreso ? 'En curso' : registro ? 'Pendiente de revisar' : 'Disponible'}</small></div></a>;
   })}</nav>;
 }
 

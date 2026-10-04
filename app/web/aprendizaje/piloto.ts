@@ -19,7 +19,7 @@ export const leccionesMdx: readonly LeccionMdx[] = ([
   { id: 'kirchhoff-corrientes', titulo: 'Kirchhoff: conservación de corriente', descripcion: 'Elegí un nodo y verificá que las corrientes que entran y salen se equilibran.', minutos: 10, requisitos: ['redes-resistivas'], ejemploId: 'paralelo', observaciones: [{ magnitud: 'Rama R1', valor: '5 mA' }, { magnitud: 'Rama R2', valor: '2,5 mA' }, { magnitud: 'Corriente de la fuente', valor: '7,5 mA' }] },
   { id: 'kirchhoff-tensiones', titulo: 'Kirchhoff: suma de tensiones', descripcion: 'Recorré un lazo cerrado y sumá las subidas y caídas con signos consistentes.', minutos: 10, requisitos: ['kirchhoff-corrientes'], ejemploId: 'serie', observaciones: [{ magnitud: 'Tensión de fuente', valor: '5 V' }, { magnitud: 'Caída en R1 y R2', valor: '2,5 V cada una' }, { magnitud: 'Corriente del lazo', valor: '2,5 mA' }] },
   { id: 'tellegen-potencia', titulo: 'Tellegen: balance de potencia', descripcion: 'Usá la convención pasiva para comparar la potencia entregada con la absorbida.', minutos: 12, requisitos: ['kirchhoff-tensiones'], ejemploId: 'serie', observaciones: [{ magnitud: 'Potencia absorbida por R1 y R2', valor: '+6,25 mW cada una' }, { magnitud: 'Potencia de la fuente (convención pasiva)', valor: '−12,5 mW' }, { magnitud: 'Suma algebraica', valor: '0 mW' }] },
-] satisfies readonly Omit<LeccionMdx, 'revision' | 'rutaId'>[]).map(leccion => ({ ...leccion, rutaId: RUTA_PILOTO, revision: 1 }));
+] satisfies readonly Omit<LeccionMdx, 'revision' | 'rutaId'>[]).map(leccion => ({ ...leccion, rutaId: RUTA_PILOTO, revision: 2 }));
 
 export function leccionMdxPorId(id: string): LeccionMdx | undefined {
   return leccionesMdx.find(leccion => leccion.id === id);

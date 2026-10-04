@@ -11,4 +11,6 @@ Cada subcarpeta incluye un `project.json` válido y un `README.md` con el objeti
 | `paralelo` | KCL | 1 kΩ ∥ 2 kΩ → 5 mA + 2,5 mA |
 | `divisor-cargado` | Equivalentes y carga | Salida 1,667 V, fuente 3,333 mA |
 
+Las variantes `ohm-2k`, `serie-desigual`, `paralelo-rama-abierta` y `divisor-sin-carga` permiten comparar los cambios explicados en las lecciones sin tener que reconstruir el circuito.
+
 Los valores corresponden al circuito original energizado en régimen DC. La fuente empieza apagada. La guía de autoría está en `docs/aprendizaje-mdx.md`.

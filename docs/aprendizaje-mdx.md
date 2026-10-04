@@ -1,6 +1,6 @@
 # Lecciones MDX y biblioteca educativa
 
-La sección Aprender separa temas, rutas y lecciones. El catálogo editorial conserva títulos y descripciones de los recorridos pendientes. La ruta `ohm-kirchhoff-tellegen` dispone de seis lecciones MDX y cuatro prácticas resistivas DC. La lección anterior `encender-un-led` conserva sus enlaces y progreso.
+La sección Aprender separa temas, rutas y lecciones. El catálogo editorial conserva títulos y descripciones de los recorridos pendientes. La ruta `ohm-kirchhoff-tellegen` dispone de seis lecciones MDX y ocho prácticas resistivas DC (cuatro circuitos base y cuatro variantes). La lección anterior `encender-un-led` conserva sus enlaces y progreso.
 
 ## Carpetas y contratos
 
@@ -16,7 +16,7 @@ MDX se compila con Vite antes del plugin React, siguiendo la [integración ofici
 
 ## Componentes disponibles
 
-`Formula` incluye una expresión y descripción accesible, `Aviso` un título y explicación, `Ejemplo` un cálculo resuelto, `Circuito` un esquema del ejemplo, `Pregunta` una pregunta y respuesta desplegable, y `Actividad` las predicciones y la apertura de la práctica de la lección actual.
+`Formula` incluye una expresión y descripción accesible, `Aviso` un título y explicación, `Ejemplo` un cálculo resuelto, `Circuito` un esquema del ejemplo, `Pregunta` una pregunta y respuesta desplegable, y `Actividad` las predicciones y la apertura de la práctica de la lección actual. El atributo `ejemplo` permite abrir una variante con su propia tabla de predicciones. Los esquemas identifican nodos, corrientes convencionales y valores ideales, derivados del contrato `aprendizaje/ejemplos.ts`.
 
 Las fórmulas se representan como texto matemático con símbolos Unicode. Para fórmulas más complejas se puede ampliar el componente sin cambiar el contrato editorial. Las predicciones son ideales. El modelo CV/CC de la fuente suaviza la transición y puede dar pequeñas diferencias numéricas; las pruebas contra valores ideales admiten 0,5 %, mientras el balance de potencia usa la salida medida. Las predicciones se comparan manualmente con las medidas del emulador; completar una lección es una acción del estudiante.
 

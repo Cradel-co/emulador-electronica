@@ -116,3 +116,5 @@ body.aprendiendo .bienvenida-nav { overflow-y: auto; }
 .aprender-indice .mdx-indice p { display: none; }
 .mdx-indice a[aria-current="page"] { background: var(--sel-menu); border-color: var(--acento); }
 .mdx-indice small { display: block; }
+.mdx-circuito svg { max-width: 640px; }
+.mdx-corriente { color: var(--verde); stroke: currentColor; }

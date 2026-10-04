@@ -15,7 +15,7 @@ afterEach(async () => { await fs.rm(root, { recursive: true, force: true }); });
 
 describe('biblioteca _learning', () => {
   it('lista ejemplos distribuidos incluso con una carpeta personal distinta y copia sin modificar el original', async () => {
-    expect((await store.listLearning()).map(e => e.id).sort()).toEqual(['divisor-cargado', 'ohm', 'paralelo', 'serie']);
+    expect((await store.listLearning()).map(e => e.id).sort()).toEqual(['divisor-cargado', 'divisor-sin-carga', 'ohm', 'ohm-2k', 'paralelo', 'paralelo-rama-abierta', 'serie', 'serie-desigual']);
     expect(await store.listTemplates()).toEqual([]);
     const original = await fs.readFile(path.join(PATHS.learning, 'ohm', 'project.json'), 'utf8');
     const copia = await store.createFromLearning('mi-practica', 'ohm');
@@ -47,6 +47,10 @@ describe('biblioteca _learning', () => {
     const catalogo = await loadCatalog();
     const casos = [
       { id: 'ohm', corrientes: { r1: .005 } },
+      { id: 'ohm-2k', corrientes: { r1: .0025 } },
+      { id: 'serie-desigual', corrientes: { r1: 5 / 3000, r2: 5 / 3000 } },
+      { id: 'paralelo-rama-abierta', corrientes: { r1: .005, r2: 0 } },
+      { id: 'divisor-sin-carga', corrientes: { r1: .0025, r2: .0025 } },
       { id: 'serie', corrientes: { r1: .0025, r2: .0025 } },
       { id: 'paralelo', corrientes: { r1: .005, r2: .0025 } },
       { id: 'divisor-cargado', corrientes: { r1: 5 / 1500, r2: 5 / 3000, r3: 5 / 3000 } },

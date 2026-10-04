@@ -6,7 +6,11 @@ En un resistor óhmico, a temperatura constante, la tensión y la corriente son 
 
 <Ejemplo titulo="5 V sobre una resistencia de 1 kΩ">
 
-I = 5 V / 1000 Ω = 0,005 A = **5 mA**. La resistencia absorbe P = V · I = 5 · 0,005 = **0,025 W**, es decir, 25 mW.
+1. Datos: V = 5 V y R = 1 kΩ = 1000 Ω.
+2. Despeje: I = V / R.
+3. Sustitución: I = 5 / 1000 = 0,005 A = **5 mA**.
+4. Potencia: P = V · I = 5 · 0,005 = **25 mW**.
+5. Comprobación: I · R = 0,005 · 1000 = 5 V.
 
 </Ejemplo>
 
@@ -22,7 +26,13 @@ La ley de Ohm con una resistencia constante describe este resistor. Un LED, un d
 
 ## Cambiá una sola variable
 
-Apagá la fuente y cambiá R1 a 2 kΩ. Antes de volver a encender, calculá I = 5 / 2000. Compará tu predicción con el panel del resistor. Luego restaurá 1 kΩ.
+Esta variante ya trae R1 = 2 kΩ. La tensión se mantiene en 5 V: I = 5 / 2000 = **2,5 mA** y P = 5 · 0,0025 = **12,5 mW**. Al duplicar la resistencia se reducen a la mitad tanto la corriente como la potencia, porque la tensión permanece constante.
+
+<Circuito ejemplo="ohm-2k" />
+
+<Actividad ejemplo="ohm-2k" />
+
+Compará ambas copias. Si cambiás el voltaje, primero calculá una nueva predicción: la conclusión anterior dependía de mantenerlo constante.
 
 <Pregunta titulo="Si duplicás R y mantenés V, ¿qué pasa con I?" respuesta="La corriente se reduce a la mitad: 2,5 mA para 5 V y 2 kΩ." />
 
