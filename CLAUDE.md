@@ -114,6 +114,9 @@ Ver [arquitectura-web.md](./docs/arquitectura-web.md#componentes-propios-y-adapt
   propios, comportamiento digital, entorno y salidas); la sección 8 dice qué ya está hecho y qué se aprendió.
 - [SDD-EDITOR.md](./SDD-EDITOR.md) — diseño y alcance del editor CodeMirror 6 para MicroPython,
   con autocompletado, diagnóstico sintáctico local y pruebas de regresión.
+- [SDD-AUDIO.md](./SDD-AUDIO.md) — diseño de los módulos que suenan y del micrófono: un contrato
+  (`salidas.sonido`) con tres niveles de fidelidad (nivel de pin, PWM, I2S) y por qué el tono se
+  declara en vez de calcularse.
 - [chips/README.md](./chips/README.md) — chips con lógica (I2C/SPI en el Uno y puente MicroPython en ESP32): cómo se escriben y se prueban.
   Los sketches de prueba se compilan con `sh app/server/src/fixtures/chips/compilar.sh` (Docker) y los
   `.hex` se versionan: los tests corren sin Docker.
