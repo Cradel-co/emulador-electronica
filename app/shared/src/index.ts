@@ -7,3 +7,4 @@ export * from './protocol.js';
 export * from './modelo.js';
 export * from './chip.js';
 export * from './camera.js';
+export * from './audio.js';
