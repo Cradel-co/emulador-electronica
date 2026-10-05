@@ -122,8 +122,10 @@ estén, una placa de otra familia se puede cargar igual y queda en "solo dibujo"
   lenguajes. **MicroPython ya tiene I2C/SPI** reemplazando los drivers `machine` por el
   puente UART; sus tiempos de transacción no son los del bus real.
 - Más chips SPI: e-paper y SD. El bus del Uno y la TFT ST7735 ya están implementados.
-- Catálogo con más partes reales (motores, buzzers, más sensores) — cada una con su
-  `model.js`, ver [`modulos-y-su-codigo.md`](modulos-y-su-codigo.md).
+- Catálogo con más partes reales (motores, micrófonos, más sensores) — cada una con su
+  `model.js`, ver [`modulos-y-su-codigo.md`](modulos-y-su-codigo.md). El buzzer activo ya está
+  (`modules/buzzer-activo/`); que el navegador lo haga sonar y los buzzers pasivos por PWM
+  siguen pendientes, ver [`audio.md`](audio.md).
 - **Ampliar la simulación eléctrica:** análisis transitorio para capacitores, inductores,
   PWM y tiempos de conmutación (por ejemplo, el clic del relé); fuentes y análisis de CA;
   modelos de transistores y otros semiconductores; y lecturas ADC derivadas del voltaje

@@ -3,9 +3,9 @@
 Diseño de los módulos que **suenan** y de los que **escuchan**. Tres niveles de fidelidad
 para la salida, uno para la entrada, y un solo contrato que los une.
 
-Estado: diseño. Nada de esto está implementado todavía. Lo que hay hoy en el repo es el
-ejemplo del buzzer activo en [docs/modulos-y-su-codigo.md](./docs/modulos-y-su-codigo.md#ejemplo-2-un-buzzer-activo-nodo-interno-umbral-memoria)
-(modelo eléctrico, sin sonido) y el estado `sonando` de `siren-433`, que es solo visual.
+Estado: el **caso A está implementado y verificado del lado eléctrico, pero todavía no suena**
+— falta publicar el evento al navegador y el adaptador de Web Audio (ver sección 11). Los casos
+B y C siguen siendo diseño. Para usarlo: [docs/audio.md](./docs/audio.md).
 
 ## 1. El problema
 
@@ -105,6 +105,11 @@ como fixture del importador en `app/tests/e2e/importador.spec.ts`.
 Partes reales que entran acá: TMB12A05 (serie TMB12), módulo KY-012, piezos autoexcitados
 de la serie Murata PKB.
 
+**Hecho:** `salidas` en el esquema (`app/shared/src/module.ts`), la lógica pura de amplitud
+(`app/shared/src/audio.ts`), el módulo `modules/buzzer-activo/` y sus tests contra ngspice
+(`app/server/src/sim/buzzerActivo.test.ts`). **Falta** publicar el `EventoSonido` desde el
+server y el adaptador del navegador (sección 8).
+
 ## 5. Caso B — PWM (buzzer pasivo, melodías)
 
 Un buzzer pasivo no tiene oscilador: la frecuencia la pone el micro. Necesita que el
@@ -137,6 +142,13 @@ RMS. El `.op` sigue dando la tensión y el consumo medio.
 **Esto no es infraestructura solo de audio.** El mismo `@PWM` habilita el brillo de un LED
 por PWM y, más adelante, el ángulo de un servo. Conviene diseñarlo pensando en esos tres
 consumidores, no solo en el buzzer.
+
+**Pendiente de decidir antes de implementarlo:** `@PWM <pin> ...` asume que el PWM sale de un
+GPIO de la placa. Un expansor como el PCA9685 (16 canales por I2C, con su propio reloj) no
+funciona así: recibe órdenes por I2C y genera el PWM en salidas propias, que no son pines del
+ESP32. Si ese chip va a entrar algún día al catálogo, el mensaje tiene que direccionar la
+salida y no el pin — algo como `@PWM <origen> <canal> <hz> <duty>`, donde el origen puede ser
+la placa o un chip del bus. Conviene resolverlo ahora que el protocolo todavía no existe.
 
 ### 5.3 Límite por lenguaje
 
@@ -246,6 +258,10 @@ Primero el test que falla por la razón correcta, como pide
    de frente.
 1. **Caso A completo**: contrato `salidas.sonido`, `modules/buzzer-activo/`, adaptador del
    navegador. Es el único que entrega sonido sin tocar motor ni puente.
+   - ✅ contrato, lógica de amplitud, módulo y tests contra el motor.
+   - ⬜ publicar el `EventoSonido` desde el server (toca `emulator.ts` e `index.ts`, los mismos
+     archivos del PR #54: de ahí que el paso 0 vaya primero).
+   - ⬜ `app/web/audio.ts` con el `ControladorAudio` y el control de "habilitar sonido".
 2. **Micrófono analógico** (SEN0232), resolviendo antes `entorno` a nivel de módulo.
 3. **Caso B**: `@PWM` en el puente MicroPython, diseñado también para brillo de LED y
    servo. Después, `modules/buzzer-pasivo/`.
@@ -254,6 +270,7 @@ Primero el test que falla por la razón correcta, como pide
 
 ## Documentos relacionados
 
+- [docs/audio.md](./docs/audio.md) — cómo se usa: declarar una salida de sonido y qué hay hecho.
 - [SDD-MODULOS.md](./SDD-MODULOS.md) — sección 5.3 (`salidas`) y sección 7 (límites).
 - [docs/modulos-y-su-codigo.md](./docs/modulos-y-su-codigo.md) — SDK del `model.js` y el
   ejemplo del buzzer activo ya verificado.
