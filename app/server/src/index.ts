@@ -18,7 +18,9 @@ import {
   ClientEventSchema,
   LanguageSchema,
   ServerEventSchema,
+  sonidosDelCircuito,
   tienePlaca,
+  type EventoSonido,
   type Language,
   type Project,
   type ServerEvent,
@@ -1473,6 +1475,12 @@ async function avisosDelProyecto(
     mediciones: { modulo: string; moduloNombre: string; elemento: string; tipo: string; tensionV: number; corrienteMa: number; potenciaMw: number; resistenciaOhm: number | null }[];
     /** Estado visible que decidió el modelo de cada módulo (`observar` → ui), con la física en vivo. */
     modulos: Record<string, { on?: boolean; brillo?: number }>;
+    /**
+     * Qué suena y cómo, para que el navegador lo sintetice (ver docs/audio.md). Viaja por la
+     * misma instantánea que `modulos` a propósito: el sonido y la luz de un módulo salen del
+     * mismo cálculo y tienen que llegar juntos.
+     */
+    sonidos: EventoSonido[];
   };
 }> {
   const pins = await pinsDeCodigo(project);
@@ -1516,6 +1524,7 @@ async function avisosDelProyecto(
         };
       }),
       modulos: Object.fromEntries(Object.entries(vivo.modulos).map(([id, m]) => [id, m.ui ?? {}])),
+      sonidos: sonidosDelCircuito(project.modules, (t) => buscar(t)?.salidas, vivo.tensiones),
     },
     warnings: [
       ...diffDiagramVsCode(project, pins, project.board ? buscar(project.board)?.board : undefined),

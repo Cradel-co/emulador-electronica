@@ -91,3 +91,34 @@ export function eventoPorNivel(modulo: string, salida: SalidaSonido, v: number):
   if (salida.dbA !== undefined && salida.referencia) evento.dbA = dbAPorTension(salida.dbA, v, salida.referencia.v);
   return evento;
 }
+
+/**
+ * Los eventos de sonido de un circuito ya resuelto: para cada módulo que declara una salida de
+ * sonido, la tensión entre sus dos pines decide si suena y con cuánta amplitud.
+ *
+ * `tensiones` es lo que mediría un tester en cada pin cableado (`"<instancia>.<pin>"`), tal como
+ * lo devuelve el motor. Un pin sin cablear no tiene entrada: entonces no hay tensión, y el módulo
+ * no suena — se emite el evento en silencio igual, para que el navegador corte lo que venía
+ * sonando si lo desconectaron.
+ *
+ * Solo resuelve `fuente: "nivel"`. `pwm` e `i2s` necesitan que el firmware declare la frecuencia
+ * (ver SDD-AUDIO.md): hasta que exista, no se inventa un evento que no se puede sintetizar.
+ */
+export function sonidosDelCircuito(
+  instancias: readonly { id: string; type: string }[],
+  salidasDe: (type: string) => readonly SalidaSonido[] | undefined,
+  tensiones: Readonly<Record<string, number>>,
+): EventoSonido[] {
+  const eventos: EventoSonido[] = [];
+  for (const inst of instancias) {
+    for (const salida of salidasDe(inst.type) ?? []) {
+      if (salida.tipo !== 'sonido' || salida.fuente !== 'nivel') continue;
+      const [mas, menos] = salida.pins;
+      const vMas = tensiones[`${inst.id}.${mas}`];
+      const vMenos = tensiones[`${inst.id}.${menos}`];
+      const v = vMas === undefined || vMenos === undefined ? 0 : vMas - vMenos;
+      eventos.push(eventoPorNivel(inst.id, salida, v));
+    }
+  }
+  return eventos;
+}
