@@ -6,16 +6,13 @@ describe('contrato de rutas del espacio de trabajo', () => {
     expect(parseWorkspaceRoute(href)).toEqual({ project: null });
   });
 
-  it('reconoce y distingue la página Aprender de Inicio', () => {
-    const route = { project: null, page: 'aprender' } as const;
-    expect(parseWorkspaceRoute('#/aprender')).toEqual(route);
-    expect(parseWorkspaceRoute('/aprender/')).toEqual(route);
-    expect(workspaceRoutePath(route)).toBe('/aprender');
-    expect(sameWorkspaceRoute(route, { project: null })).toBe(false);
-  });
-
-  it.each(['/aprender/temas', '/aprender/rutas', '/aprender/temas/fundamentos', '/aprender/rutas/primer-circuito'])('conserva las rutas de aprendizaje %s', href => {
-    expect(workspaceRoutePath(parseWorkspaceRoute(href))).toBe(href);
+  it('admite el índice y una lección con un paso en el historial', () => {
+    expect(parseWorkspaceRoute('#/aprender')).toEqual({ project: null, aprender: {} });
+    expect(parseWorkspaceRoute('#/aprender/encender-un-led?paso=probar')).toEqual({
+      project: null, aprender: { leccion: 'encender-un-led', paso: 'probar' },
+    });
+    expect(workspaceRoutePath({ project: null, aprender: { leccion: 'encender-un-led', paso: 'probar' } }))
+      .toBe('/aprender/encender-un-led?paso=probar');
   });
 
   it('migra enlaces de proyectos anteriores sin perder caracteres', () => {
@@ -28,6 +25,13 @@ describe('contrato de rutas del espacio de trabajo', () => {
     expect(parseWorkspaceRoute(`#${workspaceRoutePath(route)}`)).toEqual(route);
   });
 
+  it('conserva la lección asociada a la ruta de una práctica', () => {
+    const route = { project: 'practica led', board: 'board', leccion: 'encender-un-led' };
+    expect(parseWorkspaceRoute('#/projects/practica%20led?board=board&leccion=encender-un-led')).toEqual(route);
+    expect(workspaceRoutePath(route)).toBe('/projects/practica%20led?board=board&leccion=encender-un-led');
+    expect(sameWorkspaceRoute(route, { ...route, leccion: undefined })).toBe(false);
+  });
+
   it('permite enlaces parciales y descarta parámetros ajenos al contrato', () => {
     expect(parseWorkspaceRoute('/projects/casa?board=1&otro=valor')).toEqual({ project: 'casa', board: '1' });
     expect(parseWorkspaceRoute('/projects/casa?file=lib%2Fsensor.py')).toEqual({ project: 'casa', file: 'lib/sensor.py' });
@@ -37,7 +41,7 @@ describe('contrato de rutas del espacio de trabajo', () => {
     expect(() => parseWorkspaceRoute(href)).toThrow(WorkspaceRouteError);
   });
 
-  it.each(['/aprender/temas/..', '/aprender/rutas/a%2Fb', '/aprender#otra', '/inexistente', '/projects/', '/projects/casa/archivo', '/projects/..', '/projects/a%2Fb', '/projects/casa?board=..', '/projects/casa?file=../main.py', '/projects/casa?file=lib//sensor.py', '/projects/casa?file=lib%5Csensor.py', '/projects/casa?board=a&board=b', '/projects/casa?file=a&file=b', '/projects/casa#otra'])('rechaza rutas ambiguas o inseguras %j', href => {
+  it.each(['/inexistente', '/projects/', '/projects/casa/archivo', '/projects/..', '/projects/a%2Fb', '/projects/casa?board=..', '/projects/casa?file=../main.py', '/projects/casa?file=lib//sensor.py', '/projects/casa?file=lib%5Csensor.py', '/projects/casa?board=a&board=b', '/projects/casa?file=a&file=b', '/projects/casa#otra'])('rechaza rutas ambiguas o inseguras %j', href => {
     expect(() => parseWorkspaceRoute(href)).toThrow(WorkspaceRouteError);
   });
 
@@ -50,5 +54,15 @@ describe('contrato de rutas del espacio de trabajo', () => {
     expect(sameWorkspaceRoute({ project: 'casa', board: 'uno' }, { board: 'uno', project: 'casa' })).toBe(true);
     expect(sameWorkspaceRoute({ project: 'casa', board: 'uno' }, { project: 'casa', board: 'dos' })).toBe(false);
     expect(sameWorkspaceRoute({ project: 'casa', file: 'a.py' }, { project: 'casa', file: 'b.py' })).toBe(false);
+    expect(sameWorkspaceRoute({ project: null }, { project: null, aprender: {} })).toBe(false);
   });
+});
+
+it('conserva temas y rutas del catálogo sin confundirlos con las lecciones', () => {
+  for (const learning of ['temas', 'rutas'] as const) {
+    const route = { project: null, aprender: {}, learning, slug: 'fundamentos' };
+    expect(parseWorkspaceRoute(workspaceRoutePath(route))).toEqual(route);
+    expect(parseWorkspaceRoute(`#/aprender/${learning}`)).toEqual({ project: null, aprender: {}, learning });
+  }
+  expect(() => parseWorkspaceRoute('#/aprender/rutas/%2F')).toThrow();
 });

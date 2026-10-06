@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 1,
+  "name": "arducam-esp32-s3",
+  "board": "esp32-s3-devkitc-1",
+  "language": "micropython",
+  "modules": [
+    {
+      "id": "board",
+      "type": "esp32-s3-devkitc-1",
+      "x": 100,
+      "y": 40,
+      "props": {
+        "usb": true
+      }
+    },
+    {
+      "id": "camara",
+      "type": "arducam-mini-2mp-plus",
+      "x": 450,
+      "y": 160,
+      "props": {}
+    }
+  ],
+  "wires": [
+    {
+      "to": "board.3V3",
+      "from": "camara.VCC"
+    },
+    {
+      "to": "board.GND",
+      "from": "camara.GND"
+    },
+    {
+      "to": "board.GPIO8",
+      "from": "camara.SDA"
+    },
+    {
+      "to": "board.GPIO9",
+      "from": "camara.SCL"
+    },
+    {
+      "to": "board.GPIO12",
+      "from": "camara.SCLK"
+    },
+    {
+      "to": "board.GPIO11",
+      "from": "camara.MOSI"
+    },
+    {
+      "to": "board.GPIO13",
+      "from": "camara.MISO"
+    },
+    {
+      "to": "board.GPIO10",
+      "from": "camara.CS"
+    }
+  ],
+  "sim": {
+    "wifiSsid": "sim-wifi",
+    "wifiPassword": "sim-password",
+    "autoReload": false
+  }
+}

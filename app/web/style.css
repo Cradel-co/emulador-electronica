@@ -606,6 +606,42 @@ body.inicio #pantalla-inicio {
   gap: 6px; padding: 0 6px 6px; min-height: 0;
 }
 body.inicio .workspace, body.inicio .stripe, body.inicio .solo-proyecto, body.inicio #ir-inicio { display: none; }
+#pantalla-aprender { display: none; }
+body.aprender #pantalla-aprender {
+  grid-column: 2; grid-row: 1; display: block; min-height: 0; overflow: auto; padding: 24px;
+}
+body.aprender #inicio-proyectos, body.aprender .workspace, body.aprender .stripe,
+body.aprender .solo-proyecto, body.aprender #ir-inicio { display: none; }
+#bienvenida-proyectos, #bienvenida-acerca { justify-content: flex-start; border: 0; padding: 6px 10px; }
+.aprendizaje-pagina { min-height: 100%; padding: 28px clamp(18px, 5vw, 72px); background: var(--isla); border-radius: var(--radio-isla); overflow: auto; }
+.aprendizaje-cabecera { max-width: 840px; margin: 0 auto 28px; }
+.aprendizaje-cabecera > button { border: 0; padding: 4px 0; color: var(--tenue); background: transparent; }
+.aprendizaje-cabecera > p:first-of-type { margin: 18px 0 6px; color: var(--tenue); font-size: 11px; letter-spacing: .12em; }
+.aprendizaje-cabecera h1 { margin: 0 0 8px; font-size: clamp(24px, 4vw, 36px); }
+.aprendizaje-cabecera > p:last-child { color: var(--tenue); }
+.aprendizaje-lista { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 360px)); justify-content: center; gap: 14px; }
+.aprendizaje-tarjeta { padding: 20px; border: 1px solid var(--borde2); border-radius: 12px; background: var(--isla2); }
+.aprendizaje-tarjeta > div { display: flex; gap: 10px; color: var(--tenue); font-size: 12px; }
+.aprendizaje-tarjeta h2 { margin: 14px 0 6px; }
+.aprendizaje-tarjeta p { min-height: 48px; color: var(--tenue); }
+.aprendizaje-cuerpo { display: grid; grid-template-columns: minmax(190px, 250px) minmax(0, 720px); justify-content: center; gap: 34px; }
+.aprendizaje-pasos { display: flex; flex-direction: column; gap: 4px; }
+.aprendizaje-pasos button { justify-content: flex-start; text-align: left; border: 0; background: transparent; gap: 9px; }
+.aprendizaje-pasos button[aria-current="step"] { background: var(--sel); }
+.aprendizaje-pasos button span { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--isla2); }
+.aprendizaje-contenido { min-width: 0; line-height: 1.6; }
+.aprendizaje-contenido h2 { font-size: 26px; }
+.aprendizaje-contenido pre { overflow: auto; padding: 14px; background: var(--isla2); border-radius: 8px; }
+.aprendizaje-aviso, .aprendizaje-resultado { margin: 18px 0; padding: 14px 16px; border-left: 3px solid var(--azul); background: var(--isla2); border-radius: 5px; }
+.aprendizaje-practica { margin: 28px 0; padding: 20px; border: 1px solid var(--borde2); border-radius: 10px; background: var(--isla2); }
+.aprendizaje-aviso p, .aprendizaje-resultado p { margin-bottom: 0; }
+.aprendizaje-progreso { color: var(--tenue); font-size: 12px; }
+.aprendizaje-contenido footer { display: flex; justify-content: space-between; margin-top: 28px; }
+@media (max-width: 700px) {
+  .aprendizaje-pagina { padding: 18px; }
+  .aprendizaje-cuerpo { grid-template-columns: minmax(0, 1fr); gap: 18px; }
+  .aprendizaje-pasos { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+}
 .bienvenida-nav { display: flex; flex-direction: column; gap: 2px; padding: 16px 10px; }
 .bienvenida-marca { display: flex; align-items: center; gap: 10px; padding: 0 6px 18px; }
 .bienvenida-logo { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 9px; background: linear-gradient(135deg, #3574f0, #5fb865); color: #fff; }
@@ -782,6 +818,10 @@ body.depuracion-parada .punto-estado { background: var(--azul); box-shadow: 0 0 
 /* Proyecto sin placa: quitar/agregar la placa y la fuente apagada en Debug. */
 .modo-fuente.apagada { background: rgba(134, 138, 145, .18); color: var(--tenue); }
 
+/* Capturas de la webcam y fotografía confirmada por el servidor. */
+.camara-panel { display: grid; gap: 10px; }
+.camara-panel video, .camara-panel img { width: 100%; max-height: 240px; object-fit: contain; background: #152231; border-radius: 6px; }
+.camara-panel [role="alert"] { color: #f3b0b0; }
 /* MicroPython: CodeMirror ocupa toda la fila; los otros lenguajes usan el editor legacy. */
 .editor-wrap.con-micropython { display: block; }
 .editor-wrap.con-micropython > .gutter, .editor-wrap.con-micropython > .editor-area { display: none; }
@@ -870,3 +910,6 @@ body.preview-page { display: block; overflow: hidden; margin: 0; }
 .preview-page #lienzo .ctrl { cursor: pointer; }
 
 .tool-window-actions { display: flex; justify-content: flex-end; flex-shrink: 0; padding: 6px 10px; }
+
+body.aprendiendo #pantalla-aprender { display: block; min-width: 0; flex: 1; padding: 24px; overflow: auto; background: var(--isla); border-radius: 12px; }
+body:not(.aprendiendo) #aprendizaje-nav { display: none; }

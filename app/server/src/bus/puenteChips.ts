@@ -1,5 +1,6 @@
 import type { SalidaChip } from '@emu/shared';
 import { armarBusChips } from './armarBus.js';
+import type { EntradaChip } from './chipSandbox.js';
 import type { BusChips } from './busChips.js';
 import type { ChipEnBus } from './proyectoChips.js';
 
@@ -57,7 +58,11 @@ export class PuenteChips {
     for (const [clave, cs] of grupos) {
       const bus = armarBusChips(cs, 0, {
         ahoraUs: () => this.t,
-        alSalida: ev.alSalida,
+        alSalida: (id, salida) => {
+          const chip = this.chips.find(c => c.id === id);
+          if (chip?.chip === 'ov2640' && typeof salida.cameraConfig === 'boolean') this.entradaCamara(chip.instancia, { tipo: 'configuracion', soportada: salida.cameraConfig });
+          ev.alSalida?.(id, salida);
+        },
         alLog: ev.alLog,
         alGuardar: ev.alGuardar,
         alPin: ev.alPin,
@@ -66,6 +71,21 @@ export class PuenteChips {
       if (!bus) continue;
       (clave.startsWith('i2c:') ? this.i2c : this.spi).set(clave.slice(4), bus);
     }
+  }
+
+  actualizarCamaras(nuevos: ChipEnBus[]): void {
+    for (const c of this.chips.filter(x => x.chip === 'ov2640' || x.chip === 'arduchip')) {
+      const nuevo = nuevos.find(x => x.id === c.id && x.chip === c.chip);
+      const alimentado = !!nuevo?.alimentado && JSON.stringify(nuevo.spi) === JSON.stringify(c.spi) && JSON.stringify(nuevo.i2cGpio) === JSON.stringify(c.i2cGpio);
+      for (const bus of [...this.i2c.values(), ...this.spi.values()]) bus.alimentar(c.id, alimentado);
+      c.alimentado = alimentado;
+    }
+  }
+
+  entradaCamara(instancia: string, datos: EntradaChip): void {
+    const controlador = this.chips.find(c => c.instancia === instancia && c.chip === 'arduchip');
+    if (!controlador || this.apagado) return;
+    for (const bus of this.spi.values()) bus.externo(controlador.id, datos);
   }
 
   /** Pines que el ESP32 tiene que avisar cuando el programa los escribe. */
@@ -122,9 +142,10 @@ export class PuenteChips {
           this.avanzar(num(p[2]));
           const bus = this.spi.get(`${num(p[3])},${num(p[4])}`);
           const hz = num(p[6]), modo = num(p[7]), lsb = num(p[8]) === 1;
+          if ((p[9]?.length ?? 0) > 2048) throw new Error('transferencia SPI excesiva (máximo 1536 bytes)');
           const mosi = Buffer.from(p[9] ?? '', 'base64');
           const miso = Buffer.alloc(mosi.length, 0xff);
-          if (bus) for (let i = 0; i < mosi.length; i++) miso[i] = bus.spiByte(mosi[i]!, { modo, lsbPrimero: lsb, hz });
+          if (bus) for (let i = 0; i < mosi.length; i++) miso[i] = bus.spiByte(mosi[i] ?? 0, { modo, lsbPrimero: lsb, hz, misoGpio: num(p[5]) });
           if (p[10] === '1') this.ev.enviar(`@SPIR ${num(p[1])} ${miso.toString('base64')}`);
           return true;
         }

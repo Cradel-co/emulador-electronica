@@ -1,4 +1,5 @@
 import { riesgoDesdeFisica } from '../estado-electrico.js';
+import { SeccionCamara } from './SeccionCamara.js';
 import { Miniatura } from './Miniatura.js';
 import { SeccionChip } from './SeccionChip.js';
 import { useEstado, useVersion } from './estado.js';
@@ -38,7 +39,9 @@ export function PanelModulo({ inst, def }: { inst: any; def: any }) {
         <div className="insp-mini"><Miniatura def={def} /></div>
         <p className="insp-desc">{def.description ?? ''}</p>
         <div className={`insp-badge${esAire ? ' aire' : ''}`}>
-          {def.programmable
+          {def.camera
+            ? def.camera.hardware ? <><b>ArduCAM</b> — conectá alimentación, I2C y SPI; activá la webcam antes de ejecutar el firmware.</> : <><b>Cámara virtual</b> — usa la webcam del computador; funciona sin cables, alimentación ni firmware.</>
+            : def.programmable
             ? <><b>Placa programable</b> — su código se edita en la ventana Código. Estas propiedades pertenecen a esta placa.</>
             : esAire
             ? <><b>Inalámbrico</b> — no se programa ni lleva cables: se comunica por radio 433 MHz con el receptor o transmisor conectado a la {vistas().nombrePlaca()}.</>
@@ -69,6 +72,7 @@ export function PanelModulo({ inst, def }: { inst: any; def: any }) {
           </div>
         )}
 
+        {def.camera && <SeccionCamara key={`${estado().proyecto.name}:${inst.id}`} project={estado().proyecto.name} instance={inst.id} camera={def.camera} />}
         <SeccionChip inst={inst} def={def} />
 
         {control && <Controles inst={inst} def={def} control={control} />}

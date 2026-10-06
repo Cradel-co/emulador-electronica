@@ -12,7 +12,7 @@
     "jsx": "react-jsx",
     "skipLibCheck": true,
     "sourceMap": true,
-    "rootDir": ".",
+    "rootDir": "..",
     "outDir": "dist",
     "types": [],
     "disableSourceOfProjectReferenceRedirect": true

@@ -18,6 +18,8 @@
     "eecircuit-engine": "^1.8.0",
     "fastify": "^5.2.1",
     "fflate": "^0.8.3",
+    "sharp": "^0.35.5",
+    "typescript": "^5.9.3",
     "ws": "^8.18.0",
     "zod-to-json-schema": "^3.25.2"
   },

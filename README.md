@@ -209,6 +209,28 @@ del que venía corriendo.
 
 Pestaña **Debug** (Alt+5): breakpoints, paso a paso, variables, pila de llamadas, y un analizador de pines con los últimos 10 segundos. Habla GDB/RSP por debajo. Detalle por motor en [`docs/depuracion.md`](docs/depuracion.md).
 
+## Cámara virtual del computador
+
+Agregá **Cámara virtual** desde el catálogo y seleccioná el módulo. En localhost, pulsá
+**Activar** y aceptá el permiso del navegador; podés elegir otra webcam con la cámara detenida.
+**Capturar** envía una fotografía JPEG al backend y muestra la imagen recuperada del servidor,
+con número, dimensiones y hora. **Detener** libera la webcam. Funciona sin firmware ni energía.
+
+Solo se conserva la última foto en memoria; puede desaparecer al superar el presupuesto global,
+quitar el módulo/proyecto o reiniciar el servidor. No se graban video ni audio. Para usar cámaras
+fuera de localhost, el navegador requiere un contexto seguro (HTTPS); LAN queda para otra etapa.
+La Cámara virtual sigue siendo independiente del firmware y de las pantallas. Para captura por firmware, usá la ArduCAM descrita abajo.
+
+Diseño, contratos y prueba completa: [SDD-CAMARA.md](SDD-CAMARA.md).
+
+## ArduCAM con ESP32-S3 y MicroPython
+
+En **Nuevo proyecto**, elegí la plantilla **ArduCAM con ESP32-S3 y MicroPython**. Incluye el circuito cableado y genera `arducam.py` y `main.py` desde una plantilla TypeScript. Seleccioná la cámara, pulsá **Activar webcam**, aceptá el permiso y ejecutá el programa.
+
+Cada cinco segundos MicroPython pide una fotografía nueva mediante I2C/SPI, lee el JPEG completo en bloques de 512 bytes e imprime longitud y SHA-256. El visor muestra la fotografía recuperada del backend y su huella: ambas deben coincidir, sin pulsar **Capturar**. Mostrá otro objeto para verificar una fotografía diferente. **Detener** libera la webcam; parar o reiniciar el programa cancela las solicitudes pendientes.
+
+Primera versión: JPEG 320 × 240 con bandas si cambia la proporción, sin TFT ni video continuo. El driver solo utiliza APIs normales de MicroPython; su funcionamiento en una placa física requiere validación posterior. Registros, límites y alcance: [SDD-ARDUCAM.md](SDD-ARDUCAM.md).
+
 ## Placas soportadas
 
 | Placa | Chip / motor | Qué anda de punta a punta | Límites honestos |
@@ -284,6 +306,7 @@ emulador-electronica/
 | Documento | Qué cubre |
 |---|---|
 | [`docs/vision-y-alcance.md`](docs/vision-y-alcance.md) | Qué es el proyecto, qué falta, límites reales |
+| [`SDD-APRENDIZAJE.md`](SDD-APRENDIZAJE.md) | Diseño de Aprender, TanStack Router, prácticas y plan de implementación por TDD |
 | [`GUIA-IMPLEMENTACION.md`](GUIA-IMPLEMENTACION.md) | Diseño técnico: arquitectura, protocolo del puente, pipeline por lenguaje, API |
 | [`docs/depuracion.md`](docs/depuracion.md) | Modo debug: qué se puede en cada motor, API REST, DAP |
 | [`docs/esp-emulator.md`](docs/esp-emulator.md) | Qué es y qué no es `esp-emu` |

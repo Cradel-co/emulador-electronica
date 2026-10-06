@@ -1,9 +1,9 @@
-import './aprendizaje.css';
 import { riesgoDesdeFisica, salidaDesdeFisica } from './estado-electrico.js';
-import { aprendizaje } from './react/aprendizaje-estado.js';
 // Orquestación del frontend: componentes persistentes y efectos contra la API local.
 import { resolveWorkspaceSelection } from './navigation-selection.js';
 import { createWorkspaceNavigation, type WorkspaceRoute } from './navigation.js';
+import { ControladorCamara, desconectarCamara, eventoCamara, solicitarCaptura, errorCamara } from './camera.js';
+// Frontend sin bundler: ES modules nativos contra la API local (sección 11).
 import { miniatura, ponerImagenPantalla } from './modulos.js';
 import { lenguajeDeArchivo, NOMBRE_LENGUAJE, resaltar } from './editor.js';
 import { crearDepuracion } from './depuracion.js';
@@ -25,6 +25,12 @@ import {
   nombreRef as nombreRefPuro, pinesSinAlimentar as pinesSinAlimentarPuro,
 } from './consultas.js';
 import { fmtMa, fmtV } from './formato.js';
+import './aprendizaje.css';
+import { leccionMdxPorId, leccionesMdx, RUTA_PILOTO } from './aprendizaje/piloto.js';
+import { aprendizaje } from './react/aprendizaje-estado.js';
+import { contenidoAprendizaje, leccionPorId } from './aprendizaje/contenido.js';
+import { almacenLocalAprendizaje, asociarProyecto, CLAVE_PROGRESO_APRENDIZAJE, completarLeccion, quitarAsociacionProyecto, registrarPaso, registroDeLeccion, restablecerRespaldoProgreso } from './aprendizaje/progreso.js';
+import { crearConRecuperacion } from './aprendizaje/practica.js';
 
 /**
  * Id de esta pestaña: el server lo devuelve en los eventos para no recargar los cambios propios.
@@ -79,6 +85,10 @@ const ORDEN_CATEGORIAS = ['Placas', 'Entradas', 'Salidas', 'Pasivos', 'Radio 433
 const state = observable({
   proyectos: [],
   proyecto: null,
+  aprendizajeRuta: null as { leccion?: string; paso?: string } | null,
+  leccionPracticaId: null as string | null,
+  revisionProgresoAprendizaje: 0,
+  creandoPracticaAprendizaje: false,
   archivos: [],
   carpetas: [] as string[],
   exploradorPlacas: [] as BoardFileTree[],
@@ -186,9 +196,21 @@ const state = observable({
   },
 });
 registrarEstado(state);
+window.addEventListener('storage', event => {
+  if (event.key !== CLAVE_PROGRESO_APRENDIZAJE && event.key !== null) return;
+  if (event.newValue === null) restablecerRespaldoProgreso(almacenLocalAprendizaje());
+  state.revisionProgresoAprendizaje++;
+});
 // Lo que los componentes de React necesitan disparar (#9). Van por el puente y no importándose,
 // para no armar un ciclo entre app.ts y los componentes.
 registrarAcciones({
+  crearCamara: (project, instance, camera) => new ControladorCamara(`/api/projects/${encodeURIComponent(project)}/cameras/${encodeURIComponent(instance)}`, {
+    media: navigator.mediaDevices,
+    fetch: async (url, init) => {
+      if (String(url).endsWith('/status') || String(url).endsWith('/session')) await esperarDiagramaCamara(project);
+      return fetch(url, init);
+    },
+  }, camera, project, instance),
   agregarModulo: (type) => agregarModulo(type),
   quitarDelCatalogo: (m) => void quitarDelCatalogo(m),
   filtrarModulos: (texto) => {
@@ -196,6 +218,27 @@ registrarAcciones({
     if (state.proyecto) saveProjectDockFilter(state.proyecto.name, texto);
   },
   abrirProyecto: (nombre) => void cambiarDeProyecto(nombre),
+  navegarAprendizaje: (leccion, paso) => {
+    if (leccion && paso) {
+      const contenido = leccionPorId(leccion);
+      if (contenido) registrarPaso(almacenLocalAprendizaje(), leccion, contenido.revision, paso);
+    }
+    const reemplazarPasoActual = Boolean(leccion && paso
+      && navegacion.current.project === null && navegacion.current.aprender?.leccion === leccion);
+    void navegacion.navigate({ project: null, aprender: {
+      ...(leccion ? { leccion } : {}), ...(paso ? { paso } : {}),
+    } }, { replace: reemplazarPasoActual });
+  },
+  completarAprendizaje: (leccion, revision, paso) => {
+    completarLeccion(almacenLocalAprendizaje(), leccion, revision, paso);
+    const indice = leccionesMdx.findIndex(item => item.id === leccion);
+    const siguiente = indice >= 0 ? leccionesMdx[indice + 1] : undefined;
+    void navegacion.navigate(indice < 0 ? { project: null, aprender: {} } : siguiente ? { project: null, aprender: { leccion: siguiente.id } } : { project: null, aprender: {}, learning: 'rutas', slug: RUTA_PILOTO });
+  },
+  crearPracticaAprendizaje: (plantillaId, nombre) => void crearPracticaAprendizaje(plantillaId, nombre),
+  continuarPracticaAprendizaje: (leccion) => void continuarPracticaAprendizaje(leccion),
+  volverALeccionAprendizaje: () => void volverALeccionAprendizaje(),
+  irAInicio: () => void navegacion.navigate({ project: null }),
   eliminarProyecto: (nombre) => void eliminarProyecto(nombre),
   eliminarModulo: (id) => eliminarModulo(id),
   eliminarCable: (indice) => eliminarCable(indice),
@@ -457,7 +500,14 @@ function conectarWS() {
           notificar();
         }
         break;
+      case 'camera.capture.request':
+        solicitarCaptura(msg.project, msg.instance, msg.requestId);
+        break;
+      case 'camera.state':
+        eventoCamara(msg.project, msg.instance, msg.state);
+        break;
       case 'chip.salida':
+        if (msg.id.endsWith(':arduchip') && typeof msg.salida.cameraError === 'string') errorCamara(msg.project, msg.id.slice(0, -':arduchip'.length), msg.salida.cameraError);
         if (msg.project === state.proyecto?.name) {
           state.salidasChips.set(msg.id, msg.salida);
           // Una pantalla refresca seguido: se cambia solo su imagen, sin redibujar todo el circuito.
@@ -486,7 +536,7 @@ function conectarWS() {
   // y los `pin.watch` se registran por conexión. Sin resincronizar, lo que cambió mientras el
   // WebSocket estaba caído no se entera nunca (issue #8).
   ws.onopen = () => { if (state.proyecto) void resincronizar(); };
-  ws.onclose = () => setTimeout(conectarWS, 1500);
+  ws.onclose = () => { desconectarCamara(); setTimeout(conectarWS, 1500); };
 }
 
 /**
@@ -1017,6 +1067,28 @@ function cableadosConRol(rol) {
 // --- Dibujo: cambios --------------------------------------------------------
 
 let revisionDiagrama = 0;
+let guardadoDiagrama: Promise<unknown> = Promise.resolve();
+
+/** Serializa guardados para que la cámara no abra una instancia aún sin persistir. */
+function enviarDiagrama(proyecto: string, contenido: string) {
+  guardadoDiagrama = guardadoDiagrama.catch(() => {}).then(() => api(`/api/projects/${encodeURIComponent(proyecto)}/diagram`, { method: 'PUT', body: contenido }));
+  return guardadoDiagrama;
+}
+
+async function esperarDiagramaCamara(proyecto: string) {
+  while (true) {
+    if (state.proyecto?.name !== proyecto) throw new Error('El proyecto cambió.');
+    const revision = revisionDiagrama;
+    if (state.timerDiagrama) {
+      clearTimeout(state.timerDiagrama);
+      state.timerDiagrama = null;
+      void enviarDiagrama(proyecto, JSON.stringify(state.diagrama));
+    }
+    await guardadoDiagrama;
+    if (state.proyecto?.name !== proyecto) throw new Error('El proyecto cambió.');
+    if (revisionDiagrama === revision && !state.timerDiagrama) return;
+  }
+}
 function guardarDiagrama() {
   revisionDiagrama++;
   // Todos los cambios del dibujo pasan por acá: es el lugar para avisarle a React, que no ve
@@ -1030,10 +1102,7 @@ function guardarDiagrama() {
   state.timerDiagrama = setTimeout(async () => {
     state.timerDiagrama = null;
     try {
-      await api(`/api/projects/${proyecto}/diagram`, {
-        method: 'PUT',
-        body: contenido,
-      });
+      await enviarDiagrama(proyecto, contenido);
       if (state.proyecto?.name === proyecto) await refrescarAvisos();
     } catch (e: any) {
       nota(`No se pudo guardar el circuito: ${String(((e as Error))?.message ?? e)}`);
@@ -1116,7 +1185,7 @@ function agregarModulo(type, x?: number, y?: number) {
   seleccionar({ tipo: 'modulo', id: inst.id });
   nota(def.pins.length
     ? `${def.name} agregado: conectá sus pines ${state.proyecto.board ? `a la ${nombrePlaca()}` : 'al circuito'} (click en un pin y después en otro).`
-    : `${def.name} agregado: es inalámbrico, no lleva cables.`);
+    : def.camera ? `${def.name} agregada: seleccioná Activar para usar la webcam.` : `${def.name} agregado: es inalámbrico, no lleva cables.`);
 }
 
 // --- Agregar y quitar la placa ---------------------------------------------------------
@@ -1894,24 +1963,19 @@ async function cargarProyectos(seleccionarNombre?: string) {
 
 // --- Pantalla de inicio: lista de proyectos ----------------------------------
 
-function mostrarInicio(page?: 'aprender') {
-  document.body.classList.toggle('aprendiendo', page === 'aprender');
-  $('aprendizaje-nav').hidden = page !== 'aprender';
-  $('inicio-proyectos').hidden = page === 'aprender';
-  $('pagina-aprender').hidden = page !== 'aprender';
-  for (const [id, activa] of [['bienvenida-proyectos', !page], ['bienvenida-acerca', page === 'aprender']] as const) {
-    $(id).classList.toggle('activa', activa);
-    if (activa) $(id).setAttribute('aria-current', 'page');
-    else $(id).removeAttribute('aria-current');
-  }
+function mostrarInicio() {
   document.body.classList.add('inicio');
+  document.body.classList.remove('aprender', 'aprendiendo');
+  $('bienvenida-proyectos').classList.add('activa');
+  $('bienvenida-acerca').classList.remove('activa');
   invalidarObservacionFisica();
+  state.aprendizajeRuta = null;
+  state.leccionPracticaId = null;
   state.proyecto = null;
   state.placaActivaId = null;
   state.activo = null;
   sel('proyecto').value = '';
   pintarWidgetsProyecto();
-  if (page === 'aprender') document.title = 'Aprender – Emulador de electrónica';
   cerrarMenus();
 }
 
@@ -1933,6 +1997,7 @@ function iniciales(nombre) {
 function pintarWidgetsProyecto() {
   const p = state.proyecto;
   const raiz = document.body.style;
+  btn('volver-aprendizaje').hidden = !p || !state.leccionPracticaId;
   if (p) {
     raiz.setProperty('--color-proyecto', colorProyecto(p.name));
     raiz.setProperty('--tinte', colorProyecto(p.name).replace(')', ' / .22)'));
@@ -2018,7 +2083,7 @@ async function abrirProyecto(nombre) {
   // Se puede seguir escribiendo mientras llega el proyecto: guardar también esa versión.
   if (state.editorSucio && (!await guardar(true) || state.editorSucio)) return;
   if (mia !== aperturas) return;
-  document.body.classList.remove('inicio', 'aprendiendo');
+  document.body.classList.remove('inicio');
   const cambioProyecto = state.proyecto?.name !== nombre;
   if (cambioProyecto) state.exploradorPlacas = [];
   invalidarObservacionFisica();
@@ -2101,6 +2166,8 @@ async function cambiarDeProyecto(nombre: string) {
 sel('proyecto').addEventListener('change', () => void cambiarDeProyecto(sel('proyecto').value));
 
 $('ir-inicio').onclick = () => void irAInicio();
+$('volver-aprendizaje').onclick = () => void volverALeccionAprendizaje();
+$('act-proyectos').onclick = () => void irAInicio();
 
 // --- Nuevo proyecto: placa y lenguaje ----------------------------------------------
 
@@ -2651,9 +2718,62 @@ $('dlg-buscar').addEventListener('click', (e) => {
   if (e.target === e.currentTarget) ($('dlg-buscar') as HTMLDialogElement).close(); // click en el fondo
 });
 $('act-ajustes').onclick = () => { state.distribucionMensaje = ''; ($('dlg-ajustes') as HTMLDialogElement).showModal(); };
-$('bienvenida-acerca').onclick = () => void navegacion.navigate({ project: null, page: 'aprender' });
-$('bienvenida-proyectos').onclick = () => void navegacion.navigate({ project: null });
+$('bienvenida-acerca').onclick = () => void navegacion.navigate({ project: null, aprender: {} });
 $('bienvenida-importar').onclick = abrirImportador;
+
+async function crearPracticaAprendizaje(plantillaId: string, nombreSolicitado?: string): Promise<void> {
+  if (state.creandoPracticaAprendizaje) return;
+  const nombre = (nombreSolicitado ?? window.prompt('Nombre del proyecto de práctica:', 'practica-led'))?.trim();
+  if (!nombre || state.creandoPracticaAprendizaje) return;
+  state.creandoPracticaAprendizaje = true;
+  const leccion = state.aprendizajeRuta?.leccion ? leccionPorId(state.aprendizajeRuta.leccion) : undefined;
+  try {
+    await crearConRecuperacion(
+      () => leccion && leccionMdxPorId(leccion.id)
+        ? api(`/api/learning/examples/${encodeURIComponent(plantillaId)}/projects`, { method: 'POST', body: JSON.stringify({ name: nombre }) })
+        : api('/api/projects', { method: 'POST', body: JSON.stringify({ name: nombre, template: plantillaId }) }),
+      async () => {
+        const encontrado = await api(`/api/projects/${encodeURIComponent(nombre)}`);
+        return encontrado.project?.name === nombre ? encontrado : null;
+      },
+    );
+    if (leccion) asociarProyecto(almacenLocalAprendizaje(), leccion.id, leccion.revision, nombre);
+    await cargarProyectos();
+    await navegacion.navigate({ project: nombre, ...(leccion ? { leccion: leccion.id } : {}) });
+  } catch (error) {
+    nota('No se pudo crear la práctica: ' + String((error as Error)?.message ?? error));
+  } finally {
+    state.creandoPracticaAprendizaje = false;
+  }
+}
+
+async function continuarPracticaAprendizaje(leccionId: string): Promise<void> {
+  const leccion = leccionPorId(leccionId);
+  const progreso = leccion && registroDeLeccion(almacenLocalAprendizaje(), leccion.id);
+  const nombre = progreso?.proyectoNombre;
+  if (!leccion || !nombre) return;
+  try {
+    const { projects } = await api('/api/projects');
+    if (!projects.some((project: { name: string }) => project.name === nombre)) {
+      quitarAsociacionProyecto(almacenLocalAprendizaje(), leccion.id, leccion.revision);
+      const ultimoPaso = leccion.pasos[leccion.pasos.length - 1]?.id;
+      nota('La práctica se eliminó. Podés crear una nueva desde el último paso de la lección.');
+      await navegacion.navigate({ project: null, aprender: { leccion: leccion.id, ...(ultimoPaso ? { paso: ultimoPaso } : {}) } });
+      return;
+    }
+    await cargarProyectos();
+    await navegacion.navigate({ project: nombre, leccion: leccion.id });
+  } catch (error) {
+    nota('No se pudo abrir la práctica: ' + String((error as Error)?.message ?? error));
+  }
+}
+
+async function volverALeccionAprendizaje(): Promise<void> {
+  const leccion = state.leccionPracticaId ? leccionPorId(state.leccionPracticaId) : undefined;
+  if (!leccion) return;
+  const paso = registroDeLeccion(almacenLocalAprendizaje(), leccion.id)?.ultimoPasoId;
+  await navegacion.navigate({ project: null, aprender: { leccion: leccion.id, ...(paso ? { paso } : {}) } });
+}
 
 // --- Arranque ---------------------------------------------------------------
 
@@ -2693,11 +2813,13 @@ const depuracion = crearDepuracion({
 
 /** El estado visible es la fuente para canonicalizar rutas resueltas o recuperadas. */
 function rutaActual(): WorkspaceRoute {
+  if (state.aprendizajeRuta) return { ...aprendizaje.route, project: null, aprender: { ...state.aprendizajeRuta } };
   return state.proyecto ? {
     project: state.proyecto.name,
     ...(state.placaActivaId ? { board: state.placaActivaId } : {}),
     ...(state.activo ? { file: state.activo } : {}),
-  } : { project: null, ...(!$('pagina-aprender').hidden ? aprendizaje.route : {}) };
+    ...(state.leccionPracticaId ? { leccion: state.leccionPracticaId } : {}),
+  } : { project: null };
 }
 
 async function navegarArchivo(file: string, board = state.placaActivaId): Promise<void> {
@@ -2732,13 +2854,36 @@ async function aplicarContextoRuta(route: WorkspaceRoute): Promise<void> {
 
 async function aplicarRuta(route: WorkspaceRoute): Promise<WorkspaceRoute> {
   try {
+    if (route.aprender) {
+      state.leccionPracticaId = null;
+      const aprender = { ...route.aprender };
+      const leccion = aprender.leccion ? leccionPorId(aprender.leccion) : undefined;
+      if (leccion) {
+        const guardado = registroDeLeccion(almacenLocalAprendizaje(), leccion.id)?.ultimoPasoId;
+        const solicitado = aprender.paso ?? guardado;
+        if (solicitado && leccion.pasos.some(paso => paso.id === solicitado)) aprender.paso = solicitado;
+        else aprender.paso = leccion.pasos[0]?.id;
+        if (aprender.paso) registrarPaso(almacenLocalAprendizaje(), leccion.id, leccion.revision, aprender.paso);
+      }
+      aprendizaje.route = { ...route, aprender };
+      state.aprendizajeRuta = aprender;
+      document.body.classList.add('inicio', 'aprender', 'aprendiendo');
+      $('bienvenida-proyectos').classList.remove('activa');
+      $('bienvenida-acerca').classList.add('activa');
+      return rutaActual();
+    }
+    state.aprendizajeRuta = null;
+    document.body.classList.remove('aprender', 'aprendiendo');
     if (!route.project) {
-      aprendizaje.route = route;
-      mostrarInicio(route.page);
-      if (route.page === 'aprender') $('pagina-aprender').scrollTop = 0;
+      mostrarInicio();
       await cargarProyectos();
       return rutaActual();
     }
+    const leccionDeUrl = route.leccion ? leccionPorId(route.leccion) : undefined;
+    const leccionAsociada = contenidoAprendizaje.find(leccion =>
+      registroDeLeccion(almacenLocalAprendizaje(), leccion.id)?.proyectoNombre === route.project);
+    state.leccionPracticaId = leccionDeUrl?.id ?? leccionAsociada?.id ?? null;
+    if (state.proyecto?.name === route.project) pintarWidgetsProyecto();
     if (!state.proyectos.some(project => project.name === route.project)) await cargarProyectos();
     if (!state.proyectos.some(project => project.name === route.project)) {
       nota('El proyecto de la dirección no existe.');
@@ -2747,6 +2892,7 @@ async function aplicarRuta(route: WorkspaceRoute): Promise<WorkspaceRoute> {
     }
     if (state.proyecto?.name !== route.project) await abrirProyecto(route.project);
     if (state.proyecto?.name !== route.project) return rutaActual();
+    document.body.classList.remove('inicio');
     await aplicarContextoRuta(route);
     return rutaActual();
   } catch (error) {
@@ -2761,13 +2907,14 @@ async function aplicarRuta(route: WorkspaceRoute): Promise<WorkspaceRoute> {
 /** Espera el circuito pendiente y el editor antes de cualquier cambio de ruta. */
 async function guardarAntesDeNavegar(): Promise<boolean> {
   const revision = revisionDiagrama;
-  if (state.timerDiagrama && state.proyecto) {
-    clearTimeout(state.timerDiagrama);
-    state.timerDiagrama = null;
+  if (state.proyecto) {
     try {
-      await api(`/api/projects/${encodeURIComponent(state.proyecto.name)}/diagram`, {
-        method: 'PUT', body: JSON.stringify(state.diagrama),
-      });
+      if (state.timerDiagrama) {
+        clearTimeout(state.timerDiagrama);
+        state.timerDiagrama = null;
+        void enviarDiagrama(state.proyecto.name, JSON.stringify(state.diagrama));
+      }
+      await guardadoDiagrama;
     } catch (error) {
       guardarDiagrama();
       nota(`No se pudo guardar el circuito: ${String((error as Error).message)}`);
