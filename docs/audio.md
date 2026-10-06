@@ -62,6 +62,17 @@ Todos los campos menos `tipo`, `fuente` y `pins` son opcionales, y la ausencia d
 tiene un significado explícito: sin `umbralV`, cualquier tensión positiva lo hace sonar; sin
 `referencia`, no se inventa una curva de volumen y suena a amplitud plena.
 
+## Quién decide si suena
+
+El **modelo del módulo**, no el `umbralV` declarado. Si `observar` devolvió `ui.on`, ese veredicto
+manda y la tensión queda solo para la amplitud; `umbralV` es el respaldo para un módulo sin
+modelo.
+
+Tiene que ser así porque el umbral real vive en el modelo, con su histéresis, y además ve la
+corriente. Declararlo dos veces los hacía discrepar: en la plantilla
+`volumen-con-potenciometro`, a 2,44 V el modelo conducía y el sonido decía silencio, y a 2,50 V
+al revés — el módulo prendía su dibujo y se quedaba callado.
+
 ## De la tensión a la amplitud
 
 La presión sonora es proporcional a la tensión, así que la amplitud también. La regla que usa
@@ -93,6 +104,13 @@ Verificado contra ngspice en `app/server/src/sim/buzzerActivo.test.ts`:
 | 12 V | avisa que se daña (máximo 6 V) |
 | al revés | no zumba y lo avisa |
 
+## Probarlo
+
+La plantilla [`volumen-con-potenciometro`](../projects/_template/volumen-con-potenciometro/) trae
+el circuito armado: fuente regulable, potenciómetro como divisor y buzzer. Girando el cursor el
+zumbido baja, y su README tiene la tabla de tensión, consumo y dBA en cada posición, medida con el
+motor.
+
 ## Lo que falta (y hay que decirlo)
 
 - **Falta el control de volumen y silencio.** El `ControladorAudio` ya los implementa
@@ -104,6 +122,12 @@ Verificado contra ngspice en `app/server/src/sim/buzzerActivo.test.ts`:
   aliasa. Un tono de 2 kHz no se puede reconstruir así.
 - **Ninguna de las placas del repo (C3, C6, S3) tiene DAC interno.** Espressif lo sacó después
   del ESP32 clásico. El audio analógico de salida obliga a un chip externo por I2S.
+- **Un buzzer activo no se desvanece: se corta.** Por debajo de su umbral el oscilador no
+  arranca, así que el volumen baja hasta ahí y el zumbido desaparece de golpe.
+- **Hay circuitos sin punto de operación.** Con el buzzer justo en el filo de su umbral y
+  cargando el divisor que lo alimenta, el estado se vuelve inestable (conduce → baja la tensión →
+  deja de conducir → sube) y el motor no converge: la app avisa que no hay solución. Es físico,
+  no un error de cálculo; un buzzer real ahí castañetea.
 - **El `AudioContext` necesita un gesto del usuario** (política de autoplay). Se habilita en el
   click de ▶: es el gesto que el navegador exige y el momento en que el usuario espera que el
   circuito empiece a funcionar. Lo que ya venía zumbando arranca ahí.

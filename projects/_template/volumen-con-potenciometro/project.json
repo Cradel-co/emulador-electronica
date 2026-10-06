@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "name": "volumen-con-potenciometro",
+  "board": null,
+  "language": null,
+  "sim": {
+    "wifiSsid": "sim-wifi",
+    "wifiPassword": "sim-password"
+  },
+  "modules": [
+    {
+      "id": "fuente1",
+      "type": "fuente-regulable",
+      "x": -340,
+      "y": 180,
+      "props": { "voltage": 5, "currentLimitMa": 500 }
+    },
+    {
+      "id": "pot1",
+      "type": "potenciometro",
+      "x": -120,
+      "y": 180,
+      "props": { "ohms": 100, "posicion": 20, "powerRatedW": 0.25 }
+    },
+    {
+      "id": "bz1",
+      "type": "buzzer-activo",
+      "x": 100,
+      "y": 180,
+      "props": {}
+    }
+  ],
+  "wires": [
+    { "from": "fuente1.V", "to": "pot1.A" },
+    { "from": "pot1.B", "to": "fuente1.GND" },
+    { "from": "pot1.W", "to": "bz1.IN" },
+    { "from": "bz1.GND", "to": "fuente1.GND" }
+  ]
+}
