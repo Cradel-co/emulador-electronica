@@ -80,11 +80,21 @@ export function dbAPorTension(dbAReferencia: number, v: number, referenciaV: num
  * El evento de sonido de un módulo cuyo oscilador es interno (`fuente: "nivel"`), a partir de
  * la tensión que el motor calculó entre sus pines.
  *
- * Sin `referencia` no se inventa una curva de volumen: suena a amplitud plena. Sin `umbralV`,
- * cualquier tensión positiva lo hace sonar.
+ * `veredicto` es lo que concluyó el modelo del módulo (`observar` → `ui.on`). **Cuando existe,
+ * manda**: el modelo tiene el umbral real con su histéresis y además ve la corriente, así que
+ * `umbralV` solo puede aproximarlo. Sin él, el módulo podría prender su dibujo y quedarse
+ * callado, o sonar sin conducir.
+ *
+ * Sin `referencia` no se inventa una curva de volumen: suena a amplitud plena. Sin `umbralV` ni
+ * veredicto, cualquier tensión positiva lo hace sonar.
  */
-export function eventoPorNivel(modulo: string, salida: SalidaSonido, v: number): EventoSonido {
-  const sonando = salida.umbralV === undefined ? v > 0 : v >= salida.umbralV;
+export function eventoPorNivel(
+  modulo: string,
+  salida: SalidaSonido,
+  v: number,
+  veredicto?: boolean,
+): EventoSonido {
+  const sonando = veredicto ?? (salida.umbralV === undefined ? v > 0 : v >= salida.umbralV);
   if (!sonando) return { modulo, sonando: false, ganancia: 0, hz: salida.hz, forma: salida.forma };
   const ganancia = salida.referencia ? gananciaPorTension(v, salida.referencia.v) : 1;
   const evento: EventoSonido = { modulo, sonando: true, ganancia, hz: salida.hz, forma: salida.forma };
@@ -101,6 +111,9 @@ export function eventoPorNivel(modulo: string, salida: SalidaSonido, v: number):
  * no suena — se emite el evento en silencio igual, para que el navegador corte lo que venía
  * sonando si lo desconectaron.
  *
+ * `uiDe` da lo que concluyó el modelo de cada instancia: si dijo `on`, ese veredicto decide si
+ * suena, y la tensión queda solo para la amplitud. Un módulo sin modelo cae al `umbralV`.
+ *
  * Solo resuelve `fuente: "nivel"`. `pwm` e `i2s` necesitan que el firmware declare la frecuencia
  * (ver SDD-AUDIO.md): hasta que exista, no se inventa un evento que no se puede sintetizar.
  */
@@ -108,6 +121,7 @@ export function sonidosDelCircuito(
   instancias: readonly { id: string; type: string }[],
   salidasDe: (type: string) => readonly SalidaSonido[] | undefined,
   tensiones: Readonly<Record<string, number>>,
+  uiDe?: (id: string) => { on?: boolean; brillo?: number } | undefined,
 ): EventoSonido[] {
   const eventos: EventoSonido[] = [];
   for (const inst of instancias) {
@@ -117,7 +131,8 @@ export function sonidosDelCircuito(
       const vMas = tensiones[`${inst.id}.${mas}`];
       const vMenos = tensiones[`${inst.id}.${menos}`];
       const v = vMas === undefined || vMenos === undefined ? 0 : vMas - vMenos;
-      eventos.push(eventoPorNivel(inst.id, salida, v));
+      const on = uiDe?.(inst.id)?.on;
+      eventos.push(eventoPorNivel(inst.id, salida, v, typeof on === 'boolean' ? on : undefined));
     }
   }
   return eventos;
