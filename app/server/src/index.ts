@@ -725,6 +725,12 @@ async function registerRoutes(): Promise<void> {
         wires: (body.wires ?? project.wires) as never,
       });
       await revisarAlimentacion(name);
+      // Cambiar una prop cambia la física: hay que empujarle al firmware la instantánea nueva.
+      // Sin esto, el ADC y los niveles de entrada se quedan con los del arranque — un sonómetro
+      // seguía informando 50 dBA aunque la escena pasara a 110. Se autoprotege si el proyecto no
+      // corre, y viene debounceado (actualizadorElectrico), así que arrastrar un control no lo
+      // satura. Es lo mismo que hace fijarControl al apretar un interruptor.
+      void refrescarEntradasDelCircuito(name);
       broadcast({ type: 'project.changed', project: name, what: 'diagram', origin: clienteDe(req) });
       reply.send({ project: updated });
     } catch (err) {
