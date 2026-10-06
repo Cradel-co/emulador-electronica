@@ -108,6 +108,8 @@ Ver [arquitectura-web.md](./docs/arquitectura-web.md#componentes-propios-y-adapt
 - [README.md](./README.md) — puesta en marcha paso a paso y requisitos.
 - [docs/](./docs/) — alcance, placas, módulos, fuentes de alimentación, troubleshooting.
 - [SDD-CIRCUITO-LIBRE.md](./SDD-CIRCUITO-LIBRE.md) — diseño del solver de circuito libre y su plan de tests.
+- [docs/agregar-un-modulo.md](./docs/agregar-un-modulo.md) — **el proceso para agregar un módulo**, con el
+  error que originó cada paso. Leerlo antes de crear un componente nuevo.
 - [docs/audio.md](./docs/audio.md) — módulos que suenan: el contrato `salidas.sonido`, de la tensión
   a la amplitud, y qué falta para que el navegador reproduzca.
 - [docs/arquitectura-web.md](./docs/arquitectura-web.md) — capas de la UI, cómo se hablan `app.ts` y los

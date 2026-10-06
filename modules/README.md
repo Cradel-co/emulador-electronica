@@ -1,5 +1,8 @@
 # Catálogo de módulos
 
+> Para **agregar** un módulo, el proceso (y los errores que lo originaron) está en
+> [`../docs/agregar-un-modulo.md`](../docs/agregar-un-modulo.md). Acá está el formato.
+
 Cada módulo es una carpeta `modules/<tipo>/`:
 
 ```
