@@ -218,6 +218,7 @@ fuera de localhost, el navegador requiere un contexto seguro (HTTPS); LAN queda 
 La Cámara virtual sigue siendo independiente del firmware y de las pantallas. Para captura por firmware, usá la ArduCAM descrita abajo.
 
 Diseño, contratos y prueba completa: [SDD-CAMARA.md](SDD-CAMARA.md).
+La siguiente alternativa, OV2640 por DVP en ESP32-S3, está en diseño: [SDD-ESP-CAMERA.md](SDD-ESP-CAMERA.md). Explica el pinout por placa y por qué la emulación no equivale a simular las señales DVP.
 
 ## ArduCAM con ESP32-S3 y MicroPython
 

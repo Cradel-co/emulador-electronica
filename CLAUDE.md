@@ -119,6 +119,8 @@ Ver [arquitectura-web.md](./docs/arquitectura-web.md#componentes-propios-y-adapt
 - [SDD-AUDIO.md](./SDD-AUDIO.md) — diseño de los módulos que suenan y del micrófono: un contrato
   (`salidas.sonido`) con tres niveles de fidelidad (nivel de pin, PWM, I2S) y por qué el tono se
   declara en vez de calcularse.
+- [SDD-ESP-CAMERA.md](./SDD-ESP-CAMERA.md) — diseño de la cámara OV2640 por DVP en ESP32-S3,
+  compatibilidad del driver físico y frontera de fidelidad de la emulación.
 - [chips/README.md](./chips/README.md) — chips con lógica (I2C/SPI en el Uno y puente MicroPython en ESP32): cómo se escriben y se prueban.
   Los sketches de prueba se compilan con `sh app/server/src/fixtures/chips/compilar.sh` (Docker) y los
   `.hex` se versionan: los tests corren sin Docker.
