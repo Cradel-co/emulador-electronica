@@ -280,3 +280,49 @@ buzzer = PWM(Pin(GPIO_BUZZER), freq=440, duty_u16=0)`;
     expect(scanPins('micropython', 'BASE = 5\nBZ = BASE\np = PWM(Pin(BZ))')).toEqual([5]);
   });
 });
+
+/**
+ * `PWM` y `ADC` también fijan la dirección del pin, y el motor la necesita: un pin que el código
+ * no declara como salida queda sin manejar, y el buzzer pasivo de la plantilla medía 0 V. Era la
+ * causa de que la melodía no se oyera.
+ */
+describe('direccionesDeCodigo en MicroPython: PWM y ADC', () => {
+  it('PWM sobre un Pin lo convierte en salida', () => {
+    const d = direccionesDeCodigo('micropython', 'p = PWM(Pin(5), freq=440)');
+    expect(d.get(5)).toMatchObject({ salida: true });
+  });
+
+  it('PWM con el GPIO directo también', () => {
+    expect(direccionesDeCodigo('micropython', 'p = PWM(9, freq=440)').get(9)).toMatchObject({ salida: true });
+  });
+
+  it('el caso de la plantilla: PWM(Pin(CONSTANTE))', () => {
+    const codigo = `from machine import PWM, Pin
+GPIO_BUZZER = 5
+buzzer = PWM(Pin(GPIO_BUZZER), freq=440, duty_u16=0)`;
+    expect(direccionesDeCodigo('micropython', codigo).get(5)).toMatchObject({ salida: true });
+  });
+
+  it('un ADC es una entrada: no tiene que manejar el pin contra el sensor', () => {
+    const d = direccionesDeCodigo('micropython', 'a = ADC(Pin(4), atten=ADC.ATTN_11DB)');
+    expect(d.get(4)).toMatchObject({ salida: false });
+  });
+
+  it('el ADC con constante también', () => {
+    const codigo = 'GPIO_MIC = 4\na = ADC(Pin(GPIO_MIC))';
+    expect(direccionesDeCodigo('micropython', codigo).get(4)).toMatchObject({ salida: false });
+  });
+
+  it('Pin(CONSTANTE, Pin.OUT) también se resuelve', () => {
+    const codigo = 'LED = 7\nl = Pin(LED, Pin.OUT)';
+    expect(direccionesDeCodigo('micropython', codigo).get(7)).toMatchObject({ salida: true });
+  });
+
+  it('un PWM comentado no configura nada', () => {
+    expect(direccionesDeCodigo('micropython', '# p = PWM(Pin(5), freq=440)').size).toBe(0);
+  });
+
+  it('una variable que no va a un periférico no es un pin', () => {
+    expect(direccionesDeCodigo('micropython', 'duracion = 5\nprint(duracion)').size).toBe(0);
+  });
+});
