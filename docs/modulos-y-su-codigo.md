@@ -128,6 +128,10 @@ Los módulos de fábrica tienen todos su `model.js`: son el mejor punto de parti
 
 ### Ejemplo 1: un potenciómetro (props y divisor)
 
+Este ejemplo dejó de ser hipotético: es el módulo `modules/potenciometro/` del catálogo. La
+versión que está en el repo sigue la convención de los pasivos del motor (`model.ts`, props
+validadas y potencia nominal declarada), así que no es idéntica a la de acá.
+
 ```js
 // Potenciómetro: una resistencia con un cursor. Entre A y B siempre está el total; el cursor
 // (W) la divide en dos según la posición (0 = pegado a A, 100 = pegado a B).
