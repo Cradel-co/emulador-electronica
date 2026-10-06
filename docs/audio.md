@@ -10,8 +10,12 @@ máquina. Lo que el emulador produce es la *descripción* del sonido —qué fre
 amplitud, desde qué módulo— y el navegador la sintetiza con la Web Audio API.
 
 ```
-firmware emulado → "GPIO5 en 1" → motor: el buzzer tiene 4,8 V → evento de sonido → navegador
+motor (.op) → tensión entre los pines del buzzer → sonidosDelCircuito → electrico.sonidos
+           → /api/projects/<p>/pins → app.ts → ControladorAudio → Web Audio → suena
 ```
+
+El sonido viaja en la **misma instantánea** que el `ui` de cada módulo, no en un evento aparte:
+salen del mismo cálculo, así que llegan juntos.
 
 Son dos caminos que no se cruzan. El motor eléctrico sigue contestando lo de siempre con `.op`
 (¿le llega tensión?, ¿cuánto consume?, ¿se quema?) sin enterarse de que algo suena.
@@ -91,16 +95,18 @@ Verificado contra ngspice en `app/server/src/sim/buzzerActivo.test.ts`:
 
 ## Lo que falta (y hay que decirlo)
 
-- **Todavía no suena.** El contrato, el módulo y la lógica de amplitud están; falta publicar el
-  evento desde el server y el adaptador de Web Audio en el navegador.
+- **Falta el control de volumen y silencio.** El `ControladorAudio` ya los implementa
+  (`silenciar()`, `cambiarVolumen()`), pero no hay nada visible que los toque: el volumen queda
+  en el 0,5 inicial. Hacerlo tocaría `index.html`, `react/montar.ts` y `react/puente.ts`.
 - **El tono está declarado, no calculado.** Sale de la hoja de datos o del PWM que informa el
   firmware, no del motor.
 - **No hay audio por flancos de GPIO**: el puente muestrea los registros de salida, y el muestreo
   aliasa. Un tono de 2 kHz no se puede reconstruir así.
 - **Ninguna de las placas del repo (C3, C6, S3) tiene DAC interno.** Espressif lo sacó después
   del ESP32 clásico. El audio analógico de salida obliga a un chip externo por I2S.
-- **El `AudioContext` necesita un gesto del usuario** (política de autoplay): va a hacer falta un
-  control explícito de "habilitar sonido".
+- **El `AudioContext` necesita un gesto del usuario** (política de autoplay). Se habilita en el
+  click de ▶: es el gesto que el navegador exige y el momento en que el usuario espera que el
+  circuito empiece a funcionar. Lo que ya venía zumbando arranca ahí.
 
 ## Entrada: micrófono
 

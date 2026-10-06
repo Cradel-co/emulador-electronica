@@ -3,9 +3,8 @@
 Diseño de los módulos que **suenan** y de los que **escuchan**. Tres niveles de fidelidad
 para la salida, uno para la entrada, y un solo contrato que los une.
 
-Estado: el **caso A está implementado y verificado del lado eléctrico, pero todavía no suena**
-— falta publicar el evento al navegador y el adaptador de Web Audio (ver sección 11). Los casos
-B y C siguen siendo diseño. Para usarlo: [docs/audio.md](./docs/audio.md).
+Estado: el **caso A está implementado de punta a punta y suena**. Falta solo el control visible
+de volumen y silencio (ver sección 11). Los casos B y C siguen siendo diseño. Para usarlo: [docs/audio.md](./docs/audio.md).
 
 ## 1. El problema
 
@@ -259,9 +258,12 @@ Primero el test que falla por la razón correcta, como pide
 1. **Caso A completo**: contrato `salidas.sonido`, `modules/buzzer-activo/`, adaptador del
    navegador. Es el único que entrega sonido sin tocar motor ni puente.
    - ✅ contrato, lógica de amplitud, módulo y tests contra el motor.
-   - ⬜ publicar el `EventoSonido` desde el server (toca `emulator.ts` e `index.ts`, los mismos
-     archivos del PR #54: de ahí que el paso 0 vaya primero).
-   - ⬜ `app/web/audio.ts` con el `ControladorAudio` y el control de "habilitar sonido".
+   - ✅ publicar el `EventoSonido` desde el server, en la instantánea de `/pins`.
+   - ✅ cablearlo en `app.ts` y habilitar el audio en el click de ▶.
+   - ✅ `app/web/audio.ts` con el `ControladorAudio` y la Web Audio API detrás de un puerto
+     propio, con sus tests sin navegador.
+   - ⬜ el control visible de volumen y silencio (el controlador ya los tiene; falta la UI, que
+     toca `index.html`, `react/montar.ts` y `react/puente.ts`: archivos del PR #55).
 2. **Micrófono analógico** (SEN0232), resolviendo antes `entorno` a nivel de módulo.
 3. **Caso B**: `@PWM` en el puente MicroPython, diseñado también para brillo de LED y
    servo. Después, `modules/buzzer-pasivo/`.
