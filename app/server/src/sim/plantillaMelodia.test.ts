@@ -2,7 +2,8 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { ProjectSchema, sonidosDelCircuito, type Project, type PwmDeclarado } from '@emu/shared';
 import { loadCatalog, type ModuloCatalogo } from '../catalog.js';
-import { gpioDe } from '../diagramOps.js';
+import { gpioDe, conPlaca } from '../diagramOps.js';
+import { diffDiagramVsCode, scanPins } from '../pinScan.js';
 import { analizarCircuito } from './analisis.js';
 import { precalentar } from './spice.js';
 
@@ -36,6 +37,20 @@ async function sonar(porGpio: ReadonlyMap<number, PwmDeclarado>) {
 }
 
 describe('plantilla melodia-con-buzzer-pasivo', () => {
+  /**
+   * El escáner de pines mira el código para saber qué GPIO usa. El programa de la plantilla pone
+   * el pin en una constante (`GPIO_BUZZER = 5`) y lo pasa por `PWM(Pin(...))`: eso avisaba "hay un
+   * módulo cableado al pin GPIO5 que el código no usa", siendo que sí lo usa.
+   */
+  it('el código de la plantilla declara el GPIO que tiene cableado, sin avisos falsos', () => {
+    const codigo = readFileSync(new URL('../../../../projects/_template/melodia-con-buzzer-pasivo/main.py', import.meta.url), 'utf8');
+    const p = plantilla();
+    const desc = b(p.board ?? '')?.board;
+    expect(scanPins('micropython', codigo, desc)).toEqual([5]);
+    const avisos = diffDiagramVsCode(conPlaca(p), scanPins('micropython', codigo, desc), desc);
+    expect(avisos.filter((a) => a.kind === 'module-pin-unused' || a.kind === 'code-pin-unwired')).toEqual([]);
+  });
+
   it('es un proyecto válido con el piezo cableado a un GPIO', () => {
     const p = plantilla();
     expect(p.modules.map((m) => m.type)).toContain('buzzer-pasivo');

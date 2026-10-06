@@ -32,7 +32,13 @@ const RE_BY_LANGUAGE: Record<Language, RegExp[]> = {
   // `simbridge.pin(6)` es como las plantillas leen las entradas del circuito: cuenta
   // igual que `Pin(6)` (direccionesDeCodigo ya lo tomaba, scanPins no: avisaba que el
   // pin del botón "no lo usa el código").
-  micropython: [/Pin\s*\(\s*(\d{1,2})/g, /Pin\s*\(\s*"GPIO(\d{1,2})"/g, /\bsimbridge\.pin\s*\(\s*(\d{1,2})/g],
+  // `PWM(5)` y `ADC(4)` también aceptan el GPIO sin envolverlo en un Pin.
+  micropython: [
+    /Pin\s*\(\s*(\d{1,2})/g,
+    /Pin\s*\(\s*"GPIO(\d{1,2})"/g,
+    /\bsimbridge\.pin\s*\(\s*(\d{1,2})/g,
+    /\b(?:PWM|ADC)\s*\(\s*(\d{1,2})\s*[,)]/g,
+  ],
 };
 
 /** Comentarios por lenguaje: lo que está comentado no es código y no usa ningún pin. */
@@ -92,6 +98,20 @@ export function scanPins(language: Language, content: string, desc?: BoardDescri
     while ((m = rx.exec(texto)) !== null) {
       agregar(avr ? valorPinAvr(m[1]!) : Number(m[1]));
       if (m.index === rx.lastIndex) rx.lastIndex++; // evita loops en regex globales
+    }
+  }
+  if (language === 'micropython') {
+    // Constantes de Python (`GPIO_BUZZER = 5`) usadas después en Pin, PWM o ADC. Solo cuentan si
+    // se le pasan a uno de ellos: `duracion = 7` no es un pin, y resolver toda asignación
+    // inventaría pines. Es la misma disciplina que el camino de Arduino AVR.
+    const usadas = new Set<string>();
+    for (const m of texto.matchAll(/\b(?:Pin|PWM|ADC)\s*\(\s*([A-Za-z_]\w*)\s*[,)]/g)) usadas.add(m[1]!);
+    if (usadas.size > 0) {
+      const asignadas = new Map<string, string>();
+      for (const m of texto.matchAll(/^[ \t]*([A-Za-z_]\w*)[ \t]*=[ \t]*([A-Za-z_]\w*|\d{1,2})[ \t]*(?:#.*)?$/gm)) {
+        asignadas.set(m[1] ?? '', m[2] ?? '');
+      }
+      for (const nombre of usadas) agregar(resolverPin(nombre, asignadas));
     }
   }
   if (avr && language === 'arduino') {
