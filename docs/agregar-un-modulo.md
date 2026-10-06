@@ -38,6 +38,14 @@ vez de uno.
 Si el análogo existe, copiá su forma: convención de `model.ts`, validación de props, potencia
 nominal como dato declarado, el aviso que escala a peligro al doble.
 
+**Pero no copies el lenguaje del archivo.** El modelo de un módulo nuevo va en **`model.ts`**, con
+su tipo `ModeloModulo`, aunque el análogo que estás mirando todavía sea `model.js`. Lo pide
+[`AGENTS.md`](../AGENTS.md) y lo verifica `catalogoModulos.test.ts`, que lleva la lista de los que
+faltan migrar (issue #41).
+
+**El error:** copié el `model.js` del LED para el buzzer activo porque sus hermanos del catálogo
+—LED, relé, pulsador— todavía son `.js`. El paso de "copiar el análogo" induce justamente a eso.
+
 ## 2. Un hecho físico, un solo lugar
 
 Si el modelo lo calcula, **no lo declares también** en el `module.json`, y al revés.

@@ -80,6 +80,32 @@ describe('catálogo de módulos: el modelo eléctrico carga y corre', () => {
   });
 });
 
+/**
+ * Los modelos que todavía están en JavaScript. AGENTS.md pide TypeScript para todo fuente nuevo;
+ * estos son los que faltan migrar y los trackea el issue #41. La lista se **acorta**: un módulo
+ * nuevo en `.js` pone este test en rojo, y migrar uno pide sacarlo de acá.
+ */
+const MODELOS_JS_PENDIENTES = [
+  'bme280-adafruit', 'button', 'buzzer-activo', 'ds3231-zs042', 'fuente-regulable', 'led',
+  'mpu6050-gy521', 'oled-ssd1306-128x64', 'relay', 'rxb6', 'stx882', 'switch',
+  'tft-st7735-128x160',
+];
+
+describe('catálogo de módulos: el modelo se escribe en TypeScript', () => {
+  it('un módulo nuevo no agrega un model.js', () => {
+    const enJs = cat.filter((m) => m.model?.endsWith('.js')).map((m) => m.type).sort();
+    expect(enJs, 'si migraste uno, sacalo de MODELOS_JS_PENDIENTES; si es nuevo, escribilo en .ts')
+      .toEqual([...MODELOS_JS_PENDIENTES].sort());
+  });
+
+  it('la lista de pendientes no tiene nombres que ya no existen', () => {
+    const tipos = new Set(cat.map((m) => m.type));
+    for (const t of MODELOS_JS_PENDIENTES) {
+      expect(tipos.has(t), `${t} está en MODELOS_JS_PENDIENTES pero no está en el catálogo`).toBe(true);
+    }
+  });
+});
+
 describe('catálogo de módulos: las referencias apuntan a algo que existe', () => {
   const pines = (m: ModuloCatalogo) => new Set(m.pins.map((p) => p.name));
 
