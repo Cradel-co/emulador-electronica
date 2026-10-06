@@ -202,6 +202,53 @@ el circuito armado: fuente regulable, potenciómetro como divisor y buzzer. Gira
 zumbido baja, y su README tiene la tabla de tensión, consumo y dBA en cada posición, medida con el
 motor.
 
+## Qué tan "real" es esta emulación
+
+"Emulación real" puede querer decir tres cosas distintas, y las respuestas son muy diferentes.
+Conviene tenerlas separadas para no prometer lo que no se puede.
+
+### 1. Tiempo real: que `sleep_ms(220)` tarde 220 ms — **no se puede**
+
+`esp-emu` (v0.45.0) **no tiene ninguna opción de tiempo real ni de throttling**. Sus opciones son
+chip, firmware, red, UART, GDB, trazas, strap, PSRAM y poco más; nada de reloj.
+
+Y hay una razón de fondo que no depende de la herramienta: **el throttling solo sirve para frenar
+un emulador que va más rápido que la realidad.** El nuestro va más lento — mediana de 250 ms contra
+220 pedidos. No hay nada que frenar; habría que acelerarlo primero.
+
+Emular un micro en tiempo real pide virtualización asistida por hardware (no aplica: RISC-V sobre
+x86) o un emulador bastante más rápido. Está fuera de alcance.
+
+**El único margen conocido:** la opción `--batch-size` (50.000 instrucciones por iteración, por
+defecto) que hoy no se pasa. Un lote más chico entrelaza más fino y **podría achicar los picos** a
+cambio de throughput. No convierte nada en tiempo real, y no está medido.
+
+### 2. La forma de onda: el timbre — **sí se puede**
+
+Ver [El volumen con PWM](#el-volumen-con-pwm-de-dónde-sale-el-senπduty). Reproducir la onda con su
+ciclo de trabajo real, en vez de una cuadrada simétrica con la ganancia ajustada, está al alcance
+con `PeriodicWave` de Web Audio a partir de los coeficientes de Fourier del pulso.
+
+### 3. Audio desde el solver: análisis transitorio — **no, por tres órdenes de magnitud**
+
+Sería lo más puro: resolver el circuito en el tiempo y sacar las muestras de ahí. Pero el audio
+pide unas 44.100 muestras por segundo y cada resolución de ngspice tarda 10–30 ms. Falta un factor
+de mil, y no es un problema de optimización sino de qué clase de herramienta es un solver de
+circuitos.
+
+### Lo que sí está medido
+
+| | |
+|---|---|
+| Lo que pide el programa | 220 ms por nota |
+| Mediana real | ~250 ms |
+| Mínimo / máximo | 35 ms / 1517 ms |
+| Latencia de avisar el cambio y recalcular | 9–41 ms |
+
+La tubería del audio aporta menos del 10 % de ese jitter: **no hay nada que optimizar ahí**. Y
+"arreglar" el ritmo compensándolo sería mentir sobre la emulación — el tono tiene que seguir a lo
+que el programa hace, no a lo que uno quisiera que hiciera.
+
 ## Lo que falta (y hay que decirlo)
 
 - **Falta el control de volumen y silencio.** El `ControladorAudio` ya los implementa
