@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
 import { microPythonSimbridgePara } from './templates/micropythonBridge.js';
+import { PuentePwm } from './pwmEsp.js';
 
 /**
  * `machine.PWM` del shim que se sube al dispositivo, ejecutado en CPython. Valida el contrato:
@@ -142,5 +143,69 @@ PWM(Pin(8), freq=440, duty=512)
       const { out } = await correr(programa);
       expect(String(out.error), programa).toContain(esperado);
     }
+  });
+});
+
+/**
+ * Las dos mitades del PWM tienen que coincidir en el formato del cable: lo que escribe el shim
+ * (en el dispositivo) y lo que parsea el puente (en el server). Si alguien cambia uno solo, esto
+ * se rompe en vez de dejar el audio mudo en silencio.
+ *
+ * Es la versión automatizable de lo que se verificó a mano con el firmware corriendo.
+ */
+describe('el shim y el puente coinciden en el formato de @PWM', () => {
+  const puenteCon = (lineas: string[]) => {
+    const puente = new PuentePwm();
+    for (const l of lineas) puente.recibir(l);
+    return puente;
+  };
+
+  it('lo que emite el shim al poner una nota, el puente lo entiende', async () => {
+    const { out, pwm } = await correr(`
+p = PWM(Pin(5), freq=440, duty_u16=32768)
+`);
+    expect(out.error).toBeUndefined();
+    const estado = puenteCon(pwm).estado();
+    expect(estado.get(5)?.hz).toBe(440);
+    expect(estado.get(5)?.duty).toBeCloseTo(0.5, 3);
+  });
+
+  it('un barrido de duty llega con los valores que puso el programa', async () => {
+    const { out, pwm } = await correr(`
+p = PWM(Pin(5), freq=440, duty_u16=0)
+for u16 in (3277, 16384, 32768, 49152, 62259, 65535):
+    p.init(freq=440, duty_u16=u16)
+`);
+    expect(out.error).toBeUndefined();
+    // Cada línea deja el puente en el duty de esa etapa.
+    const duties = pwm.map((l) => {
+      const e = puenteCon([l]).estado().get(5);
+      return e ? Number(e.duty.toFixed(3)) : null;
+    });
+    expect(duties).toEqual([0, 0.05, 0.25, 0.5, 0.75, 0.95, 1]);
+  });
+
+  it('después de deinit el puente no tiene PWM en ese pin: el buzzer se calla', async () => {
+    const { out, pwm } = await correr(`
+p = PWM(Pin(5), freq=440, duty_u16=32768)
+p.deinit()
+`);
+    expect(out.error).toBeUndefined();
+    const estado = puenteCon(pwm).estado();
+    expect(estado.has(5), 'deinit tiene que liberar el pin, o queda un tono trabado').toBe(false);
+  });
+
+  it('el puente entiende todas las líneas del shim, sin descartar ninguna', async () => {
+    const { out, pwm } = await correr(`
+p = PWM(Pin(5), freq=440, duty=512)
+p.freq(880)
+p.duty_u16(16384)
+p.duty_ns(250000)
+p.deinit()
+`);
+    expect(out.error).toBeUndefined();
+    const puente = new PuentePwm();
+    const entendidas = pwm.map((l) => puente.recibir(l));
+    expect(entendidas, `el puente descartó alguna de ${JSON.stringify(pwm)}`).toEqual(pwm.map(() => true));
   });
 });

@@ -193,6 +193,17 @@ describe('eventoPorPwm: la frecuencia la pone el micro', () => {
     expect(eventoPorPwm('bz1', PIEZO, 3.3, { hz: 440, duty: 0.75 }).ganancia).toBeCloseTo(Math.SQRT1_2, 3);
   });
 
+  /**
+   * La firma de sen(π·duty) es la simetría alrededor del 50 %: 5 % y 95 % dan lo mismo, igual que
+   * 25 % y 75 %. Verificado también con el firmware corriendo, con estos mismos valores.
+   */
+  it('es simétrica alrededor del 50 %: 5 % y 95 % suenan igual', () => {
+    const g = (duty: number) => eventoPorPwm('bz1', PIEZO, 3.3, { hz: 440, duty }).ganancia;
+    expect(g(0.05)).toBeCloseTo(g(0.95), 6);
+    expect(g(0.05)).toBeCloseTo(0.156, 3);
+    expect(g(0.25)).toBeCloseTo(g(0.75), 6);
+  });
+
   it('con duty 0 o 1 la señal es continua: no suena', () => {
     expect(eventoPorPwm('bz1', PIEZO, 3.3, { hz: 440, duty: 0 }).sonando).toBe(false);
     expect(eventoPorPwm('bz1', PIEZO, 3.3, { hz: 440, duty: 1 }).sonando).toBe(false);
