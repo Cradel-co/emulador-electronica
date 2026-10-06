@@ -111,6 +111,12 @@ Para el nivel 4 sin navegador: ejecutar el proyecto por la API (`POST /api/proje
 mirar `/api/projects/<p>/pins` y escuchar el WebSocket. Ahí se ve si los eventos salen y con qué
 valores.
 
+**Y esperá al programa, no al puente.** `GET /api/emulator` pasa a `state: "bridge"` cuando el
+puente conectó, que es **antes** de que `main.py` empiece a correr. Medir en ese momento da un
+falso negativo: a mí me hizo creer dos veces que el buzzer no sonaba cuando el problema era que
+todavía no había arrancado. Esperá a que llegue el primer evento del programa (un `pwm.changed`,
+una línea de consola) antes de concluir nada.
+
 ## 7. Antes de darlo por cerrado, abrilo en la app y usalo
 
 Armá un proyecto con el módulo, apretá ▶ y comprobá lo que promete. Si tiene código, que el
