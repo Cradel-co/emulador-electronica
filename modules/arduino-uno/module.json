@@ -218,12 +218,28 @@
     "recommendedPinCurrentMa": 20,
     "pinOutputOhm": 25,
     "supplyOutputOhm": 0.5,
+    "pinCurrentRating": {
+      "kind": "absolute-maximum",
+      "sourceMa": 40,
+      "sinkMa": 40,
+      "conditions": "Máximo absoluto del ATmega328P; no es una condición de funcionamiento continuo. Para diseño de la placa se usan 20 mA por pin.",
+      "reference": "https://store-usa.arduino.cc/products/arduino-uno-rev3"
+    },
     "power": {
       "inputs": [
         { "pin": "VIN", "min": 7.0, "max": 20.0, "feeds": "vin" },
         { "pin": "5V", "min": 4.5, "max": 5.5, "feeds": "5v" }
       ],
-      "currentMa": 50
+      "currentMa": 50,
+      "regulators": {
+        "logic3v3": {
+          "voltage": 3.3,
+          "dropoutV": 0.3,
+          "currentLimitMa": 50,
+          "reference": "https://content.arduino.cc/assets/Pinout-UNOrev3_latest.pdf",
+          "notes": "50 mA es el límite operativo publicado del pin 3V3, usado como límite conservador del modelo. No representa una curva medida de protección del regulador; dropout conserva la aproximación previa."
+        }
+      }
     },
     "pins": {
       "D0": {
@@ -482,8 +498,8 @@
     "notes": [
       "Emulado con avr8js (el núcleo AVR de Wokwi), ciclo a ciclo a 16 MHz.",
       "Las entradas llegan al pad real del chip: digitalRead, interrupciones y pull-ups se comportan como en la placa.",
-      "Periféricos emulados: GPIO, Serial (USART0), timers 0/1/2 (millis, delay, PWM), ADC (lee 0 V) y EEPROM.",
-      "Todavía sin I2C/SPI hacia módulos del dibujo ni RF 433; solo las librerías que trae el core arduino:avr."
+      "Periféricos emulados: GPIO, Serial (USART0), timers 0/1/2 (millis, delay, PWM), ADC ideal de 10 bits con tensiones DC del circuito y EEPROM. El ADC rechaza entradas o referencias desconocidas; no modela ruido ni adquisición analógica.",
+      "I2C/SPI funcionales hacia chips del catálogo: no equivalen a un bus eléctrico completo por flancos. El reloj de CPU y el circuito externo aún no comparten co-simulación analógica temporal."
     ]
   }
 }

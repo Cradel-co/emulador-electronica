@@ -50,7 +50,7 @@ export type EventoChip =
   | { tipo: 'pin'; t: number; nombre: string; nivel: 0 | 1 };
 
 export interface ResultadoLote {
-  /** Un arreglo de bytes por cada evento `leer`, en orden. */
+  /** Un arreglo por evento `leer`/`spi`, en orden. En SPI los bytes ausentes no conducen MISO. */
   lecturas: number[][];
   /** Direcciones I2C en las que responde (7 bits). */
   direcciones: number[];
@@ -227,14 +227,16 @@ export class SandboxChip {
       throw new ErrorChip(`chip "${this.nombre}": devolvió algo inválido`);
     }
     // Las lecturas vuelven en orden: una por cada `leer` (n bytes) y por cada `spi` (un byte de MISO por byte de MOSI).
-    const pedidas = eventos.flatMap((e) => (e.tipo === 'leer' ? [{ n: e.n }] : e.tipo === 'spi' ? [{ n: e.mosi.length }] : []));
+    const pedidas = eventos.flatMap((e) => (e.tipo === 'leer' ? [{ n: e.n, spi: false }] : e.tipo === 'spi' ? [{ n: e.mosi.length, spi: true }] : []));
     const crudas = Array.isArray(o.lecturas) ? o.lecturas : [];
     const lecturas = pedidas.map((p, i) => {
       const l: unknown = crudas[i];
       if (!Array.isArray(l) || !l.every(esByte)) {
         throw new ErrorChip(`chip "${this.nombre}": leer()/spi() tiene que devolver un arreglo de bytes (0-255)`);
       }
-      // Si devuelve menos de lo pedido, el bus suelta SDA: el maestro lee 0xFF (pull-up).
+      // SPI conserva la ausencia de respuesta, distinta de conducir un 0xFF.
+      if (p.spi) return (l as number[]).slice(0, p.n);
+      // I2C: si devuelve menos, suelta SDA y el maestro lee 0xFF por el pull-up.
       return Array.from({ length: p.n }, (_, k) => (l[k] as number | undefined) ?? 0xff);
     });
     const direcciones = Array.isArray(o.direcciones)

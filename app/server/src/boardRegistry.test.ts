@@ -133,7 +133,7 @@ describe('dibujo, pines y Ley de Ohm con el Arduino Uno', () => {
     expect(() => conectar(p, 'btn1.OUT', 'GPIO0', buscar)).toThrow(/puente/);
   });
 
-  it('Ley de Ohm a 5 V: con 220 Ω el LED lleva ~12 mA (sin aviso); directo al pin se quema', async () => {
+  it('Ley de Ohm a 5 V: con 220 Ω el LED lleva ~12 mA (sin aviso); directo al pin supera el umbral de riesgo', async () => {
     const p = proyectoUno();
     const r = await analizarCircuito(p, buscar, { niveles: new Map([[13, 1]]) });
     const led = r.leds.find((l) => l.id === 'led1')!;
@@ -153,14 +153,14 @@ describe('dibujo, pines y Ley de Ohm con el Arduino Uno', () => {
     const d = await analizarCircuito(directo, buscar, { niveles: new Map([[13, 1]]) });
     expect(d.leds[0]!.estado).toBe('se-quema'); // sin resistencia: solo los 25 Ω del pin limitan
     expect(d.avisos.map((x) => x.severidad)).toContain('peligro');
-    expect(d.avisos.map((x) => x.mensaje).join()).toMatch(/D13 tendría que entregar ~\d+ mA.*ATmega328P/);
+    expect(d.avisos.map((x) => x.mensaje).join()).toMatch(/D13 conduce ~\d+ mA.*ATmega328P/);
   });
 
   it('con 5 Ω a 5 V avisa sobrecorriente con el nombre del pin (D13) y el chip (ATmega328P)', async () => {
     const p = proyectoUno();
     p.modules = p.modules.map((m) => (m.id === 'r1' ? { ...m, props: { ohms: 5 } } : m));
     const a = (await analizarCircuito(p, buscar, { niveles: new Map([[13, 1]]) })).avisos;
-    const m = /D13 tendría que entregar ~(\d+) mA.*ATmega328P/.exec(a.map((x) => x.mensaje).join());
+    const m = /D13 conduce ~(\d+) mA.*ATmega328P/.exec(a.map((x) => x.mensaje).join());
     expect(m).not.toBeNull();
     expect(Number(m![1])).toBeGreaterThan(40); // por encima del máximo absoluto del pin
   });

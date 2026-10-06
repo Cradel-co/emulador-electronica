@@ -7,6 +7,7 @@ import { microPythonSimbridge } from '../templates/micropythonBridge.js';
 import { cargarChips } from './catalogoChips.js';
 import { entornoDe, type ChipEnBus } from './proyectoChips.js';
 import { PuenteChips } from './puenteChips.js';
+import { perfilI2cSintetico } from '../fixtures/perfilI2c.js';
 
 /**
  * Chips en un ESP32 con MicroPython: el simbridge.py DE VERDAD (el que se sube al chip) corre en
@@ -103,6 +104,48 @@ async function correr(chips: ChipEnBus[], programa: string) {
 
 const python = spawnSync('python3', ['--version']).status === 0;
 describe.skipIf(!python)('chips en ESP32 con MicroPython (simbridge.py real en CPython)', () => {
+  it('I2C scan y lectura rechazan líneas eléctricas inválidas con OSError 5', async () => {
+    const perfil = structuredClone(perfilI2cSintetico); perfil.sda.resistenciaPullupOhm = null;
+    const { out, lineas, puente } = await correr([chip('bosch-bme280', 'bme', {
+      i2cGpio: { sda: 21, scl: 22 }, i2cFisico: perfil,
+    })], `
+i2c = I2C(0, sda=Pin(21), scl=Pin(22), freq=100000)
+out['errores'] = []
+for accion in [lambda: i2c.scan(), lambda: i2c.readfrom(0x77, 1)]:
+    try:
+        accion()
+        out['errores'].append('sin error')
+    except OSError as e:
+        out['errores'].append(e.args[0])
+`);
+    try { expect(out.errores).toEqual([5, 5]); expect(lineas.join()).toMatch(/pull-up/); }
+    finally { puente.apagar(); }
+  });
+  it('SPI informa contención como OSError 5 y permite seguir después de soltar un CS', async () => {
+    const sensor = (id: string, csGpio: number, respuesta: number): ChipEnBus => chip('bosch-bme280', id, {
+      codigo: `module.exports = { spi: function () { return [${respuesta}]; } };`,
+      spi: { csGpio, modos: [0], lsbPrimero: false, soloEscritura: false, sck: 12, mosi: 11, miso: 13 },
+    });
+    const { out, lineas } = await correr([sensor('a', 10, 0xf0), sensor('b', 9, 0x0f)], `
+spi = SPI(1, sck=Pin(12), mosi=Pin(11), miso=Pin(13))
+cs_a = Pin(10, Pin.OUT, value=0)
+cs_b = Pin(9, Pin.OUT, value=0)
+try:
+    spi.read(1)
+    out['contencion'] = 'sin error'
+except OSError as e:
+    out['contencion'] = e.args[0]
+    out['detalle'] = str(e)
+cs_b(1)
+out['recuperado'] = spi.read(1)[0]
+`);
+    expect(out.error).toBeUndefined();
+    expect(out.contencion).toBe(5);
+    expect(out.detalle).toMatch(/contención MISO/);
+    expect(out.recuperado).toBe(0xf0);
+    expect(lineas.join('\n')).toMatch(/contención MISO.*a.*b/);
+  }, 10_000);
+
   it('I2C: scan, readfrom_mem, NACK con OSError 19 y una medición forzada del BME280 que da la temperatura del entorno', async () => {
     const bme = chip('bosch-bme280', 'bme', { props: { sdo: 'alto' }, entorno: { temperatura: 23.4, humedad: 50, presion: 1000 }, i2cGpio: { sda: 4, scl: 5 } });
     const { out } = await correr([bme], `

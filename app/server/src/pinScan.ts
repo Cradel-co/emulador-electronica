@@ -149,7 +149,7 @@ export function direccionesDeCodigo(language: Language, contenido: string): Map<
   // Mismo criterio que scanPins: un pin configurado en una línea comentada no se configura.
   const content = sinComentarios(language, contenido);
   const d = new Map<number, DireccionPin>();
-  const salida = (g: number | null) => { if (g !== null) d.set(g, { salida: true }); };
+  const salida = (g: number | null, openDrain = false, pull?: 'up' | 'down') => { if (g !== null) d.set(g, { salida: true, ...(openDrain ? { openDrain: true } : {}), ...(pull ? { pull } : {}) }); };
   const entrada = (g: number | null, pull?: 'up' | 'down') => { if (g !== null) d.set(g, pull ? { salida: false, pull } : { salida: false }); };
   const conPull = (g: number | null, pull: 'up' | 'down') => {
     if (g === null) return;
@@ -172,12 +172,12 @@ export function direccionesDeCodigo(language: Language, contenido: string): Map<
         const m = /^(?:GPIO)?(\d{1,2})$/i.exec(String(v ?? '').trim());
         return m ? Number(m[1]) : null;
       };
-      const modo = (pin: unknown): { salida: boolean; pull?: 'up' | 'down' } | null => {
+      const modo = (pin: unknown): DireccionPin | null => {
         const m = pin && typeof pin === 'object' ? (pin as Record<string, unknown>).mode : undefined;
-        if (typeof m === 'string') return { salida: /OUTPUT/i.test(m), pull: pullDe(m) };
+        if (typeof m === 'string') return { salida: /OUTPUT/i.test(m), openDrain: /OPEN_DRAIN/i.test(m), pull: pullDe(m) };
         if (m && typeof m === 'object') {
           const o = m as Record<string, unknown>;
-          return { salida: o.output === true, pull: o.pullup === true ? 'up' : o.pulldown === true ? 'down' : undefined };
+          return { salida: o.output === true, openDrain: o.open_drain === true, pull: o.pullup === true ? 'up' : o.pulldown === true ? 'down' : undefined };
         }
         return null;
       };
@@ -187,7 +187,10 @@ export function direccionesDeCodigo(language: Language, contenido: string): Map<
       };
       // Plataformas gpio que manejan el pin (salidas).
       for (const k of ['output', 'switch', 'light', 'fan']) {
-        for (const it of items(k)) if (it.platform === 'gpio' && it.pin !== undefined) salida(numero(it.pin));
+        for (const it of items(k)) if (it.platform === 'gpio' && it.pin !== undefined) {
+          const m = modo(it.pin);
+          salida(numero(it.pin), m?.openDrain, m?.pull);
+        }
       }
       for (const it of items('binary_sensor')) {
         if (it.platform !== 'gpio' || it.pin === undefined) continue;
@@ -200,7 +203,7 @@ export function direccionesDeCodigo(language: Language, contenido: string): Map<
       for (const m of content.matchAll(/\bsimbridge\.pin\s*\(\s*(\d{1,2})\s*\)/g)) entrada(Number(m[1]), 'up'); // reposa en 1
       for (const m of content.matchAll(/\bPin\s*\(\s*(\d{1,2})\s*,([^)]*)\)/g)) {
         const args = m[2] ?? '';
-        if (/\bOUT\b|OPEN_DRAIN/.test(args)) salida(Number(m[1]));
+        if (/\bOUT\b|OPEN_DRAIN/.test(args)) salida(Number(m[1]), /OPEN_DRAIN/.test(args), pullDe(args));
         else if (/\bIN\b/.test(args)) entrada(Number(m[1]), pullDe(args));
       }
       break;
@@ -211,7 +214,7 @@ export function direccionesDeCodigo(language: Language, contenido: string): Map<
       for (const m of content.matchAll(/\bpinMode\s*\(\s*([\w]+)\s*,\s*(\w+)\s*\)/g)) {
         const g = valor(m[1] ?? '');
         const modo = m[2] ?? '';
-        if (modo === 'OUTPUT' || modo === 'OUTPUT_OPEN_DRAIN') salida(g);
+        if (modo === 'OUTPUT' || modo === 'OUTPUT_OPEN_DRAIN') salida(g, modo === 'OUTPUT_OPEN_DRAIN');
         else if (modo.startsWith('INPUT')) entrada(g, pullDe(modo));
       }
       break;
@@ -234,12 +237,12 @@ export function direccionesDeCodigo(language: Language, contenido: string): Map<
         const up = /\.pull_up_en\s*=\s*GPIO_PULLUP_ENABLE|\.pull_up_en\s*=\s*1/.test(cuerpo);
         const down = /\.pull_down_en\s*=\s*GPIO_PULLDOWN_ENABLE|\.pull_down_en\s*=\s*1/.test(cuerpo);
         for (const g of pines) {
-          if (/OUTPUT/.test(modo)) salida(g);
+          if (/OUTPUT/.test(modo)) salida(g, /_OD$/.test(modo), up ? 'up' : down ? 'down' : undefined);
           else if (/INPUT/.test(modo)) entrada(g, up ? 'up' : down ? 'down' : undefined);
         }
       }
       for (const m of content.matchAll(/gpio_set_direction\s*\(\s*(\w+)\s*,\s*(\w+)\s*\)/g)) {
-        if (/OUTPUT/.test(m[2] ?? '')) salida(valor(m[1] ?? ''));
+        if (/OUTPUT/.test(m[2] ?? '')) salida(valor(m[1] ?? ''), /_OD$/.test(m[2] ?? ''));
         else entrada(valor(m[1] ?? ''), d.get(valor(m[1] ?? '') ?? -1)?.pull);
       }
       for (const m of content.matchAll(/gpio_set_pull_mode\s*\(\s*(\w+)\s*,\s*(\w+)\s*\)/g)) {
