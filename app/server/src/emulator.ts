@@ -10,6 +10,7 @@ import { reservePorts, releasePorts, PORTS_PER_INSTANCE } from './ports.js';
 import type { BuildArtifacts } from './buildService.js';
 import type { Emulador, OpcionesArranque } from './emulatorBackend.js';
 import { PuenteAnalogicoEsp, type EstadoAnalogicoEsp } from './analogicoEsp.js';
+import { PuentePwm, type PwmPin } from './pwmEsp.js';
 
 export const ESP_EMU_BIN = process.env.ESP_EMU_BIN ?? 'esp-emu';
 export const ESP_EMU_VERSION = '0.44.0';
@@ -41,6 +42,8 @@ export interface EmulatorEvents {
   onState: (status: EmulatorStatus) => void;
   onBridgeMessage: (msg: FirmwareMessage) => void;
   onBridgeState: (connected: boolean) => void;
+  /** El firmware cambió el PWM de algún pin: hay que refrescar lo que depende de él (el sonido). */
+  onPwm?: () => void;
 }
 
 /**
@@ -63,6 +66,8 @@ export class EmulatorManager implements Emulador {
   private chips: PuenteChips | null = null;
   /** Exclusivo del shim MicroPython; no representa el periférico SAR de esp-emu. */
   private analogico: PuenteAnalogicoEsp | null = null;
+  /** PWM que declaró el firmware, por GPIO. Ver pwmEsp.ts. */
+  private readonly pwm = new PuentePwm(() => this.events.onPwm?.());
   private rfNativoHabilitado = false;
   private readonly salidasChips = new Map<string, SalidaChip>();
   private readonly entornos = new Map<string, Record<string, number>>();
@@ -193,6 +198,9 @@ export class EmulatorManager implements Emulador {
     });
     this.bridge.connect();
     this.analogico = analogico;
+    // El PWM se declara, no se muestrea: un tono de kilohercios no se puede leer de los flancos.
+    this.pwm.limpiar();
+    this.bridge.escucharLineas(l => this.pwm.recibir(l));
     if (analogico) {
       this.bridge.escucharLineas(l => { if (this.analogico === analogico) analogico.recibir(l); });
       this.events.onLog(opts.perfilAnalogicoEsp
@@ -238,6 +246,8 @@ export class EmulatorManager implements Emulador {
   actualizarCamaras(chips: ChipEnBus[]): void { this.chips?.actualizarCamaras(chips); }
 
   actualizarAnalogicoEsp(estado: EstadoAnalogicoEsp): void { this.analogico?.actualizar(estado); }
+  /** PWM declarado por el firmware, por GPIO de esta placa. */
+  estadoPwm(): ReadonlyMap<number, PwmPin> { return this.pwm.estado(); }
 
   entradaCamara(instancia: string, datos: import('./bus/chipSandbox.js').EntradaChip): void { this.chips?.entradaCamara(instancia, datos); }
 
@@ -614,6 +624,7 @@ export class EmulatorManager implements Emulador {
     this.chips?.apagar();
     this.chips = null;
     this.analogico = null;
+    this.pwm.limpiar();
     this.rfNativoHabilitado = false;
     this.bridge?.close();
     this.bridge = null;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dbAPorTension, eventoPorNivel, gananciaPorTension, sonidosDelCircuito, type SalidaSonido } from '../../shared/src/audio.js';
+import { dbAPorTension, eventoPorNivel, eventoPorPwm, gananciaPorTension, sonidosDelCircuito, type SalidaSonido } from '../../shared/src/audio.js';
 
 /**
  * Lógica pura del audio: de la tensión que el motor calculó a lo que el navegador tiene que
@@ -114,9 +114,16 @@ describe('sonidosDelCircuito', () => {
     expect(sonidosDelCircuito([inst('led1', 'led')], salidasDe, { 'led1.IN': 5 })).toEqual([]);
   });
 
-  it('todavía no reproduce pwm ni i2s: no inventa un evento que no puede sintetizar', () => {
+  it('i2s no genera evento: sin el flujo de muestras no hay nada que sintetizar', () => {
+    const porI2s = (): SalidaSonido[] => [{ ...TMB12A05, fuente: 'i2s' }];
+    expect(sonidosDelCircuito([inst('bz1')], porI2s, { 'bz1.IN': 5, 'bz1.GND': 0 })).toEqual([]);
+  });
+
+  it('pwm sin PWM declarado suena en silencio, no inventa un tono', () => {
     const porPwm = (): SalidaSonido[] => [{ ...TMB12A05, fuente: 'pwm' }];
-    expect(sonidosDelCircuito([inst('bz1')], porPwm, { 'bz1.IN': 5, 'bz1.GND': 0 })).toEqual([]);
+    const r = sonidosDelCircuito([inst('bz1')], porPwm, { 'bz1.IN': 5, 'bz1.GND': 0 });
+    expect(r).toHaveLength(1);
+    expect(r[0]).toMatchObject({ modulo: 'bz1', sonando: false, ganancia: 0 });
   });
 
   it('varias instancias del mismo módulo son eventos independientes', () => {
@@ -158,5 +165,71 @@ describe('sonidosDelCircuito: quién decide si suena', () => {
 
   it('un ui sin `on` no es un veredicto: no obliga a callar', () => {
     expect(sonidosDelCircuito([inst('bz1')], salidasDe, T, () => ({ brillo: 0.5 }))[0]!.sonando).toBe(true);
+  });
+});
+
+describe('eventoPorPwm: la frecuencia la pone el micro', () => {
+  /** Piezo pasivo de 3,3 V: no tiene oscilador, así que no declara `hz`. */
+  const PIEZO: SalidaSonido = {
+    tipo: 'sonido', fuente: 'pwm', pins: ['IN', 'GND'],
+    dbA: 80, referencia: { v: 3.3, cm: 10 }, forma: 'cuadrada',
+  };
+
+  it('toma la frecuencia del PWM, no de la hoja de datos', () => {
+    const e = eventoPorPwm('bz1', PIEZO, 3.3, { hz: 440, duty: 0.5 });
+    expect(e).toMatchObject({ sonando: true, hz: 440 });
+  });
+
+  it('al 50 % de duty da la amplitud plena de su tensión', () => {
+    expect(eventoPorPwm('bz1', PIEZO, 3.3, { hz: 440, duty: 0.5 }).ganancia).toBeCloseTo(1, 3);
+  });
+
+  /**
+   * La amplitud del fundamental de una onda cuadrada va con sen(π·duty): máxima al 50 % y nula
+   * en los extremos, donde la señal es continua y un piezo no mueve nada.
+   */
+  it('fuera del 50 % baja según sen(pi·duty)', () => {
+    expect(eventoPorPwm('bz1', PIEZO, 3.3, { hz: 440, duty: 0.25 }).ganancia).toBeCloseTo(Math.SQRT1_2, 3);
+    expect(eventoPorPwm('bz1', PIEZO, 3.3, { hz: 440, duty: 0.75 }).ganancia).toBeCloseTo(Math.SQRT1_2, 3);
+  });
+
+  it('con duty 0 o 1 la señal es continua: no suena', () => {
+    expect(eventoPorPwm('bz1', PIEZO, 3.3, { hz: 440, duty: 0 }).sonando).toBe(false);
+    expect(eventoPorPwm('bz1', PIEZO, 3.3, { hz: 440, duty: 1 }).sonando).toBe(false);
+  });
+
+  it('sin PWM configurado no suena, en vez de inventar una frecuencia', () => {
+    const e = eventoPorPwm('bz1', PIEZO, 3.3, undefined);
+    expect(e.sonando).toBe(false);
+    expect(e.hz).toBeUndefined();
+  });
+
+  it('una frecuencia no usable no suena', () => {
+    expect(eventoPorPwm('bz1', PIEZO, 3.3, { hz: 0, duty: 0.5 }).sonando).toBe(false);
+  });
+
+  it('sin tensión no suena aunque el PWM esté configurado', () => {
+    expect(eventoPorPwm('bz1', PIEZO, 0, { hz: 440, duty: 0.5 }).sonando).toBe(false);
+  });
+
+  it('la mitad de tensión, la mitad de amplitud y 6 dB menos', () => {
+    const entera = eventoPorPwm('bz1', PIEZO, 3.3, { hz: 440, duty: 0.5 });
+    const mitad = eventoPorPwm('bz1', PIEZO, 1.65, { hz: 440, duty: 0.5 });
+    expect(mitad.ganancia).toBeCloseTo(entera.ganancia / 2, 3);
+    expect(entera.dbA! - mitad.dbA!).toBeCloseTo(6, 1);
+  });
+
+  it('el duty también cuenta para los dB: al 25 % se pierden 3 dB', () => {
+    const medio = eventoPorPwm('bz1', PIEZO, 3.3, { hz: 440, duty: 0.5 });
+    const cuarto = eventoPorPwm('bz1', PIEZO, 3.3, { hz: 440, duty: 0.25 });
+    expect(medio.dbA! - cuarto.dbA!).toBeCloseTo(3, 1);
+  });
+
+  it('sonidosDelCircuito usa el PWM del pin que corresponde', () => {
+    const salidasDe = (t: string) => (t === 'buzzer-pasivo' ? [PIEZO] : undefined);
+    const pwmDe = (id: string, pin: string) => (id === 'bz1' && pin === 'IN' ? { hz: 880, duty: 0.5 } : undefined);
+    const r = sonidosDelCircuito([{ id: 'bz1', type: 'buzzer-pasivo' }], salidasDe,
+      { 'bz1.IN': 3.3, 'bz1.GND': 0 }, undefined, pwmDe);
+    expect(r[0]).toMatchObject({ modulo: 'bz1', sonando: true, hz: 880 });
   });
 });

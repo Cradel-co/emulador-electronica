@@ -142,12 +142,12 @@ RMS. El `.op` sigue dando la tensión y el consumo medio.
 por PWM y, más adelante, el ángulo de un servo. Conviene diseñarlo pensando en esos tres
 consumidores, no solo en el buzzer.
 
-**Pendiente de decidir antes de implementarlo:** `@PWM <pin> ...` asume que el PWM sale de un
-GPIO de la placa. Un expansor como el PCA9685 (16 canales por I2C, con su propio reloj) no
-funciona así: recibe órdenes por I2C y genera el PWM en salidas propias, que no son pines del
-ESP32. Si ese chip va a entrar algún día al catálogo, el mensaje tiene que direccionar la
-salida y no el pin — algo como `@PWM <origen> <canal> <hz> <duty>`, donde el origen puede ser
-la placa o un chip del bus. Conviene resolverlo ahora que el protocolo todavía no existe.
+**Resuelto (y la duda estaba mal planteada):** se implementó `@PWM <gpio> <hz> <duty_u16>`, que
+direcciona el pin de la placa. La preocupación era que un expansor como el PCA9685 genera el PWM
+en salidas propias y no en GPIO del ESP32 — pero el PCA9685 es un **chip I2C**, y en esta
+arquitectura las salidas de un chip del bus van por su propio camino (`chips/<id>/`, evento
+`chip.salida`), no por el puente. El `@PWM` del puente es solo para el LEDC del micro, así que
+direccionar por pin es correcto y no hay nada que generalizar.
 
 ### 5.3 Límite por lenguaje
 
@@ -267,8 +267,9 @@ Primero el test que falla por la razón correcta, como pide
 2. ✅ **Micrófono analógico** (`modules/sonometro-sen0232/`). No hizo falta `entorno` a nivel de
    módulo: el nivel del ambiente es una prop, igual que la posición de un potenciómetro, y así
    no pidió código nuevo. `entorno` sigue existiendo solo a nivel de chip.
-3. **Caso B**: `@PWM` en el puente MicroPython, diseñado también para brillo de LED y
-   servo. Después, `modules/buzzer-pasivo/`.
+3. ✅ **Caso B**: `@PWM` en el puente MicroPython (`pwmEsp.ts` y `class PWM` del shim) y
+   `modules/buzzer-pasivo/`, con la plantilla `melodia-con-buzzer-pasivo`. El mismo `@PWM` queda
+   disponible para el brillo de un LED y, más adelante, el ángulo de un servo.
 4. **Caso C solo si aparece la necesidad**, y en este orden: DFPlayer Mini por `pista`
    primero; streaming de muestras por I2S al final, o nunca.
 

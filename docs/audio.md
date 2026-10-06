@@ -27,7 +27,7 @@ frecuencia se **declara**, y de dónde sale es lo único que distingue los tres 
 | `fuente` | De dónde sale la frecuencia | Ejemplo | Estado |
 |---|---|---|---|
 | `nivel` | De la hoja de datos: el componente trae su oscilador | Buzzer activo (TMB12A05) | **implementado** (sin reproducir todavía) |
-| `pwm` | La pone el micro y la declara el puente | Buzzer pasivo, piezo | falta `@PWM` en el puente |
+| `pwm` | La pone el micro y la declara el puente | Buzzer pasivo, piezo | **implementado** |
 | `i2s` | Un flujo de muestras hacia un DAC externo | MAX98357A, DFPlayer | falta I2S en el puente |
 
 ## Declarar una salida de sonido
@@ -61,6 +61,44 @@ En el `module.json` del módulo:
 Todos los campos menos `tipo`, `fuente` y `pins` son opcionales, y la ausencia de cada uno
 tiene un significado explícito: sin `umbralV`, cualquier tensión positiva lo hace sonar; sin
 `referencia`, no se inventa una curva de volumen y suena a amplitud plena.
+
+## El tono por PWM (`fuente: "pwm"`)
+
+Un buzzer **pasivo** no tiene oscilador: la frecuencia la pone el micro. Eso es lo que permite
+tocar notas, y lo que un buzzer activo no puede hacer.
+
+**El tono se declara, no se mide.** El puente muestrea los registros de salida del GPIO, así que
+un tono de cientos o miles de hertz se perdería en el aliasing si se intentara reconstruir de los
+flancos. El shim de MicroPython reemplaza `machine.PWM` y avisa una vez por cambio:
+
+```
+@PWM <gpio> <hz> <duty_u16> <ticks>     frecuencia y ciclo de trabajo nuevos
+@PWM <gpio> off 0 <ticks>               el programa liberó el pin (deinit)
+```
+
+Del lado del server lo recibe [`pwmEsp.ts`](../app/server/src/pwmEsp.ts), que guarda el estado por
+GPIO. El sonido lo pide por **pin del módulo**, así que `index.ts` resuelve el cableado con
+`gpioDe` (que además sigue los `passthrough`).
+
+La consecuencia a tener en cuenta: **el PWM que no pase por `machine.PWM` no se oye.** Prender y
+apagar un pin a mano en un bucle no produce sonido, porque nadie declara una frecuencia.
+
+### El volumen con PWM
+
+Dos factores: la tensión, igual que en `fuente: "nivel"`, y el ciclo de trabajo. El segundo va con
+**sen(π·duty)**, que es la amplitud del fundamental de una onda cuadrada: máxima al 50 % y nula en
+0 % y 100 %, donde la señal es continua y un piezo no mueve aire. Al 25 % se pierden 3 dB.
+
+### El módulo que ya está: `buzzer-pasivo`
+
+Un disco piezoeléctrico (PS1240P02BT y equivalentes). Eléctricamente **es un capacitor**: en
+continua no conduce, así que no carga el pin que lo maneja — por eso consume casi nada al lado de
+un buzzer activo. La plantilla
+[`melodia-con-buzzer-pasivo`](../projects/_template/melodia-con-buzzer-pasivo/) toca una escala.
+
+**Lo que no modela:** la resonancia mecánica (uno real suena mucho más fuerte cerca de sus 4 kHz
+que en las notas graves, y acá el volumen no depende de la frecuencia), la impedancia que cambia
+con la frecuencia, ni la caja o el soporte.
 
 ## Quién decide si suena
 
@@ -119,7 +157,8 @@ motor.
 - **El tono está declarado, no calculado.** Sale de la hoja de datos o del PWM que informa el
   firmware, no del motor.
 - **No hay audio por flancos de GPIO**: el puente muestrea los registros de salida, y el muestreo
-  aliasa. Un tono de 2 kHz no se puede reconstruir así.
+  aliasa. Por eso el PWM se declara con `machine.PWM`, y un bucle que prenda y apague un pin a
+  mano no suena.
 - **Ninguna de las placas del repo (C3, C6, S3) tiene DAC interno.** Espressif lo sacó después
   del ESP32 clásico. El audio analógico de salida obliga a un chip externo por I2S.
 - **Un buzzer activo no se desvanece: se corta.** Por debajo de su umbral el oscilador no
