@@ -1,6 +1,9 @@
 import { z } from 'zod';
 import { MODULE_TYPE_RE, ModuleInstanceSchema, WireSchema, type ModuleInstance, type Wire } from './module.js';
 import type { BoardDescriptor } from './board.js';
+import { BusesI2cFisicosSchema } from './i2cFisico.js';
+import { PerfilAnalogicoAvrSchema } from './analogico.js';
+import { PerfilAnalogicoEspSchema } from './analogicoEsp.js';
 
 import { LANGUAGES, LanguageSchema, type Language } from './languages.js';
 export { LANGUAGES, LanguageSchema, type Language };
@@ -29,6 +32,12 @@ export const SimConfigSchema = z.object({
    * anteriores al campo arrancan en `false` y lo activan desde la UI.
    */
   autoReload: z.boolean().default(false),
+  /** Perfiles eléctricos declarados por placa y par de GPIO; se aplican al arrancar. */
+  i2cFisico: z.record(z.string().regex(/^[a-z][a-z0-9-]{0,39}$/), BusesI2cFisicosSchema).optional(),
+  /** ADC configurable por instancia Uno; el perfil ausente conserva el ADC ideal. */
+  analogicoAvr: z.record(z.string().regex(/^[a-z][a-z0-9-]{0,39}$/), PerfilAnalogicoAvrSchema).optional(),
+  /** ADC1 de MicroPython con transferencia declarada; no calibra el SAR nativo de ESP32. */
+  analogicoEsp: z.record(z.string().regex(/^[a-z][a-z0-9-]{0,39}$/), PerfilAnalogicoEspSchema).optional(),
 });
 
 export type SimConfig = z.infer<typeof SimConfigSchema>;

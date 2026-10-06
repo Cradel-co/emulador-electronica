@@ -1,3 +1,4 @@
+import { verificarConservacionDc } from './conservacion.js';
 import {
   BOARD_MODULE_ID,
   placasDelProyecto,
@@ -9,6 +10,11 @@ import {
   type Primitiva,
   type Project,
 } from '@emu/shared';
+import { nodosReferenciadosDc } from './conectividadDc.js';
+import { NombresSpice } from './nombresSpice.js';
+import { instantaneaOpcionesAnalisis } from './instantaneaOpcionesAnalisis.js';
+import { correrTransitorio, validarParametrosTransitorio, type ParametrosTransitorio, type SerieElementoTransitorio } from './transitorio.js';
+import { nodosReferenciadosTransitorio } from './transitorio-referencias.js';
 import { gpioDe, gpioDeRef } from '../diagramOps.js';
 import { Netlist, type ElementoResuelto } from './netlist.js';
 import { armarPlaca, type PlacaArmada, type RielesPlaca } from './placa.js';
@@ -32,6 +38,8 @@ export interface OpcionesAnalisis {
   niveles?: Map<number, 0 | 1>;
   /** Forzar todas las salidas del firmware a un nivel (0: "lo que no depende del código"). */
   salidasForzadas?: 0 | 1;
+  /** En una instantánea real, un nivel que el runtime no informó no se inventa en HIGH. */
+  nivelesReales?: boolean;
   /** Interruptores (`switch`) cerrados: pulsador apretado, llave encendida. */
   cerrados?: ReadonlySet<string>;
   /** Fuentes regulables con la salida apagada (proyecto sin placa sin energizar). */
@@ -50,6 +58,8 @@ export interface OpcionesAnalisis {
 /** Configuración de un pin según el programa. */
 export interface DireccionPin {
   salida: boolean;
+  /** Alto libera el pad; bajo conduce a GND. */
+  openDrain?: boolean;
   /** Resistencia interna que el programa activó en una entrada. */
   pull?: 'up' | 'down';
 }
@@ -72,13 +82,17 @@ export interface ModuloResuelto {
 }
 
 export interface AnalisisCircuito {
+  /** Sólo publica medidas si el modelo, solver y validación numérica completaron. */
+  resuelto: boolean;
   alimentacionesPorPlaca?: Record<string, AlimentacionPlaca>;
   avisos: AvisoElectrico[];
   leds: LedElectrico[];
   fuentes: FuenteElectrica[];
   alimentacion: AlimentacionPlaca;
-  /** Tensión de cada pin cableado ("id.PIN" → V, respecto de la tierra del circuito). */
+  /** Pines cableados y pines modelados de las placas ("id.PIN" → V, respecto de tierra). */
   tensiones: Record<string, number>;
+  /** Pines sin ecuación eléctrica: no se publican como lecturas de cero voltios. */
+  pinesSinModelo?: string[];
   /** Lo que decidió el modelo de cada módulo (estado visible, estado interno). */
   modulos: Record<string, ModuloResuelto>;
   /** Todos los elementos físicos resueltos (corriente, potencia): para verificar y para medir. */
@@ -112,8 +126,6 @@ class UnionFind {
     if (ra !== rb) this.padre.set(ra, rb);
   }
 }
-
-const limpio = (s: string): string => s.replace(/[^A-Za-z0-9_]/g, '_').toLowerCase();
 
 /** Todo lo que no cambia entre pasadas (el dibujo, las redes, los nodos). */
 interface Contexto {
@@ -153,8 +165,15 @@ function preparar(project: Project, buscar: BuscarDef, opciones: OpcionesAnalisi
     const rail = (name: string) => `#${placa.id}_${name}`;
     for (const name of ['gnd', '5v', '3v3', 'vin']) uf.buscar(rail(name));
     if (placa.id === placas[0]?.id) uf.unir(rail('gnd'), '#gnd');
+    const pads = new Map<number, string>();
     for (const pin of def?.pins ?? []) {
       const ref = `${placa.id}.${pin.name}`;
+      const gpio = gpioDeRef(`board.${pin.name}`, def?.board);
+      if (gpio !== null) {
+        const anterior = pads.get(gpio);
+        if (anterior !== undefined) uf.unir(ref, anterior);
+        pads.set(gpio, ref);
+      }
       if (/^GND(_\d+)?$/.test(pin.name)) uf.unir(ref, rail('gnd'));
       else if (/^5V(_\d+)?$/.test(pin.name)) uf.unir(ref, rail('5v'));
       else if (/^3V3(_\d+)?$/.test(pin.name)) uf.unir(ref, rail('3v3'));
@@ -197,7 +216,8 @@ function preparar(project: Project, buscar: BuscarDef, opciones: OpcionesAnalisi
     }
     return n;
   };
-  const nodo = (ref: string): string => (uf.tiene(ref) ? nodoDeRed(uf.buscar(ref)) : `f_${limpio(ref)}`);
+  const flotantes = new NombresSpice('f');
+  const nodo = (ref: string): string => (uf.tiene(ref) ? nodoDeRed(uf.buscar(ref)) : flotantes.de(ref));
   for (const placa of placas) for (const rail of ['gnd', '5v', '3v3', 'vin']) nodo(`#${placa.id}_${rail}`);
   const rieles: RielesPlaca = hayPlaca
     ? { n5v: nodo(`#${boardId}_5v`), n3v3: nodo(`#${boardId}_3v3`), nvin: nodo(`#${boardId}_vin`), ngnd: nodo(`#${boardId}_gnd`) }
@@ -230,8 +250,8 @@ function preparar(project: Project, buscar: BuscarDef, opciones: OpcionesAnalisi
   const direcciones = opciones.direcciones ?? new Map<number, DireccionPin>();
   for (const [g, d] of direcciones) {
     if (d.salida) salidas.add(g);
-    else if (d.pull === 'up') pullups.add(g);
-    else if (d.pull === 'down') pulldowns.add(g);
+    if ((!d.salida || d.openDrain) && d.pull === 'up') pullups.add(g);
+    else if ((!d.salida || d.openDrain) && d.pull === 'down') pulldowns.add(g);
   }
   // 2. Sin dato del código: un pin del que el puente informó un nivel lo está manejando el firmware.
   for (const g of opciones.niveles?.keys() ?? []) if (!direcciones.has(g)) salidas.add(g);
@@ -278,8 +298,15 @@ function varsDe(def: ModuleDef, props: Record<string, string | number | boolean>
   return out;
 }
 
-async function pasada(c: Contexto, chipEncendido: boolean, propsExtra: Map<string, Record<string, number>>, apagadas: Set<string> = new Set()): Promise<Pasada> {
+/** Armado compartido por DC y transitorio: una sola topología y los mismos modelos. */
+function armarPasada(c: Contexto, chipEncendido: boolean, propsExtra: Map<string, Record<string, number>>, apagadas: Set<string> = new Set()): {
+  n: Netlist; modulos: PorModulo[]; placa?: PlacaArmada; placas: Map<string, PlacaArmada>; avisosModelos: AvisoElectrico[];
+} {
+  for (const modulo of c.project.modules) {
+    if (!c.buscar(modulo.type)) throw new Error(`No existe el modelo ${modulo.type} (${modulo.id}) en el catálogo.`);
+  }
   const n = new Netlist(`proyecto ${c.project.name}`);
+  const internos = new NombresSpice('i');
   const avisosModelos: AvisoElectrico[] = [];
   const modulos: PorModulo[] = [];
 
@@ -290,20 +317,20 @@ async function pasada(c: Contexto, chipEncendido: boolean, propsExtra: Map<strin
     const vars = varsDe(def, props);
     const modelo = modeloDe(def);
     if (modelo.error) {
-      avisosModelos.push({ severidad: 'advertencia', pin: -1, mensaje: `${def.name} (${id}): su modelo tiene un error (${modelo.error}); se usa el comportamiento básico.` });
+      throw new Error(`${def.name} (${id}): modelo eléctrico inválido (${modelo.error}).`);
     }
     let prims: Primitiva[] = [];
     try {
       prims = modelo.circuito({ pines: def.pins.map((p) => p.name), props, control, estado: c.opciones.estados?.get(id) ?? {}, vars });
     } catch (err) {
-      avisosModelos.push({ severidad: 'advertencia', pin: -1, mensaje: `${def.name} (${id}): su modelo falló (${(err as Error).message}); quedó afuera del cálculo eléctrico.` });
+      throw new Error(`${def.name} (${id}): su modelo eléctrico falló (${(err as Error).message}).`);
     }
     if (!def.source && prims.some((p) => p.tipo === 'V' && !p.bateria)) {
       // Una fuente de tensión adentro de un módulo que no es una fuente crea energía de la nada
       // (la salida sigue alimentada con la entrada en 0 V). El regulador real es ctx.regulador().
       avisosModelos.push({ severidad: 'advertencia', pin: -1, mensaje: `${def.name} (${id}): su modelo usa fuenteTension sin ser una fuente; eso crea energía de la nada. Para un regulador usá ctx.regulador().` });
     }
-    const mapear = (x: string): string => (x.startsWith('pin:') ? c.nodo(`${id}.${x.slice(4)}`) : `i_${limpio(id)}_${limpio(x.slice(4))}`);
+    const mapear = (x: string): string => (x.startsWith('pin:') ? c.nodo(`${id}.${x.slice(4)}`) : internos.de(JSON.stringify([id, x])));
     for (const p of prims) {
       if (p.tipo === 'SV') n.agregar(id, { ...p, a: mapear(p.a), b: mapear(p.b), cp: mapear(p.cp), cn: mapear(p.cn) });
       else if (p.tipo === 'REG') n.agregar(id, { ...p, a: mapear(p.a), b: mapear(p.b), tierra: mapear(p.tierra) });
@@ -318,31 +345,118 @@ async function pasada(c: Contexto, chipEncendido: boolean, propsExtra: Map<strin
     const inst = ctx.project.modules.find(m => m.id === ctx.boardId);
     const usb = (inst?.props?.usb ?? ctx.placaDef?.props.usb?.default) === true;
     const niveles = new Map<number, 0 | 1>();
-    for (const g of ctx.salidas) niveles.set(g, ctx.opciones.salidasForzadas ?? ctx.opciones.niveles?.get(g) ?? 1);
-    placas.set(ctx.boardId, armarPlaca(n, { id: ctx.boardId, desc: ctx.desc, rieles: ctx.rieles, usb, vinCableado: ctx.refsDeNodo.has(ctx.rieles.nvin), chipEncendido: !apagadas.has(ctx.boardId) && (ctx === c ? chipEncendido : true), salidas: niveles, pullups: ctx.pullups, pulldowns: ctx.pulldowns, gpios: ctx.gpios }));
+    for (const g of ctx.salidas) {
+      const nivel = ctx.opciones.salidasForzadas ?? ctx.opciones.niveles?.get(g) ?? (ctx.opciones.nivelesReales ? undefined : 1);
+      if (nivel !== undefined) niveles.set(g, nivel);
+    }
+    placas.set(ctx.boardId, armarPlaca(n, { id: ctx.boardId, desc: ctx.desc, rieles: ctx.rieles, usb, vinCableado: ctx.refsDeNodo.has(ctx.rieles.nvin), chipEncendido: !apagadas.has(ctx.boardId) && (ctx === c ? chipEncendido : true), openDrain: new Set([...ctx.opciones.direcciones ?? []].filter(([, d]) => d.openDrain).map(([g]) => g)), salidas: niveles, pullups: ctx.pullups, pulldowns: ctx.pulldowns, gpios: ctx.gpios }));
   }
   const placa = placas.get(c.boardId);
+  return { n, modulos, placa, placas, avisosModelos };
+}
 
+async function pasada(c: Contexto, chipEncendido: boolean, propsExtra: Map<string, Record<string, number>>, apagadas: Set<string> = new Set()): Promise<Pasada> {
+  const { n, modulos, placa, placas, avisosModelos } = armarPasada(c, chipEncendido, propsExtra, apagadas);
   const res = await correrSpice(n.texto());
   const elementos = n.resolver(res);
+  verificarConservacionDc(elementos);
   for (const el of elementos) modulos.find((m) => m.id === el.dueno)?.elementos.set(el.local, el);
   return { res, elementos, modulos, placa, placas, avisosModelos };
 }
 
-const tension = (p: Pasada, nodo: string): number => (nodo === '0' ? 0 : (p.res.valores.get(`v(${nodo})`) ?? 0));
+/** Copia de la topología del proyecto con controles fijos, para análisis propios acotados. */
+export function armarNetlistCircuito(project: Project, buscar: BuscarDef, opciones: OpcionesAnalisis = {}): Netlist {
+  const c = preparar(project, buscar, instantaneaOpcionesAnalisis(opciones));
+  return armarPasada(c, c.hayPlaca, new Map()).n;
+}
+
+const tension = (p: Pasada, nodo: string): number => Netlist.tension(p.res, nodo);
+const tieneTension = (p: Pasada, nodo: string): boolean => nodo === '0' || p.res.valores.has(`v(${nodo})`);
 const fmt = (x: number, d = 1): string => x.toFixed(d).replace('.', ',');
 
+/** Incluye rieles sin cable y aliases físicos de un pad; publicar sólo si tiene ecuación. */
+function referenciasPinesPlacas(c: Contexto): { ref: string; nodo: string }[] {
+  return [c, ...c.otras].flatMap(ctx => (ctx.placaDef?.pins ?? []).map(pin => {
+    const ref = `${ctx.boardId}.${pin.name}`;
+    return { ref, nodo: ctx.nodo(ref) };
+  }));
+}
+
+export interface AnalisisTransitorioCircuito {
+  perfil: 'transitorio-diseno-gpio-fijos';
+  t: number[];
+  /** Tensiones de pines con camino verificable a tierra; omite las islas flotantes. */
+  pines: Record<string, number[]>;
+  elementos: Record<string, SerieElementoTransitorio>;
+  advertencias: string[];
+}
+
+export async function analizarTransitorioCircuito(project: Project, buscar: BuscarDef, opciones: OpcionesAnalisis, parametros: ParametrosTransitorio): Promise<AnalisisTransitorioCircuito> {
+  validarParametrosTransitorio(parametros);
+  const c = preparar(project, buscar, instantaneaOpcionesAnalisis(opciones));
+  const { n, avisosModelos } = armarPasada(c, c.hayPlaca, new Map());
+  const hayTierraFisica = c.hayPlaca || c.instancias.some(ins => ins.def.source && ins.def.pins.some(pin => pin.kind === 'ground'));
+  const referenciados = nodosReferenciadosTransitorio(n.elementos, hayTierraFisica ? ['0'] : []);
+  const pinesPlacas = referenciasPinesPlacas(c);
+  const cantidadPines = new Set([
+    ...[...c.refsDeNodo].filter(([nodo]) => referenciados.has(nodo)).flatMap(([, refs]) => refs),
+    ...pinesPlacas.filter(pin => referenciados.has(pin.nodo)).map(pin => pin.ref),
+  ]).size;
+  n.validarPresupuestoTransitorio(Math.ceil(parametros.duracionS / parametros.pasoS) + 1, cantidadPines);
+  const r = await correrTransitorio(n, parametros);
+  n.validarPresupuestoTransitorio(r.t.length, cantidadPines);
+  const advertencias = [
+    'Análisis de diseño con GPIO y controles fijos: no ejecuta firmware ni simula eventos digitales, PWM o reinicios por brownout.',
+    'Los tiempos corresponden a los pasos adaptativos de ngspice; pasoS es el máximo solicitado.',
+    ...avisosModelos.map(a => a.mensaje), ...r.advertencias,
+  ];
+  const pines: Record<string, number[]> = {};
+  const sinModelo: string[] = [];
+  const sinReferencia = new Set<string>();
+  for (const [nodo, refs] of c.refsDeNodo) {
+    const serie = r.tensiones.get(nodo);
+    if (!serie) { sinModelo.push(...refs); continue; }
+    if (!referenciados.has(nodo)) { for (const ref of refs) sinReferencia.add(ref); continue; }
+    for (const ref of refs) pines[ref] = serie;
+  }
+  for (const { ref, nodo } of pinesPlacas) {
+    const serie = r.tensiones.get(nodo);
+    if (!serie) continue;
+    if (!referenciados.has(nodo)) { sinReferencia.add(ref); continue; }
+    pines[ref] = serie;
+  }
+  if (sinReferencia.size) advertencias.push(`Sin referencia física de tierra verificable durante todo el transitorio para: ${[...sinReferencia].join(', ')}. Se omiten sus tensiones absolutas; v, i y p de los elementos conservan su sentido relativo a→b. Fuentes de corriente, semiconductores y controles no conceden referencia sin otro camino comprobado.`);
+  if (sinModelo.length) advertencias.push(`Sin modelo eléctrico de tensión para: ${sinModelo.join(', ')}.`);
+  return { perfil: 'transitorio-diseno-gpio-fijos', t: r.t, pines, elementos: r.elementos, advertencias };
+}
+
 export async function analizarCircuito(project: Project, buscar: BuscarDef, opciones: OpcionesAnalisis = {}): Promise<AnalisisCircuito> {
+  opciones = instantaneaOpcionesAnalisis(opciones);
   const c = preparar(project, buscar, opciones);
   let p: Pasada;
   let chipEncendido = c.hayPlaca;
+  const apagadas = new Set<string>();
+  const causasBrownout = new Map<string, number>();
+  const avisosIniciales: AvisoElectrico[] = [];
   try {
     p = await pasada(c, chipEncendido, new Map());
-    // Cada chip pierde sus salidas cuando su propio riel cae por brownout.
-    const apagadas = new Set<string>();
-    for (const [id, placa] of p.placas) if (tension(p, placa.riel) - tension(p, [c, ...c.otras].find(ctx => ctx.boardId === id)?.rieles.ngnd ?? '0') < placa.brownout) apagadas.add(id);
-    if (apagadas.size) {
-      chipEncendido = !apagadas.has(c.boardId) && c.hayPlaca;
+    // Política DC conservadora: cada placa que cayó se mantiene en reset en esta consulta.
+    // Iteración monótona (a lo sumo una incorporación por placa), no una simulación temporal
+    // del oscilador de brownout. Preserva la causa antes de retirar el driver que la produjo.
+    for (;;) {
+      let cambio = false;
+      for (const ctx of [c, ...c.otras]) {
+        const placa = p.placas.get(ctx.boardId);
+        if (!placa || apagadas.has(ctx.boardId)) continue;
+        const v = tension(p, placa.riel) - tension(p, ctx.rieles.ngnd ?? '0');
+        if (v >= placa.brownout) continue;
+        avisosPlaca(ctx, { ...p, placa }, avisosIniciales, sinPlaca());
+        apagadas.add(ctx.boardId);
+        causasBrownout.set(ctx.boardId, v);
+        cambio = true;
+      }
+      if (!cambio) break;
+      chipEncendido = c.hayPlaca && !apagadas.has(c.boardId);
       p = await pasada(c, chipEncendido, new Map(), apagadas);
     }
 
@@ -350,15 +464,26 @@ export async function analizarCircuito(project: Project, buscar: BuscarDef, opci
     return fallido(c, err);
   }
 
-  const avisos: AvisoElectrico[] = [...p.avisosModelos];
+  const avisos: AvisoElectrico[] = [...p.avisosModelos, ...avisosIniciales];
   const modulos: Record<string, ModuloResuelto> = {};
   const tensiones: Record<string, number> = {};
-  for (const [nodo, refs] of c.refsDeNodo) for (const ref of refs) tensiones[ref] = tension(p, nodo);
+  const pinesSinModelo: string[] = [];
+  for (const [nodo, refs] of c.refsDeNodo) {
+    if (!tieneTension(p, nodo)) { pinesSinModelo.push(...refs); continue; }
+    for (const ref of refs) tensiones[ref] = tension(p, nodo);
+  }
+  for (const { ref, nodo } of referenciasPinesPlacas(c)) {
+    if (tieneTension(p, nodo)) tensiones[ref] = tension(p, nodo);
+  }
+  if (pinesSinModelo.length) avisos.push({ severidad: 'advertencia', pin: -1, refs: pinesSinModelo, mensaje: `Sin modelo eléctrico de tensión para: ${pinesSinModelo.join(', ')}. No se pueden verificar sus niveles.` });
 
   // Cada modelo lee sus voltajes y corrientes reales.
   for (const m of p.modulos) {
     const v: Record<string, number> = {};
-    for (const pin of m.def.pins) v[pin.name] = tension(p, c.nodo(`${m.id}.${pin.name}`));
+    for (const pin of m.def.pins) {
+      const nodo = c.nodo(`${m.id}.${pin.name}`);
+      if (tieneTension(p, nodo)) v[pin.name] = tension(p, nodo);
+    }
     const i: Record<string, number> = {};
     const pot: Record<string, number> = {};
     for (const [local, el] of m.elementos) {
@@ -369,7 +494,7 @@ export async function analizarCircuito(project: Project, buscar: BuscarDef, opci
     try {
       obs = modeloDe(m.def).observar({ props: m.props, control: m.control, estado: opciones.estados?.get(m.id) ?? {}, vars: m.vars, v, i, p: pot });
     } catch (err) {
-      avisos.push({ severidad: 'advertencia', pin: -1, mensaje: `${m.def.name} (${m.id}): su modelo falló al leer el circuito (${(err as Error).message}).` });
+      return fallido(c, new Error(`${m.def.name} (${m.id}): su modelo falló al leer el circuito (${(err as Error).message}).`));
     }
     modulos[m.id] = { ui: obs.ui, estado: obs.estado };
     for (const a of obs.avisos ?? []) avisos.push({ severidad: a.severidad, pin: -1, mensaje: `${m.def.name} (${m.id}): ${a.mensaje}` });
@@ -380,35 +505,40 @@ export async function analizarCircuito(project: Project, buscar: BuscarDef, opci
     const m = p.modulos.find((x) => x.id === l.id)!;
     const lim = { max: m.def.electrical?.maxCurrentMa ?? 20, quema: m.def.electrical?.burnCurrentMa ?? 60 };
     if (l.estado === 'se-quema') {
-      avisos.push({ severidad: 'peligro', pin: -1, mensaje: `Por el LED (${l.id}) pasarían ~${fmt(l.mA, 0)} mA: aguanta hasta ~${lim.quema} mA, se va a quemar. Poné una resistencia en serie (220 Ω anda bien a 3,3–5 V).` });
+      avisos.push({ severidad: 'peligro', pin: -1, mensaje: `Por el LED (${l.id}) circulan ~${fmt(l.mA, 0)} mA: supera el umbral de riesgo configurado (${lim.quema} mA). Puede dañarse; este modelo DC no predice temperatura ni tiempo de avería. Dimensioná una resistencia en serie según la tensión y la corriente nominal.` });
     } else if (l.estado === 'sobreexigido') {
-      avisos.push({ severidad: 'advertencia', pin: -1, mensaje: `~${fmt(l.mA, 0)} mA por el LED (${l.id}): más de lo recomendado (${lim.max} mA). No se quema enseguida, pero brilla de más y dura menos. Poné (o subí) una resistencia en serie.` });
+      avisos.push({ severidad: 'advertencia', pin: -1, mensaje: `~${fmt(l.mA, 0)} mA por el LED (${l.id}): más de lo recomendado (${lim.max} mA). Hay riesgo de daño; la duración no está modelada. Poné (o subí) una resistencia en serie.` });
     }
   }
 
-  const fuentes = await calcularFuentes(c, p, chipEncendido, avisos);
+  const fuentes = await calcularFuentes(c, p, chipEncendido, avisos, apagadas);
   const alimentacionesPorPlaca: Record<string, AlimentacionPlaca> = {};
   const entradas: EntradaLeida[] = [];
   for (const ctx of [c, ...c.otras]) {
     if (!ctx.hayPlaca) continue;
     const placa = p.placas.get(ctx.boardId);
     const vista = { ...p, placa };
-    const encendida = Boolean(placa && tension(p, placa.riel) - tension(p, ctx.rieles.ngnd ?? '0') >= placa.brownout);
+    const encendida = Boolean(placa && !apagadas.has(ctx.boardId) && tension(p, placa.riel) - tension(p, ctx.rieles.ngnd ?? '0') >= placa.brownout);
     const alimentacion = calcularAlimentacion(ctx, vista, encendida, fuentes);
+    const caida = causasBrownout.get(ctx.boardId);
+    if (caida !== undefined && alimentacion.estado !== 'quema' && alimentacion.estado !== 'sin-energia') {
+      alimentacion.estado = 'baja';
+      alimentacion.mensaje += ` ${ctx.etiquetaPlaca}: brownout por baja tensión (${fmt(caida, 2)} V). Se retiraron sus salidas; la tensión posterior no garantiza que pueda reiniciar con esa carga. El análisis DC no simula el ciclo de reinicio.`;
+    }
     alimentacionesPorPlaca[ctx.boardId] = alimentacion;
     if (alimentacion.estado !== 'ok') avisos.unshift({ severidad: alimentacion.estado === 'quema' ? 'peligro' : 'advertencia', pin: -1, mensaje: alimentacion.mensaje });
     if (placa) avisosPlaca(ctx, vista, avisos, alimentacion);
     if (placa && encendida) entradas.push(...leerEntradas(ctx, vista, avisos));
   }
   const alimentacion = alimentacionesPorPlaca[c.boardId] ?? sinPlaca();
-  return { avisos, leds, fuentes, alimentacion, alimentacionesPorPlaca, tensiones, modulos, elementos: p.elementos, chipEncendido, entradas };
+  return { resuelto: true, avisos, leds, fuentes, alimentacion, alimentacionesPorPlaca, tensiones, pinesSinModelo, modulos, elementos: p.elementos, chipEncendido, entradas };
 }
 
 /**
  * Lo que lee el programa en cada pin que no maneja como salida: la tensión del nodo, comparada con
  * los umbrales del chip (VIL/VIH de la hoja de datos, proporcionales a su tensión real). Entre los
  * dos la placa real no garantiza nada: se devuelve null y quien lo use mantiene lo que había
- * (es lo que hace la histéresis de una entrada Schmitt). Un pin sin nada que fije su tensión
+ * (política del puente, no un modelo de histéresis ni de ruido). Un pin sin nada que fije su tensión
  * (ni pull, ni algo conectado que conduzca) "flota": lee ruido, y si el programa lo usa se avisa.
  */
 function leerEntradas(c: Contexto, p: Pasada, avisos: AvisoElectrico[]): EntradaLeida[] {
@@ -416,22 +546,35 @@ function leerEntradas(c: Contexto, p: Pasada, avisos: AvisoElectrico[]): Entrada
   const vdd = tension(p, p.placa!.riel) - tierra;
   const umbral = c.desc?.inputThresholds ?? { low: 0.25, high: 0.75 };
   const out: EntradaLeida[] = [];
+  const referencias = new Set([c.rieles.ngnd ?? '0', p.placa!.riel]);
+  let referenciados = nodosReferenciadosDc(p.elementos, [...referencias]);
+  // Un driver de otra placa fija la entrada si sus referencias están enlazadas. No anclar
+  // indiscriminadamente todos los rieles: las alimentaciones aisladas pueden flotar entre sí.
+  for (let i = 0; i < p.placas.size; i++) {
+    let cambio = false;
+    for (const [id, placa] of p.placas) {
+      const gnd = p.elementos.find(e => e.dueno === id && e.local === 'chip')?.b;
+      if (gnd === undefined || !referenciados.has(gnd) || referencias.has(placa.riel)) continue;
+      if (tension(p, placa.riel) - tension(p, gnd) < placa.brownout) continue;
+      referencias.add(placa.riel);
+      cambio = true;
+    }
+    if (!cambio) break;
+    referenciados = nodosReferenciadosDc(p.elementos, [...referencias]);
+  }
   for (const [g, nodo] of c.gpios) {
     if (c.salidas.has(g)) continue;
     const v = tension(p, nodo) - tierra;
     const nivel = v <= umbral.low * vdd ? 0 : v >= umbral.high * vdd ? 1 : null;
     // ¿Algo fija la tensión del nodo? Los diodos de protección del propio pin no (casi no conducen
     // entre los rieles), ni un interruptor abierto; un pull interno, una resistencia, una fuente, sí.
-    const fija = p.elementos.some((e) => (e.a === nodo || e.b === nodo)
-      && !/^prot_(alto|bajo)_/.test(e.local)
-      && !(e.ohms !== undefined && e.ohms >= 1e8));
-    const flotante = !fija;
+    const flotante = !referenciados.has(nodo);
     out.push({ boardId: c.boardId, gpio: g, v, nivel: flotante ? null : nivel, flotante });
     if (flotante && c.opciones.direcciones?.get(g)?.salida === false) {
       const nombre = nombreDePin(c.desc, g);
       avisos.push({
         severidad: 'advertencia', pin: g,
-        mensaje: `${nombre} está flotando: el programa lo lee como entrada pero nada fija su tensión, así que lee ruido (0 o 1 al azar). Activá el pull-up o pull-down interno, o poné una resistencia.`,
+        mensaje: `${nombre} está flotando: el programa lo lee como entrada pero nada fija su tensión, su nivel es indeterminado. Activá el pull-up o pull-down interno, o poné una resistencia.`,
       });
     }
   }
@@ -444,8 +587,9 @@ function sinPlaca(): AlimentacionPlaca {
 
 /** ngspice no pudo resolver: no se inventa nada, se avisa con lo que dijo. */
 function fallido(c: Contexto, err: unknown): AnalisisCircuito {
-  const detalle = err instanceof ErrorSpice ? err.errores.filter((e) => e.trim()).slice(-3).join(' · ') : (err as Error).message;
+  const detalle = err instanceof ErrorSpice ? (err.errores.filter((e) => e.trim()).slice(-3).join(' · ') || err.message) : (err as Error).message;
   return {
+    resuelto: false,
     avisos: [{ severidad: 'peligro', pin: -1, mensaje: `No se pudo resolver el circuito eléctrico${detalle ? `: ${detalle}` : ''}. Revisá si hay fuentes ideales en paralelo o lazos imposibles.` }],
     leds: [],
     fuentes: [],
@@ -476,7 +620,7 @@ function calcularLeds(p: Pasada): LedElectrico[] {
     });
 }
 
-async function calcularFuentes(c: Contexto, p: Pasada, chipEncendido: boolean, avisos: AvisoElectrico[]): Promise<FuenteElectrica[]> {
+async function calcularFuentes(c: Contexto, p: Pasada, chipEncendido: boolean, avisos: AvisoElectrico[], apagadas: Set<string>): Promise<FuenteElectrica[]> {
   const out: FuenteElectrica[] = [];
   for (const m of p.modulos.filter((x) => x.def.source)) {
     const src = m.def.source!;
@@ -499,7 +643,7 @@ async function calcularFuentes(c: Contexto, p: Pasada, chipEncendido: boolean, a
     else if (enCC && src.currentProp) {
       // ¿Cuánto pediría la carga sin límite? Misma corriente, la fuente "sin perilla".
       try {
-        const sinLimite = await pasada(c, chipEncendido, new Map([[m.id, { [src.currentProp]: 1e9 }]]));
+        const sinLimite = await pasada(c, chipEncendido, new Map([[m.id, { [src.currentProp]: 1e9 }]]), apagadas);
         const el2 = sinLimite.modulos.find((x) => x.id === m.id)?.elementos.get(v!.nombre);
         demandaMa = el2 ? Math.abs(el2.i) * 1000 : null;
       } catch {
@@ -558,9 +702,11 @@ function calcularAlimentacion(c: Contexto, p: Pasada, chipEncendido: boolean, fu
     return g ? c.nodo(`${id}.${g.name}`) : '';
   };
 
-  // Sobretensión o polaridad invertida en una entrada: se quema.
+  // Violación del rango modelado: riesgo, no prueba de avería irreversible.
   for (const ent of power.inputs) {
     const nodo = nodoEntrada(ent.feeds);
+    // Un VIN no cableado puede no tener elemento en el netlist. Ausencia no es 0 V.
+    if (!tieneTension(p, nodo)) continue;
     const v = tension(p, nodo) - tension(p, c.rieles.ngnd ?? '0');
     if (v > ent.max + 0.05 || v < -0.3) {
       const f = fuenteEn(nodo);
@@ -568,8 +714,8 @@ function calcularAlimentacion(c: Contexto, p: Pasada, chipEncendido: boolean, fu
       return {
         ...base, estado: 'quema', via: f ? 'fuente' : null, pin: ent.pin, entrada: ent.feeds, fuenteId: f?.id ?? null, v,
         mensaje: v < 0
-          ? `${quien} pone ${fmt(v, 2)} V en ${et} · ${ent.pin}: polaridad invertida, la placa se quema.`
-          : `${quien} pone ${fmt(v, 2)} V en ${et} · ${ent.pin}, que aguanta hasta ${fmt(ent.max)} V: la placa se quema.`,
+          ? `${quien} pone ${fmt(v, 2)} V en ${et} · ${ent.pin}: polaridad invertida y riesgo de daño. Se bloquea la ejecución fuera del rango modelado; no se predice una avería permanente.`
+          : `${quien} pone ${fmt(v, 2)} V en ${et} · ${ent.pin}: supera el límite configurado de ${fmt(ent.max)} V y puede dañarla. Se bloquea la ejecución fuera del rango modelado; no se predice una avería permanente.`,
       };
     }
   }
@@ -618,7 +764,7 @@ function calcularAlimentacion(c: Contexto, p: Pasada, chipEncendido: boolean, fu
     return { ...datos, estado: 'baja', mensaje: `${et} no llega a arrancar con ${fmt(v, 2)} V en ${porFuente.ent.pin}: la tensión de su chip cae por debajo del mínimo.` };
   }
   if (usb) {
-    return { ...base, estado: 'baja', via: 'usb', mensaje: `${et} está enchufada por USB pero su tensión cae por debajo del mínimo: algo le pide más de lo que el USB entrega (500 mA).` };
+    return { ...base, estado: 'baja', via: 'usb', mensaje: `${et} está enchufada por USB pero su tensión cae por debajo del mínimo: algo le pide más de el límite USB configurado (${power.usb?.currentLimitMa ?? 500} mA).` };
   }
   const opciones = power.inputs.map((i) => `${fmt(i.min)}–${fmt(i.max)} V a ${i.pin}`).join(' o ');
   return {
@@ -646,17 +792,23 @@ function avisosPlaca(c: Contexto, p: Pasada, avisos: AvisoElectrico[], alimentac
       const mA = Math.abs(salida.i) * 1000;
       const vPin = tension(p, nodo) - tierra;
       const alto = salida.a === riel;
+      const rating = desc?.pinCurrentRating;
+      const limite = rating ? (alto ? rating.sourceMa : rating.sinkMa) : max;
+      const esAbsoluto = rating?.kind !== 'typical-drive';
       // Contra la tensión opuesta, sin nada de por medio: un corto (p. ej. un GPIO en alto a GND).
-      if (mA > 2 * max && Math.abs(vPin - (alto ? 0 : vRiel)) < 0.2) {
+      const cortocircuitoDirecto = nodo === (alto ? (c.rieles.ngnd ?? '0') : riel);
+      if ((cortocircuitoDirecto && mA > 0.001) || (mA > 2 * max && Math.abs(vPin - (alto ? 0 : vRiel)) < 0.2)) {
         const otros = (c.refsDeNodo.get(nodo) ?? []).filter((r) => r !== refPin);
         avisos.push({
           severidad: 'peligro', pin: g, refs: [refPin, otros[0] ?? refPin],
-          mensaje: `${nombre} en ${alto ? 'alto' : 'bajo'} está en cortocircuito contra ${alto ? 'GND' : 'la alimentación'}: tendría que manejar ~${fmt(mA, 0)} mA, muy por encima del máximo del ${chip} (${max} mA). Se daña el pin.`,
+          mensaje: `${nombre} en ${alto ? 'alto' : 'bajo'} está en cortocircuito contra ${alto ? 'GND' : 'la alimentación'}: tendría que manejar ~${fmt(mA, 0)} mA, la corriente depende del límite de la alimentación. La conexión puede dañar el pin y provocar brownout.`,
         });
-      } else if (mA > max) {
-        avisos.push({ severidad: 'peligro', pin: g, mensaje: `${nombre} tendría que entregar ~${fmt(mA, 0)} mA: por encima del máximo del ${chip} (${max} mA). Agregá o subí una resistencia en serie.` });
+      } else if (mA > limite) {
+        avisos.push({ severidad: esAbsoluto ? 'peligro' : 'advertencia', pin: g, mensaje: esAbsoluto
+          ? `${nombre} conduce ~${fmt(mA, 0)} mA: por encima del máximo del ${chip} (${limite} mA). Agregá o subí una resistencia en serie.`
+          : `${nombre} conduce ~${fmt(mA, 0)} mA: supera la característica típica de ${alto ? 'entrega' : 'absorción'} (${limite} mA). No se garantiza el nivel de salida; ese valor típico no es un máximo absoluto. Revisá la carga y las condiciones de la hoja de datos.` });
       } else if (mA > recomendado) {
-        avisos.push({ severidad: 'advertencia', pin: g, mensaje: `${nombre} entregaría ~${fmt(mA, 0)} mA: por encima de lo recomendado (${recomendado} mA). Funciona, pero acorta la vida del pin.` });
+        avisos.push({ severidad: 'advertencia', pin: g, mensaje: `${nombre} entregaría ~${fmt(mA, 0)} mA: por encima de lo recomendado (${recomendado} mA). El funcionamiento y la vida útil no están garantizados por este modelo DC.` });
       }
     }
     // Diodos de protección conduciendo: le entra tensión de afuera al pin.
@@ -686,21 +838,23 @@ function avisosPlaca(c: Contexto, p: Pasada, avisos: AvisoElectrico[], alimentac
 
   // Rieles de la placa en corto (el regulador o el USB que lo alimenta entregan su límite con ~0 V).
   const ldo = el('ldo');
-  const corto3v3 = ldo !== undefined && Math.abs(ldo.i) > 0.3 && tension(p, c.rieles.n3v3) - tierra < 0.3;
+  const limite3v3 = (desc?.power?.regulators?.logic3v3?.currentLimitMa ?? 600) / 1000;
+  const corto3v3 = ldo !== undefined && (c.rieles.n3v3 === (c.rieles.ngnd ?? '0') || Math.abs(ldo.i) > 0.95 * limite3v3) && tension(p, c.rieles.n3v3) - tierra < 0.3;
   if (corto3v3) {
     const refs = (c.refsDeNodo.get(c.rieles.n3v3) ?? []).slice(0, 2);
     avisos.push({ severidad: 'peligro', pin: -1, refs: refs.length === 2 ? refs : undefined, mensaje: `La salida 3V3 de ${c.etiquetaPlaca} está en cortocircuito: su regulador entrega todo lo que puede (~${fmt(Math.abs(ldo!.i) * 1000, 0)} mA) con ~0 V. Se recalienta. Revisá el cableado de 3V3.` });
   }
   const usb = el('usb');
-  if (usb && Math.abs(usb.i) > 0.48) {
+  const limiteUsbMa = desc?.power?.usb?.currentLimitMa ?? 500;
+  if (usb && Math.abs(usb.i) > 0.96 * limiteUsbMa / 1000) {
     const v5 = tension(p, c.rieles.n5v) - tierra;
     if (corto3v3) {
       // Es consecuencia del corto del 3V3: el USB no da abasto y su 5V también cae.
     } else if (v5 < 0.5) {
       const refs = (c.refsDeNodo.get(c.rieles.n5v) ?? []).slice(0, 2);
-      avisos.push({ severidad: 'peligro', pin: -1, refs: refs.length === 2 ? refs : undefined, mensaje: `El 5V de ${c.etiquetaPlaca} está en cortocircuito: el USB entrega su máximo (500 mA) con ~0 V y el polifusible corta.` });
+      avisos.push({ severidad: 'peligro', pin: -1, refs: refs.length === 2 ? refs : undefined, mensaje: `El 5V de ${c.etiquetaPlaca} está en cortocircuito: el modelo limita el USB a ${limiteUsbMa} mA con ~0 V. No se simula el disparo térmico del polifusible.` });
     } else {
-      avisos.push({ severidad: 'advertencia', pin: -1, mensaje: `El USB está entregando su máximo (500 mA): lo que cuelga de ${c.etiquetaPlaca} pide demasiado, la tensión cae (${fmt(v5, 2)} V).` });
+      avisos.push({ severidad: 'advertencia', pin: -1, mensaje: `El USB alcanza el límite configurado (${limiteUsbMa} mA): lo que cuelga de ${c.etiquetaPlaca} pide demasiado, la tensión cae (${fmt(v5, 2)} V).` });
     }
   }
 }

@@ -1,5 +1,8 @@
 import type { ModeloDiodo, Primitiva } from '@emu/shared';
 import type { ResultadoSpice } from './spice.js';
+import type { ParametrosTransitorio } from './transitorio.js';
+import { MAX_VECTORES_TRANSITORIO, validarCantidadValoresTransitorio } from './validacionSpice.js';
+import { ErrorSpice, validarDiagnosticosSpice, validarPrimitivaSpice, valorSpice } from './validacionSpice.js';
 
 /**
  * Arma un netlist de ngspice a partir de elementos físicos (las primitivas de los modelos
@@ -38,6 +41,8 @@ export interface ElementoArmado {
   signo?: 1 | -1;
   /** Nodos de control (interruptor controlado por tensión). */
   control?: [string, string];
+  /** Condición de habilitación de una salida regulada; no es una unión Vin↔Vout. */
+  regulador?: { tierra: string; caida: number };
 }
 
 export interface ElementoResuelto {
@@ -53,6 +58,7 @@ export interface ElementoResuelto {
   p: number;
   /** Resistencia equivalente (resistencias e interruptores). */
   ohms?: number;
+  regulador?: { tierra: string; activo: boolean };
 }
 
 const limpio = (s: string): string => s.replace(/[^A-Za-z0-9_]/g, '_');
@@ -62,6 +68,9 @@ export class Netlist {
   private readonly modelos = new Map<string, string>();
   readonly elementos: ElementoArmado[] = [];
   private cuenta = 0;
+  private readonly reactivos = new Map<string, { linea: number; inicial?: number }>();
+  private readonly fuentes = new Map<string, { linea: number; limitada: boolean; negativa: boolean }>();
+  private readonly resistencias = new Map<string, number>();
 
   constructor(private readonly titulo: string) {}
 
@@ -90,6 +99,8 @@ export class Netlist {
 
   /** Un elemento físico entre dos nodos SPICE ya resueltos. */
   agregar(dueno: string, p: Primitiva & { a: string; b: string; cp?: string; cn?: string; tierra?: string }): ElementoArmado {
+    validarPrimitivaSpice(p);
+    if (this.elementos.some(e => e.id === `${dueno}.${p.nombre}`)) throw new ErrorSpice(`Elemento duplicado: ${dueno}.${p.nombre}`, [], this.texto());
     const n = this.nombre(dueno, p.nombre);
     const el: ElementoArmado = { id: `${dueno}.${p.nombre}`, dueno, local: p.nombre, tipo: p.tipo, a: p.a, b: p.b };
     // Amperímetro en serie para todo lo que no sea una resistencia.
@@ -102,6 +113,7 @@ export class Netlist {
     switch (p.tipo) {
       case 'R':
         el.ohms = p.ohms;
+        this.resistencias.set(el.id, this.lineas.length);
         this.lineas.push(`r_${n} ${p.a} ${p.b} ${p.ohms}`);
         break;
       case 'S':
@@ -110,11 +122,13 @@ export class Netlist {
         break;
       case 'C': {
         const x = conMedidor();
+        this.reactivos.set(el.id, { linea: this.lineas.length, inicial: p.v0 });
         this.lineas.push(`c_${n} ${x} ${p.b} ${p.faradios}${p.v0 !== undefined ? ` IC=${p.v0}` : ''}`);
         break;
       }
       case 'L': {
         const x = conMedidor();
+        this.reactivos.set(el.id, { linea: this.lineas.length, inicial: p.i0 });
         this.lineas.push(`l_${n} ${x} ${p.b} ${p.henrios}${p.i0 !== undefined ? ` IC=${p.i0}` : ''}`);
         break;
       }
@@ -137,7 +151,8 @@ export class Netlist {
       }
       case 'V': {
         const x = conMedidor();
-        this.fuente(n, x, p.b, p.voltios, p);
+        const linea = this.fuente(n, x, p.b, p.voltios, p);
+        this.fuentes.set(el.id, { linea, limitada: p.limiteA !== undefined || Boolean(p.soloEntrega), negativa: p.voltios < 0 });
         break;
       }
       case 'REG':
@@ -154,17 +169,18 @@ export class Netlist {
    * (lo que sobra vuelve por el recorte). Con `soloEntrega`, un diodo de bloqueo en la salida
    * (no absorbe corriente de afuera, como un regulador o un USB).
    */
-  private fuente(n: string, pos: string, neg: string, v: number, o: { rSerie?: number; limiteA?: number; soloEntrega?: boolean }): void {
+  private fuente(n: string, pos: string, neg: string, v: number, o: { rSerie?: number; limiteA?: number; soloEntrega?: boolean }): number {
     const limite = o.limiteA ?? (o.soloEntrega ? 10 : undefined);
     if (limite === undefined) {
       const y = `y_${n}`;
       this.lineas.push(`r_${n} ${pos} ${y} ${Math.max(o.rSerie ?? RSERIE_MIN, RSERIE_MIN)}`);
       this.lineas.push(`v_${n} ${y} ${neg} DC ${v}`);
-      return;
+      return this.lineas.length - 1;
     }
     const recorte = this.modelo(MODELO_RECORTE);
     const r = `r_${n}`;
     const salida = o.soloEntrega ? `q_${n}` : pos; // con bloqueo, el recorte queda detrás del diodo
+    const linea = this.lineas.length;
     this.lineas.push(`vref_${n} ${r} ${neg} DC ${v}`);
     if (v >= 0) {
       this.lineas.push(`ilim_${n} ${neg} ${salida} DC ${limite}`);
@@ -175,6 +191,7 @@ export class Netlist {
       this.lineas.push(`drec_${n} ${r} ${salida} ${recorte}`);
       if (o.soloEntrega) this.lineas.push(`dblq_${n} ${pos} ${salida} ${recorte}`);
     }
+    return linea;
   }
 
   /**
@@ -187,6 +204,7 @@ export class Netlist {
    */
   private regulador(n: string, el: ElementoArmado, dueno: string, p: Extract<Primitiva, { tipo: 'REG' }> & { a: string; b: string }): void {
     const t = p.tierra;
+    el.regulador = { tierra: t, caida: p.caida };
     const v = (nodo: string): string => (nodo === '0' ? '0' : `V(${nodo})`);
     const vin = t === '0' ? v(p.a) : `(${v(p.a)}-${v(t)})`;
     const m = this.modelo(MODELO_RECORTE);
@@ -218,18 +236,85 @@ export class Netlist {
   }
 
   texto(): string {
+    return this.renderizar(this.lineas, ['.op']);
+  }
+
+  /** Actualización local de un R ya armado: conserva nombre, terminales y topología. */
+  actualizarResistencia(id: string, ohms: number): void {
+    const el = this.elementos.find(e => e.id === id);
+    const indice = this.resistencias.get(id);
+    const linea = indice === undefined ? undefined : this.lineas[indice];
+    if (!el || el.tipo !== 'R' || indice === undefined || linea === undefined) throw new ErrorSpice(`No existe una resistencia actualizable: ${id}`, [], '');
+    validarPrimitivaSpice({ tipo: 'R', nombre: el.local, a: el.a, b: el.b, ohms });
+    this.lineas[indice] = linea.replace(/\S+$/, String(ohms));
+    el.ohms = ohms;
+  }
+
+  /** IC y estímulos se aplican a una copia; el punto de operación conserva su netlist. */
+  textoTransitorio(parametros: ParametrosTransitorio): string {
+    this.validarPresupuestoTransitorio(Math.ceil(parametros.duracionS / parametros.pasoS) + 1);
+    const lineas = [...this.lineas];
+    for (const id of Object.keys(parametros.condicionesIniciales ?? {})) {
+      if (!this.reactivos.has(id)) throw new ErrorSpice(`Condición inicial para elemento desconocido o no reactivo: ${id}`, [], '');
+    }
+    for (const [id, reactivo] of this.reactivos) {
+      const linea = lineas[reactivo.linea];
+      if (linea === undefined) throw new ErrorSpice(`No se encontró el elemento ${id}`, [], '');
+      const base = linea.replace(/ IC=\S+$/, '');
+      if (parametros.inicializacion === 'explicita') {
+        const inicial = parametros.condicionesIniciales?.[id] ?? reactivo.inicial;
+        if (inicial === undefined) throw new ErrorSpice(`Falta condición inicial para ${id}`, [], '');
+        lineas[reactivo.linea] = `${base} IC=${inicial}`;
+      } else lineas[reactivo.linea] = base;
+    }
+    for (const [id, puntos] of Object.entries(parametros.estimulos ?? {})) {
+      const fuente = this.fuentes.get(id);
+      if (!fuente) throw new ErrorSpice(`Estímulo para fuente de tensión desconocida: ${id}`, [], '');
+      if (fuente.limitada && puntos.some(p => fuente.negativa ? p.valor > 0 : p.valor < 0)) {
+        throw new ErrorSpice(`El estímulo de ${id} cambia la polaridad de una fuente limitada; ese cambio de topología no está modelado`, [], '');
+      }
+      const linea = lineas[fuente.linea];
+      const primero = puntos[0];
+      if (linea === undefined || primero === undefined) throw new ErrorSpice(`Estímulo inválido para ${id}`, [], '');
+      lineas[fuente.linea] = linea.replace(/ DC \S+$/, ` DC ${primero.valor} PWL(${puntos.map(p => `${p.t} ${p.valor}`).join(' ')})`);
+    }
+    return this.renderizar(lineas, [
+      `.save ${this.vectoresTransitorios().join(' ')}`,
+      '.options reltol=1e-5 abstol=1e-12 vntol=1e-8',
+      `.tran ${parametros.pasoS} ${parametros.duracionS} 0 ${parametros.pasoS}${parametros.inicializacion === 'explicita' ? ' uic' : ''}`,
+    ]);
+  }
+
+  /** El adaptador publica v/i/p por elemento y puede repetir un nodo bajo muchos pines. */
+  validarPresupuestoTransitorio(muestras: number, cantidadPines = this.nodos().size + 1): void {
+    if (this.elementos.length > 256) throw new ErrorSpice('El transitorio admite hasta 256 elementos', [], '');
+    const vectores = this.vectoresTransitorios().length;
+    if (vectores > MAX_VECTORES_TRANSITORIO) throw new ErrorSpice('El transitorio excede el límite de vectores', [], '');
+    validarCantidadValoresTransitorio(muestras, vectores);
+    validarCantidadValoresTransitorio(muestras, 1 + cantidadPines + 3 * this.elementos.length);
+  }
+
+  private vectoresTransitorios(): string[] {
+    const vectores = ['time', ...[...this.nodos()].map(n => `v(${n})`)];
+    for (const el of this.elementos) if (el.medidor) vectores.push(`i(${el.medidor})`);
+    return [...new Set(vectores)];
+  }
+
+  private renderizar(lineas: readonly string[], analisis: readonly string[]): string {
     const modelos = [...this.modelos].map(([cuerpo, n]) => `.model ${n} ${cuerpo}`);
     return [
-      this.titulo.replace(/\n/g, ' '),
-      ...this.lineas,
+      // El lector raw del adaptador calcula offsets como caracteres, no bytes UTF-8.
+      // Sólo normalizamos la cabecera SPICE; el nombre del proyecto no se modifica.
+      this.titulo.normalize('NFKD').replace(/\p{M}/gu, '').replace(/[^\x20-\x7E]/g, ' '),
+      ...lineas,
       // ngspice no resuelve un circuito sin elementos: una resistencia suelta a tierra no cambia nada.
-      ...(this.lineas.length === 0 ? ['r_vacio n_vacio 0 1'] : []),
+      ...(lineas.length === 0 ? ['r_vacio n_vacio 0 1'] : []),
       // 1 TΩ de cada nodo a tierra (como la aislación real): un módulo sin cablear o un circuito
       // flotante queda definido en vez de dar "matriz singular". `rshunt` solo no alcanza.
       ...[...this.nodos()].map((nodo, i) => `r_fuga${i} ${nodo} 0 1e12`),
       ...modelos,
       '.options rshunt=1e12 itl1=400 gmin=1e-12',
-      '.op',
+      ...analisis,
       '.end',
     ].join('\n');
   }
@@ -244,18 +329,26 @@ export class Netlist {
   /** Tensión de un nodo SPICE en el resultado (0 para la tierra). */
   static tension(r: ResultadoSpice, nodo: string): number {
     if (nodo === '0') return 0;
-    return r.valores.get(`v(${nodo})`) ?? 0;
+    return valorSpice(r.valores, `v(${nodo})`, r.errores, '');
   }
 
   resolver(r: ResultadoSpice): ElementoResuelto[] {
+    validarDiagnosticosSpice(r.errores, this.texto());
     return this.elementos.map((el) => {
       const va = Netlist.tension(r, el.a);
       const vb = Netlist.tension(r, el.b);
       let i: number;
       if (el.ohms !== undefined) i = (va - vb) / el.ohms;
-      else if (el.medidor) i = (el.signo ?? 1) * (r.valores.get(`i(${el.medidor})`) ?? 0);
-      else i = 0;
-      return { id: el.id, dueno: el.dueno, local: el.local, tipo: el.tipo, a: el.a, b: el.b, va, vb, i, p: (va - vb) * i, ohms: el.ohms };
+      else if (el.medidor) i = (el.signo ?? 1) * valorSpice(r.valores, `i(${el.medidor})`, r.errores, this.texto());
+      else throw new ErrorSpice(`El elemento ${el.id} no tiene medición de corriente`, r.errores, this.texto());
+      const potencia = (va - vb) * i;
+      if (!Number.isFinite(i) || !Number.isFinite(potencia)) throw new ErrorSpice(`Medición no finita en ${el.id}`, r.errores, this.texto());
+      const regulador = el.regulador ? {
+        tierra: el.regulador.tierra,
+        activo: va - Netlist.tension(r, el.regulador.tierra) > el.regulador.caida
+          && vb - Netlist.tension(r, el.regulador.tierra) > 1e-9,
+      } : undefined;
+      return { id: el.id, dueno: el.dueno, local: el.local, tipo: el.tipo, a: el.a, b: el.b, va, vb, i, p: potencia, ohms: el.ohms, regulador };
     });
   }
 }

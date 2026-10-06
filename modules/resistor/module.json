@@ -2,7 +2,7 @@
   "type": "resistor",
   "name": "Resistencia",
   "category": "Pasivos",
-  "description": "Limita la corriente en serie (Ley de Ohm: I = V / R). Sin ella, un LED conectado directo se quema.",
+  "description": "Resistencia ideal de valor constante (I = V / R). Comprueba la potencia nominal declarada; no predice temperatura ni averías.",
   "width": 70,
   "height": 30,
   "pins": [
@@ -11,10 +11,11 @@
   ],
   "controls": [],
   "props": {
-    "ohms": { "type": "number", "default": 220, "label": "Resistencia (Ω)", "min": 1, "max": 10000000 }
+    "ohms": { "type": "number", "default": 220, "label": "Resistencia (Ω)", "min": 1, "max": 10000000 },
+    "powerRatedW": { "type": "number", "default": 0.25, "label": "Potencia nominal declarada (W)", "min": 0.001, "max": 1000 }
   },
   "passthrough": true,
   "ohmsProp": "ohms",
   "svg": "module.svg",
-  "model": "model.js"
+  "model": "model.ts"
 }

@@ -9,7 +9,10 @@ import type { ChipEnBus } from './proyectoChips.js';
  */
 export function armarBusChips(chips: ChipEnBus[], arranqueMs: number, ev: EventosBus): BusChips | null {
   if (chips.length === 0) return null;
-  const bus = new BusChips(ev);
+  const perfiles = chips.flatMap(c => c.i2cFisico ? [c.i2cFisico] : []);
+  const perfil = perfiles[0];
+  if (perfiles.some(p => JSON.stringify(p) !== JSON.stringify(perfil))) throw new Error('Perfiles eléctricos I2C incompatibles en el mismo bus');
+  const bus = new BusChips(ev, perfil);
   for (const c of chips) {
     try {
       bus.agregar({

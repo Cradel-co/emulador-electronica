@@ -1,4 +1,5 @@
-import type { SalidaChip } from '@emu/shared';
+import { PerfilI2cRcSchema, type PerfilI2cRc, type SalidaChip } from '@emu/shared';
+import { ErrorElectricoI2c, evaluarI2cRc } from './i2cFisico.js';
 import { ErrorChip, type EntradaChip, type EventoChip, type ResultadoLote } from './chipSandbox.js';
 
 /**
@@ -55,6 +56,8 @@ const DIFERIR_MAX = 16;
 const DIFERIR_US = 10_000;
 
 interface Dispositivo extends Required<Omit<OpcionesDispositivo, 'maxHz' | 'encendidoEnUs' | 'diferirEscrituras' | 'guardado' | 'spi' | 'entradas'>> {
+  guardado?: unknown;
+  generacion: number;
   maxHz?: number;
   spi?: NonNullable<OpcionesDispositivo['spi']>;
   entradas: Record<number, string>;
@@ -95,6 +98,16 @@ export interface TransaccionI2c {
   bytes: number[];
 }
 
+/** Dos salidas SPI conducen niveles opuestos: ese byte no tiene un valor lógico válido. */
+export class ErrorContencionSpi extends Error {
+  override readonly name = 'ErrorContencionSpi';
+  readonly codigo = 'CONTENCION_MISO';
+
+  constructor(readonly dispositivos: string[], readonly bitsEnConflicto: number) {
+    super(`[spi] contención MISO entre ${dispositivos.join(', ')}: bits opuestos 0x${bitsEnConflicto.toString(16).padStart(2, '0')}. Soltá los CS hasta dejar un solo chip seleccionado.`);
+  }
+}
+
 export class BusChips {
   private readonly dispositivos: Dispositivo[] = [];
   /** Segmento en curso: dirección, sentido y quiénes contestaron. */
@@ -104,14 +117,37 @@ export class BusChips {
   /** Últimas transacciones (para inspeccionar); tope fijo. */
   readonly historial: TransaccionI2c[] = [];
 
-  constructor(private readonly ev: EventosBus) {}
+  private readonly perfilI2c: PerfilI2cRc | undefined;
+  private frecuenciaI2c: number | undefined;
+  constructor(private readonly ev: EventosBus, perfilI2c?: PerfilI2cRc) {
+    this.perfilI2c = perfilI2c === undefined ? undefined : PerfilI2cRcSchema.parse(perfilI2c);
+  }
+
+  private verificarI2c(): void {
+    if (!this.perfilI2c) return; // Compatibilidad funcional, sin acreditación eléctrica.
+    let r: ReturnType<typeof evaluarI2cRc>;
+    try { r = evaluarI2cRc(this.perfilI2c, this.frecuenciaI2c ?? NaN); }
+    catch (error) {
+      // Un equivalente no resoluble también debe contestar al firmware. No dejar
+      // el pedido UART pendiente hasta timeout ni transformarlo en un NACK válido.
+      throw new ErrorElectricoI2c({ perfil: 'i2c-rc-declarado', apto: false, lineas: {},
+        problemas: [error instanceof Error ? error.message : 'Equivalente eléctrico I2C no resuelto'] });
+    }
+    for (const d of this.dispositivos) {
+      if (!d.spi && d.alimentado && d.maxHz !== undefined && this.frecuenciaI2c !== undefined && this.frecuenciaI2c > d.maxHz) {
+        r.problemas.push(`${d.id}: frecuencia supera ${d.maxHz} Hz del chip`);
+        r.apto = false;
+      }
+    }
+    if (!r.apto) throw new ErrorElectricoI2c(r);
+  }
 
   agregar(o: OpcionesDispositivo): void {
     const d: Dispositivo = {
       id: o.id, chip: o.chip, motor: o.motor, props: o.props ?? {}, entorno: o.entorno ?? {},
       alimentado: o.alimentado ?? true, maxHz: o.maxHz, direcciones: [], ocupadoHasta: 0, pendientes: [], roto: null,
       despertar: null, pines: new Map(), diferir: o.diferirEscrituras ?? false, entregaAgendada: false,
-      spi: o.spi, entradas: o.entradas ?? {}, seleccionado: false,
+      spi: o.spi, entradas: o.entradas ?? {}, seleccionado: false, guardado: o.guardado, generacion: 0,
     };
     this.dispositivos.push(d);
     if (d.alimentado) this.correr(d, [{ tipo: 'encender', t: o.encendidoEnUs ?? this.ev.ahoraUs(), guardado: o.guardado }]);
@@ -122,8 +158,48 @@ export class BusChips {
    * pendiente, para guardar lo último de su memoria no volátil.
    */
   apagar(): void {
+    for (const d of this.dispositivos) this.ponerAlimentacion(d.id, false);
+  }
+
+  /** VCC efectivo. Un corte invalida transacciones y temporizadores anteriores. */
+  ponerAlimentacion(id: string, on: boolean): boolean {
+    const d = this.dispositivos.find((x) => x.id === id);
+    if (!d) return false;
+    if (d.alimentado === on) return true;
     const t = this.ev.ahoraUs();
-    for (const d of this.dispositivos) if (d.alimentado && !d.roto) this.correr(d, [{ tipo: 'apagar', t }]);
+    // Sin STOP, la escritura en curso no constituye una transacción completa.
+    if (this.seg) {
+      this.seg.con = this.seg.con.filter((x) => x !== d);
+      this.seg.leidos.delete(d);
+    }
+    d.generacion++;
+    if (!on) {
+      this.correr(d, [{ tipo: 'apagar', t }]);
+      d.alimentado = false;
+      for (const pin of d.pines.keys()) {
+        d.pines.set(pin, null);
+        this.ev.alPin?.(d.id, pin, null);
+      }
+      d.despertar = null;
+      d.entregaAgendada = false;
+      d.seleccionado = false;
+      d.pendientes = [];
+      d.direcciones = [];
+      d.ocupadoHasta = 0;
+    } else {
+      d.alimentado = true;
+      this.correr(d, [{ tipo: 'encender', t, guardado: d.guardado }]);
+      for (const [gpio, nombre] of Object.entries(d.entradas)) {
+        const nivel = this.nivelesMcu.get(Number(gpio));
+        if (nivel !== undefined) d.pendientes.push({ tipo: 'pin', t, nombre, nivel });
+      }
+      if (d.spi && this.nivelesMcu.get(d.spi.csGpio) === 0) {
+        d.seleccionado = true;
+        d.pendientes.push({ tipo: 'seleccionar', t });
+      }
+      if (d.pendientes.length) this.correr(d, []);
+    }
+    return true;
   }
 
   /** Cambió el entorno de una instancia (la temperatura que mueve el usuario). */
@@ -143,6 +219,8 @@ export class BusChips {
 
   /** Aviso (una vez por chip) si el maestro usa SCL más rápido de lo que el chip soporta. */
   velocidad(hz: number): void {
+    this.frecuenciaI2c = hz;
+    this.verificarI2c();
     for (const d of this.dispositivos) {
       if (d.maxHz && hz > d.maxHz * 1.05 && !this.avisadoVelocidad.has(d.id)) {
         this.avisadoVelocidad.add(d.id);
@@ -155,11 +233,13 @@ export class BusChips {
 
   /** START (o START repetido). */
   inicio(): void {
+    this.verificarI2c();
     this.cerrarSegmento();
   }
 
   /** Manda la dirección. Devuelve el ACK (alguien contestó). */
   conectar(direccion: number, escritura: boolean): boolean {
+    this.verificarI2c();
     this.cerrarSegmento();
     const t = this.ev.ahoraUs();
     const con = this.dispositivos.filter((d) => d.alimentado && !d.roto && d.direcciones.includes(direccion) && t >= d.ocupadoHasta);
@@ -179,7 +259,7 @@ export class BusChips {
 
   /** Un byte del maestro al chip. ACK si sigue habiendo alguien escuchando. */
   escribirByte(b: number): boolean {
-    if (!this.seg || this.seg.lectura) return false;
+    if (!this.seg || this.seg.lectura || this.seg.con.length === 0) return false;
     this.seg.bytes.push(b & 0xff);
     return true;
   }
@@ -217,7 +297,9 @@ export class BusChips {
         // Se entrega más tarde, en tanda: a los 10 ms del primero como mucho.
         if (!d.entregaAgendada) {
           d.entregaAgendada = true;
+          const generacion = d.generacion;
           this.ev.programar(primero + DIFERIR_US, () => {
+            if (!d.alimentado || d.generacion !== generacion) return;
             d.entregaAgendada = false;
             if (d.pendientes.length > 0) this.correr(d, []);
           });
@@ -265,10 +347,15 @@ export class BusChips {
     }
   }
 
-  /** Un byte por SPI: lo que sale del micro por MOSI. Devuelve lo que entra por MISO (0xFF si nadie contesta). */
+  /**
+   * Un byte por SPI. Sin respuesta conserva 0xFF; dos salidas MISO opuestas producen un error.
+   * Es una detección lógica por byte, sin resolver tensiones, corrientes ni daño eléctrico.
+   */
   spiByte(mosi: number, cfg: { modo: number; lsbPrimero: boolean; hz: number; misoGpio?: number }): number {
     const t = this.ev.ahoraUs();
-    let miso = 0xff;
+    let miso: number | undefined;
+    let unos = 0, ceros = 0;
+    const conducen: string[] = [];
     for (const d of this.dispositivos) {
       if (!d.spi || !d.seleccionado || !d.alimentado || d.roto) continue;
       if (d.spi.maxHz && cfg.hz > d.spi.maxHz * 1.05 && !this.avisadoVelocidad.has(d.id)) {
@@ -296,16 +383,27 @@ export class BusChips {
       }
       const r = this.correr(d, [{ tipo: 'spi', t, mosi: [entra], dc: [dc] }]);
       if (cfg.misoGpio !== undefined && d.spi.miso !== undefined && cfg.misoGpio !== d.spi.miso) continue;
-      miso &= deformar(r?.lecturas.at(-1)?.[0] ?? 0xff, modoMal, ordenMal);
+      const respuesta = r?.lecturas.at(-1)?.[0];
+      // Una respuesta ausente no conduce; 0xFF explícito sí conduce ocho unos.
+      if (respuesta === undefined) continue;
+      const byte = deformar(respuesta, modoMal, ordenMal);
+      miso ??= byte;
+      unos |= byte;
+      ceros |= (~byte & 0xff);
+      conducen.push(d.id);
     }
-    return miso;
+    // Todos los chips reciben MOSI antes de rechazar el byte observado por el maestro.
+    if (unos & ceros) throw new ErrorContencionSpi(conducen, unos & ceros);
+    return miso ?? 0xff;
   }
 
   /** Entrega lo juntado de una pantalla a los 10 ms del primer byte, como mucho. */
   private agendarEntrega(d: Dispositivo): void {
     if (d.entregaAgendada || !this.ev.programar || d.pendientes.length === 0) return;
     d.entregaAgendada = true;
+    const generacion = d.generacion;
     this.ev.programar(d.pendientes[0]!.t + DIFERIR_US, () => {
+      if (!d.alimentado || d.generacion !== generacion) return;
       d.entregaAgendada = false;
       if (d.pendientes.length > 0) this.correr(d, []);
     });
@@ -336,12 +434,9 @@ export class BusChips {
     return r?.lecturas.at(-1) ?? Array<number>(PREFETCH).fill(0xff);
   }
 
-  /** Corre lo pendiente del chip más `extra`. Si el chip falla, queda fuera del bus. */
+  /** Compatibilidad con el lifecycle de cámaras: comparte invalidación y restauración de VCC. */
   alimentar(id: string, alimentado: boolean): void {
-    const d = this.dispositivos.find(x => x.id === id);
-    if (!d || d.alimentado === alimentado) return;
-    this.correr(d, [{ tipo: alimentado ? 'encender' : 'apagar', t: this.ev.ahoraUs() }]);
-    d.alimentado = alimentado; d.seleccionado = false; d.pendientes = [];
+    this.ponerAlimentacion(id, alimentado);
   }
 
   externo(id: string, datos: EntradaChip): void {
@@ -352,14 +447,14 @@ export class BusChips {
   private correr(d: Dispositivo, extra: EventoChip[]): ResultadoLote | null {
     const eventos = d.pendientes.concat(extra);
     d.pendientes = [];
-    if (d.roto) return null;
+    if (d.roto || !d.alimentado) return null;
     try {
       const r = d.motor.correr(eventos, d.entorno, d.props);
       d.direcciones = r.direcciones;
       d.ocupadoHasta = r.ocupadoHasta;
       for (const l of r.logs) this.ev.alLog?.(`[${d.id}] ${l}`);
       if (r.salida) this.ev.alSalida?.(d.id, r.salida);
-      if ('guardar' in r) this.ev.alGuardar?.(d.id, r.guardar);
+      if ('guardar' in r) { d.guardado = r.guardar; this.ev.alGuardar?.(d.id, r.guardar); }
       for (const [pin, nivel] of Object.entries(r.pines)) {
         if (d.pines.get(pin) === nivel) continue;
         d.pines.set(pin, nivel);
@@ -378,8 +473,9 @@ export class BusChips {
   private agendar(d: Dispositivo, t: number): void {
     if (!this.ev.programar) return;
     d.despertar = t;
+    const generacion = d.generacion;
     this.ev.programar(t, () => {
-      if (d.despertar !== t) return; // lo reemplazó uno más temprano
+      if (!d.alimentado || d.generacion !== generacion || d.despertar !== t) return; // lo reemplazó uno más temprano
       d.despertar = null;
       this.correr(d, [{ tipo: 'tick', t: this.ev.ahoraUs() }]);
     });
@@ -391,6 +487,7 @@ export class BusChips {
    */
   reengancharHost(): void {
     for (const d of this.dispositivos) {
+      if (!d.alimentado) continue;
       if (d.despertar !== null) {
         const t = d.despertar;
         d.despertar = null;
