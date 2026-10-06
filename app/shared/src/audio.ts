@@ -117,8 +117,11 @@ export interface PwmDeclarado {
  * Sin PWM configurado no suena, en vez de inventar un tono.
  *
  * La amplitud sale de dos factores: la tensión, como en `fuente: "nivel"`, y el ciclo de trabajo.
- * El segundo va con **sen(π·duty)**, que es la amplitud del fundamental de una onda cuadrada:
- * máxima al 50 % y nula en los extremos, donde la señal es continua y un piezo no mueve aire.
+ * El segundo va con **sen(π·duty)**, que sale de la **serie de Fourier** del pulso: la amplitud de
+ * su fundamental es `(2V/π)·sen(π·duty)`. Se usa el fundamental porque el oído lo toma como la
+ * nota y porque un piezo es resonante y filtra los armónicos. Es máxima al 50 %, nula en los
+ * extremos —donde la señal es continua y no mueve aire— y simétrica: 25 % y 75 % suenan igual.
+ * No modela el timbre, que sí cambia con el duty. Ver docs/audio.md.
  */
 export function eventoPorPwm(
   modulo: string,

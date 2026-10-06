@@ -18,9 +18,13 @@ deja sonar nada sin un gesto del usuario.
 | `buzzer.duty_u16(0)` | **silencio**: sin señal alterna no hay sonido |
 | `buzzer.deinit()` | libera el pin y se calla |
 
-El volumen sigue a `sen(π·duty)`, que es la amplitud del fundamental de una onda cuadrada: máxima
-al 50 % y nula en 0 % y 100 %, donde la señal es continua y el piezo no mueve aire. Al 25 % se
-pierden 3 dB.
+El volumen sigue a `sen(π·duty)`: máximo al 50 % y nulo en 0 % y 100 %, donde la señal es continua
+y el piezo no mueve aire. Al 25 % se pierden 3 dB, y el 25 % y el 75 % suenan igual. No es una
+curva elegida a dedo: es la amplitud del fundamental de la onda cuadrada según su serie de
+Fourier, explicada en [`docs/audio.md`](../../../docs/audio.md).
+
+Un detalle que el emulador no reproduce: el duty también cambia el **timbre** de un piezo real
+(una cuadrada angosta suena más delgada), y acá solo cambia el volumen.
 
 ## Lo que hay que entender del emulador
 

@@ -83,11 +83,53 @@ GPIO. El sonido lo pide por **pin del módulo**, así que `index.ts` resuelve el
 La consecuencia a tener en cuenta: **el PWM que no pase por `machine.PWM` no se oye.** Prender y
 apagar un pin a mano en un bucle no produce sonido, porque nadie declara una frecuencia.
 
-### El volumen con PWM
+### El volumen con PWM: de dónde sale el sen(π·duty)
 
-Dos factores: la tensión, igual que en `fuente: "nivel"`, y el ciclo de trabajo. El segundo va con
-**sen(π·duty)**, que es la amplitud del fundamental de una onda cuadrada: máxima al 50 % y nula en
-0 % y 100 %, donde la señal es continua y un piezo no mueve aire. Al 25 % se pierden 3 dB.
+Dos factores: la tensión, igual que en `fuente: "nivel"`, y el ciclo de trabajo. El segundo no es
+una curva elegida a dedo — sale de la **serie de Fourier** de la señal que el micro genera.
+
+Una onda cuadrada **no es un tono puro**. La serie de Fourier dice que cualquier señal periódica
+es una suma de senos: uno a la frecuencia base (el **fundamental**) más otros a 2×, 3×, 4× esa
+frecuencia (los **armónicos**). Para un pulso que va de 0 a V con ciclo de trabajo *d*, la
+amplitud del fundamental es:
+
+```
+a₁ = (2V/π) · sen(π·d)
+```
+
+De ahí el factor. Se usa el fundamental y no toda la señal por dos razones que se suman: **el oído
+toma el fundamental como la nota** (los armónicos cambian el timbre, no la altura), y **un piezo es
+resonante**, así que responde cerca de su frecuencia propia y filtra buena parte de los armónicos.
+
+Tres consecuencias que se ven en el emulador:
+
+| Lo que dice la fórmula | Lo que pasa |
+|---|---|
+| `sen(π·0,5) = 1` | el 50 % es el volumen máximo: la cuadrada simétrica pone la mayor energía en el fundamental |
+| `sen(0) = sen(π) = 0` | con duty 0 % o 100 % la señal es **continua**: no hay oscilación, el piezo no mueve aire y **no suena** |
+| `sen(π(1−d)) = sen(π·d)` | es **simétrica**: 25 % y 75 % suenan igual, y 5 % y 95 % también |
+
+La simetría tiene explicación física: un pulso del 25 % y uno del 75 % son la misma forma de onda
+invertida — mismo fundamental, fase opuesta, y el oído no distingue la fase.
+
+Medido con el firmware corriendo, a 440 Hz:
+
+| duty | sen(π·duty) | Ganancia | dBA |
+|---|---|---|---|
+| 5 % | 0,156 | 0,156 | 54,7 |
+| 25 % | 0,707 | 0,707 | 67,8 |
+| 50 % | 1,000 | 1,000 | 70,8 |
+| 75 % | 0,707 | 0,707 | 67,8 |
+| 95 % | 0,156 | 0,156 | 54,7 |
+| 100 % | 0 | — | no suena |
+
+Al 25 % se pierden 3 dB, que es `20·log10(0,707)`.
+
+**Lo que NO se modela: el timbre.** Los armónicos existen en la señal real y cambian cómo suena la
+nota — una cuadrada al 10 % se oye más delgada y nasal que una al 50 %. El navegador sintetiza
+siempre una cuadrada simétrica y solo le ajusta la ganancia, así que bajar el duty se oye como
+**lo mismo más bajo**, no como otro timbre. Modelarlo pediría generar la forma de onda con su duty
+real (un `PeriodicWave` de Web Audio), y no está hecho.
 
 ### Dos cosas del ritmo
 
