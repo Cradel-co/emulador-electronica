@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "name": "sonometro-que-se-lee",
+  "board": "esp32-s3-devkitc-1",
+  "language": "micropython",
+  "sim": {
+    "wifiSsid": "sim-wifi",
+    "wifiPassword": "sim-password",
+    "autoReload": false,
+    "analogicoEsp": {
+      "board": {
+        "tipo": "micropython-lineal-explicito-12bits",
+        "chip": "esp32s3",
+        "id": "sen0232-adc1-11db-escenario",
+        "fuente": "Hoja de datos del SEN0232 (0,6-2,6 V para 30-130 dBA) y rango nominal de la atenuación de 11 dB del ADC1 del ESP32-S3 (0 a 3,1 V).",
+        "condiciones": "Escenario declarado para esta plantilla, a 3,3 V de alimentación y temperatura ambiente. No es una calibración por eFuse ni una medición de laboratorio.",
+        "rangoVAlimentacion": { "min": 3, "max": 3.6 },
+        "canales": [
+          {
+            "gpio": 4,
+            "atenuacion": "11db",
+            "rangoVEntrada": { "min": 0.5, "max": 2.7 },
+            "voltajeCeroV": 0,
+            "voltajeFondoEscalaV": 3.1
+          }
+        ]
+      }
+    }
+  },
+  "modules": [
+    {
+      "id": "board",
+      "type": "esp32-s3-devkitc-1",
+      "x": 120,
+      "y": 40,
+      "props": { "usb": true }
+    },
+    {
+      "id": "mic1",
+      "type": "sonometro-sen0232",
+      "x": -220,
+      "y": 300,
+      "props": { "dbA": 50, "consumoMa": 14 }
+    }
+  ],
+  "wires": [
+    { "from": "board.3V3", "to": "mic1.VCC" },
+    { "from": "mic1.GND", "to": "board.GND" },
+    { "from": "mic1.OUT", "to": "board.GPIO4" }
+  ]
+}
