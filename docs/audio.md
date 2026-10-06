@@ -91,16 +91,20 @@ Verificado contra ngspice en `app/server/src/sim/buzzerActivo.test.ts`:
 
 ## Lo que falta (y hay que decirlo)
 
-- **Todavía no suena.** El contrato, el módulo y la lógica de amplitud están; falta publicar el
-  evento desde el server y el adaptador de Web Audio en el navegador.
+- **Todavía no suena**, pero por una sola costura. Están el contrato, el módulo, la lógica de
+  amplitud y el adaptador del navegador ([`app/web/audio.ts`](../app/web/audio.ts), con el
+  `ControladorAudio` y la Web Audio API detrás de un puerto propio). Falta que el server
+  publique el `EventoSonido` y que `app.ts` lo rutee al llamar a `eventoSonido()`, que ya está
+  exportado.
 - **El tono está declarado, no calculado.** Sale de la hoja de datos o del PWM que informa el
   firmware, no del motor.
 - **No hay audio por flancos de GPIO**: el puente muestrea los registros de salida, y el muestreo
   aliasa. Un tono de 2 kHz no se puede reconstruir así.
 - **Ninguna de las placas del repo (C3, C6, S3) tiene DAC interno.** Espressif lo sacó después
   del ESP32 clásico. El audio analógico de salida obliga a un chip externo por I2S.
-- **El `AudioContext` necesita un gesto del usuario** (política de autoplay): va a hacer falta un
-  control explícito de "habilitar sonido".
+- **El `AudioContext` necesita un gesto del usuario** (política de autoplay). El controlador ya
+  lo resuelve: no crea el contexto hasta que se llama a `habilitar()`, y entonces arranca lo que
+  ya venía zumbando. Falta el control visible que lo dispare.
 
 ## Entrada: micrófono
 

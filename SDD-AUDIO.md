@@ -261,7 +261,10 @@ Primero el test que falla por la razón correcta, como pide
    - ✅ contrato, lógica de amplitud, módulo y tests contra el motor.
    - ⬜ publicar el `EventoSonido` desde el server (toca `emulator.ts` e `index.ts`, los mismos
      archivos del PR #54: de ahí que el paso 0 vaya primero).
-   - ⬜ `app/web/audio.ts` con el `ControladorAudio` y el control de "habilitar sonido".
+   - ✅ `app/web/audio.ts` con el `ControladorAudio` y la Web Audio API detrás de un puerto
+     propio, con sus tests sin navegador.
+   - ⬜ el control visible de "habilitar sonido" (toca `index.html`, `app.ts`, `react/montar.ts`
+     y `react/puente.ts`: los mismos archivos del PR #55).
 2. **Micrófono analógico** (SEN0232), resolviendo antes `entorno` a nivel de módulo.
 3. **Caso B**: `@PWM` en el puente MicroPython, diseñado también para brillo de LED y
    servo. Después, `modules/buzzer-pasivo/`.
