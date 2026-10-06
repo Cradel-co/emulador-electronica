@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dbAPorTension, eventoPorNivel, eventoPorPwm, gananciaPorTension, sonidosDelCircuito, type SalidaSonido } from '../../shared/src/audio.js';
+import { armonicosDePulso, dbAPorTension, eventoPorNivel, eventoPorPwm, gananciaPorTension, sonidosDelCircuito, type SalidaSonido } from '../../shared/src/audio.js';
 
 /**
  * Lógica pura del audio: de la tensión que el motor calculó a lo que el navegador tiene que
@@ -242,5 +242,76 @@ describe('eventoPorPwm: la frecuencia la pone el micro', () => {
     const r = sonidosDelCircuito([{ id: 'bz1', type: 'buzzer-pasivo' }], salidasDe,
       { 'bz1.IN': 3.3, 'bz1.GND': 0 }, undefined, pwmDe);
     expect(r[0]).toMatchObject({ modulo: 'bz1', sonando: true, hz: 880 });
+  });
+});
+
+describe('armonicosDePulso: la forma de onda del pulso', () => {
+  /**
+   * Los coeficientes de Fourier de un pulso de 0 a 1 con ciclo de trabajo `d`. Con ellos el
+   * navegador puede sintetizar la onda REAL en vez de una cuadrada simétrica, así que el timbre
+   * cambia con el duty como en un piezo de verdad.
+   *
+   * Para el pulso que arranca en t=0:   aₙ = (2/nπ)·sen(2πnd)   bₙ = (2/nπ)·(1−cos(2πnd))
+   */
+  const magnitud = (a: Float32Array, b: Float32Array, n: number) => Math.hypot(a[n] ?? 0, b[n] ?? 0);
+
+  it('el término continuo se descarta: no produce sonido y correría la onda', () => {
+    const { cos, sen } = armonicosDePulso(0.5, 8);
+    expect(cos[0]).toBe(0);
+    expect(sen[0]).toBe(0);
+  });
+
+  it('al 50 % da la cuadrada clásica: armónicos impares con 4/nπ y los pares en cero', () => {
+    const { cos, sen } = armonicosDePulso(0.5, 8);
+    for (const n of [2, 4, 6]) expect(magnitud(cos, sen, n), `armónico ${n}`).toBeCloseTo(0, 6);
+    for (const n of [1, 3, 5, 7]) {
+      expect(magnitud(cos, sen, n), `armónico ${n}`).toBeCloseTo(4 / (n * Math.PI), 5);
+    }
+  });
+
+  it('el fundamental sigue a sen(pi·d), que es la misma ley del volumen', () => {
+    for (const d of [0.1, 0.25, 0.5, 0.75, 0.9]) {
+      const { cos, sen } = armonicosDePulso(d, 4);
+      expect(magnitud(cos, sen, 1), `duty ${d}`).toBeCloseTo((4 / Math.PI) * Math.sin(Math.PI * d), 5);
+    }
+  });
+
+  it('un duty angosto reparte más energía en los armónicos: eso es el timbre delgado', () => {
+    const porDuty = (d: number) => {
+      const { cos, sen } = armonicosDePulso(d, 16);
+      const f = magnitud(cos, sen, 1);
+      let resto = 0;
+      for (let n = 2; n <= 15; n++) resto += magnitud(cos, sen, n);
+      return resto / f;
+    };
+    // Al 50 % el fundamental domina; al 10 % los armónicos pesan bastante más.
+    expect(porDuty(0.1)).toBeGreaterThan(porDuty(0.5) * 2);
+  });
+
+  it('es simétrica: el duty d y 1−d tienen los mismos armónicos en magnitud', () => {
+    for (let n = 1; n <= 8; n++) {
+      const a = armonicosDePulso(0.25, 8);
+      const b = armonicosDePulso(0.75, 8);
+      expect(magnitud(a.cos, a.sen, n), `armónico ${n}`).toBeCloseTo(magnitud(b.cos, b.sen, n), 5);
+    }
+  });
+
+  it('en los extremos no hay onda: la señal es continua', () => {
+    for (const d of [0, 1]) {
+      const { cos, sen } = armonicosDePulso(d, 8);
+      for (let n = 1; n <= 8; n++) expect(magnitud(cos, sen, n), `duty ${d}, armónico ${n}`).toBeCloseTo(0, 6);
+    }
+  });
+
+  it('devuelve los dos arreglos del largo que pide Web Audio (armónicos + el continuo)', () => {
+    const { cos, sen } = armonicosDePulso(0.3, 12);
+    expect([cos.length, sen.length]).toEqual([13, 13]);
+  });
+
+  it('un duty fuera de rango se recorta en vez de dar NaN', () => {
+    for (const d of [-1, 2, Number.NaN]) {
+      const { cos, sen } = armonicosDePulso(d, 4);
+      expect([...cos, ...sen].every((x) => Number.isFinite(x)), `duty ${d}`).toBe(true);
+    }
   });
 });

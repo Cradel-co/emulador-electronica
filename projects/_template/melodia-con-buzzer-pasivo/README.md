@@ -23,8 +23,9 @@ y el piezo no mueve aire. Al 25 % se pierden 3 dB, y el 25 % y el 75 % suenan ig
 curva elegida a dedo: es la amplitud del fundamental de la onda cuadrada según su serie de
 Fourier, explicada en [`docs/audio.md`](../../../docs/audio.md).
 
-Un detalle que el emulador no reproduce: el duty también cambia el **timbre** de un piezo real
-(una cuadrada angosta suena más delgada), y acá solo cambia el volumen.
+Y el duty también cambia el **timbre**, no solo el volumen: el navegador sintetiza la onda con el
+ciclo de trabajo real, así que un pulso angosto se oye más delgado y nasal, como un piezo de
+verdad. Probalo cambiando el `32768` de `tocar()` por `6554` (10 %) y comparando.
 
 ## Lo que hay que entender del emulador
 

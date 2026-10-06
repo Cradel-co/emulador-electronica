@@ -1,4 +1,4 @@
-import { expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { ControladorAudio } from '../../web/audio.js';
 import type { EventoSonido } from '../../shared/src/audio.js';
 
@@ -10,14 +10,15 @@ import type { EventoSonido } from '../../shared/src/audio.js';
 
 /** Un contexto de audio de mentira que anota todo lo que le piden. */
 const fake = () => {
-  const voces: { hz: number[]; gan: number[]; formas: string[]; detenida: number }[] = [];
+  const voces: { hz: number[]; gan: number[]; formas: string[]; ciclos: number[]; detenida: number }[] = [];
   const crearVoz = vi.fn(() => {
-    const v = { hz: [] as number[], gan: [] as number[], formas: [] as string[], detenida: 0 };
+    const v = { hz: [] as number[], gan: [] as number[], formas: [] as string[], ciclos: [] as number[], detenida: 0 };
     voces.push(v);
     return {
       frecuencia: (h: number) => { v.hz.push(h); },
       ganancia: (g: number) => { v.gan.push(g); },
       forma: (f: string) => { v.formas.push(f); },
+      ciclo: (d: number) => { v.ciclos.push(d); },
       detener: () => { v.detenida += 1; },
     };
   });
@@ -171,4 +172,59 @@ it('un evento sin frecuencia no rompe: silencio en vez de un NaN al oscilador', 
   c.aplicar({ modulo: 'bz1', sonando: true, ganancia: 1 });
   expect(f.crearVoz).not.toHaveBeenCalled();
   expect(c.snapshot.sonando).toEqual([]);
+});
+
+describe('la forma de onda sigue al ciclo de trabajo (el timbre)', () => {
+  const conDuty = (duty: number, ganancia = 1): EventoSonido =>
+    ({ modulo: 'bz1', sonando: true, ganancia, hz: 440, forma: 'cuadrada', duty });
+
+  it('un evento con duty pide la onda del pulso, no una cuadrada genérica', async () => {
+    const f = fake(), c = new ControladorAudio(f.crearContexto);
+    await c.habilitar();
+    c.aplicar(conDuty(0.25));
+    expect(f.voces[0]!.ciclos).toEqual([0.25]);
+    expect(f.voces[0]!.formas, 'con duty la forma la da el pulso').toEqual([]);
+  });
+
+  it('cambiar solo el ciclo de trabajo no recrea la voz', async () => {
+    const f = fake(), c = new ControladorAudio(f.crearContexto);
+    await c.habilitar();
+    c.aplicar(conDuty(0.5));
+    c.aplicar(conDuty(0.1));
+    expect(f.crearVoz).toHaveBeenCalledOnce();
+    expect(f.voces[0]!.ciclos).toEqual([0.5, 0.1]);
+  });
+
+  it('el mismo duty no se vuelve a aplicar', async () => {
+    const f = fake(), c = new ControladorAudio(f.crearContexto);
+    await c.habilitar();
+    c.aplicar(conDuty(0.5));
+    c.aplicar(conDuty(0.5));
+    expect(f.voces[0]!.ciclos).toEqual([0.5]);
+  });
+
+  it('sin duty (oscilador interno) se usa la forma declarada', async () => {
+    const f = fake(), c = new ControladorAudio(f.crearContexto);
+    await c.habilitar();
+    c.aplicar({ modulo: 'bz1', sonando: true, ganancia: 1, hz: 2400, forma: 'cuadrada' });
+    expect(f.voces[0]!.formas).toEqual(['cuadrada']);
+    expect(f.voces[0]!.ciclos).toEqual([]);
+  });
+
+  it('un seno no tiene ciclo de trabajo: se ignora', async () => {
+    const f = fake(), c = new ControladorAudio(f.crearContexto);
+    await c.habilitar();
+    c.aplicar({ modulo: 'bz1', sonando: true, ganancia: 1, hz: 440, forma: 'seno', duty: 0.25 });
+    expect(f.voces[0]!.formas).toEqual(['seno']);
+    expect(f.voces[0]!.ciclos).toEqual([]);
+  });
+
+  /** La forma y el volumen son cosas separadas: el duty no puede contarse dos veces. */
+  it('el ciclo de trabajo no toca la ganancia', async () => {
+    const f = fake(), c = new ControladorAudio(f.crearContexto);
+    await c.habilitar();
+    c.cambiarVolumen(1);
+    c.aplicar(conDuty(0.25, 0.707));
+    expect(f.voces[0]!.gan.at(-1)).toBeCloseTo(0.707, 6);
+  });
 });

@@ -125,11 +125,31 @@ Medido con el firmware corriendo, a 440 Hz:
 
 Al 25 % se pierden 3 dB, que es `20·log10(0,707)`.
 
-**Lo que NO se modela: el timbre.** Los armónicos existen en la señal real y cambian cómo suena la
-nota — una cuadrada al 10 % se oye más delgada y nasal que una al 50 %. El navegador sintetiza
-siempre una cuadrada simétrica y solo le ajusta la ganancia, así que bajar el duty se oye como
-**lo mismo más bajo**, no como otro timbre. Modelarlo pediría generar la forma de onda con su duty
-real (un `PeriodicWave` de Web Audio), y no está hecho.
+### El timbre: la onda que se sintetiza es la del pulso real
+
+Los armónicos no son un detalle estético: cambian cómo suena la nota. Una cuadrada al 10 % se oye
+**más delgada y nasal** que una al 50 %, aunque las dos estén al mismo volumen.
+
+El navegador no sintetiza una cuadrada genérica: arma la onda **con el ciclo de trabajo real** a
+partir de los coeficientes de `armonicosDePulso` (en `shared/audio.ts`) y un `PeriodicWave`. Así,
+bajar el duty no se oye como "lo mismo más bajo" sino como otro timbre, que es lo que hace un piezo
+de verdad.
+
+Dos decisiones del adaptador:
+
+- **La forma y el volumen son cosas separadas.** `createPeriodicWave` normaliza la onda, así que la
+  amplitud de los coeficientes no se acumula con la ganancia del evento: el timbre lo da la forma y
+  el volumen la ganancia, sin contar el duty dos veces.
+- **Las ondas se cachean por duty redondeado al 1 %**, con 64 armónicos. Armar una por nota sería
+  desperdicio y el oído no distingue un 24 % de un 25 %. El navegador limita la banda solo, así que
+  no hay aliasing.
+
+Un oscilador interno (`fuente: "nivel"`) no tiene ciclo de trabajo: ahí se usa la forma declarada
+(`cuadrada` o `seno`) y nada más. Y un `seno` con duty lo ignora, porque un seno no tiene duty.
+
+**Lo que sigue sin modelarse:** la resonancia mecánica del piezo, que hace que un piezo real suene
+mucho más fuerte cerca de sus 4 kHz que en las notas graves. Acá el volumen no depende de la
+frecuencia.
 
 ### Dos cosas del ritmo
 
@@ -223,11 +243,11 @@ x86) o un emulador bastante más rápido. Está fuera de alcance.
 defecto) que hoy no se pasa. Un lote más chico entrelaza más fino y **podría achicar los picos** a
 cambio de throughput. No convierte nada en tiempo real, y no está medido.
 
-### 2. La forma de onda: el timbre — **sí se puede**
+### 2. La forma de onda: el timbre — **hecho**
 
-Ver [El volumen con PWM](#el-volumen-con-pwm-de-dónde-sale-el-senπduty). Reproducir la onda con su
-ciclo de trabajo real, en vez de una cuadrada simétrica con la ganancia ajustada, está al alcance
-con `PeriodicWave` de Web Audio a partir de los coeficientes de Fourier del pulso.
+El navegador sintetiza la onda con el ciclo de trabajo real, no una cuadrada genérica, así que el
+timbre cambia con el duty como en un piezo. Ver
+[El timbre](#el-timbre-la-onda-que-se-sintetiza-es-la-del-pulso-real).
 
 ### 3. Audio desde el solver: análisis transitorio — **no, por tres órdenes de magnitud**
 
