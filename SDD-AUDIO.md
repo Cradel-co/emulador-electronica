@@ -264,7 +264,9 @@ Primero el test que falla por la razón correcta, como pide
      propio, con sus tests sin navegador.
    - ⬜ el control visible de volumen y silencio (el controlador ya los tiene; falta la UI, que
      toca `index.html`, `react/montar.ts` y `react/puente.ts`: archivos del PR #55).
-2. **Micrófono analógico** (SEN0232), resolviendo antes `entorno` a nivel de módulo.
+2. ✅ **Micrófono analógico** (`modules/sonometro-sen0232/`). No hizo falta `entorno` a nivel de
+   módulo: el nivel del ambiente es una prop, igual que la posición de un potenciómetro, y así
+   no pidió código nuevo. `entorno` sigue existiendo solo a nivel de chip.
 3. **Caso B**: `@PWM` en el puente MicroPython, diseñado también para brillo de LED y
    servo. Después, `modules/buzzer-pasivo/`.
 4. **Caso C solo si aparece la necesidad**, y en este orden: DFPlayer Mini por `pista`

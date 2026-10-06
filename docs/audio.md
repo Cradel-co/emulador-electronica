@@ -135,4 +135,34 @@ motor.
 ## Entrada: micrófono
 
 No comparte nada con lo anterior. Un micrófono es un sensor analógico: lo lee el ADC y el DAC no
-participa. Ver la sección 7 del [SDD](../SDD-AUDIO.md).
+participa — no hay ningún evento de sonido, ni la app sintetiza nada. Ver la sección 7 del
+[SDD](../SDD-AUDIO.md).
+
+### El que ya está: `sonometro-sen0232`
+
+El **Gravity: Analog Sound Level Meter** de DFRobot. Entrega el nivel de sonido como una tensión
+lineal en decibeles, que es lo que lo hace el más limpio de modelar: todos sus números salen de
+la hoja de datos y ninguno hay que inventarlo.
+
+| Dato de la hoja | Valor |
+|---|---|
+| Rango | 30 a 130 dBA (±1,5 dB) |
+| Salida | 0,6 a 2,6 V, lineal → **20 mV por decibel** |
+| Alimentación | 3,3 a 5 V |
+| Consumo | 14 mA a 5 V, 22 mA a 3,3 V |
+| Respuesta | 31,5 Hz a 8,5 kHz, constante de 125 ms |
+
+El nivel del ambiente se pone en la prop **Nivel de sonido del ambiente (dBA)**, igual que la
+posición de un potenciómetro. No hay simulación acústica: es un dato de la escena.
+
+**La salida se modela con un `regulador`, no con una `fuenteTension`.** Así la energía que entrega
+sale de su VCC en vez de aparecer de la nada, y si la alimentación no alcanza, el fondo de escala
+cae solo: a 2,5 V de alimentación ya no puede sostener los 2,6 V de salida.
+
+Cableado a un GPIO con ADC1 (en el S3, del 1 al 10) su tensión llega al canal del ADC y se lee
+desde el código. Ese camino es el del PR #54 y está verificado en
+`app/server/src/sim/sen0232.test.ts`.
+
+**Lo que no modela**, dicho en el propio modelo: la ponderación A real, la constante de tiempo de
+125 ms, el error de ±1,5 dB y el consumo a potencia constante de su regulador conmutado (la hoja
+declara dos puntos; el consumo es el que declare el usuario).
