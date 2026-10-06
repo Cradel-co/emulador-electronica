@@ -127,3 +127,36 @@ describe('sonidosDelCircuito', () => {
       .toEqual([['bz1', true, 1], ['bz2', true, 0.6]]);
   });
 });
+
+describe('sonidosDelCircuito: quién decide si suena', () => {
+  const salidasDe = (t: string) => (t === 'buzzer-activo' ? [TMB12A05] : undefined);
+  const inst = (id: string, type = 'buzzer-activo') => ({ id, type });
+  const T = { 'bz1.IN': 5, 'bz1.GND': 0 };
+
+  /**
+   * El umbral vive en el modelo del módulo, que además tiene histéresis y ve la corriente real.
+   * `umbralV` solo puede aproximarlo, así que cuando el modelo opinó, su veredicto manda: si no,
+   * el módulo puede prender su SVG y quedarse callado, o al revés.
+   */
+  it('el modelo manda: dice que conduce aunque la tensión no llegue al umbral declarado', () => {
+    const r = sonidosDelCircuito([inst('bz1')], salidasDe, { 'bz1.IN': 2.44, 'bz1.GND': 0 }, () => ({ on: true }));
+    expect(r[0]!.sonando).toBe(true);
+    expect(r[0]!.ganancia).toBeCloseTo(2.44 / 5, 3);
+  });
+
+  it('el modelo manda también al revés: no conduce aunque la tensión alcance el umbral', () => {
+    const r = sonidosDelCircuito([inst('bz1')], salidasDe, { 'bz1.IN': 2.5, 'bz1.GND': 0 }, () => ({ on: false }));
+    expect(r[0]!.sonando).toBe(false);
+    expect(r[0]!.ganancia).toBe(0);
+  });
+
+  it('sin veredicto del modelo cae al umbral declarado', () => {
+    expect(sonidosDelCircuito([inst('bz1')], salidasDe, T, () => undefined)[0]!.sonando).toBe(true);
+    expect(sonidosDelCircuito([inst('bz1')], salidasDe, T)[0]!.sonando).toBe(true);
+    expect(sonidosDelCircuito([inst('bz1')], salidasDe, { 'bz1.IN': 2, 'bz1.GND': 0 }, () => ({}))[0]!.sonando).toBe(false);
+  });
+
+  it('un ui sin `on` no es un veredicto: no obliga a callar', () => {
+    expect(sonidosDelCircuito([inst('bz1')], salidasDe, T, () => ({ brillo: 0.5 }))[0]!.sonando).toBe(true);
+  });
+});

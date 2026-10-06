@@ -1524,7 +1524,7 @@ async function avisosDelProyecto(
         };
       }),
       modulos: Object.fromEntries(Object.entries(vivo.modulos).map(([id, m]) => [id, m.ui ?? {}])),
-      sonidos: sonidosDelCircuito(project.modules, (t) => buscar(t)?.salidas, vivo.tensiones),
+      sonidos: sonidosDelCircuito(project.modules, (t) => buscar(t)?.salidas, vivo.tensiones, (id) => vivo.modulos[id]?.ui),
     },
     warnings: [
       ...diffDiagramVsCode(project, pins, project.board ? buscar(project.board)?.board : undefined),
