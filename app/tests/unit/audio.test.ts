@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dbAPorTension, eventoPorNivel, gananciaPorTension, type SalidaSonido } from '../../shared/src/audio.js';
+import { dbAPorTension, eventoPorNivel, gananciaPorTension, sonidosDelCircuito, type SalidaSonido } from '../../shared/src/audio.js';
 
 /**
  * Lógica pura del audio: de la tensión que el motor calculó a lo que el navegador tiene que
@@ -87,5 +87,43 @@ describe('eventoPorNivel', () => {
     const e = eventoPorNivel('bz1', sinRef, 3);
     expect(e.ganancia).toBe(1);
     expect(e.dbA).toBeUndefined();
+  });
+});
+
+describe('sonidosDelCircuito', () => {
+  const salidasDe = (t: string) => (t === 'buzzer-activo' ? [TMB12A05] : undefined);
+  const inst = (id: string, type = 'buzzer-activo') => ({ id, type });
+
+  it('saca la tensión de los dos pines declarados y arma el evento', () => {
+    const r = sonidosDelCircuito([inst('bz1')], salidasDe, { 'bz1.IN': 5, 'bz1.GND': 0 });
+    expect(r).toHaveLength(1);
+    expect(r[0]).toMatchObject({ modulo: 'bz1', sonando: true, hz: 2400, ganancia: 1 });
+  });
+
+  it('usa la diferencia, no la tensión absoluta: 5 V sobre 3 V no alcanza el umbral', () => {
+    const r = sonidosDelCircuito([inst('bz1')], salidasDe, { 'bz1.IN': 5, 'bz1.GND': 3 });
+    expect(r[0]!.sonando).toBe(false);
+  });
+
+  it('un módulo sin cablear no suena: si no hay tensión medida, silencio', () => {
+    const r = sonidosDelCircuito([inst('bz1')], salidasDe, {});
+    expect(r[0]).toMatchObject({ modulo: 'bz1', sonando: false, ganancia: 0 });
+  });
+
+  it('los módulos que no declaran sonido no generan eventos', () => {
+    expect(sonidosDelCircuito([inst('led1', 'led')], salidasDe, { 'led1.IN': 5 })).toEqual([]);
+  });
+
+  it('todavía no reproduce pwm ni i2s: no inventa un evento que no puede sintetizar', () => {
+    const porPwm = (): SalidaSonido[] => [{ ...TMB12A05, fuente: 'pwm' }];
+    expect(sonidosDelCircuito([inst('bz1')], porPwm, { 'bz1.IN': 5, 'bz1.GND': 0 })).toEqual([]);
+  });
+
+  it('varias instancias del mismo módulo son eventos independientes', () => {
+    const r = sonidosDelCircuito([inst('bz1'), inst('bz2')], salidasDe, {
+      'bz1.IN': 5, 'bz1.GND': 0, 'bz2.IN': 3, 'bz2.GND': 0,
+    });
+    expect(r.map((e) => [e.modulo, e.sonando, Number(e.ganancia.toFixed(1))]))
+      .toEqual([['bz1', true, 1], ['bz2', true, 0.6]]);
   });
 });
