@@ -102,6 +102,51 @@ export function eventoPorNivel(
   return evento;
 }
 
+/** Un PWM que el firmware declaró sobre un pin: su frecuencia y su ciclo de trabajo (0..1). */
+export interface PwmDeclarado {
+  hz: number;
+  duty: number;
+}
+
+/**
+ * El evento de sonido de un módulo cuya frecuencia la pone el micro (`fuente: "pwm"`): un piezo
+ * pasivo, que no tiene oscilador propio.
+ *
+ * La frecuencia **la declara el firmware**, no se reconstruye de la señal: el puente muestrea los
+ * registros de salida y un tono de kilohercios se perdería en el aliasing (ver SDD-AUDIO.md).
+ * Sin PWM configurado no suena, en vez de inventar un tono.
+ *
+ * La amplitud sale de dos factores: la tensión, como en `fuente: "nivel"`, y el ciclo de trabajo.
+ * El segundo va con **sen(π·duty)**, que es la amplitud del fundamental de una onda cuadrada:
+ * máxima al 50 % y nula en los extremos, donde la señal es continua y un piezo no mueve aire.
+ */
+export function eventoPorPwm(
+  modulo: string,
+  salida: SalidaSonido,
+  v: number,
+  pwm: PwmDeclarado | undefined,
+): EventoSonido {
+  const usable = pwm !== undefined
+    && Number.isFinite(pwm.hz) && pwm.hz > 0
+    && Number.isFinite(pwm.duty) && pwm.duty > 0 && pwm.duty < 1
+    && v > 0;
+  if (!usable || pwm === undefined) return { modulo, sonando: false, ganancia: 0, forma: salida.forma };
+  const porDuty = Math.sin(Math.PI * pwm.duty);
+  const porTension = salida.referencia ? gananciaPorTension(v, salida.referencia.v) : 1;
+  const evento: EventoSonido = {
+    modulo,
+    sonando: true,
+    ganancia: porTension * porDuty,
+    hz: pwm.hz,
+    forma: salida.forma,
+  };
+  if (salida.dbA !== undefined && salida.referencia) {
+    // El duty baja la presión sonora igual que una tensión menor: entra en el mismo cálculo.
+    evento.dbA = dbAPorTension(salida.dbA, v * porDuty, salida.referencia.v);
+  }
+  return evento;
+}
+
 /**
  * Los eventos de sonido de un circuito ya resuelto: para cada módulo que declara una salida de
  * sonido, la tensión entre sus dos pines decide si suena y con cuánta amplitud.
@@ -114,23 +159,29 @@ export function eventoPorNivel(
  * `uiDe` da lo que concluyó el modelo de cada instancia: si dijo `on`, ese veredicto decide si
  * suena, y la tensión queda solo para la amplitud. Un módulo sin modelo cae al `umbralV`.
  *
- * Solo resuelve `fuente: "nivel"`. `pwm` e `i2s` necesitan que el firmware declare la frecuencia
- * (ver SDD-AUDIO.md): hasta que exista, no se inventa un evento que no se puede sintetizar.
+ * `pwmDe` da el PWM que el firmware declaró sobre un pin del módulo (el llamador resuelve a qué
+ * GPIO está cableado). `i2s` todavía no genera evento: sin el flujo de muestras no hay nada que
+ * sintetizar (ver SDD-AUDIO.md).
  */
 export function sonidosDelCircuito(
   instancias: readonly { id: string; type: string }[],
   salidasDe: (type: string) => readonly SalidaSonido[] | undefined,
   tensiones: Readonly<Record<string, number>>,
   uiDe?: (id: string) => { on?: boolean; brillo?: number } | undefined,
+  pwmDe?: (id: string, pin: string) => PwmDeclarado | undefined,
 ): EventoSonido[] {
   const eventos: EventoSonido[] = [];
   for (const inst of instancias) {
     for (const salida of salidasDe(inst.type) ?? []) {
-      if (salida.tipo !== 'sonido' || salida.fuente !== 'nivel') continue;
+      if (salida.tipo !== 'sonido' || salida.fuente === 'i2s') continue;
       const [mas, menos] = salida.pins;
       const vMas = tensiones[`${inst.id}.${mas}`];
       const vMenos = tensiones[`${inst.id}.${menos}`];
       const v = vMas === undefined || vMenos === undefined ? 0 : vMas - vMenos;
+      if (salida.fuente === 'pwm') {
+        eventos.push(eventoPorPwm(inst.id, salida, v, pwmDe?.(inst.id, mas)));
+        continue;
+      }
       const on = uiDe?.(inst.id)?.on;
       eventos.push(eventoPorNivel(inst.id, salida, v, typeof on === 'boolean' ? on : undefined));
     }
