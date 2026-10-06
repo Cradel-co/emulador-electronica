@@ -32,7 +32,7 @@ import { registrarRutasCamara } from './camera/rutas.js';
 import { registrarRutasAnalisisFisico } from './rutasAnalisisFisico.js';
 import { estadoAnalogicoDesdeCircuito } from './analogicoAvr.js';
 import { estadoAnalogicoEspDesdeCircuito } from './analogicoEsp.js';
-import type { PwmPin } from './pwmEsp.js';
+import { nivelesConPwm, type PwmPin } from './pwmEsp.js';
 import { ProjectStore, ProjectError } from './projectStore.js';
 import { BuildService, type BuildArtifacts, type BuildError as BuildErrorLike, type BuildResult } from './buildService.js';
 import { EmulatorManager, type EmulatorEvents } from './emulator.js';
@@ -1507,7 +1507,10 @@ async function avisosDelProyecto(
   const direccionesPorPlaca = await direccionesTodas(project);
   const direcciones = direccionesPorPlaca.get(placasDelProyecto(project)[0]?.id ?? 'board') ?? new Map<number, DireccionPin>();
   const levels = project.name === runningProject ? nivelesPorPlaca : new Map<string, Map<number, 0 | 1>>();
-  const vivo = await analizarCircuito(conLaPlaca, buscar, { nivelesReales: true, nivelesPorPlaca: levels, cerrados, fuentesApagadas, estados, direccionesPorPlaca });
+  // Un pin con PWM activo se resuelve en alto: el registro GPIO_OUT que muestrea el puente no
+  // refleja lo que maneja el LEDC. Ver nivelesConPwm en pwmEsp.ts.
+  const niveles = nivelesConPwm(levels, pwmDePlaca, placasDelProyecto(project).map((b) => b.id));
+  const vivo = await analizarCircuito(conLaPlaca, buscar, { nivelesReales: true, nivelesPorPlaca: niveles, cerrados, fuentesApagadas, estados, direccionesPorPlaca });
   // Lo que cada modelo quiere recordar vuelve en el próximo cálculo (solo del vivo: los otros son hipotéticos).
   for (const [id, m] of Object.entries(vivo.modulos)) if (m.estado) estados.set(id, m.estado);
   estadosModulos.set(project.name, estados);

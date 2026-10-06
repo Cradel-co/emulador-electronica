@@ -60,3 +60,35 @@ export class PuentePwm {
     this.alCambiar?.();
   }
 }
+
+/**
+ * Los niveles de pin con los que hacen PWM puestos en alto.
+ *
+ * El puente muestrea el registro `GPIO_OUT`, pero el LEDC maneja el pad por la matriz de
+ * periféricos: para un pin con PWM ese registro informa 0. Sin esta corrección el motor lo
+ * resolvía en bajo, el pin medía 0 V y un buzzer pasivo no sonaba por más que el programa le
+ * pusiera una nota.
+ *
+ * Alto es el **nivel activo** de la onda cuadrada, no su promedio: el ciclo de trabajo entra
+ * después, en la amplitud (`sen(π·duty)`), así que contarlo acá lo contaría dos veces. La
+ * consecuencia a tener en cuenta es que las corrientes que informa el motor para un pin con PWM
+ * son las de pico, no las medias.
+ *
+ * Devuelve copias: la instantánea no puede pisar el estado en vivo del puente.
+ */
+export function nivelesConPwm(
+  niveles: ReadonlyMap<string, ReadonlyMap<number, 0 | 1>>,
+  pwmPorPlaca: (boardId: string) => ReadonlyMap<number, PwmPin>,
+  placas: readonly string[],
+): Map<string, Map<number, 0 | 1>> {
+  const copia = new Map<string, Map<number, 0 | 1>>();
+  for (const [id, m] of niveles) copia.set(id, new Map(m));
+  for (const boardId of placas) {
+    const pwm = pwmPorPlaca(boardId);
+    if (pwm.size === 0) continue;
+    let m = copia.get(boardId);
+    if (!m) { m = new Map(); copia.set(boardId, m); }
+    for (const [gpio, p] of pwm) if (p.hz > 0 && p.duty > 0) m.set(gpio, 1);
+  }
+  return copia;
+}
