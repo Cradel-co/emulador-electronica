@@ -32,6 +32,7 @@ import { registrarRutasCamara } from './camera/rutas.js';
 import { registrarRutasAnalisisFisico } from './rutasAnalisisFisico.js';
 import { estadoAnalogicoDesdeCircuito } from './analogicoAvr.js';
 import { estadoAnalogicoEspDesdeCircuito } from './analogicoEsp.js';
+import type { PwmPin } from './pwmEsp.js';
 import { ProjectStore, ProjectError } from './projectStore.js';
 import { BuildService, type BuildArtifacts, type BuildError as BuildErrorLike, type BuildResult } from './buildService.js';
 import { EmulatorManager, type EmulatorEvents } from './emulator.js';
@@ -46,7 +47,7 @@ import { ImportError, ModuleInstaller, importar, type OpcionesImportacion, type 
 import { crearServidorMcp, type McpContexto } from './mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { scanPins, diffDiagramVsCode, direccionesDeCodigo, type DiagramWarning } from './pinScan.js';
-import { conPlaca, ponerPlaca, sacarPlaca } from './diagramOps.js';
+import { conPlaca, gpioDe, ponerPlaca, sacarPlaca } from './diagramOps.js';
 import { analizarCircuito, type AnalisisCircuito, type DireccionPin, type OpcionesAnalisis } from './sim/analisis.js';
 import { precalentar } from './sim/spice.js';
 import type { AlimentacionPlaca, FuenteElectrica, LedElectrico } from './sim/tipos.js';
@@ -174,6 +175,7 @@ function eventosDePlaca(boardId: string): EmulatorEvents { return {
     if (boardId === primaryBoardId) for (const o of oyentesEstado) o(status.state);
   },
   onBridgeState: (connected) => broadcast({ type: 'bridge.state', connected, boardId }),
+  onPwm: () => broadcast({ type: 'pwm.changed', boardId }),
   onBridgeMessage: (msg) => {
     depuradorDe(boardId).alMensajePuente(msg);
     switch (msg.type) {
@@ -1455,6 +1457,17 @@ function reemplazarPlaca(_nombre: string, _boardId?: string): boolean {
 }
 
 /** Avisos de circuito ↔ código (11.6) + Ley de Ohm (cortocircuitos, sobrecorriente): lo que ve la UI y el MCP. */
+/**
+ * PWM que declaró el firmware de una placa, por GPIO. Solo la placa que está corriendo lo tiene:
+ * un proyecto que no corre no tiene PWM, y por eso un buzzer pasivo no suena parado.
+ */
+function pwmDePlaca(boardId: string): ReadonlyMap<number, PwmPin> {
+  const corrida = corridas.get(boardId);
+  if (!corrida || !('estadoPwm' in corrida)) return new Map();
+  const con = corrida as { estadoPwm: () => ReadonlyMap<number, PwmPin> };
+  return typeof con.estadoPwm === 'function' ? con.estadoPwm() : new Map();
+}
+
 async function avisosDelProyecto(
   project: Project,
 ): Promise<{
@@ -1524,7 +1537,21 @@ async function avisosDelProyecto(
         };
       }),
       modulos: Object.fromEntries(Object.entries(vivo.modulos).map(([id, m]) => [id, m.ui ?? {}])),
-      sonidos: sonidosDelCircuito(project.modules, (t) => buscar(t)?.salidas, vivo.tensiones, (id) => vivo.modulos[id]?.ui),
+      sonidos: sonidosDelCircuito(
+        project.modules, (t) => buscar(t)?.salidas, vivo.tensiones,
+        (id) => vivo.modulos[id]?.ui,
+        // El PWM está indexado por GPIO de la placa; gpioDe sigue el cableado (y los passthrough).
+        (id, pin) => {
+          if (project.name !== runningProject) return undefined;
+          for (const placa of placasDelProyecto(project)) {
+            const gpio = gpioDe(project, id, pin, buscar, placa.id);
+            if (gpio === null) continue;
+            const pwm = pwmDePlaca(placa.id).get(gpio);
+            if (pwm) return pwm;
+          }
+          return undefined;
+        },
+      ),
     },
     warnings: [
       ...diffDiagramVsCode(project, pins, project.board ? buscar(project.board)?.board : undefined),

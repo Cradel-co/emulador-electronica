@@ -465,6 +465,11 @@ function conectarWS() {
         state.sim.placasListas.add(msg.boardId ?? placasDelProyecto(state.proyecto)[0]?.id ?? BOARD_ID);
         marcarSimulacion(true);
         break;
+      case 'pwm.changed':
+        // El tono y el volumen de un buzzer pasivo salen del PWM: hay que volver a pedir la
+        // instantánea para que el sonido siga al programa.
+        void refrescarAvisos();
+        break;
       case 'pin.out':
         // Un firmware que parpadea rápido manda muchos: se redibuja una vez por frame.
         const idPlaca = msg.boardId ?? placasDelProyecto(state.proyecto)[0]?.id ?? BOARD_ID;
