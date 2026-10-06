@@ -108,12 +108,17 @@ Ver [arquitectura-web.md](./docs/arquitectura-web.md#componentes-propios-y-adapt
 - [README.md](./README.md) — puesta en marcha paso a paso y requisitos.
 - [docs/](./docs/) — alcance, placas, módulos, fuentes de alimentación, troubleshooting.
 - [SDD-CIRCUITO-LIBRE.md](./SDD-CIRCUITO-LIBRE.md) — diseño del solver de circuito libre y su plan de tests.
+- [docs/audio.md](./docs/audio.md) — módulos que suenan: el contrato `salidas.sonido`, de la tensión
+  a la amplitud, y qué falta para que el navegador reproduzca.
 - [docs/arquitectura-web.md](./docs/arquitectura-web.md) — capas de la UI, cómo se hablan `app.ts` y los
   componentes de React, y las reglas de modularización con el error que originó cada una.
 - [SDD-MODULOS.md](./SDD-MODULOS.md) — diseño de módulos completos (esquemático exportable, reglas y tests
   propios, comportamiento digital, entorno y salidas); la sección 8 dice qué ya está hecho y qué se aprendió.
 - [SDD-EDITOR.md](./SDD-EDITOR.md) — diseño y alcance del editor CodeMirror 6 para MicroPython,
   con autocompletado, diagnóstico sintáctico local y pruebas de regresión.
+- [SDD-AUDIO.md](./SDD-AUDIO.md) — diseño de los módulos que suenan y del micrófono: un contrato
+  (`salidas.sonido`) con tres niveles de fidelidad (nivel de pin, PWM, I2S) y por qué el tono se
+  declara en vez de calcularse.
 - [SDD-ESP-CAMERA.md](./SDD-ESP-CAMERA.md) — diseño de la cámara OV2640 por DVP en ESP32-S3,
   compatibilidad del driver físico y frontera de fidelidad de la emulación.
 - [chips/README.md](./chips/README.md) — chips con lógica (I2C/SPI en el Uno y puente MicroPython en ESP32): cómo se escriben y se prueban.

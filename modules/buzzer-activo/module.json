@@ -1,0 +1,49 @@
+{
+  "controls": [],
+  "props": {},
+  "type": "buzzer-activo",
+  "name": "Buzzer activo",
+  "category": "Salidas",
+  "description": "Zumba mientras el ESP32 pone su pin en 1. Trae su propio oscilador: la frecuencia es fija, no se puede tocar desde el código.",
+  "width": 56,
+  "height": 74,
+  "pins": [
+    {
+      "name": "IN",
+      "x": 18,
+      "y": 74,
+      "kind": "digital-in"
+    },
+    {
+      "name": "GND",
+      "x": 38,
+      "y": 74,
+      "kind": "ground"
+    }
+  ],
+  "bridge": {
+    "role": "output",
+    "pin": "IN"
+  },
+  "electrical": {
+    "maxCurrentMa": 35,
+    "burnCurrentMa": 80
+  },
+  "salidas": [
+    {
+      "tipo": "sonido",
+      "fuente": "nivel",
+      "pins": ["IN", "GND"],
+      "hz": 2400,
+      "umbralV": 2.5,
+      "dbA": 85,
+      "referencia": {
+        "v": 5,
+        "cm": 10
+      },
+      "forma": "cuadrada"
+    }
+  ],
+  "svg": "module.svg",
+  "model": "model.js"
+}

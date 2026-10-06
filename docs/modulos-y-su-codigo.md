@@ -152,6 +152,10 @@ Nadie escribió "V = 5 · 0,75": salió de la Ley de Ohm.
 
 ### Ejemplo 2: un buzzer activo (nodo interno, umbral, memoria)
 
+Este ejemplo dejó de ser hipotético: es el módulo `modules/buzzer-activo/` del catálogo.
+Su frecuencia no está en el modelo sino en `salidas` del `module.json` (ver
+[`audio.md`](./audio.md)), porque el motor no resuelve señales en el tiempo.
+
 ```js
 // Buzzer activo de 5 V (oscilador interno): suena entre ~3 y 5,5 V consumiendo ~30 mA a 5 V.
 // Por debajo de ~2,5 V el oscilador no arranca y casi no consume.
