@@ -2,23 +2,21 @@
  * Lo que devuelve el motor eléctrico (sim/analisis.ts) y consumen el server, el MCP y la UI.
  */
 
+/** `se-quema` es un código legacy de riesgo; no predice avería ni tiempo hasta dañarse. */
 export type EstadoLed = 'ok' | 'sobreexigido' | 'se-quema';
 
-/** Corriente por cada LED del dibujo con su fuente en alto, y qué le pasa. */
+/** Corriente DC por cada LED en la misma instantánea que tensiones y medidas. */
 export interface LedElectrico {
   id: string;
   mA: number;
   estado: EstadoLed;
-  /**
-   * Corriente que le llega desde fuentes que no dependen del código (fuente regulable, 3V3/5V
-   * de la placa), p. ej. a través de un pulsador. Con esto la UI lo prende aunque ningún GPIO lo maneje.
-   */
+  /** Alias de mA conservado por compatibilidad; ya no es una hipótesis todos-los-GPIO-en-bajo. */
   mAFijo: number;
 }
 
 /**
  * ¿La placa tiene con qué andar? ok = arranca; sin-energia / baja = no arranca (con el motivo);
- * quema = sobretensión o polaridad invertida en una entrada de alimentación.
+ * quema = riesgo por sobretensión o polaridad invertida en una entrada, no daño demostrado.
  */
 export interface AlimentacionPlaca {
   estado: 'ok' | 'sin-energia' | 'baja' | 'quema';
@@ -61,4 +59,3 @@ export interface AvisoElectrico {
   /** Refs "id.PIN" involucradas (para resaltar el pin/cable exacto en el canvas). */
   refs?: string[];
 }
-

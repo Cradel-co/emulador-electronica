@@ -1,8 +1,9 @@
 import type { SalidaChip } from '@emu/shared';
 import { armarBusChips } from './armarBus.js';
 import type { EntradaChip } from './chipSandbox.js';
-import type { BusChips } from './busChips.js';
+import { ErrorContencionSpi, type BusChips } from './busChips.js';
 import type { ChipEnBus } from './proyectoChips.js';
+import { ErrorElectricoI2c } from './i2cFisico.js';
 
 /**
  * Chips del dibujo en un ESP32 con MicroPython. esp-emu no acepta dispositivos I2C/SPI propios, así
@@ -26,6 +27,7 @@ import type { ChipEnBus } from './proyectoChips.js';
  *                @I2CR <id> <res;res...>                     W → bytes con ACK, R → b64, N → la dirección no contestó
  *                @I2CR <id> <dir,dir...>                     respuesta a scan()
  *                @SPIR <id> <b64>                            lo que entró por MISO
+ *                @SPIR <id> E:CONTENCION_MISO                 el byte no tiene valor lógico válido
  */
 
 const VUELTA_TICKS = 2 ** 30; // utime.ticks_us() de MicroPython: 30 bits
@@ -139,6 +141,7 @@ export class PuenteChips {
           return true;
         }
         case '@SPI': {
+          const id = num(p[1]);
           this.avanzar(num(p[2]));
           const bus = this.spi.get(`${num(p[3])},${num(p[4])}`);
           const hz = num(p[6]), modo = num(p[7]), lsb = num(p[8]) === 1;
@@ -146,15 +149,37 @@ export class PuenteChips {
           const mosi = Buffer.from(p[9] ?? '', 'base64');
           const miso = Buffer.alloc(mosi.length, 0xff);
           if (bus) for (let i = 0; i < mosi.length; i++) miso[i] = bus.spiByte(mosi[i] ?? 0, { modo, lsbPrimero: lsb, hz, misoGpio: num(p[5]) });
-          if (p[10] === '1') this.ev.enviar(`@SPIR ${num(p[1])} ${miso.toString('base64')}`);
+          if (p[10] === '1') this.ev.enviar(`@SPIR ${id} ${miso.toString('base64')}`);
           return true;
         }
         default:
           return false;
       }
     } catch (err) {
+      if (err instanceof ErrorElectricoI2c) {
+        this.ev.alLog?.(err.message);
+        const id = Number(p[1]);
+        if ((tag === '@I2C' || tag === '@I2CS') && Number.isSafeInteger(id)) this.ev.enviar(`@I2CR ${id} E:${err.codigo}`);
+        return true;
+      }
+      if (err instanceof ErrorContencionSpi) {
+        this.ev.alLog?.(err.message);
+        if (tag === '@SPI' && p[10] === '1') this.ev.enviar(`@SPIR ${num(p[1])} E:${err.codigo}`);
+        return true;
+      }
       this.ev.alLog?.(`[chips] línea del puente que no se entendió (${linea.slice(0, 60)}): ${(err as Error).message}`);
       return true;
+    }
+  }
+
+  /** La alimentación pertenece al módulo: también apaga chips auxiliares como su EEPROM. */
+  actualizarAlimentacion(porInstancia: Readonly<Record<string, boolean>>): void {
+    if (this.apagado) return;
+    for (const c of this.chips) {
+      const on = porInstancia[c.instancia];
+      if (!Object.hasOwn(porInstancia, c.instancia) || typeof on !== 'boolean') continue;
+      c.alimentado = on;
+      for (const bus of [...this.i2c.values(), ...this.spi.values()]) bus.ponerAlimentacion(c.id, on);
     }
   }
 

@@ -231,27 +231,29 @@ describe('un modelo roto dentro del motor', () => {
     return d && t === 'resistor' ? { ...d, modeloCodigo: codigo } : d;
   };
 
-  it('si el model.js no carga, se usa el comportamiento de los flags y se avisa', async () => {
+  it('si el modelo explícito no carga, invalida la medida en vez de reemplazar la física', async () => {
     const def = { ...cat.find((m) => m.type === 'resistor')!, modeloCodigo: 'esto no es JS (' };
     expect(modeloDe(def).error).toMatch(/modelo de "resistor"/);
     const r = await analizarCircuito(proyecto(), conModelo('esto no es JS ('));
-    expect(r.avisos.some((a) => a.severidad === 'advertencia' && /su modelo tiene un error/.test(a.mensaje))).toBe(true);
-    // Los flags (passthrough + ohms) dan la misma física: 5 mA.
-    expect(r.elementos.find((e) => e.id === 'r.r')!.i).toBeCloseTo(0.005, 4);
+    expect(r.avisos.some((a) => a.severidad === 'peligro' && /modelo eléctrico inválido/.test(a.mensaje))).toBe(true);
+    expect(r.resuelto).toBe(false);
+    expect(r.elementos).toEqual([]);
   });
 
-  it('si el modelo falla al armar el circuito, el módulo queda afuera (abierto) y el resto sigue', async () => {
+  it('si un modelo falla al armarse, no desaparece su carga de una medida aparentemente válida', async () => {
     const r = await analizarCircuito(proyecto(), conModelo(`module.exports = { circuito() { for (;;) {} } };`));
-    expect(r.avisos.some((a) => /su modelo falló/.test(a.mensaje) && /tardó/.test(a.mensaje))).toBe(true);
+    expect(r.avisos.some((a) => /su modelo eléctrico falló/.test(a.mensaje) && /tardó/.test(a.mensaje))).toBe(true);
     expect(r.elementos.filter((e) => e.dueno === 'r')).toEqual([]);
-    expect(r.fuentes[0]!.mA).toBeLessThan(0.01);
+    expect(r.resuelto).toBe(false);
+    expect(r.fuentes).toEqual([]);
   });
 
-  it('si observar() falla, la física queda igual y se avisa', async () => {
+  it('si observar falla, no publica una instantánea con estado incompleto', async () => {
     const r = await analizarCircuito(proyecto(), conModelo(
       `module.exports = { circuito(ctx) { ctx.resistencia(ctx.pin('1'), ctx.pin('2'), 1000, 'r'); }, observar() { throw new Error('mal'); } };`));
     expect(r.avisos.some((a) => /falló al leer el circuito \(.*mal/.test(a.mensaje))).toBe(true);
-    expect(r.elementos.find((e) => e.id === 'r.r')!.i).toBeCloseTo(0.005, 4);
+    expect(r.resuelto).toBe(false);
+    expect(r.elementos).toEqual([]);
   });
 
   it('el estado que devuelve observar() vuelve en el próximo cálculo (memoria del módulo)', async () => {

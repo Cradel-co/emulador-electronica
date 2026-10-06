@@ -13,6 +13,8 @@ import { cargarChips, type ChipCatalogo } from './catalogoChips.js';
 
 /** Lo que el worker necesita para armar cada chip (todo serializable). */
 export interface ChipEnBus {
+  /** Comprobaciones RC opcionales del bus; ausencia conserva modo funcional. */
+  i2cFisico?: import('@emu/shared').PerfilI2cRc;
   /** Id del dispositivo en el bus: el de la instancia, o "instancia:chip" si la placa tiene varios. */
   id: string;
   /** Id de la instancia del módulo en el dibujo. */
@@ -100,7 +102,12 @@ export function chipsDelProyecto(
           ? `${quien}: no le llega la tensión que necesita (ver los avisos eléctricos): no va a responder.`
           : `${quien}: sin alimentación (${sinCable.join(', ')} sin conectar): no va a responder.`);
       }
+      const sda = gpioChip(chip.i2c?.sda), scl = gpioChip(chip.i2c?.scl);
+      const perfilI2c = i2c.estado === 'ok'
+        ? project.sim.i2cFisico?.[boardId]?.find(b => b.sda === sda && b.scl === scl)?.perfil : undefined;
+      if (i2c.estado === 'ok' && project.sim.i2cFisico?.[boardId] && !perfilI2c) avisos.push(`${quien}: I2C ${sda}/${scl} sin perfil eléctrico; usa el bus funcional.`);
       chips.push({
+        i2cFisico: perfilI2c,
         id: def.chips.length === 1 ? inst.id : `${inst.id}:${uso.id}`,
         instancia: inst.id,
         chip: chip.id,

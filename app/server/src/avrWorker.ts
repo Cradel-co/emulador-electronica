@@ -1,3 +1,5 @@
+import type { EstadoAnalogicoAvr } from './analogicoAvr.js';
+import type { PerfilAnalogicoAvr } from '@emu/shared';
 import type { MessagePort } from 'node:worker_threads';
 import type { SalidaChip } from '@emu/shared';
 import { AvrSimulador, RelojAvr, type PinMcu } from './avrSim.js';
@@ -14,9 +16,11 @@ import { ControlDepuracionAvr, type EventoAvr, type PedidoAvr, type RespuestaAvr
  */
 
 export type MensajeAlWorker =
-  | { t: 'iniciar'; hex: string; frecuenciaHz: number; pines: PinMcu[]; chips?: ChipEnBus[]; arranqueMs?: number }
+  | { t: 'iniciar'; hex: string; frecuenciaHz: number; pines: PinMcu[]; chips?: ChipEnBus[]; arranqueMs?: number; analogicoAvr?: EstadoAnalogicoAvr; perfilAnalogicoAvr?: PerfilAnalogicoAvr }
   /** El usuario movió el entorno de un chip (temperatura...). */
   | { t: 'entorno'; id: string; valores: Record<string, number> }
+  | { t: 'alimentacion-chips'; porInstancia: Record<string, boolean> }
+  | { t: 'analogico-avr'; estado: EstadoAnalogicoAvr }
   | { t: 'entrada'; pin: number; nivel: 0 | 1 | null }
   | { t: 'vigilar'; pin: number }
   | { t: 'serial'; datos: number[] }
@@ -40,7 +44,7 @@ export type MensajeDelWorker =
   | { t: 'guardado'; id: string; datos: unknown }
   /** Respuesta a 'parar': los chips ya se apagaron y mandaron lo que guardan. */
   | { t: 'detenido' }
-  | { t: 'error'; mensaje: string }
+  | { t: 'error'; mensaje: string; fatal?: boolean }
   | { t: 'depurar'; id: number; respuesta: RespuestaAvr }
   | { t: 'depurar-evento'; evento: EventoAvr };
 
@@ -62,10 +66,21 @@ export function atenderWorker(puerto: MessagePort): void {
   // así que el bus se arma una vez por corrida y el tiempo sigue corriendo entre resets.
   let chips: ChipEnBus[] = [];
   let arranqueMs = 0;
+  let analogico: EstadoAnalogicoAvr | undefined;
+  let perfilAnalogico: PerfilAnalogicoAvr | undefined;
   let bus: BusChips | null = null;
   let tiempoAntesUs = 0; // µs simulados de las CPU anteriores (resets)
   const salidas = new Map<string, SalidaChip>();
   let salidaTimer: NodeJS.Timeout | null = null;
+  let fallo = false;
+  const fallar = (error: unknown): void => {
+    fallo = true;
+    reloj?.parar();
+    bus?.apagar();
+    if (salidaTimer) clearTimeout(salidaTimer);
+    salidaTimer = null;
+    enviar({ t: 'error', mensaje: error instanceof Error ? error.message : String(error), fatal: true });
+  };
   const mandarSalidas = (): void => {
     salidaTimer = null;
     for (const [id, salida] of salidas) enviar({ t: 'chip', id, salida });
@@ -97,11 +112,13 @@ export function atenderWorker(puerto: MessagePort): void {
 
   const crear = (): void => {
     reloj?.parar();
+    fallo = false;
     if (sim) tiempoAntesUs += sim.micros;
     sim = new AvrSimulador(hex, {
       onSerial: (b) => serial.push(b),
       onPin: (pin, nivel) => enviar({ t: 'pin', pin, nivel }),
-    }, frecuenciaHz, pines);
+    }, frecuenciaHz, pines, perfilAnalogico);
+    if (analogico) sim.actualizarAnalogicoAvr(analogico);
     if (bus) {
       sim.conectarChips(bus);
       bus.reengancharHost(); // despertadores y pines de los chips, en la CPU nueva
@@ -121,7 +138,7 @@ export function atenderWorker(puerto: MessagePort): void {
         enviar({ t: 'velocidad', valor: reloj.velocidad() });
       }
       control.alTerminarTramo(); // ¿frenó en un breakpoint? (después de mandar el Serial de hasta ahí)
-    });
+    }, fallar);
     reloj.arrancar();
   };
 
@@ -134,13 +151,27 @@ export function atenderWorker(puerto: MessagePort): void {
           pines = m.pines;
           chips = m.chips ?? [];
           arranqueMs = m.arranqueMs ?? 0;
+          analogico = m.analogicoAvr;
+          perfilAnalogico = m.perfilAnalogicoAvr;
           sim = null;
           armarBus();
           crear();
-          enviar({ t: 'listo' });
+          if (!fallo) enviar({ t: 'listo' });
+          break;
+        case 'analogico-avr':
+          analogico = m.estado;
+          sim?.actualizarAnalogicoAvr(analogico);
           break;
         case 'entrada':
           lineas.desdeApp(m.pin, m.nivel);
+          break;
+        case 'alimentacion-chips':
+          for (const c of chips) {
+            const on = m.porInstancia[c.instancia];
+            if (!Object.hasOwn(m.porInstancia, c.instancia) || typeof on !== 'boolean') continue;
+            c.alimentado = on;
+            bus?.ponerAlimentacion(c.id, on);
+          }
           break;
         case 'entorno':
           bus?.ponerEntorno(m.id, m.valores);
@@ -166,7 +197,7 @@ export function atenderWorker(puerto: MessagePort): void {
           break;
       }
     } catch (err) {
-      enviar({ t: 'error', mensaje: (err as Error).message });
+      fallar(err);
     }
   });
 }

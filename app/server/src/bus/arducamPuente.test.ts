@@ -55,6 +55,13 @@ it('perder alimentación o quitar el módulo cancela la solicitud pendiente', as
   expect(chips.every(c=>!c.alimentado)).toBe(true);
   b.entradaCamara('camara',{tipo:'imagen',token:2,bytes:[255,216,255,217]});
   expect(salidas.at(-1)).toMatchObject({cameraAction:'cancel'});
+  // El snapshot nuevo restaura VCC y cableado; CS sigue bajo, no requiere otra transición.
+  const restaurados = chipsDelProyecto(p,buscar,(await buscarPlaca(p.board ?? ''))?.desc).chips;
+  b.actualizarCamaras(restaurados);
+  expect(chips.every(c=>c.alimentado)).toBe(true);
+  b.entradaCamara('camara',{tipo:'configuracion',soportada:true});
+  b.recibir('@SPI 2 3 12 11 13 1000000 0 0 hAI= 1');
+  expect(salidas.at(-1)).toMatchObject({cameraAction:'capture'});
 });
 
 it('comparte SCLK/MOSI entre ArduCAM y TFT con CS independientes', async () => {

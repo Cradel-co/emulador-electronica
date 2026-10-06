@@ -8,3 +8,6 @@ export * from './modelo.js';
 export * from './chip.js';
 export * from './camera.js';
 export * from './audio.js';
+export * from './i2cFisico.js';
+export * from './analogico.js';
+export * from './analogicoEsp.js';

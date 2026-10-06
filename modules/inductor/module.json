@@ -1,0 +1,12 @@
+{
+  "type": "inductor", "name": "Inductor ideal", "category": "Pasivos",
+  "description": "L constante: v = L·di/dt. Cortocircuito en DC. Sin resistencia de bobinado, saturación, pérdidas del núcleo ni acoplamiento magnético.",
+  "width": 70, "height": 30,
+  "pins": [{ "name": "1", "x": 0, "y": 15, "kind": "other" }, { "name": "2", "x": 70, "y": 15, "kind": "other" }],
+  "controls": [],
+  "props": {
+    "henrios": { "type": "number", "default": 0.01, "label": "Inductancia (H)", "min": 1e-9, "max": 100 },
+    "inicialA": { "type": "number", "default": 0, "label": "Corriente inicial 1→2 (A)" }
+  },
+  "svg": "module.svg", "model": "model.ts"
+}
