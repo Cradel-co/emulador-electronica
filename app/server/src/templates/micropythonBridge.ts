@@ -140,7 +140,7 @@ _REEMPLAZOS = {}
 
 def _instalar_pin():
     """Hace que main.py use este Pin (y los buses de los chips): \`from machine import Pin\`, \`machine.I2C(...)\`."""
-    _REEMPLAZOS.update({'Pin': Pin, 'I2C': I2C, 'SoftI2C': SoftI2C, 'SPI': SPI, 'SoftSPI': SoftSPI, 'ADC': ADC, 'ADCBlock': ADCBlock})
+    _REEMPLAZOS.update({'Pin': Pin, 'I2C': I2C, 'SoftI2C': SoftI2C, 'SPI': SPI, 'SoftSPI': SoftSPI, 'ADC': ADC, 'ADCBlock': ADCBlock, 'PWM': PWM})
     try:
         for k in _REEMPLAZOS:
             setattr(machine, k, _REEMPLAZOS[k])
@@ -251,6 +251,79 @@ def _gpio(p):
 
 
 @@ADC@@
+
+class PWM:
+    """machine.PWM del ESP32 (LEDC), DECLARATIVO.
+
+    La app no reconstruye el tono a partir de los flancos: el puente muestrea los registros de
+    salida y un tono de kilohercios se perdería en el aliasing. Por eso cada cambio de frecuencia
+    o de ciclo de trabajo se avisa UNA vez, con @PWM, y la app sintetiza a partir de eso.
+    """
+
+    def __init__(self, dest, freq=None, duty=None, duty_u16=None, duty_ns=None, invert=0):
+        self._gpio = _gpio(dest)
+        if self._gpio is None:
+            raise ValueError('PWM MicroPython: se requiere GPIO o Pin')
+        if invert:
+            raise NotImplementedError('PWM MicroPython: invert sin modelo')
+        self._hz = 0
+        self._u16 = 0
+        self.init(freq=freq, duty=duty, duty_u16=duty_u16, duty_ns=duty_ns)
+
+    def _entero(self, v, nombre):
+        if isinstance(v, bool) or not isinstance(v, int) or v < 0:
+            raise ValueError('PWM MicroPython: %s inválida' % nombre)
+        return v
+
+    def _u16_de_ns(self, ns):
+        if self._hz <= 0:
+            raise ValueError('PWM MicroPython: duty_ns necesita una frecuencia')
+        periodo = 1000000000 // self._hz
+        return min(65535, ns * 65535 // periodo) if periodo else 0
+
+    def _avisar(self):
+        _send('@PWM %d %d %d %d' % (self._gpio, self._hz, self._u16, utime.ticks_us()))
+
+    def init(self, *, freq=None, duty=None, duty_u16=None, duty_ns=None):
+        if freq is not None:
+            self._hz = self._entero(freq, 'frecuencia')
+        if duty is not None:
+            self._u16 = min(65535, self._entero(duty, 'duty') * 65535 // 1023)
+        if duty_u16 is not None:
+            self._u16 = min(65535, self._entero(duty_u16, 'duty_u16'))
+        if duty_ns is not None:
+            self._u16 = self._u16_de_ns(self._entero(duty_ns, 'duty_ns'))
+        self._avisar()
+
+    def freq(self, *args):
+        if not args:
+            return self._hz
+        self._hz = self._entero(args[0], 'frecuencia')
+        self._avisar()
+
+    def duty(self, *args):
+        if not args:
+            return self._u16 * 1023 // 65535
+        self._u16 = min(65535, self._entero(args[0], 'duty') * 65535 // 1023)
+        self._avisar()
+
+    def duty_u16(self, *args):
+        if not args:
+            return self._u16
+        self._u16 = min(65535, self._entero(args[0], 'duty_u16'))
+        self._avisar()
+
+    def duty_ns(self, *args):
+        if not args:
+            return self._u16 * (1000000000 // self._hz) // 65535 if self._hz > 0 else 0
+        self._u16 = self._u16_de_ns(self._entero(args[0], 'duty_ns'))
+        self._avisar()
+
+    def deinit(self):
+        self._hz = 0
+        self._u16 = 0
+        _send('@PWM %d off 0 %d' % (self._gpio, utime.ticks_us()))
+
 
 
 class I2C:
