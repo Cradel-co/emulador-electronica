@@ -1,7 +1,8 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import type { ModuleInstance, Project, Wire } from '@emu/shared';
-import { sonidosDelCircuito } from '@emu/shared';
+import { sonidosDelCircuito, type PwmDeclarado } from '@emu/shared';
 import { loadCatalog, type ModuloCatalogo } from '../catalog.js';
+import { gpioDe } from '../diagramOps.js';
 import { analizarCircuito, type AnalisisCircuito } from './analisis.js';
 import { precalentar } from './spice.js';
 
@@ -81,5 +82,60 @@ describe('buzzer pasivo: el tono viene del PWM', () => {
     const la = nota(440), si = nota(494);
     expect([la.hz, si.hz]).toEqual([440, 494]);
     expect(la.ganancia).toBeCloseTo(si.ganancia, 6);
+  });
+});
+
+/**
+ * Casos que se verificaron a mano contra el firmware corriendo y quedan acá para que no vuelvan:
+ * el piezo detrás de un passthrough y dos piezos independientes.
+ */
+describe('buzzer pasivo: cableado', () => {
+  const salidasDe = (t: string) => b(t)?.salidas;
+  const sonido = async (p: Project, porGpio: Map<number, PwmDeclarado>) => {
+    const r = await analizarCircuito(p, b, { nivelesReales: true, nivelesPorPlaca: new Map([['board', new Map(
+      [...porGpio].filter(([, w]) => w.hz > 0 && w.duty > 0).map(([g]) => [g, 1 as const]),
+    )]]) });
+    const pwmDe = (id: string, pin: string) => {
+      const g = gpioDe(p, id, pin, b);
+      return g === null ? undefined : porGpio.get(g);
+    };
+    const eventos = sonidosDelCircuito(p.modules, salidasDe, r.tensiones, (id) => r.modulos[id]?.ui, pwmDe);
+    return new Map(eventos.map((e) => [e.modulo, e]));
+  };
+
+  /** Una resistencia en serie es `passthrough`: para la lógica digital el cable sigue derecho. */
+  it('suena detrás de una resistencia en serie', async () => {
+    const p: Project = {
+      schemaVersion: 1, name: 't', board: 'esp32-s3-devkitc-1', language: 'micropython', sim: SIM,
+      modules: [
+        mod('board', 'esp32-s3-devkitc-1', { usb: true }),
+        mod('r1', 'resistor', { ohms: 220, powerRatedW: 0.25 }),
+        mod('bz1', 'buzzer-pasivo', { capacidadNf: 20 }),
+      ],
+      wires: [w('board.GPIO5', 'r1.1'), w('r1.2', 'bz1.IN'), w('bz1.GND', 'board.GND')],
+    };
+    expect(gpioDe(p, 'bz1', 'IN', b), 'gpioDe tiene que seguir el passthrough').toBe(5);
+    const s = await sonido(p, new Map([[5, { hz: 440, duty: 0.5 }]]));
+    expect(s.get('bz1')).toMatchObject({ sonando: true, hz: 440 });
+    // En continua el piezo es un capacitor: no circula corriente, así que la resistencia no cae.
+    expect(s.get('bz1')!.ganancia).toBeGreaterThan(0.9);
+  });
+
+  it('dos piezos son independientes: el PWM de uno no hace sonar al otro', async () => {
+    const p: Project = {
+      schemaVersion: 1, name: 't', board: 'esp32-s3-devkitc-1', language: 'micropython', sim: SIM,
+      modules: [
+        mod('board', 'esp32-s3-devkitc-1', { usb: true }),
+        mod('bz1', 'buzzer-pasivo', { capacidadNf: 20 }),
+        mod('bz2', 'buzzer-pasivo', { capacidadNf: 20 }),
+      ],
+      wires: [
+        w('board.GPIO5', 'bz1.IN'), w('bz1.GND', 'board.GND'),
+        w('board.GPIO6', 'bz2.IN'), w('bz2.GND', 'board.GND'),
+      ],
+    };
+    const s = await sonido(p, new Map([[5, { hz: 523, duty: 0.5 }]]));
+    expect(s.get('bz1')).toMatchObject({ sonando: true, hz: 523 });
+    expect(s.get('bz2')).toMatchObject({ sonando: false, ganancia: 0 });
   });
 });

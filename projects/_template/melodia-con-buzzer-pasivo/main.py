@@ -27,12 +27,16 @@ buzzer = PWM(Pin(GPIO_BUZZER), freq=NOTAS['la'], duty_u16=0)
 
 
 def tocar(nombre, ms):
-    """Una nota: la frecuencia da el tono, el duty al 50 % da el volumen máximo."""
+    """Una nota: la frecuencia da el tono, el duty al 50 % da el volumen máximo.
+
+    Se usa un solo `init()` y no `freq()` seguido de `duty_u16()`: cada llamada avisa al
+    emulador por separado, y entre las dos el pin queda con la frecuencia nueva y el duty
+    viejo. Saliendo de un silencio eso es un instante de silencio en cada nota.
+    """
     if nombre is None:
-        buzzer.duty_u16(0)          # silencio: sin señal alterna no hay sonido
+        buzzer.duty_u16(0)                                  # sin señal alterna no hay sonido
     else:
-        buzzer.freq(NOTAS[nombre])
-        buzzer.duty_u16(32768)      # 50 % de 65535
+        buzzer.init(freq=NOTAS[nombre], duty_u16=32768)     # 50 % de 65535: volumen máximo
     time.sleep_ms(ms)
 
 

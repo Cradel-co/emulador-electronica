@@ -83,11 +83,84 @@ GPIO. El sonido lo pide por **pin del módulo**, así que `index.ts` resuelve el
 La consecuencia a tener en cuenta: **el PWM que no pase por `machine.PWM` no se oye.** Prender y
 apagar un pin a mano en un bucle no produce sonido, porque nadie declara una frecuencia.
 
-### El volumen con PWM
+### El volumen con PWM: de dónde sale el sen(π·duty)
 
-Dos factores: la tensión, igual que en `fuente: "nivel"`, y el ciclo de trabajo. El segundo va con
-**sen(π·duty)**, que es la amplitud del fundamental de una onda cuadrada: máxima al 50 % y nula en
-0 % y 100 %, donde la señal es continua y un piezo no mueve aire. Al 25 % se pierden 3 dB.
+Dos factores: la tensión, igual que en `fuente: "nivel"`, y el ciclo de trabajo. El segundo no es
+una curva elegida a dedo — sale de la **serie de Fourier** de la señal que el micro genera.
+
+Una onda cuadrada **no es un tono puro**. La serie de Fourier dice que cualquier señal periódica
+es una suma de senos: uno a la frecuencia base (el **fundamental**) más otros a 2×, 3×, 4× esa
+frecuencia (los **armónicos**). Para un pulso que va de 0 a V con ciclo de trabajo *d*, la
+amplitud del fundamental es:
+
+```
+a₁ = (2V/π) · sen(π·d)
+```
+
+De ahí el factor. Se usa el fundamental y no toda la señal por dos razones que se suman: **el oído
+toma el fundamental como la nota** (los armónicos cambian el timbre, no la altura), y **un piezo es
+resonante**, así que responde cerca de su frecuencia propia y filtra buena parte de los armónicos.
+
+Tres consecuencias que se ven en el emulador:
+
+| Lo que dice la fórmula | Lo que pasa |
+|---|---|
+| `sen(π·0,5) = 1` | el 50 % es el volumen máximo: la cuadrada simétrica pone la mayor energía en el fundamental |
+| `sen(0) = sen(π) = 0` | con duty 0 % o 100 % la señal es **continua**: no hay oscilación, el piezo no mueve aire y **no suena** |
+| `sen(π(1−d)) = sen(π·d)` | es **simétrica**: 25 % y 75 % suenan igual, y 5 % y 95 % también |
+
+La simetría tiene explicación física: un pulso del 25 % y uno del 75 % son la misma forma de onda
+invertida — mismo fundamental, fase opuesta, y el oído no distingue la fase.
+
+Medido con el firmware corriendo, a 440 Hz:
+
+| duty | sen(π·duty) | Ganancia | dBA |
+|---|---|---|---|
+| 5 % | 0,156 | 0,156 | 54,7 |
+| 25 % | 0,707 | 0,707 | 67,8 |
+| 50 % | 1,000 | 1,000 | 70,8 |
+| 75 % | 0,707 | 0,707 | 67,8 |
+| 95 % | 0,156 | 0,156 | 54,7 |
+| 100 % | 0 | — | no suena |
+
+Al 25 % se pierden 3 dB, que es `20·log10(0,707)`.
+
+### El timbre: la onda que se sintetiza es la del pulso real
+
+Los armónicos no son un detalle estético: cambian cómo suena la nota. Una cuadrada al 10 % se oye
+**más delgada y nasal** que una al 50 %, aunque las dos estén al mismo volumen.
+
+El navegador no sintetiza una cuadrada genérica: arma la onda **con el ciclo de trabajo real** a
+partir de los coeficientes de `armonicosDePulso` (en `shared/audio.ts`) y un `PeriodicWave`. Así,
+bajar el duty no se oye como "lo mismo más bajo" sino como otro timbre, que es lo que hace un piezo
+de verdad.
+
+Dos decisiones del adaptador:
+
+- **La forma y el volumen son cosas separadas.** `createPeriodicWave` normaliza la onda, así que la
+  amplitud de los coeficientes no se acumula con la ganancia del evento: el timbre lo da la forma y
+  el volumen la ganancia, sin contar el duty dos veces.
+- **Las ondas se cachean por duty redondeado al 1 %**, con 64 armónicos. Armar una por nota sería
+  desperdicio y el oído no distingue un 24 % de un 25 %. El navegador limita la banda solo, así que
+  no hay aliasing.
+
+Un oscilador interno (`fuente: "nivel"`) no tiene ciclo de trabajo: ahí se usa la forma declarada
+(`cuadrada` o `seno`) y nada más. Y un `seno` con duty lo ignora, porque un seno no tiene duty.
+
+**Lo que sigue sin modelarse:** la resonancia mecánica del piezo, que hace que un piezo real suene
+mucho más fuerte cerca de sus 4 kHz que en las notas graves. Acá el volumen no depende de la
+frecuencia.
+
+### Dos cosas del ritmo
+
+**El emulador no corre en tiempo real.** Una melodía va a sonar irregular, y no es un error:
+medido sobre la plantilla, un `sleep_ms(220)` se convierte en entre 35 y 1517 ms de reloj de pared
+(mediana ~250). El tono sigue fielmente al programa; el reloj no. Lo que agrega el emulador en
+avisar y recalcular son 9 a 41 ms, despreciable al lado de eso.
+
+**Conviene un solo cambio por nota.** `freq()` y `duty_u16()` avisan por separado, y entre los dos
+el pin queda con la frecuencia nueva y el duty viejo — saliendo de un silencio, eso es un instante
+de silencio en cada nota. `init(freq=..., duty_u16=...)` lo hace en un solo aviso.
 
 ### El módulo que ya está: `buzzer-pasivo`
 
@@ -148,6 +221,53 @@ La plantilla [`volumen-con-potenciometro`](../projects/_template/volumen-con-pot
 el circuito armado: fuente regulable, potenciómetro como divisor y buzzer. Girando el cursor el
 zumbido baja, y su README tiene la tabla de tensión, consumo y dBA en cada posición, medida con el
 motor.
+
+## Qué tan "real" es esta emulación
+
+"Emulación real" puede querer decir tres cosas distintas, y las respuestas son muy diferentes.
+Conviene tenerlas separadas para no prometer lo que no se puede.
+
+### 1. Tiempo real: que `sleep_ms(220)` tarde 220 ms — **no se puede**
+
+`esp-emu` (v0.45.0) **no tiene ninguna opción de tiempo real ni de throttling**. Sus opciones son
+chip, firmware, red, UART, GDB, trazas, strap, PSRAM y poco más; nada de reloj.
+
+Y hay una razón de fondo que no depende de la herramienta: **el throttling solo sirve para frenar
+un emulador que va más rápido que la realidad.** El nuestro va más lento — mediana de 250 ms contra
+220 pedidos. No hay nada que frenar; habría que acelerarlo primero.
+
+Emular un micro en tiempo real pide virtualización asistida por hardware (no aplica: RISC-V sobre
+x86) o un emulador bastante más rápido. Está fuera de alcance.
+
+**El único margen conocido:** la opción `--batch-size` (50.000 instrucciones por iteración, por
+defecto) que hoy no se pasa. Un lote más chico entrelaza más fino y **podría achicar los picos** a
+cambio de throughput. No convierte nada en tiempo real, y no está medido.
+
+### 2. La forma de onda: el timbre — **hecho**
+
+El navegador sintetiza la onda con el ciclo de trabajo real, no una cuadrada genérica, así que el
+timbre cambia con el duty como en un piezo. Ver
+[El timbre](#el-timbre-la-onda-que-se-sintetiza-es-la-del-pulso-real).
+
+### 3. Audio desde el solver: análisis transitorio — **no, por tres órdenes de magnitud**
+
+Sería lo más puro: resolver el circuito en el tiempo y sacar las muestras de ahí. Pero el audio
+pide unas 44.100 muestras por segundo y cada resolución de ngspice tarda 10–30 ms. Falta un factor
+de mil, y no es un problema de optimización sino de qué clase de herramienta es un solver de
+circuitos.
+
+### Lo que sí está medido
+
+| | |
+|---|---|
+| Lo que pide el programa | 220 ms por nota |
+| Mediana real | ~250 ms |
+| Mínimo / máximo | 35 ms / 1517 ms |
+| Latencia de avisar el cambio y recalcular | 9–41 ms |
+
+La tubería del audio aporta menos del 10 % de ese jitter: **no hay nada que optimizar ahí**. Y
+"arreglar" el ritmo compensándolo sería mentir sobre la emulación — el tono tiene que seguir a lo
+que el programa hace, no a lo que uno quisiera que hiciera.
 
 ## Lo que falta (y hay que decirlo)
 

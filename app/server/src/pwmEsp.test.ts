@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { PuentePwm } from './pwmEsp.js';
+import { PuentePwm, nivelesConPwm, type PwmPin } from './pwmEsp.js';
 
 /**
  * El PWM que declara el firmware. Lo que llega es `@PWM <gpio> <hz> <duty_u16> <ticks>`, o
@@ -75,5 +75,48 @@ describe('PuentePwm', () => {
     b.recibir('@PWM 5 440 32768 1');
     b.limpiar();
     expect(b.estado().size).toBe(0);
+  });
+});
+
+describe('nivelesConPwm', () => {
+  const pwm = (m: Record<number, PwmPin>) => () => new Map(Object.entries(m).map(([g, p]) => [Number(g), p]));
+
+  /**
+   * El puente muestrea el registro GPIO_OUT, pero el LEDC maneja el pad por la matriz de
+   * periféricos: para un pin con PWM ese registro informa 0 y el motor lo manejaba en bajo, con lo
+   * que el buzzer pasivo medía 0 V y no sonaba.
+   */
+  it('un pin con PWM activo cuenta como alto aunque el registro diga 0', () => {
+    const r = nivelesConPwm(new Map([['board', new Map([[5, 0]])]]), pwm({ 5: { hz: 440, duty: 0.5 } }), ['board']);
+    expect(r.get('board')?.get(5)).toBe(1);
+  });
+
+  it('también cuando el registro no dice nada de ese pin', () => {
+    const r = nivelesConPwm(new Map([['board', new Map()]]), pwm({ 5: { hz: 440, duty: 0.5 } }), ['board']);
+    expect(r.get('board')?.get(5)).toBe(1);
+  });
+
+  it('con duty 0 o sin frecuencia no lo fuerza: no hay señal que manejar el pin', () => {
+    const sinDuty = nivelesConPwm(new Map([['board', new Map([[5, 0]])]]), pwm({ 5: { hz: 440, duty: 0 } }), ['board']);
+    expect(sinDuty.get('board')?.get(5)).toBe(0);
+    const sinHz = nivelesConPwm(new Map([['board', new Map([[5, 0]])]]), pwm({ 5: { hz: 0, duty: 0.5 } }), ['board']);
+    expect(sinHz.get('board')?.get(5)).toBe(0);
+  });
+
+  it('los pines sin PWM conservan el nivel que informó el puente', () => {
+    const r = nivelesConPwm(new Map([['board', new Map<number, 0 | 1>([[5, 0], [7, 1], [8, 0]])]]),
+      pwm({ 5: { hz: 440, duty: 0.5 } }), ['board']);
+    expect([r.get('board')?.get(7), r.get('board')?.get(8)]).toEqual([1, 0]);
+  });
+
+  it('no toca el mapa original: la instantánea no puede pisar el estado en vivo', () => {
+    const original = new Map([['board', new Map<number, 0 | 1>([[5, 0]])]]);
+    nivelesConPwm(original, pwm({ 5: { hz: 440, duty: 0.5 } }), ['board']);
+    expect(original.get('board')?.get(5)).toBe(0);
+  });
+
+  it('una placa sin PWM queda igual', () => {
+    const r = nivelesConPwm(new Map([['board', new Map<number, 0 | 1>([[7, 1]])]]), () => new Map(), ['board']);
+    expect([...r.get('board') ?? []]).toEqual([[7, 1]]);
   });
 });

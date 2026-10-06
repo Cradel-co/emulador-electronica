@@ -234,6 +234,10 @@ inyectadas, que se testea con dobles sin tocar el navegador.
 - **No hay DAC interno en C3/C6/S3**: no existe un camino analógico directo que modelar.
 - **Soporte de PDM RX sin verificar** por chip: el S3 lo tiene; en C3/C6 hay que
   confirmarlo en el TRM antes de prometer un micrófono PDM.
+- **No hay tiempo real.** `esp-emu` no expone throttling, y de todos modos el emulador corre más
+  lento que el hardware: un `sleep_ms(220)` se convierte en 35 a 1517 ms de reloj de pared. El
+  tono sigue al programa; el reloj no. Los tres sentidos de "emulación real" y qué se puede de
+  cada uno están en [docs/audio.md](./docs/audio.md#qué-tan-real-es-esta-emulación).
 - **Nada de esto es medición de laboratorio.** Los dB son los de la hoja de datos a su
   distancia de referencia, no una simulación acústica.
 

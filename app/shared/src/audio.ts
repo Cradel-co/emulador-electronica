@@ -52,6 +52,12 @@ export interface EventoSonido {
   forma?: (typeof FORMAS_ONDA)[number];
   /** Presión sonora estimada a la distancia de referencia (dBA). Informa; no la reproduce. */
   dbA?: number;
+  /**
+   * Ciclo de trabajo (0..1) con el que el micro está generando la señal. Define la **forma** de la
+   * onda —el timbre—, no el volumen: ese ya viene en `ganancia`. Solo con `fuente: "pwm"`; un
+   * oscilador interno no lo tiene.
+   */
+  duty?: number;
 }
 
 /**
@@ -117,8 +123,11 @@ export interface PwmDeclarado {
  * Sin PWM configurado no suena, en vez de inventar un tono.
  *
  * La amplitud sale de dos factores: la tensión, como en `fuente: "nivel"`, y el ciclo de trabajo.
- * El segundo va con **sen(π·duty)**, que es la amplitud del fundamental de una onda cuadrada:
- * máxima al 50 % y nula en los extremos, donde la señal es continua y un piezo no mueve aire.
+ * El segundo va con **sen(π·duty)**, que sale de la **serie de Fourier** del pulso: la amplitud de
+ * su fundamental es `(2V/π)·sen(π·duty)`. Se usa el fundamental porque el oído lo toma como la
+ * nota y porque un piezo es resonante y filtra los armónicos. Es máxima al 50 %, nula en los
+ * extremos —donde la señal es continua y no mueve aire— y simétrica: 25 % y 75 % suenan igual.
+ * No modela el timbre, que sí cambia con el duty. Ver docs/audio.md.
  */
 export function eventoPorPwm(
   modulo: string,
@@ -139,6 +148,7 @@ export function eventoPorPwm(
     ganancia: porTension * porDuty,
     hz: pwm.hz,
     forma: salida.forma,
+    duty: pwm.duty,
   };
   if (salida.dbA !== undefined && salida.referencia) {
     // El duty baja la presión sonora igual que una tensión menor: entra en el mismo cálculo.
@@ -187,4 +197,39 @@ export function sonidosDelCircuito(
     }
   }
   return eventos;
+}
+
+/**
+ * Coeficientes de Fourier de un pulso de 0 a 1 con ciclo de trabajo `duty`, listos para
+ * `createPeriodicWave` del navegador.
+ *
+ * Con ellos se sintetiza la onda **que el micro genera de verdad**, en vez de una cuadrada
+ * simétrica a la que solo se le ajusta el volumen. Eso hace que el **timbre** cambie con el ciclo
+ * de trabajo, como en un piezo real: un pulso angosto reparte más energía en los armónicos y se
+ * oye más delgado y nasal.
+ *
+ * Para el pulso que arranca en t = 0:
+ *
+ *     aₙ = (2/nπ)·sen(2πnd)        bₙ = (2/nπ)·(1 − cos(2πnd))
+ *
+ * El término continuo (n = 0) se descarta: no produce sonido y solo correría la onda. Al 50 % esto
+ * da la cuadrada clásica —armónicos impares con 4/nπ, pares en cero— y la magnitud del fundamental
+ * sigue a sen(π·d), la misma ley que el volumen (ver `eventoPorPwm`).
+ *
+ * Ojo al usarlos: `createPeriodicWave` **normaliza** la onda por defecto, así que la amplitud que
+ * sale de acá no se acumula con la ganancia del evento. Eso es a propósito: la forma la da esta
+ * función y el volumen lo da la ganancia, sin contarse dos veces.
+ */
+export function armonicosDePulso(duty: number, armonicos: number): { cos: Float32Array; sen: Float32Array } {
+  const n = Math.max(1, Math.floor(armonicos));
+  const cos = new Float32Array(n + 1);
+  const sen = new Float32Array(n + 1);
+  const d = Math.min(1, Math.max(0, Number.isFinite(duty) ? duty : 0));
+  // cos[0] y sen[0] quedan en 0: es el término continuo, que no suena.
+  for (let k = 1; k <= n; k++) {
+    const factor = 2 / (k * Math.PI);
+    cos[k] = factor * Math.sin(2 * Math.PI * k * d);
+    sen[k] = factor * (1 - Math.cos(2 * Math.PI * k * d));
+  }
+  return { cos, sen };
 }

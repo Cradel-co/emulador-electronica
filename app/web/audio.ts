@@ -1,3 +1,4 @@
+import { armonicosDePulso } from '@emu/shared';
 import type { EventoSonido, FORMAS_ONDA } from '@emu/shared';
 
 /**
@@ -18,6 +19,11 @@ export interface VozAudio {
   frecuencia(hz: number): void;
   ganancia(valor: number): void;
   forma(f: FormaOnda): void;
+  /**
+   * Ciclo de trabajo (0..1): sintetiza la onda del pulso real, así que cambia el **timbre**. No
+   * toca el volumen, que lo pone `ganancia`.
+   */
+  ciclo(duty: number): void;
   /** Baja la ganancia a cero. La voz se conserva: los osciladores no se pueden rearrancar. */
   detener(): void;
 }
@@ -39,6 +45,13 @@ export interface EstadoAudio {
 }
 
 const VOLUMEN_INICIAL = 0.5;
+/**
+ * Armónicos de la onda del pulso. Con 64, a 440 Hz se cubre todo el rango audible; el navegador
+ * se encarga de limitar la banda para que no haya aliasing.
+ */
+const ARMONICOS = 64;
+/** Resolución del ciclo de trabajo para cachear ondas: 1 % alcanza y el oído no distingue más. */
+const PASOS_DUTY = 100;
 
 /**
  * El puerto real sobre la Web Audio API. Es el único lugar del repo que la toca.
@@ -53,6 +66,21 @@ export function contextoWebAudio(): ContextoAudio {
   const maestro = ctx.createGain();
   maestro.connect(ctx.destination);
   const rampa = 0.005;
+  /**
+   * Ondas ya armadas, por ciclo de trabajo redondeado a 1/PASOS_DUTY. Construir una por nota
+   * sería desperdicio, y el oído no distingue un 24 % de un 25 %.
+   */
+  const ondas = new Map<number, PeriodicWave>();
+  const ondaDe = (duty: number): PeriodicWave => {
+    const paso = Math.round(Math.min(1, Math.max(0, duty)) * PASOS_DUTY);
+    const guardada = ondas.get(paso);
+    if (guardada) return guardada;
+    const { cos, sen } = armonicosDePulso(paso / PASOS_DUTY, ARMONICOS);
+    // `createPeriodicWave` normaliza: el volumen lo sigue poniendo la ganancia, no la forma.
+    const onda = ctx.createPeriodicWave(cos, sen);
+    ondas.set(paso, onda);
+    return onda;
+  };
   return {
     crearVoz() {
       const osc = ctx.createOscillator();
@@ -65,6 +93,7 @@ export function contextoWebAudio(): ContextoAudio {
         frecuencia: (hz) => osc.frequency.setTargetAtTime(hz, ctx.currentTime, rampa),
         ganancia: (v) => gan.gain.setTargetAtTime(v, ctx.currentTime, rampa),
         forma: (f) => { osc.type = f === 'seno' ? 'sine' : 'square'; },
+        ciclo: (duty) => osc.setPeriodicWave(ondaDe(duty)),
         detener: () => gan.gain.setTargetAtTime(0, ctx.currentTime, rampa),
       };
     },
@@ -74,7 +103,7 @@ export function contextoWebAudio(): ContextoAudio {
 }
 
 /** Lo último que se le aplicó a una voz, para no repetir órdenes que no cambian nada. */
-interface Aplicado { hz: number; ganancia: number; forma: FormaOnda }
+interface Aplicado { hz: number; ganancia: number; forma: FormaOnda; duty?: number }
 
 export class ControladorAudio {
   snapshot: EstadoAudio = { habilitado: false, silenciado: false, volumen: VOLUMEN_INICIAL, sonando: [] };
@@ -148,15 +177,23 @@ export class ControladorAudio {
       if (voz) { voz.detener(); this.aplicado.delete(evento.modulo); }
       return;
     }
+    const forma = evento.forma ?? 'cuadrada';
     const deseado: Aplicado = {
       hz: evento.hz!,
       ganancia: this.snapshot.silenciado ? 0 : evento.ganancia * this.snapshot.volumen,
-      forma: evento.forma ?? 'cuadrada',
+      forma,
+      // Un seno no tiene ciclo de trabajo: ahí el duty no significa nada y se ignora.
+      duty: forma === 'cuadrada' && typeof evento.duty === 'number' ? evento.duty : undefined,
     };
     const actual = this.aplicado.get(evento.modulo);
     const destino = voz ?? this.ctx.crearVoz();
     if (!voz) this.voces.set(evento.modulo, destino);
-    if (actual?.forma !== deseado.forma) destino.forma(deseado.forma);
+    if (deseado.duty === undefined) {
+      if (actual?.forma !== deseado.forma || actual.duty !== undefined) destino.forma(deseado.forma);
+    } else if (actual?.duty !== deseado.duty || actual.forma !== deseado.forma) {
+      // La onda del pulso reemplaza la forma genérica: lleva el timbre del ciclo de trabajo.
+      destino.ciclo(deseado.duty);
+    }
     if (actual?.hz !== deseado.hz) destino.frecuencia(deseado.hz);
     if (actual?.ganancia !== deseado.ganancia) destino.ganancia(deseado.ganancia);
     this.aplicado.set(evento.modulo, deseado);
