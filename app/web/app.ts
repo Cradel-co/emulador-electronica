@@ -5,6 +5,7 @@ import { createWorkspaceNavigation, type WorkspaceRoute } from './navigation.js'
 import { crearControladorCamara, detenerCamarasDeOtrosProyectos, desconectarCamara, eventoCamara, solicitarCaptura, errorCamara } from './camera.js';
 // Frontend sin bundler: ES modules nativos contra la API local (sección 11).
 import { miniatura, ponerImagenPantalla } from './modulos.js';
+import { audio, eventoSonido } from './audio.js';
 import { lenguajeDeArchivo, NOMBRE_LENGUAJE, resaltar } from './editor.js';
 import { crearDepuracion } from './depuracion.js';
 import { crearEditorMicroPython } from './editor-micropython.js';
@@ -1986,6 +1987,9 @@ async function refrescarAvisos() {
     state.mediciones = respuesta.electrico?.mediciones ?? [];
     state.tensiones = respuesta.electrico?.tensiones ?? {};
     state.uiModulos = new Map(Object.entries(respuesta.electrico?.modulos ?? {}));
+    // El sonido viene en la misma instantánea que el `ui` de cada módulo: salen del mismo
+    // cálculo del motor, así que el buzzer no puede prender su SVG y sonar un instante después.
+    for (const sonido of respuesta.electrico?.sonidos ?? []) eventoSonido(sonido);
     state.alimentacion = respuesta.electrico?.placas?.[state.placaActivaId] ?? respuesta.electrico?.placa ?? null;
     const energizado = Boolean(respuesta.electrico?.energizado);
     if (energizado !== state.energizado) {
@@ -2337,6 +2341,9 @@ $('dlg-nuevo').addEventListener('close', async () => {
 
 $('ejecutar').onclick = async () => {
   if (!state.proyecto) return;
+  // El navegador no deja crear audio sin un gesto del usuario, y ▶ es exactamente eso: acá se
+  // habilita, y lo que ya venía zumbando arranca. Ver docs/audio.md.
+  void audio.habilitar().catch(() => {});
   // Como "Run" en el IDE: se abre la consola de compilación si estaba oculta.
   if (!ventanaVisible('consola')) {
     mostrarVentana('abajo', true);
