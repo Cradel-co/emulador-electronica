@@ -39,4 +39,32 @@ La **resonancia mecánica** del piezo: uno real suena bastante más fuerte cerca
 las notas graves de esta melodía, y acá el volumen no depende de la frecuencia. Tampoco la caja ni
 el soporte, que en un piezo real cambian mucho el resultado.
 
-Tampoco se respeta el tiempo real: la melodía suena al ritmo al que avance la emulación.
+## El ritmo no es parejo, y es así
+
+**La melodía va a sonar irregular**: a veces más rápido, a veces trancándose. No es un error del
+proyecto ni del audio — es que **el emulador no corre en tiempo real**.
+
+Medido sobre esta plantilla, con el programa pidiendo 220 ms por nota:
+
+| | |
+|---|---|
+| Lo que pide el programa | 220 ms |
+| Mediana real | ~250 ms |
+| Mínimo / máximo | 35 ms / 1517 ms |
+
+`esp-emu` ejecuta el ESP32 tan rápido o tan lento como lo deje la máquina, así que un
+`sleep_ms(220)` se convierte en lo que salga. El tono sigue fielmente a lo que hace el programa; lo
+que no es fiel es el reloj.
+
+La latencia que agrega el emulador mismo —avisar el cambio y recalcular el circuito— es de
+**9 a 41 ms**, despreciable al lado de ese jitter.
+
+Si querés oír la melodía a tiempo, el lugar es una placa real.
+
+## Un detalle de la API que vale saber
+
+`tocar()` usa **un solo `init(freq=..., duty_u16=...)`** y no `freq()` seguido de `duty_u16()`.
+
+Cada llamada avisa al emulador por separado, y entre las dos el pin queda con la frecuencia nueva
+y el ciclo de trabajo viejo. Saliendo de un silencio eso es un **instante de silencio en cada
+nota**. Con un solo `init` hay un aviso por nota y el salto no existe.

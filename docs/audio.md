@@ -89,6 +89,17 @@ Dos factores: la tensión, igual que en `fuente: "nivel"`, y el ciclo de trabajo
 **sen(π·duty)**, que es la amplitud del fundamental de una onda cuadrada: máxima al 50 % y nula en
 0 % y 100 %, donde la señal es continua y un piezo no mueve aire. Al 25 % se pierden 3 dB.
 
+### Dos cosas del ritmo
+
+**El emulador no corre en tiempo real.** Una melodía va a sonar irregular, y no es un error:
+medido sobre la plantilla, un `sleep_ms(220)` se convierte en entre 35 y 1517 ms de reloj de pared
+(mediana ~250). El tono sigue fielmente al programa; el reloj no. Lo que agrega el emulador en
+avisar y recalcular son 9 a 41 ms, despreciable al lado de eso.
+
+**Conviene un solo cambio por nota.** `freq()` y `duty_u16()` avisan por separado, y entre los dos
+el pin queda con la frecuencia nueva y el duty viejo — saliendo de un silencio, eso es un instante
+de silencio en cada nota. `init(freq=..., duty_u16=...)` lo hace en un solo aviso.
+
 ### El módulo que ya está: `buzzer-pasivo`
 
 Un disco piezoeléctrico (PS1240P02BT y equivalentes). Eléctricamente **es un capacitor**: en
