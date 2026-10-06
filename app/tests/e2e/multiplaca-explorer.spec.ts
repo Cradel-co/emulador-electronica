@@ -16,7 +16,7 @@ async function abrir(page: Page, name: string, showExplorer = true) {
   await page.goto(`/#${name}`);
   await expect(page.locator('.cm-content')).toBeVisible();
   await expect(page.locator('#tabs-archivos button.activa')).toHaveText('main.py');
-  if (showExplorer) await page.locator('#tw-explorador').click();
+  if (showExplorer) await page.keyboard.press('Control+Shift+E');
 }
 
 test('el icono del explorador permite recuperar el lateral oculto y conserva su estado', async ({ page, request }) => {
@@ -32,6 +32,8 @@ test('el icono del explorador permite recuperar el lateral oculto y conserva su 
   const icon = page.getByRole('button', { name: 'Explorador de archivos', exact: true });
   const explorer = page.locator('#explorador-archivos');
   await expect(icon).toBeInViewport();
+  // Abierto por defecto: se cierra para comprobar su recuperación.
+  await icon.click();
   await expect(icon).toHaveAttribute('aria-expanded', 'false');
   await expect(explorer).toBeHidden();
   await icon.click();

@@ -164,7 +164,7 @@ sin reescribir los componentes, la persistencia ni las acciones del producto.
 
 En las ventanas, el modelo `docking-layout.ts` describe grupos, divisiones, pestañas y visibilidad.
 `docking-storage.ts` guarda ese contrato por proyecto y como predeterminado. Los contenidos de
-Explorador, Componentes, Circuito, Código y Consola siguen siendo componentes propios: mover una
+Explorador, Componentes, Circuito, Código, Detalle y Consola siguen siendo componentes propios: mover una
 ventana conserva sus nodos, la selección del circuito y el historial del editor.
 
 Un componente compartido recibe contenido y acciones por parámetros; no incorpora condiciones
@@ -193,3 +193,24 @@ ventanas conservan sus nodos, y el docking sigue guardándose por proyecto fuera
 El adaptador tiene su proyecto TypeScript con `strictNullChecks` habilitado, requisito de
 TanStack. El typecheck del workspace compila sus declaraciones antes del frontend heredado;
 Vite usa las fuentes originales. No se debilitan los tipos de la biblioteca para integrarla.
+
+Código y Detalle son ventanas independientes. La selección del circuito abre Detalle sin
+reemplazar el editor. Detalle mantiene su ubicación y visibilidad por proyecto; los diseños
+anteriores incorporan la nueva ventana sin perder grupos, pestañas ni proporciones.
+
+La distribución original abre todas las herramientas. Código sólo está disponible si el proyecto
+tiene una placa; los cierres y reaperturas posteriores se conservan por proyecto. Las ventanas
+se cierran con su cruz y se reabren desde el menú Ver. Los botones laterales de Circuito,
+Mover, Proyectos y Código se retiraron para evitar accesos duplicados.
+
+### Vista compartida del circuito
+
+`preview.html` carga una entrada independiente (`preview.tsx`), reutiliza `canvas.ts` con
+`readonly` y no monta el editor ni Dockview. Solo permite pulsadores e interruptores,
+zoom y encuadre. El servidor entrega una instantánea del diagrama y catálogo sin
+fuentes; una capacidad aleatoria identifica la sesión y limita los controles a sus
+módulos. La sesión pertenece a una ejecución y caduca si cambia su revisión.
+Los clientes LAN solo tienen acceso al visor, bundles y endpoints de esa capacidad;
+el editor y el WebSocket de depuración mantienen acceso local por defecto.
+El estado eléctrico se consulta sin solapar pedidos, comparte un caché breve por
+proyecto y reduce su frecuencia cuando la pestaña está oculta.

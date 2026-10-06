@@ -21,9 +21,9 @@ function Componentes() {
 export function ToolWindows() {
   const views = [
     { id: 'explorador', content: <FileExplorer /> },
-    { id: 'componentes', content: <ToolWindow id="ventana-componentes" title="Componentes"
+    { id: 'componentes', content: <ToolWindow title="Componentes"
       actions={<button id="importar-modulo" className="btn-chico" title="Importar módulos" onClick={() => acciones().importarModulos()}>+ Importar</button>}
-      onClose={() => acciones().mostrarHerramienta('componentes', false)}><Componentes /></ToolWindow> },
+      ><Componentes /></ToolWindow> },
   ];
   return <>{views.map(view => {
     const dock = document.getElementById(`ventana-${view.id}`);

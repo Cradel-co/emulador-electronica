@@ -30,6 +30,8 @@ export interface EmulatorStatus {
   pid: number | null;
   project: string | null;
   ports: EmuPorts | null;
+  /** Distingue HTTP del puerto reutilizado por el REPL de MicroPython. */
+  usesWeb?: boolean;
   ip: string | null;
   startedAt: number | null;
   exitInfo: string | null;
@@ -80,6 +82,7 @@ export class EmulatorManager implements Emulador {
       pid: null,
       project: null,
       ports: null,
+      usesWeb: false,
       ip: null,
       startedAt: null,
       exitInfo: null,
@@ -144,6 +147,7 @@ export class EmulatorManager implements Emulador {
       pid: child.pid ?? null,
       project: projectName,
       ports,
+      usesWeb: artifacts.usesWebServer,
       ip: null,
       startedAt: Date.now(),
       exitInfo: null,
@@ -221,7 +225,12 @@ export class EmulatorManager implements Emulador {
     }));
   }
 
-  /** El usuario movió el entorno de una instancia: cada chip de esa placa toma lo que mide. */
+  /** Actualiza VCC de los módulos sin reiniciar el firmware. */
+  actualizarAlimentacionChips(porInstancia: Readonly<Record<string, boolean>>): void {
+    this.chips?.actualizarAlimentacion(porInstancia);
+  }
+
+  /** El usuario movió el entorno de una instancia: cada chip toma lo que mide. */
   ponerEntorno(instancia: string, valores: Record<string, number>): boolean {
     let alguno = false;
     for (const c of this.chips?.chips ?? []) {

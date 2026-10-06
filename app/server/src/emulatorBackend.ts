@@ -45,5 +45,7 @@ export interface Emulador {
   getBridge(): PuenteSim | null;
   /** El puente avisó @READY: estado 'bridge'. */
   markBridgeReady(): void;
+  /** VCC efectivo de los módulos conectados a buses, por id de instancia. */
+  actualizarAlimentacionChips(porInstancia: Readonly<Record<string, boolean>>): void;
   shutdown(): Promise<void>;
 }

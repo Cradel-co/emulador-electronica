@@ -26,9 +26,9 @@ export default defineConfig({
     // mostrando el código original al depurar. Sin minificar son 1,7 MB, casi todo react-dom.
     sourcemap: true,
     lib: {
-      entry: 'app.ts',
+      entry: { app: 'app.ts', preview: 'preview.tsx' },
       formats: ['es'],
-      fileName: () => 'app.js',
+      fileName: (_format, entryName) => `${entryName}.js`,
       cssFileName: 'app',
     },
   },

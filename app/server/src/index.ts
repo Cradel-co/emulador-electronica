@@ -1,3 +1,7 @@
+import { crearActualizadorElectrico } from './actualizadorElectrico.js';
+import { pararPlacasSinEnergia } from './pararPlacasSinEnergia.js';
+import { estadoAlimentacion, motivoSinArranque, type EstadoAlimentacion as EstadoPlaca } from './estadoAlimentacion.js';
+import { registerPreviews, localAddresses, loopback, previewResource } from './preview.js';
 import { leerFuentesMicroPython } from './micropythonSources.js';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
@@ -32,7 +36,7 @@ import { crearServidorMcp, type McpContexto } from './mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { scanPins, diffDiagramVsCode, direccionesDeCodigo, type DiagramWarning } from './pinScan.js';
 import { conPlaca, ponerPlaca, sacarPlaca } from './diagramOps.js';
-import { analizarCircuito, type DireccionPin } from './sim/analisis.js';
+import { analizarCircuito, type AnalisisCircuito, type DireccionPin } from './sim/analisis.js';
 import { precalentar } from './sim/spice.js';
 import type { AlimentacionPlaca, FuenteElectrica, LedElectrico } from './sim/tipos.js';
 import { Depurador } from './debug/depurador.js';
@@ -43,7 +47,7 @@ import { cargarChips } from './bus/catalogoChips.js';
 import { guardarMemoria, leerMemoria } from './bus/memoriaChips.js';
 
 const PORT = Number(process.env.PORT ?? 5180);
-const HOST = process.env.HOST ?? '127.0.0.1'; // por defecto nunca 0.0.0.0 (sección 13)
+const HOST = process.env.HOST ?? '0.0.0.0'; // LAN: el editor y sus API siguen restringidos a loopback.
 
 export interface ServerDeps {
   store: ProjectStore;
@@ -71,6 +75,7 @@ const nivelesPorPlaca = new Map<string, Map<number, 0 | 1>>([['board', niveles]]
 const corridas = new Map<string, Emulador>();
 let primaryBoardId = 'board';
 let runGeneration = 0;
+const previewRevisions = new Map<string, number>();
 let runQueue: Promise<unknown> = Promise.resolve();
 let executingProject: string | null = null;
 const nivelesDePlaca = (id: string) => {
@@ -369,7 +374,6 @@ async function quitarPlaca(nombre: string, boardId?: string): Promise<Project> {
     runningProject = null;
     controlesCerrados.clear();
   }
-  placasQuemadas.delete(nombre);
   return store.save(sacarPlaca(actual, boardId));
 }
 
@@ -410,10 +414,38 @@ async function registerRoutes(): Promise<void> {
   const app = logger;
 
   app.addHook('onRequest', async (req, reply) => {
+    if (!loopback(req.ip) && !process.env.HOST && !previewResource(req.url.split('?')[0] ?? '')) {
+      return reply.code(403).send({ error: 'En la red local solo está disponible la vista compartida.' });
+    }
     const origin = typeof req.headers.origin === 'string' ? req.headers.origin : undefined;
     if (!origenPermitido(origin, req.headers.host)) {
       return reply.code(403).send({ error: 'Origen no permitido' });
     }
+  });
+
+  registerPreviews(app, {
+    port: PORT,
+    revision: name => runningProject === name && [...corridas.values()].some(e => e.getStatus().running)
+      ? `${runGeneration}:${previewRevisions.get(name) ?? 0}` : null,
+    async snapshot(name) {
+      const project = await requireProject(name);
+      const types = new Set(project.modules.map(m => m.type));
+      const catalog = (await loadCatalog()).filter(m => types.has(m.type)).map(({ modeloCodigo, ...def }) => def);
+      return { name, diagram: structuredClone({ modules: project.modules, wires: project.wires }), catalog };
+    },
+    async state(name) {
+      const project = await requireProject(name);
+      const catalog = await loadCatalog();
+      const analysis = await analizarCircuito(conPlaca(project), type => catalog.find(m => m.type === type), {
+        nivelesReales: true,
+        nivelesPorPlaca, cerrados: cerradosDe(name), fuentesApagadas: fuentesApagadasDe(project),
+        direccionesPorPlaca: await direccionesTodas(project), estados: estadosModulos.get(name),
+      });
+      return { electrico: { resuelto: analysis.resuelto, leds: analysis.leds.map(led => ({ id: led.id, mA: led.mA, mAFijo: led.mAFijo })),
+        modulos: Object.fromEntries(Object.entries(analysis.modulos).map(([id, module]) => [id, module.ui ?? {}])) },
+        cerrados: [...cerradosDe(name)] };
+    },
+    control: fijarControl,
   });
 
   app.get('/api/health', async () => ({ ok: true, port: PORT }));
@@ -692,6 +724,7 @@ async function registerRoutes(): Promise<void> {
         wires: (body.wires ?? project.wires) as never,
       });
       await revisarAlimentacion(name);
+      previewRevisions.set(name, (previewRevisions.get(name) ?? 0) + 1);
       broadcast({ type: 'project.changed', project: name, what: 'diagram', origin: clienteDe(req) });
       reply.send({ project: updated });
     } catch (err) {
@@ -994,6 +1027,7 @@ async function recargarCodigo(nombre: string, boardId?: string): Promise<Recarga
     for (const pin of await pinsDeCodigo(project, b.id)) target.getBridge()?.watch(pin);
     broadcast({ type: 'project.changed', project: nombre, what: 'file', boardId: b.id, origin: 'server' });
   }
+  previewRevisions.set(nombre, (previewRevisions.get(nombre) ?? 0) + 1);
   return { ok: true, modo: compiled ? 'relanzado' : 'repl' };
 }
 
@@ -1077,13 +1111,14 @@ async function ejecutarProyecto(
   const buscarDef = (t: string): ModuloCatalogo | undefined => catalogo.find(m => m.type === t);
   const directions = await direccionesTodas(full);
   const electrico = await analizarCircuito(conPlaca(full), buscarDef, {
+    nivelesReales: true,
     direccionesPorPlaca: directions, nivelesPorPlaca: runningProject === full.name ? nivelesPorPlaca : new Map(), cerrados: cerradosDe(full.name), fuentesApagadas: fuentesApagadasDe(full),
   });
   const starts: { boardId: string; board: string; language: Language; placa: Placa; engine: string; target: Emulador }[] = [];
   for (const b of boards) {
     if (cancelled()) return cancelledResult();
     const power = electrico.alimentacionesPorPlaca?.[b.id] ?? electrico.alimentacion;
-    const sinArranque = motivoSinArranque(conQuemadura(full, power, b.id));
+    const sinArranque = motivoSinArranque(estadoAlimentacion(power, electrico.resuelto));
     if (sinArranque) {
       logBuild(`[${b.id}] [error] ${sinArranque}`);
       return { ok: false, errors: [{ line: null, file: null, message: `[${b.id}] ${sinArranque}` }], sinAlimentacion: true };
@@ -1172,15 +1207,6 @@ async function pinsDeCodigo(project: { name: string; language: Language | null; 
 // --- Alimentación de la placa ------------------------------------------------------
 
 /**
- * Proyectos cuya placa se quemó (sobretensión o polaridad invertida en una entrada de
- * alimentación). Queda muerta hasta reemplazarla, como un LED quemado, aunque se arregle el
- * cableado. En memoria: reiniciar el server también la "repara".
- */
-const placasQuemadas = new Set<string>();
-
-type EstadoPlaca = AlimentacionPlaca & { quemada: boolean };
-
-/**
  * Interruptores cerrados ahora (pulsador apretado, llave encendida), por proyecto. El motor
  * eléctrico los trata como un cable. Se vacía al arrancar o parar la simulación: al volver a
  * empezar, nadie está apretando nada.
@@ -1223,7 +1249,7 @@ async function fijarControl(nombre: string, id: string, cerrado: boolean): Promi
 
 /** Último nivel que cada GPIO de entrada leyó del circuito (para no repetirle lo mismo al puente). */
 const sensadosPorPlaca = new Map<string, Map<number, 0 | 1>>();
-let timerSensado = 0;
+const actualizadorElectrico = crearActualizadorElectrico(actualizarEntradasDelCircuito);
 
 /**
  * Le avisa al firmware lo que sus pines de entrada leen **del circuito** (idea del PR #5): la
@@ -1233,94 +1259,93 @@ let timerSensado = 0;
  * por arte de magia: como en la mesa.
  *
  * Una lectura indefinida (entre VIL y VIH, o un pin flotando) no se manda: el pin conserva lo que
- * tenía, como hace la histéresis de una entrada real. Se agrupa a 50 ms porque un LED que
+ * tenía por política del puente; no simula histéresis ni ruido físico. Se agrupa a 50 ms porque un LED que
  * parpadea manda muchos cambios de salida y cada uno obliga a resolver el circuito de nuevo.
  */
 function refrescarEntradasDelCircuito(nombre: string): Promise<void> {
-  if (timerSensado) return Promise.resolve();
-  return new Promise((listo) => {
-    timerSensado = setTimeout(() => {
-      timerSensado = 0;
-      void (async () => {
-        try {
-          if (runningProject !== nombre || ![...corridas.values()].some(e => e.getStatus().state === 'bridge')) return;
-          const catalogo = await loadCatalog();
-          const buscar = (t: string): ModuloCatalogo | undefined => catalogo.find((m) => m.type === t);
-          const original = await store.read(nombre);
-          const r = await analizarCircuito(conPlaca(original), buscar, {
-            nivelesPorPlaca, cerrados: cerradosDe(nombre), direccionesPorPlaca: await direccionesTodas(original),
-          });
-          for (const e of r.entradas) {
-            const boardId = e.boardId ?? primaryBoardId;
-            const target = corridas.get(boardId);
-            const bridge = target?.getBridge();
-            if (!bridge || target?.getStatus().state !== 'bridge') continue;
-            const sensados = sensadosPorPlaca.get(boardId) ?? new Map<number, 0 | 1>();
-            sensadosPorPlaca.set(boardId, sensados);
-            if (e.nivel === null || sensados.get(e.gpio) === e.nivel) continue;
-            sensados.set(e.gpio, e.nivel);
-            bridge.setInput(e.gpio, e.nivel);
-            depuradorDe(boardId).alEntrada(e.gpio, e.nivel, 'circuito');
-          }
-        } catch (err) {
-          console.error(`[entradas] no se pudo leer el circuito: ${(err as Error).message}`);
-        } finally {
-          listo();
-        }
-      })();
-    }, 50) as unknown as number;
-  });
+  return actualizadorElectrico.solicitar(nombre);
+}
+
+async function actualizarEntradasDelCircuito(nombre: string): Promise<void> {
+  try {
+    if (runningProject !== nombre || ![...corridas.values()].some(e => e.getStatus().state === 'bridge')) return;
+    const generacion = runGeneration;
+    const catalogo = await loadCatalog();
+    const buscar = (t: string): ModuloCatalogo | undefined => catalogo.find(m => m.type === t);
+    const original = await store.read(nombre);
+    const r = await analizarCircuito(conPlaca(original), buscar, {
+      nivelesReales: true, nivelesPorPlaca, cerrados: cerradosDe(nombre), direccionesPorPlaca: await direccionesTodas(original),
+    });
+    // Una consulta iniciada antes de cambiar de proyecto no debe modificar la nueva corrida.
+    if (runningProject !== nombre || generacion !== runGeneration) return;
+    const alimentacionChips = Object.fromEntries(original.modules.map(m => [m.id, r.resuelto && r.modulos[m.id]?.ui?.on === true]));
+    for (const target of corridas.values()) target.actualizarAlimentacionChips(alimentacionChips);
+    await aplicarAlimentacionCalculada(original, r);
+    if (runningProject !== nombre || generacion !== runGeneration) return;
+    for (const e of r.entradas) {
+      const boardId = e.boardId ?? primaryBoardId;
+      const target = corridas.get(boardId);
+      const bridge = target?.getBridge();
+      if (!bridge || target?.getStatus().state !== 'bridge') continue;
+      const sensados = sensadosPorPlaca.get(boardId) ?? new Map<number, 0 | 1>();
+      sensadosPorPlaca.set(boardId, sensados);
+      if (e.nivel === null || sensados.get(e.gpio) === e.nivel) continue;
+      sensados.set(e.gpio, e.nivel);
+      bridge.setInput(e.gpio, e.nivel);
+      depuradorDe(boardId).alEntrada(e.gpio, e.nivel, 'circuito');
+    }
+  } catch (err) {
+    console.error(`[entradas] no se pudo leer el circuito: ${(err as Error).message}`);
+  }
 }
 
 async function alimentacionDe(project: Project): Promise<EstadoPlaca> {
   const catalogo = await loadCatalog();
   const buscar = (t: string): ModuloCatalogo | undefined => catalogo.find((m) => m.type === t);
-  const { alimentacion } = await analizarCircuito(conPlaca(project), buscar, {
+  const { alimentacion, resuelto } = await analizarCircuito(conPlaca(project), buscar, {
+    nivelesReales: true,
     direccionesPorPlaca: await direccionesTodas(project),
     nivelesPorPlaca, cerrados: cerradosDe(project.name), fuentesApagadas: fuentesApagadasDe(project),
   });
-  return conQuemadura(project, alimentacion);
+  return estadoAlimentacion(alimentacion, resuelto);
 }
 
-/** La quemadura de la placa se recuerda (queda muerta hasta reemplazarla), aunque se arregle el cableado. */
-function conQuemadura(project: Project, alimentacion: AlimentacionPlaca, boardId = placasDelProyecto(project)[0]?.id ?? 'board'): EstadoPlaca {
-  const key = boardId === 'board' ? project.name : `${project.name}:${boardId}`;
-  if (alimentacion.estado === 'quema') placasQuemadas.add(key);
-  return { ...alimentacion, quemada: placasQuemadas.has(key) };
+/** Detiene sólo las placas cuyo diagnóstico no permite continuar; conserva las otras corridas. */
+async function aplicarAlimentacionCalculada(p: Project, r: AnalisisCircuito): Promise<void> {
+  if (runningProject !== p.name) return;
+  const generacion = runGeneration;
+  const diagnosticos = placasDelProyecto(p).map(b => ({
+    id: b.id,
+    motivo: motivoSinArranque(estadoAlimentacion(r.alimentacionesPorPlaca?.[b.id] ?? r.alimentacion, r.resuelto)),
+  }));
+  const paradas = await pararPlacasSinEnergia(diagnosticos, new Map(corridas),
+    () => runningProject === p.name && generacion === runGeneration);
+  if (runningProject !== p.name || generacion !== runGeneration) return;
+  for (const id of paradas) {
+    nivelesPorPlaca.delete(id);
+    sensadosPorPlaca.delete(id);
+    eventosEmulador.onLog(`[alimentación] [${id}] ${diagnosticos.find(d => d.id === id)?.motivo} Se detuvo esta placa.`);
+  }
+  if (paradas.length && ![...corridas.values()].some(e => e.getStatus().running)) runningProject = null;
 }
 
-/** Por qué no puede correr la placa (o null si puede). */
-function motivoSinArranque(a: EstadoPlaca): string | null {
-  if (a.quemada) return `La placa está quemada${a.estado === 'quema' ? ` (${a.mensaje})` : ''}: reemplazala para volver a usarla.`;
-  return a.estado === 'ok' ? null : a.mensaje;
-}
-
-/** Después de cada cambio del dibujo: si la placa se quemó o se quedó sin energía, la simulación se corta. */
+/** Después de cambiar el dibujo se vuelve a comprobar la alimentación de cada placa. */
 async function revisarAlimentacion(nombre: string): Promise<void> {
+  const generacion = runGeneration;
   const p = await store.read(nombre);
   if (!p.board) return; // sin placa no hay nada que se quede sin energía
   const catalogo = await loadCatalog();
   const r = await analizarCircuito(conPlaca(p), t => catalogo.find(m => m.type === t), {
+    nivelesReales: true,
     nivelesPorPlaca: runningProject === nombre ? nivelesPorPlaca : undefined, direccionesPorPlaca: await direccionesTodas(p),
     cerrados: cerradosDe(nombre), fuentesApagadas: fuentesApagadasDe(p),
   });
-  const motivos = placasDelProyecto(p).flatMap(b => {
-    const motivo = motivoSinArranque(conQuemadura(p, r.alimentacionesPorPlaca?.[b.id] ?? r.alimentacion, b.id));
-    return motivo ? [`[${b.id}] ${motivo}`] : [];
-  });
-  const motivo = motivos.join(' ');
-  if (!motivo || runningProject !== nombre || ![...corridas.values()].some(e => e.getStatus().running)) return;
-  eventosEmulador.onLog(`[alimentación] ${motivo} Se detuvo la simulación.`);
-  await pararCorridas();
-  runningProject = null;
-  controlesCerrados.clear();
+  if (generacion === runGeneration) await aplicarAlimentacionCalculada(p, r);
 }
 
-function reemplazarPlaca(nombre: string, boardId?: string): boolean {
-  if (boardId) return placasQuemadas.delete(boardId === 'board' ? nombre : `${nombre}:${boardId}`);
-  let replaced = false;
-  for (const key of placasQuemadas) if (key === nombre || key.startsWith(`${nombre}:`)) { placasQuemadas.delete(key); replaced = true; }
-  return replaced;
+function reemplazarPlaca(_nombre: string, _boardId?: string): boolean {
+  // Compatibilidad del endpoint: ya no existe un historial de averías inferidas sin modelo.
+  return false;
 }
 
 /** Avisos de circuito ↔ código (11.6) + Ley de Ohm (cortocircuitos, sobrecorriente): lo que ve la UI y el MCP. */
@@ -1334,6 +1359,7 @@ async function avisosDelProyecto(
    * tensiones: lo que mediría un tester en cada pin cableado.
    */
   electrico: {
+    resuelto: boolean;
     leds: LedElectrico[];
     fuentes: FuenteElectrica[];
     placa: EstadoPlaca | null;
@@ -1356,28 +1382,21 @@ async function avisosDelProyecto(
   const direccionesPorPlaca = await direccionesTodas(project);
   const direcciones = direccionesPorPlaca.get(placasDelProyecto(project)[0]?.id ?? 'board') ?? new Map<number, DireccionPin>();
   const levels = project.name === runningProject ? nivelesPorPlaca : new Map<string, Map<number, 0 | 1>>();
-  const vivo = await analizarCircuito(conLaPlaca, buscar, { nivelesPorPlaca: levels, cerrados, fuentesApagadas, estados, direccionesPorPlaca });
+  const vivo = await analizarCircuito(conLaPlaca, buscar, { nivelesReales: true, nivelesPorPlaca: levels, cerrados, fuentesApagadas, estados, direccionesPorPlaca });
   // Lo que cada modelo quiere recordar vuelve en el próximo cálculo (solo del vivo: los otros son hipotéticos).
   for (const [id, m] of Object.entries(vivo.modulos)) if (m.estado) estados.set(id, m.estado);
   estadosModulos.set(project.name, estados);
-  const placa = project.board ? conQuemadura(project, vivo.alimentacion) : null;
-  // Cada LED con las salidas del código EN ALTO (peor caso, sin mirar la simulación): la UI lo usa
-  // para "quemarlo" cuando la simulación lo prende. Y con las salidas en bajo: la corriente que le
-  // llega sin depender del código (mAFijo), para prenderlo aunque ningún GPIO lo maneje.
-  // Sin placa no hay salidas del código: alcanza con un solo cálculo.
-  const peor = project.board ? await analizarCircuito(conLaPlaca, buscar, { cerrados, fuentesApagadas, direccionesPorPlaca }) : vivo;
-  const fijo = project.board ? await analizarCircuito(conLaPlaca, buscar, { cerrados, fuentesApagadas, salidasForzadas: 0, direccionesPorPlaca }) : vivo;
-  const leds = peor.leds.map((l) => ({ ...l, mAFijo: fijo.leds.find((x) => x.id === l.id)?.mA ?? 0 }));
+  const placa = project.board ? estadoAlimentacion(vivo.alimentacion, vivo.resuelto) : null;
+  // Misma instantánea para UI, medidas y diagnóstico: LED activo bajo o entre dos
+  // GPIO depende de niveles reales. Todos-altos/todos-bajos no son un peor caso general.
+  const leds = vivo.leds;
   const { avisos: electricos, fuentes } = vivo;
-  // Quemada de antes (ya sin la sobretensión): el motor no lo sabe, se avisa acá.
-  const quemadaDeAntes = placa?.quemada && placa.estado !== 'quema'
-    ? [{ kind: 'peligro-electrico' as const, pin: -1, message: motivoSinArranque(placa)!, refs: undefined }]
-    : [];
   return {
     pins,
     electrico: {
+      resuelto: vivo.resuelto,
       leds, fuentes, placa, energizado: proyectoEnergizado === project.name, tensiones: vivo.tensiones,
-      placas: Object.fromEntries(Object.entries(vivo.alimentacionesPorPlaca ?? {}).map(([id, a]) => [id, conQuemadura(project, a, id)])),
+      placas: Object.fromEntries(Object.entries(vivo.alimentacionesPorPlaca ?? {}).map(([id, a]) => [id, estadoAlimentacion(a, vivo.resuelto)])),
       mediciones: vivo.elementos.map((e) => {
         const inst = project.modules.find((m) => m.id === e.dueno);
         const def = inst ? buscar(inst.type) : undefined;
@@ -1395,7 +1414,6 @@ async function avisosDelProyecto(
       modulos: Object.fromEntries(Object.entries(vivo.modulos).map(([id, m]) => [id, m.ui ?? {}])),
     },
     warnings: [
-      ...quemadaDeAntes,
       ...diffDiagramVsCode(project, pins, project.board ? buscar(project.board)?.board : undefined),
       ...electricos.map((a) => ({
         kind: a.severidad === 'peligro' ? ('peligro-electrico' as const) : ('advertencia-electrica' as const),
@@ -1561,12 +1579,14 @@ const ORIGENES = new Set([
   `http://localhost:${PORT}`,
   ...(HOST === '127.0.0.1' || HOST === '0.0.0.0' ? [] : [`http://${HOST}:${PORT}`]),
   ...EXTRA.map((h) => `http://${h}`),
+  ...localAddresses().map(address => `http://${address}:${PORT}`),
 ]);
 const HOSTS = new Set([
   `127.0.0.1:${PORT}`,
   `localhost:${PORT}`,
   ...(HOST === '127.0.0.1' || HOST === '0.0.0.0' ? [] : [`${HOST}:${PORT}`]),
   ...EXTRA,
+  ...localAddresses().map(address => `${address}:${PORT}`),
 ]);
 
 function origenPermitido(origin: string | undefined, host: string | undefined): boolean {
@@ -1581,7 +1601,7 @@ function attachWebSocket(server: import('node:http').Server): void {
     server,
     path: '/ws',
     verifyClient: (info: { origin: string; req: import('node:http').IncomingMessage }) =>
-      origenPermitido(info.origin || undefined, info.req.headers.host),
+      (Boolean(process.env.HOST) || loopback(info.req.socket.remoteAddress)) && origenPermitido(info.origin || undefined, info.req.headers.host),
   });
   wss.on('connection', (ws) => {
     clients.add(ws);

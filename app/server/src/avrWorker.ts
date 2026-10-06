@@ -17,6 +17,7 @@ export type MensajeAlWorker =
   | { t: 'iniciar'; hex: string; frecuenciaHz: number; pines: PinMcu[]; chips?: ChipEnBus[]; arranqueMs?: number }
   /** El usuario movió el entorno de un chip (temperatura...). */
   | { t: 'entorno'; id: string; valores: Record<string, number> }
+  | { t: 'alimentacion-chips'; porInstancia: Record<string, boolean> }
   | { t: 'entrada'; pin: number; nivel: 0 | 1 | null }
   | { t: 'vigilar'; pin: number }
   | { t: 'serial'; datos: number[] }
@@ -141,6 +142,14 @@ export function atenderWorker(puerto: MessagePort): void {
           break;
         case 'entrada':
           lineas.desdeApp(m.pin, m.nivel);
+          break;
+        case 'alimentacion-chips':
+          for (const c of chips) {
+            const on = m.porInstancia[c.instancia];
+            if (!Object.hasOwn(m.porInstancia, c.instancia) || typeof on !== 'boolean') continue;
+            c.alimentado = on;
+            bus?.ponerAlimentacion(c.id, on);
+          }
           break;
         case 'entorno':
           bus?.ponerEntorno(m.id, m.valores);

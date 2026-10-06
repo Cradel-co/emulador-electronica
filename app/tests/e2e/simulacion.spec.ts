@@ -16,7 +16,7 @@ test('apretar el pulsador del circuito prende el LED (firmware real en el emulad
 
   await page.locator('#ejecutar').click();
   await expect(page.locator('#estado')).toHaveAttribute('data-s', 'bridge', { timeout: 7 * 60_000 });
-  await expect(page.locator('#ayuda-lienzo')).toContainText('Simulación corriendo');
+  await expect(page.locator('#ayuda-lienzo, #badge-alimentacion')).toHaveCount(0);
   await expect(page.locator('#badge-modo')).toBeVisible();
 
   expect(await ledPrendido(page, 'led1')).toBe(false);

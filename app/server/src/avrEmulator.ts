@@ -71,7 +71,7 @@ export class AvrEmulator implements Emulador {
   ) {}
 
   private static emptyStatus(): EmulatorStatus {
-    return { state: 'stopped', running: false, pid: null, project: null, ports: null, ip: null, startedAt: null, exitInfo: null };
+    return { state: 'stopped', running: false, pid: null, project: null, ports: null, usesWeb: false, ip: null, startedAt: null, exitInfo: null };
   }
 
   getStatus(): EmulatorStatus {
@@ -88,6 +88,17 @@ export class AvrEmulator implements Emulador {
       id: c.id, instancia: c.instancia, chip: c.chip, nombre: c.nombre, alimentado: c.alimentado,
       entorno: { ...this.entornos.get(c.id) }, salida: this.salidasChips.get(c.id),
     }));
+  }
+
+  /** Actualiza VCC también dentro del hilo que ejecuta los periféricos AVR. */
+  actualizarAlimentacionChips(porInstancia: Readonly<Record<string, boolean>>): void {
+    for (const c of this.chips) {
+      const on = porInstancia[c.instancia];
+      if (!Object.hasOwn(porInstancia, c.instancia) || typeof on !== 'boolean') continue;
+      c.alimentado = on;
+      this.busLocal?.ponerAlimentacion(c.id, on);
+    }
+    this.mandar({ t: 'alimentacion-chips', porInstancia: { ...porInstancia } });
   }
 
   /**

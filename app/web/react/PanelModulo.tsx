@@ -1,3 +1,4 @@
+import { riesgoDesdeFisica } from '../estado-electrico.js';
 import { Miniatura } from './Miniatura.js';
 import { SeccionChip } from './SeccionChip.js';
 import { useEstado, useVersion } from './estado.js';
@@ -25,7 +26,8 @@ export function PanelModulo({ inst, def }: { inst: any; def: any }) {
   const chips = ((def?.chips ?? []) as { id: string }[])
     .map((u) => (estado().chips as Map<string, any>).get(u.id))
     .filter(Boolean);
-  const quemado = estado().sim.quemados.get(inst.id);
+  const lectura = estado().electrico.get(inst.id);
+  const riesgo = riesgoDesdeFisica({ valida: estado().fisicaValida, led: lectura });
   const faltan = pinesSinAlimentar(inst, def, diagrama.wires);
   const control = controlDe(def);
 
@@ -36,7 +38,9 @@ export function PanelModulo({ inst, def }: { inst: any; def: any }) {
         <div className="insp-mini"><Miniatura def={def} /></div>
         <p className="insp-desc">{def.description ?? ''}</p>
         <div className={`insp-badge${esAire ? ' aire' : ''}`}>
-          {esAire
+          {def.programmable
+            ? <><b>Placa programable</b> — su código se edita en la ventana Código. Estas propiedades pertenecen a esta placa.</>
+            : esAire
             ? <><b>Inalámbrico</b> — no se programa ni lleva cables: se comunica por radio 433 MHz con el receptor o transmisor conectado a la {vistas().nombrePlaca()}.</>
             : chips.length > 0
               ? <><b>Con chip</b> — adentro tiene {chips.map((c) => `un ${c.nombre}`).join(' y ')} que habla{chips.length > 1 ? 'n' : ''} por su bus con el código de la {vistas().nombrePlaca()}: se emula su lógica, no solo su consumo.</>
@@ -45,12 +49,17 @@ export function PanelModulo({ inst, def }: { inst: any; def: any }) {
                 : <><b>Sin código</b> — este módulo no se programa: se conecta a la {vistas().nombrePlaca()} con cables y el código de la placa lo controla.</>}
         </div>
 
-        {quemado && (
-          <div className="insp-badge quemado">
-            <b>Quemado</b>: le pasaron ~{Math.round(quemado.mA ?? 0)} mA. Ya no enciende aunque arregles el circuito, igual que un LED real.
-            <button type="button" id="insp-reemplazar" className="btn-accionar" onClick={() => acciones().reemplazarQuemado(inst.id)}>
-              Reemplazar LED
-            </button>
+        {riesgo && (
+          <div className="insp-badge advertencia">
+            <b>Riesgo de sobrecorriente</b>: circulan ~{Math.round(lectura?.mA ?? 0)} mA.
+            Supera el límite configurado del modelo. El LED sigue conduciendo;
+            no se simula su temperatura ni una avería permanente. Revisá la resistencia en serie.
+          </div>
+        )}
+
+        {!estado().fisicaValida && (
+          <div className="insp-badge advertencia">
+            <b>Sin medición eléctrica válida</b>: no se puede confirmar el estado físico del módulo.
           </div>
         )}
 
@@ -72,7 +81,7 @@ export function PanelModulo({ inst, def }: { inst: any; def: any }) {
         {Object.keys(def.props ?? {}).length > 0 && <Propiedades inst={inst} def={def} />}
 
         <button className="peligro" id="insp-eliminar" onClick={() => acciones().eliminarModulo(inst.id)}>
-          Eliminar módulo
+          {def.programmable ? 'Quitar la placa' : 'Eliminar módulo'}
         </button>
       </div>
     </>

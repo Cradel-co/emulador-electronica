@@ -31,6 +31,11 @@ describe('distribuciones guardadas por proyecto', () => {
     clearProjectDockLayout('A');
     expect(projectDockLayout('A')).toEqual(defaultDockLayout()); expect(projectDockFilter('A')).toBe('');
   });
+  it('un proyecto sin placa inicia con Código cerrado y las otras ventanas abiertas', () => {
+    const layout = projectDockLayout('sin-placa', false);
+    expect(layout.open).toEqual({ explorador: true, componentes: true, circuito: true, codigo: false, detalle: true, consola: true });
+    expect(projectDockLayout('sin-placa', false)).toEqual(layout);
+  });
   it('una preferencia corrupta o almacenamiento no disponible no rompe el arranque', () => {
     localStorage.setItem('emu:docking:project:A:v1', '{malformado');
     expect(projectDockLayout('A')).toEqual(defaultDockLayout());

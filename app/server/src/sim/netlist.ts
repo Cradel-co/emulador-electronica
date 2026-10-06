@@ -1,5 +1,6 @@
 import type { ModeloDiodo, Primitiva } from '@emu/shared';
 import type { ResultadoSpice } from './spice.js';
+import { ErrorSpice, validarDiagnosticosSpice, validarPrimitivaSpice, valorSpice } from './validacionSpice.js';
 
 /**
  * Arma un netlist de ngspice a partir de elementos físicos (las primitivas de los modelos
@@ -38,6 +39,8 @@ export interface ElementoArmado {
   signo?: 1 | -1;
   /** Nodos de control (interruptor controlado por tensión). */
   control?: [string, string];
+  /** Condición de habilitación de una salida regulada; no es una unión Vin↔Vout. */
+  regulador?: { tierra: string; caida: number };
 }
 
 export interface ElementoResuelto {
@@ -53,6 +56,7 @@ export interface ElementoResuelto {
   p: number;
   /** Resistencia equivalente (resistencias e interruptores). */
   ohms?: number;
+  regulador?: { tierra: string; activo: boolean };
 }
 
 const limpio = (s: string): string => s.replace(/[^A-Za-z0-9_]/g, '_');
@@ -90,6 +94,8 @@ export class Netlist {
 
   /** Un elemento físico entre dos nodos SPICE ya resueltos. */
   agregar(dueno: string, p: Primitiva & { a: string; b: string; cp?: string; cn?: string; tierra?: string }): ElementoArmado {
+    validarPrimitivaSpice(p);
+    if (this.elementos.some(e => e.id === `${dueno}.${p.nombre}`)) throw new ErrorSpice(`Elemento duplicado: ${dueno}.${p.nombre}`, [], this.texto());
     const n = this.nombre(dueno, p.nombre);
     const el: ElementoArmado = { id: `${dueno}.${p.nombre}`, dueno, local: p.nombre, tipo: p.tipo, a: p.a, b: p.b };
     // Amperímetro en serie para todo lo que no sea una resistencia.
@@ -187,6 +193,7 @@ export class Netlist {
    */
   private regulador(n: string, el: ElementoArmado, dueno: string, p: Extract<Primitiva, { tipo: 'REG' }> & { a: string; b: string }): void {
     const t = p.tierra;
+    el.regulador = { tierra: t, caida: p.caida };
     const v = (nodo: string): string => (nodo === '0' ? '0' : `V(${nodo})`);
     const vin = t === '0' ? v(p.a) : `(${v(p.a)}-${v(t)})`;
     const m = this.modelo(MODELO_RECORTE);
@@ -244,18 +251,26 @@ export class Netlist {
   /** Tensión de un nodo SPICE en el resultado (0 para la tierra). */
   static tension(r: ResultadoSpice, nodo: string): number {
     if (nodo === '0') return 0;
-    return r.valores.get(`v(${nodo})`) ?? 0;
+    return valorSpice(r.valores, `v(${nodo})`, r.errores, '');
   }
 
   resolver(r: ResultadoSpice): ElementoResuelto[] {
+    validarDiagnosticosSpice(r.errores, this.texto());
     return this.elementos.map((el) => {
       const va = Netlist.tension(r, el.a);
       const vb = Netlist.tension(r, el.b);
       let i: number;
       if (el.ohms !== undefined) i = (va - vb) / el.ohms;
-      else if (el.medidor) i = (el.signo ?? 1) * (r.valores.get(`i(${el.medidor})`) ?? 0);
-      else i = 0;
-      return { id: el.id, dueno: el.dueno, local: el.local, tipo: el.tipo, a: el.a, b: el.b, va, vb, i, p: (va - vb) * i, ohms: el.ohms };
+      else if (el.medidor) i = (el.signo ?? 1) * valorSpice(r.valores, `i(${el.medidor})`, r.errores, this.texto());
+      else throw new ErrorSpice(`El elemento ${el.id} no tiene medición de corriente`, r.errores, this.texto());
+      const potencia = (va - vb) * i;
+      if (!Number.isFinite(i) || !Number.isFinite(potencia)) throw new ErrorSpice(`Medición no finita en ${el.id}`, r.errores, this.texto());
+      const regulador = el.regulador ? {
+        tierra: el.regulador.tierra,
+        activo: va - Netlist.tension(r, el.regulador.tierra) > el.regulador.caida
+          && vb - Netlist.tension(r, el.regulador.tierra) > 1e-9,
+      } : undefined;
+      return { id: el.id, dueno: el.dueno, local: el.local, tipo: el.tipo, a: el.a, b: el.b, va, vb, i, p: potencia, ohms: el.ohms, regulador };
     });
   }
 }

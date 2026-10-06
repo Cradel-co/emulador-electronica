@@ -2,7 +2,7 @@ import { expect, type Locator, type Page } from '@playwright/test';
 
 export type DockZone = 'left' | 'right' | 'top' | 'bottom' | 'center';
 const titles: Record<string, string> = {
-  explorador: 'Explorador', componentes: 'Componentes', circuito: 'Circuito', codigo: 'Código', consola: 'Consola',
+  explorador: 'Explorador', componentes: 'Componentes', circuito: 'Circuito', codigo: 'Código', detalle: 'Detalle', consola: 'Consola',
 };
 
 export function grupoVentana(page: Page, id: string): Locator {
@@ -23,7 +23,7 @@ export function agarreVentana(page: Page, title: string): Locator {
 
 /** Arrastra con eventos de puntero reales, sin invocar la API del motor. */
 export async function arrastrarVentana(page: Page, title: string, targetId: string, zone: DockZone) {
-  const handle = agarreVentana(page, title);
+  const handle = page.getByRole('tab', { name: title, exact: true }).locator('.dock-window-tab > span').nth(1);
   // El área de contenido evita activar la reordenación de pestañas al apuntar arriba.
   const target = grupoVentana(page, targetId).locator('.dv-content-container');
   await expect(handle).toBeVisible();

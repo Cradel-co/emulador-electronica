@@ -137,6 +137,17 @@ export class PuenteChips {
     }
   }
 
+  /** La alimentación pertenece al módulo: también apaga chips auxiliares como su EEPROM. */
+  actualizarAlimentacion(porInstancia: Readonly<Record<string, boolean>>): void {
+    if (this.apagado) return;
+    for (const c of this.chips) {
+      const on = porInstancia[c.instancia];
+      if (!Object.hasOwn(porInstancia, c.instancia) || typeof on !== 'boolean') continue;
+      c.alimentado = on;
+      for (const bus of [...this.i2c.values(), ...this.spi.values()]) bus.ponerAlimentacion(c.id, on);
+    }
+  }
+
   /** Cambió el entorno de un chip (lo movió el usuario). */
   ponerEntorno(id: string, valores: Record<string, number>): void {
     for (const b of [...this.i2c.values(), ...this.spi.values()]) b.ponerEntorno(id, valores);

@@ -6,10 +6,10 @@ import { abrirProyectoNuevo } from './helpers.js';
  * React (#9) y contra el código imperativo, para que la migración tenga red.
  */
 test.describe('paleta de comandos', () => {
-  test('se abre con el botón y con Ctrl+Shift+P, con el foco en la entrada', async ({ page, request }) => {
+  test('se abre con Ctrl+Shift+P, con el foco en la entrada', async ({ page, request }) => {
     await abrirProyectoNuevo(page, request);
     const dlg = page.locator('#dlg-buscar');
-    await page.locator('#buscar-todo').click();
+    await page.keyboard.press('Control+Shift+P');
     await expect(dlg).toBeVisible();
     await expect(page.locator('#pc-entrada')).toBeFocused();
     await expect(page.locator('#pc-lista li[role="option"]').first()).toBeVisible();
@@ -25,7 +25,7 @@ test.describe('paleta de comandos', () => {
 
   test('filtra mientras se escribe, resalta lo que coincide y avisa si no hay nada', async ({ page, request }) => {
     await abrirProyectoNuevo(page, request);
-    await page.locator('#buscar-todo').click();
+    await page.keyboard.press('Control+Shift+P');
     const lista = page.locator('#pc-lista');
 
     await page.locator('#pc-entrada').fill('agregar led');
@@ -41,7 +41,7 @@ test.describe('paleta de comandos', () => {
 
   test('las flechas mueven la selección y Enter ejecuta y cierra', async ({ page, request }) => {
     await abrirProyectoNuevo(page, request);
-    await page.locator('#buscar-todo').click();
+    await page.keyboard.press('Control+Shift+P');
     const opciones = page.locator('#pc-lista li[role="option"]');
 
     await expect(opciones.nth(0)).toHaveClass(/sel/);
@@ -64,14 +64,14 @@ test.describe('paleta de comandos', () => {
 
   test('un click en una opción la ejecuta; un click en el fondo cierra', async ({ page, request }) => {
     await abrirProyectoNuevo(page, request);
-    await page.locator('#buscar-todo').click();
+    await page.keyboard.press('Control+Shift+P');
     await page.locator('#pc-entrada').fill('atajos y acerca');
     await page.locator('#pc-lista li[role="option"]').first().click();
     await expect(page.locator('#dlg-buscar')).toBeHidden();
     await expect(page.locator('#dlg-acerca')).toBeVisible();
     await page.keyboard.press('Escape');
 
-    await page.locator('#buscar-todo').click();
+    await page.keyboard.press('Control+Shift+P');
     await expect(page.locator('#dlg-buscar')).toBeVisible();
     // El fondo del <dialog> es el propio elemento, fuera de su caja de contenido.
     await page.mouse.click(5, 5);

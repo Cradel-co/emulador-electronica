@@ -20,13 +20,18 @@ type DefConCodigo = ModuleDef & { modeloCodigo?: string };
 const cache = new Map<string, ModeloEjecutable>();
 
 export function modeloDe(def: DefConCodigo): ModeloEjecutable {
-  const clave = def.modeloCodigo
-    ? `${def.type}:${createHash('sha1').update(def.modeloCodigo).digest('hex')}`
-    : `${def.type}:flags`;
+  // Los modelos por flags también capturan el descriptor; importar su nueva revisión
+  // con el mismo type debe invalidar el equivalente eléctrico anterior.
+  const clave = createHash('sha256').update(JSON.stringify(def)).digest('hex');
   let m = cache.get(clave);
   if (!m) {
     m = crear(def);
     cache.set(clave, m);
+    // Importaciones sucesivas no deben retener indefinidamente sandboxes y descriptores.
+    if (cache.size > 128) {
+      const antigua = cache.keys().next().value;
+      if (antigua !== undefined) cache.delete(antigua);
+    }
   }
   return m;
 }
@@ -50,6 +55,12 @@ const VT = 0.025865;
 export function modeloPorFlags(def: ModuleDef): ModeloEjecutable {
   const pines = def.pins;
   const pin = (n: string) => `pin:${n}`;
+  function numero(valor: unknown, campo: string, positivo = false): number {
+    if (typeof valor !== 'number' || !Number.isFinite(valor) || (positivo && valor <= 0)) {
+      throw new ErrorModelo(`modelo de "${def.type}": ${campo} debe ser un número finito${positivo ? ' mayor que cero' : ''}`);
+    }
+    return valor;
+  }
   return {
     circuito(e): Primitiva[] {
       const [p1, p2] = pines;
@@ -57,16 +68,16 @@ export function modeloPorFlags(def: ModuleDef): ModeloEjecutable {
         const pos = pines.find((p) => p.kind === 'power');
         const neg = pines.find((p) => p.kind === 'ground');
         if (!pos || !neg || !e.control) return [];
-        const v = Number(e.props[def.source.voltageProp] ?? 0);
+        const v = numero(e.props[def.source.voltageProp], def.source.voltageProp);
         const prop = def.source.currentProp;
-        const ma = prop ? Number(e.props[prop]) : def.electrical?.maxCurrentMa;
-        const limiteA = Number.isFinite(ma) && (ma as number) > 0 ? (ma as number) / 1000 : undefined;
-        return [{ tipo: 'V', nombre: 'salida', a: pin(pos.name), b: pin(neg.name), voltios: Number.isFinite(v) ? v : 0, limiteA }];
+        const ma = prop ? numero(e.props[prop], prop, true) : def.electrical?.maxCurrentMa;
+        // Sólo un descriptor sin límite expresa una fuente ideal: un valor inválido no lo hace.
+        const limiteA = ma === undefined ? undefined : numero(ma, prop ?? 'maxCurrentMa', true) / 1000;
+        return [{ tipo: 'V', nombre: 'salida', a: pin(pos.name), b: pin(neg.name), voltios: v, limiteA }];
       }
       if (pines.length !== 2 || !p1 || !p2) return [];
       if (def.passthrough && def.ohmsProp) {
-        const ohms = Number(e.props[def.ohmsProp]);
-        if (!(ohms > 0)) return [];
+        const ohms = numero(e.props[def.ohmsProp], def.ohmsProp, true);
         return [{ tipo: 'R', nombre: 'r', a: pin(p1.name), b: pin(p2.name), ohms }];
       }
       if (def.diode) {

@@ -1,17 +1,11 @@
 import type { ReactNode } from 'react';
 
-/** Ventana sin contenido específico: el consumidor inyecta cuerpo, icono y acciones. */
-export function ToolWindow({ id, title, icon, actions, onClose, children }: {
-  id: string; title: string; icon?: ReactNode; actions?: ReactNode;
-  onClose: () => void; children: ReactNode;
+/** Cuerpo reutilizable: la pestaña del dock aporta el título y las acciones quedan en su barra. */
+export function ToolWindow({ title, actions, children }: {
+  title: string; actions?: ReactNode; children: ReactNode;
 }) {
-  const view = id.replace('ventana-', '');
   return <>
-    <h2 className="panel-header">
-      <button type="button" className="window-grip" data-window-drag={view} aria-label={`Mover ventana ${title}`} title="Mantener presionado y arrastrar">⠿</button>
-      {icon}{title}<span className="crece" />{actions}
-      <button className="tw-ocultar" title={`Ocultar ${title}`} aria-label={`Ocultar ${title}`} onClick={onClose}>−</button>
-    </h2>
+    {actions && <div className="tool-window-actions" role="toolbar" aria-label={`Acciones de ${title}`}>{actions}</div>}
     {children}
   </>;
 }
