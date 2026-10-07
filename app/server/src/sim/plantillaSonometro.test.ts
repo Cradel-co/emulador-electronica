@@ -84,6 +84,46 @@ describe('plantilla sonometro-que-se-lee', () => {
     expect(alto).toBeGreaterThan(bajo);
   });
 
+  /**
+   * La garantía central del #54: fuera del dominio declarado el puente **rechaza** en vez de
+   * inventar una cuenta. Acá se prueba con el módulo y el perfil de verdad, estrechando el
+   * dominio a 0,9–1,1 V: a 50 dBA el sensor entrega 1,00 V y se lee; a 80 y a 30 queda afuera.
+   *
+   * Verificado también con el firmware corriendo, con estos mismos valores.
+   */
+  it('fuera del dominio declarado rechaza, y se recupera al volver adentro', async () => {
+    const base = plantilla();
+    const angosto: Project = {
+      ...base,
+      sim: {
+        ...base.sim,
+        analogicoEsp: {
+          board: {
+            ...base.sim.analogicoEsp!.board!,
+            canales: [{ ...base.sim.analogicoEsp!.board!.canales[0]!, rangoVEntrada: { min: 0.9, max: 1.1 } }],
+          },
+        },
+      },
+    };
+    const leer = async (dbA: number) => {
+      const p: Project = { ...angosto, modules: angosto.modules.map((m) => (m.id === 'mic1' ? { ...m, props: { ...m.props, dbA } } : m)) };
+      const r = await analizarCircuito(p, b, {});
+      const desc = b('esp32-s3-devkitc-1')?.board;
+      const perfil = p.sim.analogicoEsp?.board;
+      if (!desc || !perfil) throw new Error('falta la placa o el perfil');
+      const dicho: string[] = [];
+      const puente = new PuenteAnalogicoEsp('esp32s3', perfil, (l) => dicho.push(l));
+      puente.actualizar(estadoAnalogicoEspDesdeCircuito('board', desc, r));
+      puente.recibir('@ADC 1 4 3');
+      return (dicho[0] ?? '').replace('@ADCR 1 ', '');
+    };
+
+    expect(await leer(50), '1,00 V está dentro de 0,9–1,1').toMatch(/^\d+$/);
+    expect(await leer(80), '1,60 V queda por encima').toBe('E:ENTRADA_FUERA_DOMINIO');
+    expect(await leer(30), '0,60 V queda por debajo').toBe('E:ENTRADA_FUERA_DOMINIO');
+    expect(await leer(50), 'tiene que volver a leer al entrar en dominio').toMatch(/^\d+$/);
+  });
+
   it('un GPIO sin canal declarado no inventa una lectura', async () => {
     expect(await leerADC(80, 5)).toBe('E:SIN_MODELO_CANAL');
   });

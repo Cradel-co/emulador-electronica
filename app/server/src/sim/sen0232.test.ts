@@ -90,6 +90,34 @@ describe('SEN0232: alimentación', () => {
   });
 });
 
+/**
+ * Una medición equivocada no es grave si la app lo dice; lo grave es que mienta en silencio.
+ * Verificado también con el firmware: alimentado con 2,5 V el programa informa 115 dBA con la
+ * escena en 130, y este aviso es lo que lo explica.
+ */
+describe('SEN0232: avisa cuando la medición no es confiable', () => {
+  const avisosDe = async (voltage: number) =>
+    (await analizar(conFuente(130, voltage))).avisos.filter((a) => /mic1|3,3 V|máximo/.test(a.mensaje));
+
+  it('por debajo de los 3,3 V que pide, advierte que no es confiable', async () => {
+    const avisos = await avisosDe(2.5);
+    const aviso = avisos.find((a) => /al menos 3,3 V/.test(a.mensaje));
+    expect(aviso, 'tiene que avisar que la medición no es confiable').toBeDefined();
+    expect(aviso?.severidad).toBe('advertencia');
+    expect(aviso?.mensaje).toMatch(/no es confiable/);
+  });
+
+  it('en su rango de trabajo no molesta con avisos', async () => {
+    expect(await avisosDe(3.3)).toEqual([]);
+    expect(await avisosDe(5)).toEqual([]);
+  });
+
+  it('pasarse de 5,5 V es peligro, no advertencia', async () => {
+    const aviso = (await avisosDe(6.5)).find((a) => /se daña/.test(a.mensaje));
+    expect(aviso?.severidad).toBe('peligro');
+  });
+});
+
 describe('SEN0232: el ADC del ESP32 lo lee', () => {
   /** El sonómetro cableado a un GPIO con ADC1 del S3 (1..10). */
   function conPlaca(dbA: number): Project {
