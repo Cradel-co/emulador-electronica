@@ -12,6 +12,13 @@
 
 Seguir también las convenciones, verificaciones y el flujo de rama + PR documentados en `CLAUDE.md`.
 
+## Changelog: una entrada por rama
+
+Toda rama que entre por PR deja un archivo `changelog.d/<tipo>-<descripcion-corta>.md` con lo que
+cambia. Es un archivo por cambio y no un `CHANGELOG.md` único porque ese daría conflicto en cada
+merge. El formato, los tipos y lo que se valida solo están en
+[`changelog.d/README.md`](changelog.d/README.md).
+
 ## Agregar un módulo o componente
 
 Antes de crear un componente nuevo, leer [`docs/agregar-un-modulo.md`](docs/agregar-un-modulo.md):
