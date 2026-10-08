@@ -1,3 +1,4 @@
+import { firmwareFixture } from './fisica-fixture.js';
 import { expect, test } from '@playwright/test';
 import {
   abrirProyectoNuevo,
@@ -16,8 +17,10 @@ test.describe('catálogo de módulos', () => {
     await abrirProyectoNuevo(page, request);
     const categorias = page.locator('#lista-modulos .cat-header');
     await expect(categorias).toHaveText(['Placas', 'Entradas', 'Salidas', 'Pasivos', 'Radio 433 MHz', 'Inalámbricos', 'Sensores', 'Alimentación', 'Pantallas']);
-    // 4 placas (ESP32-S3, C3, C6, Arduino Uno) + 18 módulos de fábrica, incluidas las cámaras.
-    await expect(page.locator('.modulo-card')).toHaveCount(22);
+    const { modules } = await (await request.get('/api/modules')).json();
+    await expect(page.locator('.modulo-card')).toHaveCount(modules.length);
+    expect(await page.locator('.modulo-card').evaluateAll((cards) => cards.map((c) => c.getAttribute('data-type')).sort()))
+      .toEqual(modules.map((m: { type: string }) => m.type).sort());
     const esp32 = page.locator('.modulo-card[data-type="esp32-s3-devkitc-1"]');
     await expect(esp32.locator('.tag-programable')).toHaveText('programable');
     await expect(page.locator('.modulo-card[data-type="rxb6"] .tag-programable')).toHaveCount(0);
@@ -54,9 +57,9 @@ test.describe('proyecto nuevo', () => {
     await expect(page.locator('#editor')).toHaveValue(/number: GPIO6/);
     // La placa arranca desenchufada: sin energía no circula nada (ni hay nada que avisar).
     await expect(page.locator('#avisos-dibujo')).toContainText('no tiene alimentación');
-    // Con el USB, el LED de la plantilla va directo al GPIO, sin resistencia: la física real lo avisa sola.
+    // La alimentación USB no inventa una salida HIGH sin firmware.
     await page.locator('#usb').click();
-    await expect(page.locator('#avisos-dibujo')).toContainText('resistencia en serie');
+    await expect(page.locator('#avisos-dibujo div')).toHaveCount(0);
     await expect(page.locator('.tabs button')).toHaveText(['main.yaml']);
   });
 });
@@ -267,6 +270,7 @@ test.describe('cableado', () => {
 
 test.describe('Ley de Ohm', () => {
   test('agregar una resistencia arregla el aviso; bajarla demasiado avisa de nuevo', async ({ page, request }) => {
+    await firmwareFixture(page, request);
     await abrirProyectoNuevo(page, request);
     // El proyecto nuevo trae el LED directo al GPIO7, sin resistencia. Enchufada por USB, con la
     // resistencia interna del pin del S3 no se quema al instante, pero queda sobreexigido: el motor lo avisa.
