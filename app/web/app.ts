@@ -1801,7 +1801,6 @@ async function aplicarCambioExterno(msg) {
   // Solo cambió la física (un pulsador apretado desde el MCP u otra pestaña): se recalcula, nada más.
   if (msg.what === 'electrico') {
     await refrescarAvisos();
-    lienzo.render();
     return;
   }
   const resumen = await api(`/api/projects/${nombre}`);
@@ -2008,11 +2007,11 @@ async function refrescarAvisos() {
     actualizarCuentaProblemas();
     revisarQuemaduras();
     // Los avisos los rinde <Avisos> (#9): alcanza con haber asignado `state.avisosDibujo`.
-    lienzo.render();
+    lienzo.refrescarFisica();
   } catch (error) {
     if (revision !== revisionObservacionFisica || state.proyecto?.name !== proyecto) return;
     invalidarObservacionFisica(avisosFallidos?.length ? avisosFallidos : [{ message: `Análisis eléctrico no válido: ${String((error as Error)?.message ?? error)}` }]);
-    lienzo.render();
+    lienzo.refrescarFisica();
     pintarPanelDerecho();
   }
 }
