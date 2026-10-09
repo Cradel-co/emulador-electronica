@@ -20,6 +20,7 @@ export interface CorridaChips {
 export interface DepsChips {
   leer(nombre: string): Promise<Project>;
   guardar(p: Project): Promise<Project>;
+  transaccion?<T>(nombre: string, tarea: () => Promise<T>): Promise<T>;
   catalogo(): Promise<ModuloCatalogo[]>;
   /** La corrida en curso de ese proyecto, si hay (y si el motor sabe de chips). */
   corrida(nombre: string): CorridaChips | null;
@@ -53,27 +54,30 @@ export async function chipsDe(nombre: string, d: DepsChips) {
 
 /** Mueve el entorno de un módulo con chip: valida contra el rango del chip, guarda y aplica en vivo. */
 export async function moverEntorno(nombre: string, id: string, valores: Record<string, unknown>, d: DepsChips) {
-  const p = await d.leer(nombre);
-  const inst = p.modules.find((m) => m.id === id);
-  if (!inst) throw Object.assign(new Error(`no hay un módulo "${id}" en el proyecto`), { statusCode: 404 });
-  const def = (await d.catalogo()).find((m) => m.type === inst.type);
-  const chips = (def?.chips ?? []).map((u) => cargarChips().find((c) => c.id === u.id)).filter((c): c is ChipCatalogo => c !== undefined);
-  const magnitudes = Object.assign({}, ...chips.map((c) => c.entorno)) as ChipCatalogo['entorno'];
-  if (Object.keys(magnitudes).length === 0) throw Object.assign(new Error(`"${id}" no tiene un chip con entorno`), { statusCode: 400 });
-  const limpios: Record<string, number> = {};
-  for (const [k, v] of Object.entries(valores)) {
-    const m = magnitudes[k];
-    if (!m) throw Object.assign(new Error(`${def?.name ?? id} no mide "${k}" (mide: ${Object.keys(magnitudes).join(', ')})`), { statusCode: 400 });
-    if (typeof v !== 'number' || !Number.isFinite(v)) throw Object.assign(new Error(`${k} tiene que ser un número`), { statusCode: 400 });
-    if (v < m.min || v > m.max) throw Object.assign(new Error(`${k} = ${v} fuera del rango del chip (${m.min} a ${m.max} ${m.unidad})`), { statusCode: 400 });
-    limpios[k] = v;
-  }
-  inst.entorno = { ...inst.entorno, ...limpios };
-  await d.guardar(p);
-  const enVivo = d.corrida(nombre)?.ponerEntorno(id, limpios) ?? false;
-  const entorno = Object.assign({}, ...chips.map((c) => entornoDe(c, inst.entorno))) as Record<string, number>;
-  d.emitir({ type: 'chip.entorno', project: nombre, id, entorno });
-  return { entorno, enVivo };
+  const ejecutar = async () => {
+    const p = await d.leer(nombre);
+    const inst = p.modules.find((m) => m.id === id);
+    if (!inst) throw Object.assign(new Error(`no hay un módulo "${id}" en el proyecto`), { statusCode: 404 });
+    const def = (await d.catalogo()).find((m) => m.type === inst.type);
+    const chips = (def?.chips ?? []).map((u) => cargarChips().find((c) => c.id === u.id)).filter((c): c is ChipCatalogo => c !== undefined);
+    const magnitudes = Object.assign({}, ...chips.map((c) => c.entorno)) as ChipCatalogo['entorno'];
+    if (Object.keys(magnitudes).length === 0) throw Object.assign(new Error(`"${id}" no tiene un chip con entorno`), { statusCode: 400 });
+    const limpios: Record<string, number> = {};
+    for (const [k, v] of Object.entries(valores)) {
+      const m = magnitudes[k];
+      if (!m) throw Object.assign(new Error(`${def?.name ?? id} no mide "${k}" (mide: ${Object.keys(magnitudes).join(', ')})`), { statusCode: 400 });
+      if (typeof v !== 'number' || !Number.isFinite(v)) throw Object.assign(new Error(`${k} tiene que ser un número`), { statusCode: 400 });
+      if (v < m.min || v > m.max) throw Object.assign(new Error(`${k} = ${v} fuera del rango del chip (${m.min} a ${m.max} ${m.unidad})`), { statusCode: 400 });
+      limpios[k] = v;
+    }
+    inst.entorno = { ...inst.entorno, ...limpios };
+    await d.guardar(p);
+    const enVivo = d.corrida(nombre)?.ponerEntorno(id, limpios) ?? false;
+    const entorno = Object.assign({}, ...chips.map((c) => entornoDe(c, inst.entorno))) as Record<string, number>;
+    d.emitir({ type: 'chip.entorno', project: nombre, id, entorno });
+    return { entorno, enVivo };
+  };
+  return d.transaccion ? d.transaccion(nombre, ejecutar) : ejecutar();
 }
 
 export function registrarRutasChips(app: FastifyInstance, d: DepsChips, fallar: (reply: FastifyReply, err: unknown) => void): void {

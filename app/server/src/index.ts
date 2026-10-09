@@ -259,6 +259,7 @@ export { store, builder, emulator };
 const depsChips: DepsChips = {
   leer: (n) => store.read(n),
   guardar: (p) => store.save(p),
+  transaccion: (nombre, tarea) => store.transaccion(nombre, tarea),
   catalogo: loadCatalog,
   corrida: (n) => {
     if (runningProject !== n) return null;
@@ -353,32 +354,36 @@ async function crearProyecto(nombre: string, lenguaje: Language | null, board: s
  * la pone en el dibujo y escribe su código inicial sin pisar el que ya hubiera de antes.
  */
 async function agregarPlaca(nombre: string, board: string, lenguaje: Language, pos: { x?: number; y?: number } = {}): Promise<Project> {
-  const { placa, archivos } = await placaConArchivos(board, lenguaje);
-  const def = (await loadCatalog()).find((m) => m.type === placa.id);
-  if (!def) throw new ProjectError(`La placa "${board}" no está en el catálogo`, 400);
-  const actual = await store.read(nombre);
-  const puesta = ponerPlaca(actual, def, lenguaje, pos);
-  // Al incorporar el procesador queda activa la recarga al guardar: es la razón de ser
-  // del campo, y un proyecto recién armado es justo donde se edita el código a cada rato.
-  const nuevo = { ...puesta, sim: { ...puesta.sim, autoReload: true } };
-  // Con placa, ▶ vuelve a significar "correr el firmware": el circuito deja de estar energizado aparte.
-  if (proyectoEnergizado === nombre) energizar(nombre, false);
-  const agregada = placasDelProyecto(nuevo).find((p) => !placasDelProyecto(actual).some((a) => a.id === p.id));
-  await store.escribirSiFalta(nombre, lenguaje, archivos, agregada?.id);
-  const guardado = await store.save(nuevo);
-  return guardado;
+  return store.transaccion(nombre, async () => {
+    const { placa, archivos } = await placaConArchivos(board, lenguaje);
+    const def = (await loadCatalog()).find((m) => m.type === placa.id);
+    if (!def) throw new ProjectError(`La placa "${board}" no está en el catálogo`, 400);
+    const actual = await store.read(nombre);
+    const puesta = ponerPlaca(actual, def, lenguaje, pos);
+    // Al incorporar el procesador queda activa la recarga al guardar: es la razón de ser
+    // del campo, y un proyecto recién armado es justo donde se edita el código a cada rato.
+    const nuevo = { ...puesta, sim: { ...puesta.sim, autoReload: true } };
+    // Con placa, ▶ vuelve a significar "correr el firmware": el circuito deja de estar energizado aparte.
+    if (proyectoEnergizado === nombre) energizar(nombre, false);
+    const agregada = placasDelProyecto(nuevo).find((p) => !placasDelProyecto(actual).some((a) => a.id === p.id));
+    await store.escribirSiFalta(nombre, lenguaje, archivos, agregada?.id);
+    const guardado = await store.save(nuevo);
+    return guardado;
+  });
 }
 
 /** Quita la placa (y sus cables). El código queda en disco: si se vuelve a poner la placa, sigue ahí. */
 async function quitarPlaca(nombre: string, boardId?: string): Promise<Project> {
-  const actual = await store.read(nombre);
-  if (runningProject === nombre && emulator.getStatus().running) {
-    eventosEmulador.onLog('[placa] Se quitó la placa: se detuvo la simulación.');
-    await pararCorridas();
-    runningProject = null;
-    controlesCerrados.clear();
-  }
-  return store.save(sacarPlaca(actual, boardId));
+  return store.transaccion(nombre, async () => {
+    const actual = await store.read(nombre);
+    if (runningProject === nombre && emulator.getStatus().running) {
+      eventosEmulador.onLog('[placa] Se quitó la placa: se detuvo la simulación.');
+      await pararCorridas();
+      runningProject = null;
+      controlesCerrados.clear();
+    }
+    return store.save(sacarPlaca(actual, boardId));
+  });
 }
 
 // --- Utilidades -------------------------------------------------------------
@@ -598,23 +603,25 @@ async function registerRoutes(): Promise<void> {
   app.put('/api/projects/:name', async (req, reply) => {
     const { name } = req.params as { name: string };
     try {
-      const project = await requireProject(name);
-      const body = (req.body ?? {}) as Partial<Project>;
-      // La placa y el lenguaje se eligen al crear el proyecto: sus archivos (sdkconfig,
-      // CMake, plantilla) dependen de eso, y cambiarlos a mano dejaría un proyecto que no compila.
-      if (body.board !== undefined && body.board !== project.board) {
-        reply.code(400).send({ error: 'La placa se elige al crear el proyecto: creá uno nuevo para otra placa.' });
-        return;
-      }
-      if (body.language !== undefined && body.language !== project.language) {
-        reply.code(400).send({ error: 'El lenguaje se elige al crear el proyecto.' });
-        return;
-      }
-      if (body.boards !== undefined && JSON.stringify(body.boards) !== JSON.stringify(project.boards)) throw new ProjectError('Las placas se administran desde las rutas de placas del proyecto.', 400);
-      if (body.name !== undefined && body.name !== name) throw new ProjectError('No se puede cambiar el nombre por esta ruta.', 400);
-      if (body.modules !== undefined) await validarModulosPlacas(project, body.modules);
-      const updated = await store.save({ ...project, ...body, name });
-      reply.send({ project: updated });
+      await store.transaccion(name, async () => {
+        const project = await requireProject(name);
+        const body = (req.body ?? {}) as Partial<Project>;
+        // La placa y el lenguaje se eligen al crear el proyecto: sus archivos (sdkconfig,
+        // CMake, plantilla) dependen de eso, y cambiarlos a mano dejaría un proyecto que no compila.
+        if (body.board !== undefined && body.board !== project.board) {
+          reply.code(400).send({ error: 'La placa se elige al crear el proyecto: creá uno nuevo para otra placa.' });
+          return;
+        }
+        if (body.language !== undefined && body.language !== project.language) {
+          reply.code(400).send({ error: 'El lenguaje se elige al crear el proyecto.' });
+          return;
+        }
+        if (body.boards !== undefined && JSON.stringify(body.boards) !== JSON.stringify(project.boards)) throw new ProjectError('Las placas se administran desde las rutas de placas del proyecto.', 400);
+        if (body.name !== undefined && body.name !== name) throw new ProjectError('No se puede cambiar el nombre por esta ruta.', 400);
+        if (body.modules !== undefined) await validarModulosPlacas(project, body.modules);
+        const updated = await store.save({ ...project, ...body, name });
+        reply.send({ project: updated });
+      });
     } catch (err) {
       fail(reply, err);
     }
@@ -637,12 +644,14 @@ async function registerRoutes(): Promise<void> {
     const { name } = req.params as { name: string };
     const body = (req.body ?? {}) as { path?: unknown };
     try {
-      if (typeof body.path !== 'string') throw new ProjectError('Indicá la ruta de la carpeta.', 400);
-      const project = await requireProject(name);
-      const elegida = placaParaArchivo(project, (req.query as { boardId?: string }).boardId);
-      const directory = await store.createDirectory(name, body.path, elegida.language, elegida.id);
-      broadcast({ type: 'project.changed', project: name, what: 'file', file: directory, boardId: elegida.id, origin: clienteDe(req) });
-      reply.code(201).send({ ok: true, path: directory });
+      await store.transaccion(name, async () => {
+        if (typeof body.path !== 'string') throw new ProjectError('Indicá la ruta de la carpeta.', 400);
+        const project = await requireProject(name);
+        const elegida = placaParaArchivo(project, (req.query as { boardId?: string }).boardId);
+        const directory = await store.createDirectory(name, body.path, elegida.language, elegida.id);
+        broadcast({ type: 'project.changed', project: name, what: 'file', file: directory, boardId: elegida.id, origin: clienteDe(req) });
+        reply.code(201).send({ ok: true, path: directory });
+      });
     } catch (err) {
       fail(reply, err);
     }
@@ -653,13 +662,15 @@ async function registerRoutes(): Promise<void> {
     const file = (req.params as Record<string, string>)['*'] ?? '';
     const body = (req.body ?? {}) as { content?: unknown };
     try {
-      if (body.content !== undefined && typeof body.content !== 'string') throw new ProjectError('El contenido debe ser texto.', 400);
-      const project = await requireProject(name);
-      const elegida = placaParaArchivo(project, (req.query as { boardId?: string }).boardId);
-      const created = await store.createFile(name, file, elegida.language, body.content ?? '', elegida.id);
-      broadcast({ type: 'project.changed', project: name, what: 'file', file: created, boardId: elegida.id, origin: clienteDe(req) });
-      agendarAutoReload(project, elegida.id);
-      reply.code(201).send({ ok: true, path: created });
+      await store.transaccion(name, async () => {
+        if (body.content !== undefined && typeof body.content !== 'string') throw new ProjectError('El contenido debe ser texto.', 400);
+        const project = await requireProject(name);
+        const elegida = placaParaArchivo(project, (req.query as { boardId?: string }).boardId);
+        const created = await store.createFile(name, file, elegida.language, body.content ?? '', elegida.id);
+        broadcast({ type: 'project.changed', project: name, what: 'file', file: created, boardId: elegida.id, origin: clienteDe(req) });
+        agendarAutoReload(project, elegida.id);
+        reply.code(201).send({ ok: true, path: created });
+      });
     } catch (err) {
       fail(reply, err);
     }
@@ -670,13 +681,15 @@ async function registerRoutes(): Promise<void> {
     const file = (req.params as Record<string, string>)['*'] ?? '';
     const body = (req.body ?? {}) as { content?: string };
     try {
-      const project = await requireProject(name);
-      const elegida = placaParaArchivo(project, (req.query as { boardId?: string }).boardId);
-      await store.writeFile(name, file, elegida.language, String(body.content ?? ''), elegida.id);
-      broadcast({ type: 'project.changed', project: name, what: 'file', file, boardId: elegida.id, origin: clienteDe(req) });
-      // No se espera: guardar tiene que contestar al toque, la recarga va por la consola.
-      agendarAutoReload(project, elegida.id);
-      reply.send({ ok: true, path: file });
+      await store.transaccion(name, async () => {
+        const project = await requireProject(name);
+        const elegida = placaParaArchivo(project, (req.query as { boardId?: string }).boardId);
+        await store.writeFile(name, file, elegida.language, String(body.content ?? ''), elegida.id);
+        broadcast({ type: 'project.changed', project: name, what: 'file', file, boardId: elegida.id, origin: clienteDe(req) });
+        // No se espera: guardar tiene que contestar al toque, la recarga va por la consola.
+        agendarAutoReload(project, elegida.id);
+        reply.send({ ok: true, path: file });
+      });
     } catch (err) {
       fail(reply, err);
     }
@@ -686,10 +699,12 @@ async function registerRoutes(): Promise<void> {
     const { name } = req.params as { name: string };
     const file = (req.params as Record<string, string>)['*'] ?? '';
     try {
-      const project = await requireProject(name);
-      const elegida = placaParaArchivo(project, (req.query as { boardId?: string }).boardId);
-      await store.deleteFile(name, file, elegida.language, elegida.id);
-      reply.send({ ok: true });
+      await store.transaccion(name, async () => {
+        const project = await requireProject(name);
+        const elegida = placaParaArchivo(project, (req.query as { boardId?: string }).boardId);
+        await store.deleteFile(name, file, elegida.language, elegida.id);
+        reply.send({ ok: true });
+      });
     } catch (err) {
       fail(reply, err);
     }
@@ -698,23 +713,25 @@ async function registerRoutes(): Promise<void> {
   app.put('/api/projects/:name/diagram', async (req, reply) => {
     const { name } = req.params as { name: string };
     try {
-      const project = await requireProject(name);
-      const body = (req.body ?? {}) as { modules?: unknown[]; wires?: unknown[] };
-      if (body.modules !== undefined) await validarModulosPlacas(project, body.modules);
-      const updated = await store.save({
-        ...project,
-        modules: (body.modules ?? project.modules) as never,
-        wires: (body.wires ?? project.wires) as never,
+      await store.transaccion(name, async () => {
+        const project = await requireProject(name);
+        const body = (req.body ?? {}) as { modules?: unknown[]; wires?: unknown[] };
+        if (body.modules !== undefined) await validarModulosPlacas(project, body.modules);
+        const updated = await store.save({
+          ...project,
+          modules: (body.modules ?? project.modules) as never,
+          wires: (body.wires ?? project.wires) as never,
+        });
+        await revisarAlimentacion(name);
+        // Cambiar una prop cambia la física: hay que empujarle al firmware la instantánea nueva.
+        // Sin esto, el ADC y los niveles de entrada se quedan con los del arranque — un sonómetro
+        // seguía informando 50 dBA aunque la escena pasara a 110. Se autoprotege si el proyecto no
+        // corre, y viene debounceado (actualizadorElectrico), así que arrastrar un control no lo
+        // satura. Es lo mismo que hace fijarControl al apretar un interruptor.
+        void refrescarEntradasDelCircuito(name);
+        broadcast({ type: 'project.changed', project: name, what: 'diagram', origin: clienteDe(req) });
+        reply.send({ project: updated });
       });
-      await revisarAlimentacion(name);
-      // Cambiar una prop cambia la física: hay que empujarle al firmware la instantánea nueva.
-      // Sin esto, el ADC y los niveles de entrada se quedan con los del arranque — un sonómetro
-      // seguía informando 50 dBA aunque la escena pasara a 110. Se autoprotege si el proyecto no
-      // corre, y viene debounceado (actualizadorElectrico), así que arrastrar un control no lo
-      // satura. Es lo mismo que hace fijarControl al apretar un interruptor.
-      void refrescarEntradasDelCircuito(name);
-      broadcast({ type: 'project.changed', project: name, what: 'diagram', origin: clienteDe(req) });
-      reply.send({ project: updated });
     } catch (err) {
       fail(reply, err);
     }
@@ -1470,8 +1487,7 @@ function clienteDe(req: { headers: Record<string, string | string[] | undefined>
 
 /** Lee el proyecto, aplica el cambio, lo guarda y avisa a la UI (origen: mcp). */
 async function cambiarDiagrama(nombre: string, cambio: (p: Project) => Project): Promise<Project> {
-  const actual = await store.read(nombre);
-  const guardado = await store.save(cambio(actual));
+  const guardado = await store.actualizar(nombre, cambio);
   await revisarAlimentacion(nombre);
   broadcast({ type: 'project.changed', project: nombre, what: 'diagram', origin: 'mcp' });
   return guardado;
@@ -1537,9 +1553,11 @@ const contextoMcp: McpContexto = {
   catalogo: loadCatalog,
   cambiarDiagrama,
   async escribirArchivo(nombre, ruta, contenido) {
-    const p = await store.read(nombre);
-    await store.writeFile(nombre, ruta, p.language, contenido);
-    broadcast({ type: 'project.changed', project: nombre, what: 'file', file: ruta, origin: 'mcp' });
+    return store.transaccion(nombre, async () => {
+      const p = await store.read(nombre);
+      await store.writeFile(nombre, ruta, p.language, contenido);
+      broadcast({ type: 'project.changed', project: nombre, what: 'file', file: ruta, origin: 'mcp' });
+    });
   },
   pinesYAvisos: (nombre) => store.read(nombre).then(avisosDelProyecto),
   fijarControl,
