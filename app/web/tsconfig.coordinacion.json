@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.navigation.json",
+  "compilerOptions": {
+    "outDir": ".types/coordinacion",
+    "tsBuildInfoFile": ".types/coordinacion/tsconfig.tsbuildinfo"
+  },
+  "files": [
+    "guardado-diagrama.ts"
+  ]
+}

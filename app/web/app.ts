@@ -1,3 +1,4 @@
+import { GuardadoDiagrama } from './guardado-diagrama.js';
 import { firmaDiagramaElectrico } from '@emu/shared';
 import { riesgoDesdeFisica, salidaDesdeFisica } from './estado-electrico.js';
 // Orquestación del frontend: componentes persistentes y efectos contra la API local.
@@ -134,7 +135,6 @@ const state = observable({
   filtro: '',
   marcas: new Map(), // línea -> mensaje
   timerGuardado: null,
-  timerDiagrama: null,
   timerNota: null,
   /** Hay cambios en el editor que todavía no se guardaron. */
   editorSucio: false,
@@ -1075,67 +1075,31 @@ function cableadosConRol(rol) {
 
 // --- Dibujo: cambios --------------------------------------------------------
 
-let revisionDiagrama = 0;
-let guardadoDiagrama: Promise<unknown> = Promise.resolve();
+const guardadoDiagrama = new GuardadoDiagrama({
+  proyecto: () => state.proyecto?.name ?? null,
+  contenido: () => JSON.stringify(state.diagrama),
+  enviar: (proyecto, contenido) => api(`/api/projects/${encodeURIComponent(proyecto)}/diagram`, { method: 'PUT', body: contenido }),
+  notificar,
+  alGuardar: refrescarAvisos,
+  alError: error => nota(`No se pudo guardar el circuito: ${String((error as Error)?.message ?? error)}`),
+  enviarAlSalir: (proyecto, contenido) => {
+    void fetch(`/api/projects/${proyecto}/diagram`, {
+      method: 'PUT', headers: { 'content-type': 'application/json', 'x-cliente': CLIENTE },
+      body: contenido, keepalive: true,
+    }).catch(() => {});
+  },
+});
 
-/** Serializa guardados para que la cámara no abra una instancia aún sin persistir. */
-function enviarDiagrama(proyecto: string, contenido: string) {
-  guardadoDiagrama = guardadoDiagrama.catch(() => {}).then(() => api(`/api/projects/${encodeURIComponent(proyecto)}/diagram`, { method: 'PUT', body: contenido }));
-  return guardadoDiagrama;
-}
-
-async function esperarDiagramaCamara(proyecto: string) {
-  while (true) {
-    if (state.proyecto?.name !== proyecto) throw new Error('El proyecto cambió.');
-    const revision = revisionDiagrama;
-    if (state.timerDiagrama) {
-      clearTimeout(state.timerDiagrama);
-      state.timerDiagrama = null;
-      void enviarDiagrama(proyecto, JSON.stringify(state.diagrama));
-    }
-    await guardadoDiagrama;
-    if (state.proyecto?.name !== proyecto) throw new Error('El proyecto cambió.');
-    if (revisionDiagrama === revision && !state.timerDiagrama) return;
-  }
-}
+const esperarDiagramaCamara = (proyecto: string) => guardadoDiagrama.esperarCamara(proyecto);
 function guardarDiagrama() {
   if (topologiaObservada !== firmaDiagramaElectrico(state.diagrama)) {
     invalidarObservacionFisica();
     lienzo.refrescarFisica();
   }
-  revisionDiagrama++;
-  // Todos los cambios del dibujo pasan por acá: es el lugar para avisarle a React, que no ve
-  // las mutaciones de adentro de `wires`/`modules` (ver react/estado.ts).
-  notificar();
-  clearTimeout(state.timerDiagrama);
-  const proyecto = state.proyecto?.name;
-  if (!proyecto) return;
-  // La tarea pendiente pertenece a esta versión, aunque se cambie de proyecto antes de ejecutarla.
-  const contenido = JSON.stringify(state.diagrama);
-  state.timerDiagrama = setTimeout(async () => {
-    state.timerDiagrama = null;
-    try {
-      await enviarDiagrama(proyecto, contenido);
-      if (state.proyecto?.name === proyecto) await refrescarAvisos();
-    } catch (e: any) {
-      nota(`No se pudo guardar el circuito: ${String(((e as Error))?.message ?? e)}`);
-    }
-  }, 300);
+  guardadoDiagrama.programar();
 }
 
-/** Manda ya el guardado pendiente (al recargar/cerrar la pestaña o cambiar de proyecto). */
-function guardarDiagramaYa() {
-  if (!state.timerDiagrama || !state.proyecto) return;
-  clearTimeout(state.timerDiagrama);
-  state.timerDiagrama = null;
-  // keepalive: el pedido sale aunque la página se esté cerrando.
-  void fetch(`/api/projects/${state.proyecto.name}/diagram`, {
-    method: 'PUT',
-    headers: { 'content-type': 'application/json', 'x-cliente': CLIENTE },
-    body: JSON.stringify(state.diagrama),
-    keepalive: true,
-  }).catch(() => {});
-}
+const guardarDiagramaYa = () => guardadoDiagrama.alSalir();
 window.addEventListener('pagehide', guardarDiagramaYa);
 
 function nuevoId(type) {
@@ -1826,8 +1790,7 @@ async function aplicarCambioExterno(msg) {
   }
   if (msg.what === 'diagram') {
     // El cambio de afuera gana: lo pendiente de esta pestaña se descarta.
-    clearTimeout(state.timerDiagrama);
-    state.timerDiagrama = null;
+    guardadoDiagrama.descartar();
     state.diagrama = { modules: [...project.modules], wires: [...project.wires] };
     for (const board of placasDelProyecto(project)) {
       if (!state.diagrama.modules.some(m => m.id === board.id)) state.diagrama.modules.unshift({ id: board.id, type: board.board, x: 0, y: 0, props: {} });
@@ -3000,15 +2963,10 @@ async function aplicarRuta(route: WorkspaceRoute): Promise<WorkspaceRoute> {
 
 /** Espera el circuito pendiente y el editor antes de cualquier cambio de ruta. */
 async function guardarAntesDeNavegar(): Promise<boolean> {
-  const revision = revisionDiagrama;
+  const revision = guardadoDiagrama.revision;
   if (state.proyecto) {
     try {
-      if (state.timerDiagrama) {
-        clearTimeout(state.timerDiagrama);
-        state.timerDiagrama = null;
-        void enviarDiagrama(state.proyecto.name, JSON.stringify(state.diagrama));
-      }
-      await guardadoDiagrama;
+      await guardadoDiagrama.esperarPendiente();
     } catch (error) {
       guardarDiagrama();
       nota(`No se pudo guardar el circuito: ${String((error as Error).message)}`);
@@ -3021,7 +2979,7 @@ async function guardarAntesDeNavegar(): Promise<boolean> {
     nota('No se pudo guardar el archivo. La navegación quedó pendiente; reintentá cuando se recupere la conexión.');
     return false;
   }
-  if (state.editorSucio || revisionDiagrama !== revision || state.timerDiagrama) {
+  if (state.editorSucio || guardadoDiagrama.revision !== revision || guardadoDiagrama.pendiente) {
     sel('proyecto').value = state.proyecto?.name ?? '';
     nota('Hubo cambios durante el guardado. Reintentá la navegación para conservarlos.');
     return false;
