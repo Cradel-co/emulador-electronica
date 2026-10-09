@@ -192,6 +192,10 @@ export const ServerEventSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('emu.exit'), ...BoardEventFields, code: z.number().int().nullable() }),
   z.object({ type: z.literal('pin.out'), ...BoardEventFields, pin: z.number().int(), level: PinLevel }),
   z.object({ type: z.literal('rf.tx'), ...BoardEventFields, bits: z.string(), protocol: z.number().int() }),
+  /** Informe del modelo del servidor; entrega al puente no equivale a un ACK por radio. */
+  z.object({ type: z.literal('rf.result'), ...BoardEventFields, bits: z.string(), protocol: z.number().int(), entregado: z.boolean(), evaluacion: z.record(z.string(), z.unknown()) }),
+  /** El firmware cambió el PWM de un pin: lo que dependa de él (el sonido) hay que recalcularlo. */
+  z.object({ type: z.literal('pwm.changed'), ...BoardEventFields }),
   z.object({ type: z.literal('bridge.state'), ...BoardEventFields, connected: z.boolean() }),
   z.object({ type: z.literal('bridge.ready'), ...BoardEventFields, version: z.number().int(), esphomeVersion: z.string().optional() }),
   z.object({ type: z.literal('bridge.pong'), ...BoardEventFields, n: z.number().int() }),
@@ -243,7 +247,7 @@ export type ServerEvent = z.infer<typeof ServerEventSchema>;
 export const ClientEventSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('pin.in'), ...BoardEventFields, pin: z.number().int(), level: PinLevel }),
   z.object({ type: z.literal('pin.watch'), ...BoardEventFields, pin: z.number().int() }),
-  z.object({ type: z.literal('rf.send'), ...BoardEventFields, bits: z.string().regex(bits), protocol: z.number().int().min(0) }),
+  z.object({ type: z.literal('rf.send'), ...BoardEventFields, bits: z.string().regex(bits), protocol: z.number().int().min(0), canalRf: z.unknown().optional() }),
   z.object({ type: z.literal('console.input'), ...BoardEventFields, data: z.string().max(4096) }),
 ]);
 export type ClientEvent = z.infer<typeof ClientEventSchema>;

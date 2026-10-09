@@ -15,7 +15,7 @@ async function abrir(page: Page, name: string) {
   await page.goto(`/#${name}`);
   await expect(page.locator('#proyecto')).toHaveValue(name);
   await expect(page.locator('.cm-content')).toBeVisible();
-  await page.getByRole('button', { name: 'Explorador de archivos', exact: true }).click();
+  await page.keyboard.press('Control+Shift+e');
   await expect(explorer(page)).toBeVisible();
 }
 async function raiz(page: Page) {

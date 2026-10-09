@@ -1,10 +1,12 @@
+import { firmaDiagramaElectrico } from '@emu/shared';
 import { riesgoDesdeFisica, salidaDesdeFisica } from './estado-electrico.js';
 // Orquestación del frontend: componentes persistentes y efectos contra la API local.
 import { resolveWorkspaceSelection } from './navigation-selection.js';
 import { createWorkspaceNavigation, type WorkspaceRoute } from './navigation.js';
-import { ControladorCamara, desconectarCamara, eventoCamara, solicitarCaptura, errorCamara } from './camera.js';
+import { crearControladorCamara, detenerCamarasDeOtrosProyectos, desconectarCamara, eventoCamara, solicitarCaptura, errorCamara } from './camera.js';
 // Frontend sin bundler: ES modules nativos contra la API local (sección 11).
 import { miniatura, ponerImagenPantalla } from './modulos.js';
+import { audio, eventoSonido } from './audio.js';
 import { lenguajeDeArchivo, NOMBRE_LENGUAJE, resaltar } from './editor.js';
 import { crearDepuracion } from './depuracion.js';
 import { crearEditorMicroPython } from './editor-micropython.js';
@@ -204,13 +206,14 @@ window.addEventListener('storage', event => {
 // Lo que los componentes de React necesitan disparar (#9). Van por el puente y no importándose,
 // para no armar un ciclo entre app.ts y los componentes.
 registrarAcciones({
-  crearCamara: (project, instance, camera) => new ControladorCamara(`/api/projects/${encodeURIComponent(project)}/cameras/${encodeURIComponent(instance)}`, {
+  crearCamara: (project, instance, camera) => crearControladorCamara(project, instance, `/api/projects/${encodeURIComponent(project)}/cameras/${encodeURIComponent(instance)}`, {
     media: navigator.mediaDevices,
+    permissions: navigator.permissions,
     fetch: async (url, init) => {
       if (String(url).endsWith('/status') || String(url).endsWith('/session')) await esperarDiagramaCamara(project);
       return fetch(url, init);
     },
-  }, camera, project, instance),
+  }, camera),
   agregarModulo: (type) => agregarModulo(type),
   quitarDelCatalogo: (m) => void quitarDelCatalogo(m),
   filtrarModulos: (texto) => {
@@ -467,6 +470,11 @@ function conectarWS() {
         log('emu', `puente listo (protocolo ${msg.version})`);
         state.sim.placasListas.add(msg.boardId ?? placasDelProyecto(state.proyecto)[0]?.id ?? BOARD_ID);
         marcarSimulacion(true);
+        break;
+      case 'pwm.changed':
+        // El tono y el volumen de un buzzer pasivo salen del PWM: hay que volver a pedir la
+        // instantánea para que el sonido siga al programa.
+        void refrescarAvisos();
         break;
       case 'pin.out':
         // Un firmware que parpadea rápido manda muchos: se redibuja una vez por frame.
@@ -1090,6 +1098,10 @@ async function esperarDiagramaCamara(proyecto: string) {
   }
 }
 function guardarDiagrama() {
+  if (topologiaObservada !== firmaDiagramaElectrico(state.diagrama)) {
+    invalidarObservacionFisica();
+    lienzo.refrescarFisica();
+  }
   revisionDiagrama++;
   // Todos los cambios del dibujo pasan por acá: es el lugar para avisarle a React, que no ve
   // las mutaciones de adentro de `wires`/`modules` (ver react/estado.ts).
@@ -1740,7 +1752,6 @@ async function aplicarCambioExterno(msg) {
   // Solo cambió la física (un pulsador apretado desde el MCP u otra pestaña): se recalcula, nada más.
   if (msg.what === 'electrico') {
     await refrescarAvisos();
-    lienzo.render();
     return;
   }
   const resumen = await api(`/api/projects/${nombre}`);
@@ -1892,9 +1903,11 @@ async function quitarDelCatalogo(m) {
 // --- Avisos dibujo ↔ código -----------------------------------------------------
 
 let revisionObservacionFisica = 0;
+let topologiaObservada = '';
 /** Suelta medidas anteriores e invalida respuestas pendientes de otro contexto. */
 function invalidarObservacionFisica(avisos: typeof state.avisosDibujo = []): void {
   revisionObservacionFisica++;
+  for (const modulo of audio.leer().sonando) eventoSonido({ modulo, sonando: false, ganancia: 0 });
   state.fisicaValida = false;
   state.electrico = new Map();
   state.uiModulos = new Map();
@@ -1914,16 +1927,24 @@ async function refrescarAvisos() {
   if (!state.proyecto) return;
   const revision = ++revisionObservacionFisica;
   const proyecto = state.proyecto.name;
+  const topologia = firmaDiagramaElectrico(state.diagrama);
   let avisosFallidos: typeof state.avisosDibujo | null = null;
   try {
     const respuesta = await api(`/api/projects/${proyecto}/pins`);
     if (revision !== revisionObservacionFisica || state.proyecto?.name !== proyecto) return;
-    if (respuesta.electrico?.resuelto !== true || !Array.isArray(respuesta.electrico.leds)) {
-      avisosFallidos = Array.isArray(respuesta.warnings) ? respuesta.warnings : null;
+    if (respuesta.electrico?.resuelto !== true || respuesta.electrico?.estado !== 'valida'
+      || respuesta.electrico?.contexto?.proyecto !== proyecto
+      || respuesta.electrico?.contexto?.topologia !== topologia
+      || topologia !== firmaDiagramaElectrico(state.diagrama) || !Array.isArray(respuesta.electrico.leds)) {
+      // Los diagnósticos de otro contexto tampoco pertenecen al circuito visible.
+      avisosFallidos = respuesta.electrico?.contexto?.proyecto === proyecto
+        && respuesta.electrico?.contexto?.topologia === topologia
+        && Array.isArray(respuesta.warnings) ? respuesta.warnings : null;
       throw new Error('El servidor no entregó una instantánea eléctrica resuelta.');
     }
     const { pins, warnings } = respuesta;
     state.fisicaValida = respuesta.electrico.resuelto === true;
+    topologiaObservada = topologia;
     state.codePins = new Set(pins);
     state.avisosDibujo = warnings;
     state.electrico = new Map((respuesta.electrico?.leds ?? []).map((l) => [l.id, l]));
@@ -1931,6 +1952,9 @@ async function refrescarAvisos() {
     state.mediciones = respuesta.electrico?.mediciones ?? [];
     state.tensiones = respuesta.electrico?.tensiones ?? {};
     state.uiModulos = new Map(Object.entries(respuesta.electrico?.modulos ?? {}));
+    // El sonido viene en la misma instantánea que el `ui` de cada módulo: salen del mismo
+    // cálculo del motor, así que el buzzer no puede prender su SVG y sonar un instante después.
+    for (const sonido of respuesta.electrico?.sonidos ?? []) eventoSonido(sonido);
     state.alimentacion = respuesta.electrico?.placas?.[state.placaActivaId] ?? respuesta.electrico?.placa ?? null;
     const energizado = Boolean(respuesta.electrico?.energizado);
     if (energizado !== state.energizado) {
@@ -1943,11 +1967,11 @@ async function refrescarAvisos() {
     actualizarCuentaProblemas();
     revisarQuemaduras();
     // Los avisos los rinde <Avisos> (#9): alcanza con haber asignado `state.avisosDibujo`.
-    lienzo.render();
+    lienzo.refrescarFisica();
   } catch (error) {
     if (revision !== revisionObservacionFisica || state.proyecto?.name !== proyecto) return;
     invalidarObservacionFisica(avisosFallidos?.length ? avisosFallidos : [{ message: `Análisis eléctrico no válido: ${String((error as Error)?.message ?? error)}` }]);
-    lienzo.render();
+    lienzo.refrescarFisica();
     pintarPanelDerecho();
   }
 }
@@ -1964,6 +1988,7 @@ async function cargarProyectos(seleccionarNombre?: string) {
 // --- Pantalla de inicio: lista de proyectos ----------------------------------
 
 function mostrarInicio() {
+  detenerCamarasDeOtrosProyectos(null);
   document.body.classList.add('inicio');
   document.body.classList.remove('aprender', 'aprendiendo');
   $('bienvenida-proyectos').classList.add('activa');
@@ -2085,6 +2110,7 @@ async function abrirProyecto(nombre) {
   if (mia !== aperturas) return;
   document.body.classList.remove('inicio');
   const cambioProyecto = state.proyecto?.name !== nombre;
+  if (cambioProyecto) detenerCamarasDeOtrosProyectos(nombre);
   if (cambioProyecto) state.exploradorPlacas = [];
   invalidarObservacionFisica();
   state.proyecto = project;
@@ -2167,7 +2193,6 @@ sel('proyecto').addEventListener('change', () => void cambiarDeProyecto(sel('pro
 
 $('ir-inicio').onclick = () => void irAInicio();
 $('volver-aprendizaje').onclick = () => void volverALeccionAprendizaje();
-$('act-proyectos').onclick = () => void irAInicio();
 
 // --- Nuevo proyecto: placa y lenguaje ----------------------------------------------
 
@@ -2270,6 +2295,9 @@ $('dlg-nuevo').addEventListener('close', async () => {
 
 $('ejecutar').onclick = async () => {
   if (!state.proyecto) return;
+  // El navegador no deja crear audio sin un gesto del usuario, y ▶ es exactamente eso: acá se
+  // habilita, y lo que ya venía zumbando arranca. Ver docs/audio.md.
+  void audio.habilitar().catch(() => {});
   // Como "Run" en el IDE: se abre la consola de compilación si estaba oculta.
   if (!ventanaVisible('consola')) {
     mostrarVentana('abajo', true);

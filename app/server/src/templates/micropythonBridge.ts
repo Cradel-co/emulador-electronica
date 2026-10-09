@@ -23,6 +23,8 @@
 // chip a chip (S3/C3: 0x60004004, C6: 0x60091004; C3 y C6 tienen menos de 32 GPIO y
 // no tienen OUT1).
 
+import { microPythonAdcPara } from './micropythonAdc.js';
+
 const hex = (n: number): string => `0x${n.toString(16).padStart(8, '0')}`;
 
 export interface PlacaMicroPython {
@@ -42,6 +44,7 @@ export function microPythonSimbridgePara(p: PlacaMicroPython): string {
       ? `_GPIO_OUT1_REG = None        # ${p.chip}: menos de 32 GPIO, no hay OUT1`
       : `_GPIO_OUT1_REG = ${hex(out1)}  # DR_REG_GPIO_BASE + 0x10 (pines 32-48 en el bit 0..)`;
   return SIMBRIDGE.replace('@@CHIP@@', p.chip)
+    .replace('@@ADC@@', microPythonAdcPara(p.chip))
     .replace('@@OUT@@', `_GPIO_OUT_REG = ${hex(out)}   # DR_REG_GPIO_BASE + 0x4  (pines 0-31)`)
     .replace('@@OUT1@@', linea1)
     .replace('@@UART@@', `_uart = machine.UART(${p.uart}, baudrate=115200, tx=${p.tx}, rx=${p.rx})`);
@@ -137,7 +140,7 @@ _REEMPLAZOS = {}
 
 def _instalar_pin():
     """Hace que main.py use este Pin (y los buses de los chips): \`from machine import Pin\`, \`machine.I2C(...)\`."""
-    _REEMPLAZOS.update({'Pin': Pin, 'I2C': I2C, 'SoftI2C': SoftI2C, 'SPI': SPI, 'SoftSPI': SoftSPI})
+    _REEMPLAZOS.update({'Pin': Pin, 'I2C': I2C, 'SoftI2C': SoftI2C, 'SPI': SPI, 'SoftSPI': SoftSPI, 'ADC': ADC, 'ADCBlock': ADCBlock, 'PWM': PWM})
     try:
         for k in _REEMPLAZOS:
             setattr(machine, k, _REEMPLAZOS[k])
@@ -247,6 +250,82 @@ def _gpio(p):
     return int(d) if d else None
 
 
+@@ADC@@
+
+class PWM:
+    """machine.PWM del ESP32 (LEDC), DECLARATIVO.
+
+    La app no reconstruye el tono a partir de los flancos: el puente muestrea los registros de
+    salida y un tono de kilohercios se perdería en el aliasing. Por eso cada cambio de frecuencia
+    o de ciclo de trabajo se avisa UNA vez, con @PWM, y la app sintetiza a partir de eso.
+    """
+
+    def __init__(self, dest, freq=None, duty=None, duty_u16=None, duty_ns=None, invert=0):
+        self._gpio = _gpio(dest)
+        if self._gpio is None:
+            raise ValueError('PWM MicroPython: se requiere GPIO o Pin')
+        if invert:
+            raise NotImplementedError('PWM MicroPython: invert sin modelo')
+        self._hz = 0
+        self._u16 = 0
+        self.init(freq=freq, duty=duty, duty_u16=duty_u16, duty_ns=duty_ns)
+
+    def _entero(self, v, nombre):
+        if isinstance(v, bool) or not isinstance(v, int) or v < 0:
+            raise ValueError('PWM MicroPython: %s inválida' % nombre)
+        return v
+
+    def _u16_de_ns(self, ns):
+        if self._hz <= 0:
+            raise ValueError('PWM MicroPython: duty_ns necesita una frecuencia')
+        periodo = 1000000000 // self._hz
+        return min(65535, ns * 65535 // periodo) if periodo else 0
+
+    def _avisar(self):
+        _send('@PWM %d %d %d %d' % (self._gpio, self._hz, self._u16, utime.ticks_us()))
+
+    def init(self, *, freq=None, duty=None, duty_u16=None, duty_ns=None):
+        if freq is not None:
+            self._hz = self._entero(freq, 'frecuencia')
+        if duty is not None:
+            self._u16 = min(65535, self._entero(duty, 'duty') * 65535 // 1023)
+        if duty_u16 is not None:
+            self._u16 = min(65535, self._entero(duty_u16, 'duty_u16'))
+        if duty_ns is not None:
+            self._u16 = self._u16_de_ns(self._entero(duty_ns, 'duty_ns'))
+        self._avisar()
+
+    def freq(self, *args):
+        if not args:
+            return self._hz
+        self._hz = self._entero(args[0], 'frecuencia')
+        self._avisar()
+
+    def duty(self, *args):
+        if not args:
+            return self._u16 * 1023 // 65535
+        self._u16 = min(65535, self._entero(args[0], 'duty') * 65535 // 1023)
+        self._avisar()
+
+    def duty_u16(self, *args):
+        if not args:
+            return self._u16
+        self._u16 = min(65535, self._entero(args[0], 'duty_u16'))
+        self._avisar()
+
+    def duty_ns(self, *args):
+        if not args:
+            return self._u16 * (1000000000 // self._hz) // 65535 if self._hz > 0 else 0
+        self._u16 = self._u16_de_ns(self._entero(args[0], 'duty_ns'))
+        self._avisar()
+
+    def deinit(self):
+        self._hz = 0
+        self._u16 = 0
+        _send('@PWM %d off 0 %d' % (self._gpio, utime.ticks_us()))
+
+
+
 class I2C:
     def __init__(self, id=0, scl=None, sda=None, freq=400000, timeout=50000):
         self._scl = None
@@ -269,12 +348,16 @@ class I2C:
 
     def _tx(self, ops):
         r = _pedir('I2C', '%d %d %d %d %s' % (utime.ticks_us(), self._sda, self._scl, self._freq, ';'.join(ops))).split(';')
+        if 'E:ELECTRICO_I2C' in r:
+            raise OSError(5, 'simulación: el bus I2C no cumple su perfil eléctrico declarado')
         if 'N' in r:
             raise OSError(19)  # ENODEV: la dirección no contestó (NACK), como en la placa real
         return r
 
     def scan(self):
         r = _pedir('I2CS', '%d %d %d %d' % (utime.ticks_us(), self._sda, self._scl, self._freq))
+        if r == 'E:ELECTRICO_I2C':
+            raise OSError(5, 'simulación: el bus I2C no cumple su perfil eléctrico declarado')
         return [int(x, 16) for x in r.split(',') if x]
 
     def writeto(self, addr, buf, stop=True):
@@ -352,7 +435,10 @@ class SPI:
             for i in range(0, len(datos), 1536):
                 _send('@SPI 0 %d %s %s 0' % (utime.ticks_us(), cab, _b64(datos[i:i + 1536])))
             return None
-        return _de64(_pedir('SPI', '%d %s %s 1' % (utime.ticks_us(), cab, _b64(datos))))
+        respuesta = _pedir('SPI', '%d %s %s 1' % (utime.ticks_us(), cab, _b64(datos)))
+        if respuesta == 'E:CONTENCION_MISO':
+            raise OSError(5, 'simulación: contención MISO; soltá los CS hasta seleccionar un solo chip')
+        return _de64(respuesta)
 
     def write(self, buf):
         self._x(bytes(buf), False)
@@ -524,7 +610,7 @@ def _handle(line):
             trigger, handler, p = irq
             if (lvl == 0 and trigger & _Pin.IRQ_FALLING) or (lvl == 1 and trigger & _Pin.IRQ_RISING):
                 micropython.schedule(handler, p)
-    elif tag == 'I2CR' or tag == 'SPIR':
+    elif tag == 'I2CR' or tag == 'SPIR' or tag == 'ADCR':
         _resp[int(parts[1])] = parts[2] if len(parts) > 2 else ''
     elif tag == 'CHIPPINS':
         _chip_pins.clear()

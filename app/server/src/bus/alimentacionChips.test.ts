@@ -24,6 +24,15 @@ function arnes(spi = false) {
 }
 
 describe('alimentación dinámica de chips', () => {
+  it('el adaptador alimentar de cámaras comparte el lifecycle y vuelve a hacer ACK al restaurar', () => {
+    const { bus, eventos } = arnes();
+    bus.alimentar('chip', false);
+    expect(bus.conectar(0x40, true)).toBe(false);
+    bus.alimentar('chip', true);
+    expect(bus.conectar(0x40, true)).toBe(true);
+    expect(eventos.filter(e => e.tipo === 'encender')).toHaveLength(2);
+  });
+
   it('cortar VCC elimina ACK y libera sus salidas; volver a alimentar invoca encender con memoria guardada', () => {
     const { bus, eventos, pines } = arnes();
     expect(bus.conectar(0x40, true)).toBe(true);

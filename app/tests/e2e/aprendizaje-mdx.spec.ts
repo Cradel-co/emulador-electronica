@@ -1,5 +1,10 @@
 import { expect, test } from '@playwright/test';
 
+// Las prácticas energizan el servidor compartido: cada caso devuelve su estado al reposo.
+test.afterEach(async ({ request }) => {
+  expect((await request.post('/api/emulator/stop')).ok()).toBeTruthy();
+});
+
 test('el catálogo abre el recorrido MDX, guarda progreso y permite retomar la lectura', async ({ page }) => {
   await page.goto('/#/aprender');
   await page.getByRole('link', { name: /De Ohm a Kirchhoff y Tellegen/ }).click();

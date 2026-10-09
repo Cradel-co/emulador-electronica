@@ -7,7 +7,7 @@ export class ErrorSpice extends Error {
 
 /** Los avisos de gmin/source stepping pueden recuperarse; los fallos finales no. */
 export function validarDiagnosticosSpice(errores: readonly string[], netlist: string): void {
-  const fatales = errores.filter(e => /(?:^|\n)\s*(?:error|fatal)\s*:|simulation\s+aborted|dc\s+solution\s+failed|no\s+convergence|failed\s+to\s+converge|doAnalyses\s*:.*(?:iteration\s+limit|failed|error)/i.test(e));
+  const fatales = errores.filter(e => /(?:^|\n)\s*(?:error|fatal)\s*:|simulation\s+aborted|dc\s+solution\s+failed|no\s+convergence|failed\s+to\s+converge|timestep\s+too\s+small|doAnalyses\s*:.*(?:iteration\s+limit|failed|error)/i.test(e));
   if (fatales.length) throw new ErrorSpice(`ngspice no resolvió el circuito: ${fatales.join(' · ')}`, [...errores], netlist);
 }
 
@@ -38,6 +38,54 @@ export function extraerValoresSpice(raw: unknown, errores: readonly string[], ne
     valores.set(vector.name.toLowerCase(), v);
   }
   return valores;
+}
+
+export const MAX_VECTORES_TRANSITORIO = 1024;
+export const MAX_MUESTRAS_TRANSITORIO = 50_000;
+export const MAX_VALORES_TRANSITORIO = 1_000_000;
+
+/** Acota tanto los vectores del worker como las series expandidas de la respuesta. */
+export function validarCantidadValoresTransitorio(muestras: number, series: number, errores: readonly string[] = [], netlist = ''): void {
+  if (muestras * series > MAX_VALORES_TRANSITORIO) {
+    throw new ErrorSpice(`El transitorio excede el presupuesto de ${MAX_VALORES_TRANSITORIO} valores`, [...errores], netlist);
+  }
+}
+
+/** Valida el barrido completo: nunca convierte una salida parcial en una simulación terminada. */
+export function extraerSeriesSpice(raw: unknown, errores: readonly string[], netlist: string, duracionS: number): { t: number[]; valores: Map<string, number[]> } {
+  validarDiagnosticosSpice(errores, netlist);
+  const resultado = raw as { dataType?: unknown; data?: unknown } | undefined;
+  const fallar = (mensaje: string): never => { throw new ErrorSpice(mensaje, [...errores], netlist); };
+  if (resultado?.dataType !== 'real' || !Array.isArray(resultado.data) || !resultado.data.length) {
+    return fallar('ngspice no devolvió un transitorio real');
+  }
+  if (resultado.data.length > MAX_VECTORES_TRANSITORIO) return fallar('El transitorio excedió el límite de vectores');
+  const valores = new Map<string, number[]>();
+  let cantidad: number | undefined;
+  for (const rawVector of resultado.data) {
+    const vector = rawVector as { name?: unknown; values?: unknown } | null;
+    if (!vector || typeof vector.name !== 'string' || !vector.name || !Array.isArray(vector.values)) {
+      return fallar('ngspice devolvió un vector transitorio inválido');
+    }
+    if (vector.values.length < 2 || vector.values.length > MAX_MUESTRAS_TRANSITORIO) return fallar('Cantidad de muestras transitorias fuera del límite');
+    cantidad ??= vector.values.length;
+    validarCantidadValoresTransitorio(cantidad, resultado.data.length, errores, netlist);
+    if (vector.values.length !== cantidad) return fallar('ngspice devolvió vectores de distinta longitud');
+    // for...of también recorre los huecos; Array.every los omite y aceptaría datos ausentes.
+    for (const v of vector.values) if (typeof v !== 'number' || !Number.isFinite(v)) return fallar(`Muestra no finita en ${vector.name}`);
+    const nombre = vector.name.toLowerCase();
+    if (valores.has(nombre)) return fallar(`Vector transitorio duplicado: ${nombre}`);
+    valores.set(nombre, vector.values as number[]);
+  }
+  const t = valores.get('time');
+  if (!t) return fallar('ngspice no devolvió el vector de tiempo');
+  let anterior = -1;
+  for (const tiempo of t) {
+    if (tiempo < 0 || tiempo <= anterior) return fallar('El tiempo transitorio no es creciente');
+    anterior = tiempo;
+  }
+  if (Math.abs(anterior - duracionS) > Math.max(Number.MIN_VALUE, duracionS * 1e-9)) return fallar('ngspice devolvió un transitorio incompleto');
+  return { t, valores };
 }
 
 /** También valida modelos internos/fallback: no todos atraviesan el sandbox de módulos. */

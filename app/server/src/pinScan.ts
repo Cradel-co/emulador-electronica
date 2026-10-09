@@ -32,7 +32,13 @@ const RE_BY_LANGUAGE: Record<Language, RegExp[]> = {
   // `simbridge.pin(6)` es como las plantillas leen las entradas del circuito: cuenta
   // igual que `Pin(6)` (direccionesDeCodigo ya lo tomaba, scanPins no: avisaba que el
   // pin del botón "no lo usa el código").
-  micropython: [/Pin\s*\(\s*(\d{1,2})/g, /Pin\s*\(\s*"GPIO(\d{1,2})"/g, /\bsimbridge\.pin\s*\(\s*(\d{1,2})/g],
+  // `PWM(5)` y `ADC(4)` también aceptan el GPIO sin envolverlo en un Pin.
+  micropython: [
+    /Pin\s*\(\s*(\d{1,2})/g,
+    /Pin\s*\(\s*"GPIO(\d{1,2})"/g,
+    /\bsimbridge\.pin\s*\(\s*(\d{1,2})/g,
+    /\b(?:PWM|ADC)\s*\(\s*(\d{1,2})\s*[,)]/g,
+  ],
 };
 
 /** Comentarios por lenguaje: lo que está comentado no es código y no usa ningún pin. */
@@ -92,6 +98,20 @@ export function scanPins(language: Language, content: string, desc?: BoardDescri
     while ((m = rx.exec(texto)) !== null) {
       agregar(avr ? valorPinAvr(m[1]!) : Number(m[1]));
       if (m.index === rx.lastIndex) rx.lastIndex++; // evita loops en regex globales
+    }
+  }
+  if (language === 'micropython') {
+    // Constantes de Python (`GPIO_BUZZER = 5`) usadas después en Pin, PWM o ADC. Solo cuentan si
+    // se le pasan a uno de ellos: `duracion = 7` no es un pin, y resolver toda asignación
+    // inventaría pines. Es la misma disciplina que el camino de Arduino AVR.
+    const usadas = new Set<string>();
+    for (const m of texto.matchAll(/\b(?:Pin|PWM|ADC)\s*\(\s*([A-Za-z_]\w*)\s*[,)]/g)) usadas.add(m[1]!);
+    if (usadas.size > 0) {
+      const asignadas = new Map<string, string>();
+      for (const m of texto.matchAll(/^[ \t]*([A-Za-z_]\w*)[ \t]*=[ \t]*([A-Za-z_]\w*|\d{1,2})[ \t]*(?:#.*)?$/gm)) {
+        asignadas.set(m[1] ?? '', m[2] ?? '');
+      }
+      for (const nombre of usadas) agregar(resolverPin(nombre, asignadas));
     }
   }
   if (avr && language === 'arduino') {
@@ -200,12 +220,26 @@ export function direccionesDeCodigo(language: Language, contenido: string): Map<
       break;
     }
     case 'micropython': {
-      for (const m of content.matchAll(/\bsimbridge\.pin\s*\(\s*(\d{1,2})\s*\)/g)) entrada(Number(m[1]), 'up'); // reposa en 1
-      for (const m of content.matchAll(/\bPin\s*\(\s*(\d{1,2})\s*,([^)]*)\)/g)) {
-        const args = m[2] ?? '';
-        if (/\bOUT\b|OPEN_DRAIN/.test(args)) salida(Number(m[1]), /OPEN_DRAIN/.test(args), pullDe(args));
-        else if (/\bIN\b/.test(args)) entrada(Number(m[1]), pullDe(args));
+      // Constantes de Python (`GPIO_BUZZER = 5`), para resolver `PWM(Pin(GPIO_BUZZER))` y
+      // compañía. Igual que en scanPins: una asignación sola no es un pin, solo cuenta si el
+      // nombre termina en un periférico.
+      const asignadas = new Map<string, string>();
+      for (const m of content.matchAll(/^[ \t]*([A-Za-z_]\w*)[ \t]*=[ \t]*([A-Za-z_]\w*|\d{1,2})[ \t]*(?:#.*)?$/gm)) {
+        asignadas.set(m[1] ?? '', m[2] ?? '');
       }
+      const gpio = (txt: string | undefined): number | null => (txt === undefined ? null : resolverPin(txt.trim(), asignadas));
+
+      for (const m of content.matchAll(/\bsimbridge\.pin\s*\(\s*(\d{1,2})\s*\)/g)) entrada(Number(m[1]), 'up'); // reposa en 1
+      for (const m of content.matchAll(/\bPin\s*\(\s*([A-Za-z_]\w*|\d{1,2})\s*,([^)]*)\)/g)) {
+        const args = m[2] ?? '';
+        if (/\bOUT\b|OPEN_DRAIN/.test(args)) salida(gpio(m[1]), /OPEN_DRAIN/.test(args), pullDe(args));
+        else if (/\bIN\b/.test(args)) entrada(gpio(m[1]), pullDe(args));
+      }
+      // `PWM` maneja el pin: es una salida aunque nadie escriba Pin.OUT. Sin esto el motor lo
+      // deja sin manejar, el pin mide 0 V y un buzzer pasivo no suena.
+      for (const m of content.matchAll(/\bPWM\s*\(\s*(?:Pin\s*\(\s*)?([A-Za-z_]\w*|\d{1,2})\s*[,)]/g)) salida(gpio(m[1]));
+      // Un `ADC` lee: el pin es entrada, y no tiene que manejarlo contra el sensor que mide.
+      for (const m of content.matchAll(/\bADC\s*\(\s*(?:Pin\s*\(\s*)?([A-Za-z_]\w*|\d{1,2})\s*[,)]/g)) entrada(gpio(m[1]));
       break;
     }
     case 'arduino': {

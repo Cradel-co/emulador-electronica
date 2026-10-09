@@ -13,6 +13,8 @@ import {
 import { nodosReferenciadosDc } from './conectividadDc.js';
 import { NombresSpice } from './nombresSpice.js';
 import { instantaneaOpcionesAnalisis } from './instantaneaOpcionesAnalisis.js';
+import { correrTransitorio, validarParametrosTransitorio, type ParametrosTransitorio, type SerieElementoTransitorio } from './transitorio.js';
+import { nodosReferenciadosTransitorio } from './transitorio-referencias.js';
 import { gpioDe, gpioDeRef } from '../diagramOps.js';
 import { Netlist, type ElementoResuelto } from './netlist.js';
 import { armarPlaca, type PlacaArmada, type RielesPlaca } from './placa.js';
@@ -87,7 +89,7 @@ export interface AnalisisCircuito {
   leds: LedElectrico[];
   fuentes: FuenteElectrica[];
   alimentacion: AlimentacionPlaca;
-  /** Tensión de cada pin cableado ("id.PIN" → V, respecto de la tierra del circuito). */
+  /** Pines cableados y pines modelados de las placas ("id.PIN" → V, respecto de tierra). */
   tensiones: Record<string, number>;
   /** Pines sin ecuación eléctrica: no se publican como lecturas de cero voltios. */
   pinesSinModelo?: string[];
@@ -296,7 +298,10 @@ function varsDe(def: ModuleDef, props: Record<string, string | number | boolean>
   return out;
 }
 
-async function pasada(c: Contexto, chipEncendido: boolean, propsExtra: Map<string, Record<string, number>>, apagadas: Set<string> = new Set()): Promise<Pasada> {
+/** Armado compartido por DC y transitorio: una sola topología y los mismos modelos. */
+function armarPasada(c: Contexto, chipEncendido: boolean, propsExtra: Map<string, Record<string, number>>, apagadas: Set<string> = new Set()): {
+  n: Netlist; modulos: PorModulo[]; placa?: PlacaArmada; placas: Map<string, PlacaArmada>; avisosModelos: AvisoElectrico[];
+} {
   for (const modulo of c.project.modules) {
     if (!c.buscar(modulo.type)) throw new Error(`No existe el modelo ${modulo.type} (${modulo.id}) en el catálogo.`);
   }
@@ -347,7 +352,11 @@ async function pasada(c: Contexto, chipEncendido: boolean, propsExtra: Map<strin
     placas.set(ctx.boardId, armarPlaca(n, { id: ctx.boardId, desc: ctx.desc, rieles: ctx.rieles, usb, vinCableado: ctx.refsDeNodo.has(ctx.rieles.nvin), chipEncendido: !apagadas.has(ctx.boardId) && (ctx === c ? chipEncendido : true), openDrain: new Set([...ctx.opciones.direcciones ?? []].filter(([, d]) => d.openDrain).map(([g]) => g)), salidas: niveles, pullups: ctx.pullups, pulldowns: ctx.pulldowns, gpios: ctx.gpios }));
   }
   const placa = placas.get(c.boardId);
+  return { n, modulos, placa, placas, avisosModelos };
+}
 
+async function pasada(c: Contexto, chipEncendido: boolean, propsExtra: Map<string, Record<string, number>>, apagadas: Set<string> = new Set()): Promise<Pasada> {
+  const { n, modulos, placa, placas, avisosModelos } = armarPasada(c, chipEncendido, propsExtra, apagadas);
   const res = await correrSpice(n.texto());
   const elementos = n.resolver(res);
   verificarConservacionDc(elementos);
@@ -355,9 +364,71 @@ async function pasada(c: Contexto, chipEncendido: boolean, propsExtra: Map<strin
   return { res, elementos, modulos, placa, placas, avisosModelos };
 }
 
+/** Copia de la topología del proyecto con controles fijos, para análisis propios acotados. */
+export function armarNetlistCircuito(project: Project, buscar: BuscarDef, opciones: OpcionesAnalisis = {}): Netlist {
+  const c = preparar(project, buscar, instantaneaOpcionesAnalisis(opciones));
+  return armarPasada(c, c.hayPlaca, new Map()).n;
+}
+
 const tension = (p: Pasada, nodo: string): number => Netlist.tension(p.res, nodo);
 const tieneTension = (p: Pasada, nodo: string): boolean => nodo === '0' || p.res.valores.has(`v(${nodo})`);
 const fmt = (x: number, d = 1): string => x.toFixed(d).replace('.', ',');
+
+/** Incluye rieles sin cable y aliases físicos de un pad; publicar sólo si tiene ecuación. */
+function referenciasPinesPlacas(c: Contexto): { ref: string; nodo: string }[] {
+  return [c, ...c.otras].flatMap(ctx => (ctx.placaDef?.pins ?? []).map(pin => {
+    const ref = `${ctx.boardId}.${pin.name}`;
+    return { ref, nodo: ctx.nodo(ref) };
+  }));
+}
+
+export interface AnalisisTransitorioCircuito {
+  perfil: 'transitorio-diseno-gpio-fijos';
+  t: number[];
+  /** Tensiones de pines con camino verificable a tierra; omite las islas flotantes. */
+  pines: Record<string, number[]>;
+  elementos: Record<string, SerieElementoTransitorio>;
+  advertencias: string[];
+}
+
+export async function analizarTransitorioCircuito(project: Project, buscar: BuscarDef, opciones: OpcionesAnalisis, parametros: ParametrosTransitorio): Promise<AnalisisTransitorioCircuito> {
+  validarParametrosTransitorio(parametros);
+  const c = preparar(project, buscar, instantaneaOpcionesAnalisis(opciones));
+  const { n, avisosModelos } = armarPasada(c, c.hayPlaca, new Map());
+  const hayTierraFisica = c.hayPlaca || c.instancias.some(ins => ins.def.source && ins.def.pins.some(pin => pin.kind === 'ground'));
+  const referenciados = nodosReferenciadosTransitorio(n.elementos, hayTierraFisica ? ['0'] : []);
+  const pinesPlacas = referenciasPinesPlacas(c);
+  const cantidadPines = new Set([
+    ...[...c.refsDeNodo].filter(([nodo]) => referenciados.has(nodo)).flatMap(([, refs]) => refs),
+    ...pinesPlacas.filter(pin => referenciados.has(pin.nodo)).map(pin => pin.ref),
+  ]).size;
+  n.validarPresupuestoTransitorio(Math.ceil(parametros.duracionS / parametros.pasoS) + 1, cantidadPines);
+  const r = await correrTransitorio(n, parametros);
+  n.validarPresupuestoTransitorio(r.t.length, cantidadPines);
+  const advertencias = [
+    'Análisis de diseño con GPIO y controles fijos: no ejecuta firmware ni simula eventos digitales, PWM o reinicios por brownout.',
+    'Los tiempos corresponden a los pasos adaptativos de ngspice; pasoS es el máximo solicitado.',
+    ...avisosModelos.map(a => a.mensaje), ...r.advertencias,
+  ];
+  const pines: Record<string, number[]> = {};
+  const sinModelo: string[] = [];
+  const sinReferencia = new Set<string>();
+  for (const [nodo, refs] of c.refsDeNodo) {
+    const serie = r.tensiones.get(nodo);
+    if (!serie) { sinModelo.push(...refs); continue; }
+    if (!referenciados.has(nodo)) { for (const ref of refs) sinReferencia.add(ref); continue; }
+    for (const ref of refs) pines[ref] = serie;
+  }
+  for (const { ref, nodo } of pinesPlacas) {
+    const serie = r.tensiones.get(nodo);
+    if (!serie) continue;
+    if (!referenciados.has(nodo)) { sinReferencia.add(ref); continue; }
+    pines[ref] = serie;
+  }
+  if (sinReferencia.size) advertencias.push(`Sin referencia física de tierra verificable durante todo el transitorio para: ${[...sinReferencia].join(', ')}. Se omiten sus tensiones absolutas; v, i y p de los elementos conservan su sentido relativo a→b. Fuentes de corriente, semiconductores y controles no conceden referencia sin otro camino comprobado.`);
+  if (sinModelo.length) advertencias.push(`Sin modelo eléctrico de tensión para: ${sinModelo.join(', ')}.`);
+  return { perfil: 'transitorio-diseno-gpio-fijos', t: r.t, pines, elementos: r.elementos, advertencias };
+}
 
 export async function analizarCircuito(project: Project, buscar: BuscarDef, opciones: OpcionesAnalisis = {}): Promise<AnalisisCircuito> {
   opciones = instantaneaOpcionesAnalisis(opciones);
@@ -400,6 +471,9 @@ export async function analizarCircuito(project: Project, buscar: BuscarDef, opci
   for (const [nodo, refs] of c.refsDeNodo) {
     if (!tieneTension(p, nodo)) { pinesSinModelo.push(...refs); continue; }
     for (const ref of refs) tensiones[ref] = tension(p, nodo);
+  }
+  for (const { ref, nodo } of referenciasPinesPlacas(c)) {
+    if (tieneTension(p, nodo)) tensiones[ref] = tension(p, nodo);
   }
   if (pinesSinModelo.length) avisos.push({ severidad: 'advertencia', pin: -1, refs: pinesSinModelo, mensaje: `Sin modelo eléctrico de tensión para: ${pinesSinModelo.join(', ')}. No se pueden verificar sus niveles.` });
 

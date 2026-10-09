@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 56 74">
+  <line x1="18" y1="56" x2="18" y2="74" stroke="#aab4be" stroke-width="2"/>
+  <line x1="38" y1="56" x2="38" y2="74" stroke="#aab4be" stroke-width="2"/>
+  <circle cx="28" cy="32" r="24" fill="#3a424d" stroke="#6b7785" stroke-width="1.2"/>
+  <circle cx="28" cy="32" r="17" fill="#c9a227" stroke="#8a6f1a" stroke-width="1"/>
+  <circle cx="28" cy="32" r="9" fill="#d9d9d9" stroke="#9aa3ad" stroke-width="0.8"/>
+  <text x="28" y="35" font-family="monospace" font-size="7" fill="#4a5361" text-anchor="middle">PZ</text>
+</svg>

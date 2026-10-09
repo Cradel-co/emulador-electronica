@@ -12,9 +12,14 @@ Guía para Claude Code (claude.ai/code) al trabajar en este repositorio.
    con `--base <esa-rama>`: GitHub rebasa la base sola cuando la otra se mergea.
 2. Commits chicos y temáticos, mensaje en español, imperativo, que diga **qué problema resuelve**
    (no "arreglos varios"). Un commit por idea.
-3. Antes de pushear: `npx vitest run` y `npx tsc -p server/tsconfig.json --noEmit` (desde `app/`) en verde.
-4. `gh pr create --base <rama-base> --fill` y describir en el body: qué cambia, por qué, y cómo se probó.
-5. Mergea el principal (Marcos), no el agente. El agente no mergea ni cierra PRs salvo pedido explícito.
+3. **Una entrada de changelog por rama**: un archivo `changelog.d/<tipo>-<descripcion-corta>.md`
+   con el mismo tipo que el prefijo de la rama. Primera línea = qué cambia para quien usa la app.
+   Es un archivo por cambio y no un `CHANGELOG.md` único **porque ese daría conflicto en cada
+   merge**; la suite valida todos los fragmentos. Formato y por qué:
+   [changelog.d/README.md](./changelog.d/README.md).
+4. Antes de pushear: `npx vitest run` y `npx tsc -p server/tsconfig.json --noEmit` (desde `app/`) en verde.
+5. `gh pr create --base <rama-base> --fill` y describir en el body: qué cambia, por qué, y cómo se probó.
+6. Mergea el principal (Marcos), no el agente. El agente no mergea ni cierra PRs salvo pedido explícito.
 
 Si hay un PR abierto que toca los mismos archivos, **revisarlo antes de escribir código**
 (`gh pr view <n> --json files`) para no duplicar trabajo ni generar conflictos.
@@ -26,8 +31,8 @@ Si hay un PR abierto que toca los mismos archivos, **revisarlo antes de escribir
 export PATH="$HOME/.nvm/versions/node/v24.14.0/bin:$PATH"
 cd /home/marcos/marcos/emulador-electronica/app && npm run dev
 
-# Para entrar desde la tailnet (http://100.64.0.1:5180): el server escucha en 127.0.0.1
-# y además valida el Host contra DNS rebinding, así que hacen falta las dos variables.
+# Para habilitar el editor completo desde la tailnet (http://100.64.0.1:5180):
+# por defecto la LAN solo accede al visor; el editor requiere HOST y Host permitido.
 # El package.json está en app/, no en la raíz del repo.
 cd /home/marcos/marcos/emulador-electronica/app && HOST=0.0.0.0 EMU_ALLOWED_HOSTS=100.64.0.1:5180 npm run dev
 
@@ -108,12 +113,21 @@ Ver [arquitectura-web.md](./docs/arquitectura-web.md#componentes-propios-y-adapt
 - [README.md](./README.md) — puesta en marcha paso a paso y requisitos.
 - [docs/](./docs/) — alcance, placas, módulos, fuentes de alimentación, troubleshooting.
 - [SDD-CIRCUITO-LIBRE.md](./SDD-CIRCUITO-LIBRE.md) — diseño del solver de circuito libre y su plan de tests.
+- [docs/agregar-un-modulo.md](./docs/agregar-un-modulo.md) — **el proceso para agregar un módulo**, con el
+  error que originó cada paso. Leerlo antes de crear un componente nuevo.
+- [docs/audio.md](./docs/audio.md) — módulos que suenan: el contrato `salidas.sonido`, de la tensión
+  a la amplitud, y qué falta para que el navegador reproduzca.
 - [docs/arquitectura-web.md](./docs/arquitectura-web.md) — capas de la UI, cómo se hablan `app.ts` y los
   componentes de React, y las reglas de modularización con el error que originó cada una.
 - [SDD-MODULOS.md](./SDD-MODULOS.md) — diseño de módulos completos (esquemático exportable, reglas y tests
   propios, comportamiento digital, entorno y salidas); la sección 8 dice qué ya está hecho y qué se aprendió.
 - [SDD-EDITOR.md](./SDD-EDITOR.md) — diseño y alcance del editor CodeMirror 6 para MicroPython,
   con autocompletado, diagnóstico sintáctico local y pruebas de regresión.
+- [SDD-AUDIO.md](./SDD-AUDIO.md) — diseño de los módulos que suenan y del micrófono: un contrato
+  (`salidas.sonido`) con tres niveles de fidelidad (nivel de pin, PWM, I2S) y por qué el tono se
+  declara en vez de calcularse.
+- [SDD-ESP-CAMERA.md](./SDD-ESP-CAMERA.md) — diseño de la cámara OV2640 por DVP en ESP32-S3,
+  compatibilidad del driver físico y frontera de fidelidad de la emulación.
 - [chips/README.md](./chips/README.md) — chips con lógica (I2C/SPI en el Uno y puente MicroPython en ESP32): cómo se escriben y se prueban.
   Los sketches de prueba se compilan con `sh app/server/src/fixtures/chips/compilar.sh` (Docker) y los
   `.hex` se versionan: los tests corren sin Docker.

@@ -14,6 +14,9 @@ import {
   type Project,
 } from '@emu/shared';
 import { arducamDriver, arducamMain } from './templates/arducam.js';
+import { arducamTftMain } from './templates/arducamTft.js';
+import { decodificadorJpegMicroPython } from './templates/jpegDecoder.js';
+import { st7735MicroPython } from './templates/st7735MicroPython.js';
 import { PATHS } from './paths.js';
 
 export class ProjectError extends Error {
@@ -261,6 +264,12 @@ export class ProjectStore {
     if (library === this.templatesDir && templateId === 'arducam-esp32-s3') {
       await fs.writeFile(path.join(this.projectDir(name), 'arducam.py'), arducamDriver);
       await fs.writeFile(path.join(this.projectDir(name), 'main.py'), arducamMain);
+    }
+    if (templateId === 'arducam-tft-esp32-s3') {
+      await fs.writeFile(path.join(this.projectDir(name), 'arducam.py'), arducamDriver);
+      await fs.writeFile(path.join(this.projectDir(name), 'jpeg.py'), decodificadorJpegMicroPython);
+      await fs.writeFile(path.join(this.projectDir(name), 'st7735.py'), st7735MicroPython);
+      await fs.writeFile(path.join(this.projectDir(name), 'main.py'), arducamTftMain);
     }
     return this.save({ ...base, name });
   }

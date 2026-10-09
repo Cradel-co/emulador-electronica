@@ -55,4 +55,43 @@ it('perder alimentación o quitar el módulo cancela la solicitud pendiente', as
   expect(chips.every(c=>!c.alimentado)).toBe(true);
   b.entradaCamara('camara',{tipo:'imagen',token:2,bytes:[255,216,255,217]});
   expect(salidas.at(-1)).toMatchObject({cameraAction:'cancel'});
+  // El snapshot nuevo restaura VCC y cableado; CS sigue bajo, no requiere otra transición.
+  const restaurados = chipsDelProyecto(p,buscar,(await buscarPlaca(p.board ?? ''))?.desc).chips;
+  b.actualizarCamaras(restaurados);
+  expect(chips.every(c=>c.alimentado)).toBe(true);
+  b.entradaCamara('camara',{tipo:'configuracion',soportada:true});
+  b.recibir('@SPI 2 3 12 11 13 1000000 0 0 hAI= 1');
+  expect(salidas.at(-1)).toMatchObject({cameraAction:'capture'});
+});
+
+it('comparte SCLK/MOSI entre ArduCAM y TFT con CS independientes', async () => {
+  const p = ProjectSchema.parse(JSON.parse(readFileSync('../projects/_template/arducam-tft-esp32-s3/project.json', 'utf8')));
+  const catalogo = await loadCatalog(), buscar = (t: string) => catalogo.find(c => c.type === t);
+  const placa = await buscarPlaca(p.board ?? '');
+  const electrico = await analizarCircuito(p, buscar, {});
+  const { chips } = chipsDelProyecto(p, buscar, placa?.desc, undefined, id => electrico.modulos[id]?.ui?.on);
+  expect(chips).toHaveLength(3);
+  const arducam = chips.find(c => c.chip === 'arduchip');
+  const tft = chips.find(c => c.chip === 'sitronix-st7735');
+  expect(arducam?.spi).toMatchObject({ sck: 12, mosi: 11, miso: 13, csGpio: 10 });
+  expect(tft?.spi).toMatchObject({ sck: 12, mosi: 11, csGpio: 14, dcGpio: 15 });
+
+  const salidas: Record<string, unknown>[] = [];
+  const puente = new PuenteChips(chips, { enviar: () => {}, alSalida: (_id, salida) => salidas.push(salida) });
+  // La secuencia de comandos/datos de la TFT no debe seleccionar la FIFO de la cámara.
+  puente.recibir('@P 14 0 1');
+  puente.recibir('@P 15 0 2');
+  puente.recibir('@SPI 1 3 12 11 13 1000000 0 0 gA== 1'); // SWRESET
+  puente.recibir('@P 15 1 4');
+  puente.recibir('@SPI 1 5 12 11 13 1000000 0 0 AA== 1'); // dato TFT
+  puente.recibir('@P 14 1 6');
+  expect(salidas.some(s => s.cameraAction === 'capture')).toBe(false);
+
+  // El CS de la ArduCAM sí conserva el protocolo y genera una solicitud independiente.
+  puente.entradaCamara('camara', { tipo: 'configuracion', soportada: true });
+  puente.recibir('@P 10 0 7');
+  puente.recibir('@SPI 1 8 12 11 13 1000000 0 0 hAI= 1'); // CAP_DONE_MASK / CAP_START
+  puente.recibir('@P 10 1 9');
+  expect(salidas.some(s => s.cameraAction === 'capture')).toBe(true);
+  puente.apagar();
 });

@@ -35,3 +35,26 @@ Las fórmulas se representan como texto matemático con símbolos Unicode. Para 
 `GET /api/learning/examples` lista la biblioteca distribuida incluso si `EMU_PROJECTS_DIR` apunta a otra carpeta. `POST /api/learning/examples/:id/projects` con `{ "name": "mi-practica" }` crea una copia. Valida nombres, rechaza enlaces simbólicos y devuelve 409 si ya existe el proyecto. No mezcla ejemplos con `/api/templates`.
 
 El piloto trabaja con resistores y una fuente en régimen DC. Los recorridos de transitorios, electromagnetismo y otros fenómenos del catálogo siguen en preparación: su presencia editorial no afirma que el motor los simule.
+
+## Integración con el motor actual
+
+La rama de Aprender incorpora `main` sin sustituir sus implementaciones de ADC, PWM,
+transitorios ni los contratos de observación eléctrica. El editor y la vista compartida
+consumen el mismo resultado de `avisosDelProyecto`: una observación obsoleta o no resuelta
+retira las medidas, en lugar de presentar ceros o salidas encendidas por un GPIO alto.
+Los controles USB pertenecen a cada instancia de placa y los tests usan esos controles.
+La resolución conserva la actualización incremental del lienzo y la invalidación inmediata
+al modificar el circuito, incorporadas por los PR #72 y #73.
+
+Validación de la integración (Node 24.21.0): `npm ci`, build general y typechecks de
+servidor/frontend correctos; Vitest completo: 1602 pruebas aprobadas y una omisión
+existente. Los siete E2E focalizados de MDX y vista compartida pasaron.
+La primera corrida amplia detectó siete fallos de helpers/aislamiento; se corrigieron
+sin retirar comprobaciones. La segunda completó 156 de 158 casos sin fallos (143
+aprobados y 13 omisiones condicionales existentes), antes de terminar externamente
+con código 143. El archivo final de ventanas se verifica por separado para completar
+la cobertura; esto no equivale a una corrida completa finalizada en un solo proceso.
+El archivo `tool-window.spec.ts` pasó sus cuatro casos en un servidor nuevo. La unión
+de ambas corridas cubre los 145 casos aprobados y las 13 omisiones del listado final,
+sin nuevos skips. El circuito de 100 LEDs mantuvo cero nodos creados/destruidos en
+40 cambios eléctricos.

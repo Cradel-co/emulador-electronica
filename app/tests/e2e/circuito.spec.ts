@@ -1,3 +1,4 @@
+import { firmwareFixture } from './fisica-fixture.js';
 import { expect, test } from '@playwright/test';
 import {
   abrirProyectoNuevo,
@@ -16,8 +17,10 @@ test.describe('catálogo de módulos', () => {
     await abrirProyectoNuevo(page, request);
     const categorias = page.locator('#lista-modulos .cat-header');
     await expect(categorias).toHaveText(['Placas', 'Entradas', 'Salidas', 'Pasivos', 'Radio 433 MHz', 'Inalámbricos', 'Sensores', 'Alimentación', 'Pantallas']);
-    // 4 placas (ESP32-S3, C3, C6, Arduino Uno) + 18 módulos de fábrica, incluidas las cámaras.
-    await expect(page.locator('.modulo-card')).toHaveCount(22);
+    const { modules } = await (await request.get('/api/modules')).json();
+    await expect(page.locator('.modulo-card')).toHaveCount(modules.length);
+    expect(await page.locator('.modulo-card').evaluateAll((cards) => cards.map((c) => c.getAttribute('data-type')).sort()))
+      .toEqual(modules.map((m: { type: string }) => m.type).sort());
     const esp32 = page.locator('.modulo-card[data-type="esp32-s3-devkitc-1"]');
     await expect(esp32.locator('.tag-programable')).toHaveText('programable');
     await expect(page.locator('.modulo-card[data-type="rxb6"] .tag-programable')).toHaveCount(0);
@@ -56,9 +59,9 @@ test.describe('proyecto nuevo', () => {
     await expect(page.locator('#editor')).toHaveValue(/number: GPIO6/);
     // La placa arranca desenchufada: sin energía no circula nada (ni hay nada que avisar).
     await expect(page.locator('#avisos-dibujo')).toContainText('no tiene alimentación');
-    // Con el USB, el LED de la plantilla va directo al GPIO, sin resistencia: la física real lo avisa sola.
+    // La alimentación USB no inventa una salida HIGH sin firmware.
     await page.locator('#lienzo .modulo[data-id="board"] .placa-usb').click();
-    await expect(page.locator('#avisos-dibujo')).toContainText('resistencia en serie');
+    await expect(page.locator('#avisos-dibujo div')).toHaveCount(0);
     await expect(page.locator('.tabs button')).toHaveText(['main.yaml']);
   });
 });
@@ -109,6 +112,7 @@ test.describe('código por módulo', () => {
     await page.locator('.modulo-card[data-type="remote-433"]').click();
     await expect(modulo(page, 'control1')).toBeVisible();
     const panel = page.locator('#panel-modulo');
+    await expect(panel).not.toContainText('Sin medición eléctrica válida');
     await expect(panel.locator('.insp-badge')).toContainText('Inalámbrico');
     await expect(panel.locator('.insp-pines')).toHaveCount(0);
     await expect(panel.locator('input[data-prop="codeA"]')).toHaveValue(/^[01]{24}$/);
@@ -180,19 +184,24 @@ test.describe('cableado', () => {
     await abrirProyectoNuevo(page, request);
     await page.locator('.modulo-card[data-type="rxb6"]').click();
     // Recién agregado: ningún pin conectado, así que GND y VCC ya están marcados.
+    await expect(page.locator('#panel-modulo')).not.toContainText('Sin medición eléctrica válida');
     await expect(page.locator('#panel-modulo .insp-badge.advertencia')).toContainText('VCC y GND');
     await expect(page.locator('#lienzo .pin[data-ref="rx1.VCC"]')).toHaveClass(/sin-alimentar/);
     await expect(page.locator('#lienzo .pin[data-ref="rx1.GND"]')).toHaveClass(/sin-alimentar/);
 
     await cablear(page, 'rx1.DATA', 'board.GPIO4');
+    await expect(page.locator('#panel-modulo')).not.toContainText('Sin medición eléctrica válida');
     await expect(page.locator('#panel-modulo .insp-badge.advertencia')).toContainText('VCC y GND'); // DATA no alcanza
 
     await cablear(page, 'rx1.VCC', 'board.3V3');
+    await expect(page.locator('#panel-modulo')).not.toContainText('Sin medición eléctrica válida');
     await expect(page.locator('#panel-modulo .insp-badge.advertencia')).toContainText('GND');
+    await expect(page.locator('#panel-modulo')).not.toContainText('Sin medición eléctrica válida');
     await expect(page.locator('#panel-modulo .insp-badge.advertencia')).not.toContainText('VCC y GND');
     await expect(page.locator('#lienzo .pin[data-ref="rx1.VCC"]')).not.toHaveClass(/sin-alimentar/);
 
     await cablear(page, 'rx1.GND', 'board.GND');
+    await expect(page.locator('#panel-modulo')).not.toContainText('Sin medición eléctrica válida');
     await expect(page.locator('#panel-modulo .insp-badge.advertencia')).toHaveCount(0);
     await expect(page.locator('#lienzo .pin[data-ref="rx1.GND"]')).not.toHaveClass(/sin-alimentar/);
   });
@@ -295,6 +304,7 @@ test.describe('cableado', () => {
 
 test.describe('Ley de Ohm', () => {
   test('agregar una resistencia arregla el aviso; bajarla demasiado avisa de nuevo', async ({ page, request }) => {
+    await firmwareFixture(page, request);
     await abrirProyectoNuevo(page, request);
     // El proyecto nuevo trae el LED directo al GPIO7, sin resistencia. Enchufada por USB, con la
     // resistencia interna del pin del S3 no se quema al instante, pero queda sobreexigido: el motor lo avisa.

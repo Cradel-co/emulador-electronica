@@ -1,5 +1,8 @@
 import type { BuildArtifacts } from './buildService.js';
 import type { EmulatorStatus } from './emulator.js';
+import type { EstadoAnalogicoAvr } from './analogicoAvr.js';
+import type { PerfilAnalogicoAvr, PerfilAnalogicoEsp } from '@emu/shared';
+import type { EstadoAnalogicoEsp } from './analogicoEsp.js';
 import type { ChipEnBus } from './bus/proyectoChips.js';
 
 /**
@@ -32,6 +35,13 @@ export interface OpcionesArranque {
   chips?: ChipEnBus[];
   /** ms entre la alimentación y la primera instrucción del micro (`board.arranqueMs`). */
   arranqueMs?: number;
+  /** Snapshot analógico inicial, antes de ejecutar firmware AVR. */
+  analogicoAvr?: EstadoAnalogicoAvr;
+  /** Ideal por omisión; el perfil RC requiere parámetros/procedencia explícitos y se conserva al reset. */
+  perfilAnalogicoAvr?: PerfilAnalogicoAvr;
+  /** Exclusivo MicroPython: la ausencia de perfil devuelve SIN_MODELO al leer ADC. */
+  perfilAnalogicoEsp?: PerfilAnalogicoEsp;
+  analogicoEsp?: EstadoAnalogicoEsp;
 }
 
 export interface Emulador {
@@ -43,9 +53,15 @@ export interface Emulador {
   /** Texto a la entrada de la consola (REPL de MicroPython, Serial). */
   writeConsole(data: string): boolean;
   getBridge(): PuenteSim | null;
+  /** Límites de RF realmente inyectable en la corrida actual; ausente/null significa sin ruta. */
+  capacidadRf?(): { maxBits: number; protocolos: readonly number[] } | null;
   /** El puente avisó @READY: estado 'bridge'. */
   markBridgeReady(): void;
   /** VCC efectivo de los módulos conectados a buses, por id de instancia. */
   actualizarAlimentacionChips(porInstancia: Readonly<Record<string, boolean>>): void;
+  /** Adaptador ADC del backend avr8js. */
+  actualizarAnalogicoAvr?(estado: EstadoAnalogicoAvr): void;
+  /** Sólo shim machine.ADC MicroPython; no es inyección al SAR nativo de esp-emu. */
+  actualizarAnalogicoEsp?(estado: EstadoAnalogicoEsp): void;
   shutdown(): Promise<void>;
 }

@@ -295,7 +295,7 @@ ${rotulos.join('\n')}
 
 // --- Zip y archivos sueltos -------------------------------------------------------
 
-/** Textos .json/.svg/.js de un zip (con límites contra zip bombs). Ignora el resto. */
+/** Textos .json/.svg/.js/.ts de un zip (con límites contra zip bombs). Ignora el resto. */
 export function leerZip(datos: Uint8Array): Map<string, string> {
   let total = 0;
   let entradas = 0;
@@ -305,7 +305,7 @@ export function leerZip(datos: Uint8Array): Map<string, string> {
       filter: (f) => {
         entradas++;
         if (entradas > LIMITES.entradasZip) throw new ImportError('el zip tiene demasiados archivos');
-        if (f.name.includes('__MACOSX/') || !/\.(json|svg|js)$/i.test(f.name)) return false;
+        if (f.name.includes('__MACOSX/') || !/\.(json|svg|js|ts)$/i.test(f.name)) return false;
         if (f.originalSize > LIMITES.archivoZip) throw new ImportError(`${f.name} es demasiado grande (máx. 512 KB)`);
         total += f.originalSize;
         if (total > LIMITES.totalZip) throw new ImportError('el zip descomprimido es demasiado grande (máx. 8 MB)');

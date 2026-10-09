@@ -1,3 +1,4 @@
+import { firmwareFixture } from './fisica-fixture.js';
 import { test, expect } from '@playwright/test';
 import { abrirProyectoNuevo } from './helpers.js';
 
@@ -42,6 +43,7 @@ test('una compilación fallida lista sus errores debajo del editor', async ({ pa
 });
 
 test('la pestaña Problemas junta errores y avisos del circuito, y un error lleva a su línea', async ({ page, request }) => {
+  await firmwareFixture(page, request);
   await tomarWebSocket(page);
   await abrirProyectoNuevo(page, request);
   await page.keyboard.press('Alt+6');

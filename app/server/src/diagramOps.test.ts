@@ -29,6 +29,7 @@ const def = (type: string, extra: Partial<ModuleDef> = {}): ModuleDef => ({
   props: {},
   vars: {},
   chips: [],
+  salidas: [],
   ...extra,
 });
 

@@ -222,14 +222,19 @@ fuera de localhost, el navegador requiere un contexto seguro (HTTPS); LAN queda 
 La Cámara virtual sigue siendo independiente del firmware y de las pantallas. Para captura por firmware, usá la ArduCAM descrita abajo.
 
 Diseño, contratos y prueba completa: [SDD-CAMARA.md](SDD-CAMARA.md).
+La siguiente alternativa, OV2640 por DVP en ESP32-S3, está en diseño: [SDD-ESP-CAMERA.md](SDD-ESP-CAMERA.md). Explica el pinout por placa y por qué la emulación no equivale a simular las señales DVP.
 
 ## ArduCAM con ESP32-S3 y MicroPython
 
-En **Nuevo proyecto**, elegí la plantilla **ArduCAM con ESP32-S3 y MicroPython**. Incluye el circuito cableado y genera `arducam.py` y `main.py` desde una plantilla TypeScript. Seleccioná la cámara, pulsá **Activar webcam**, aceptá el permiso y ejecutá el programa.
+En **Nuevo proyecto**, elegí la plantilla **ArduCAM con ESP32-S3 y MicroPython**. Incluye el circuito cableado y genera `arducam.py` y `main.py` desde una plantilla TypeScript. Seleccioná la cámara, pulsá **Activar webcam** la primera vez y aceptá el permiso del navegador. El navegador guarda esa autorización; al volver a seleccionar el módulo, la sesión activa se conserva y, si la sesión se cerró, se reanuda automáticamente cuando el navegador indica que el permiso sigue concedido.
 
 Cada cinco segundos MicroPython pide una fotografía nueva mediante I2C/SPI, lee el JPEG completo en bloques de 512 bytes e imprime longitud y SHA-256. El visor muestra la fotografía recuperada del backend y su huella: ambas deben coincidir, sin pulsar **Capturar**. Mostrá otro objeto para verificar una fotografía diferente. **Detener** libera la webcam; parar o reiniciar el programa cancela las solicitudes pendientes.
 
-Primera versión: JPEG 320 × 240 con bandas si cambia la proporción, sin TFT ni video continuo. El driver solo utiliza APIs normales de MicroPython; su funcionamiento en una placa física requiere validación posterior. Registros, límites y alcance: [SDD-ARDUCAM.md](SDD-ARDUCAM.md).
+La plantilla inicial **ArduCAM con ESP32-S3 y MicroPython** verifica la captura JPEG sin TFT. Para ver la cámara en el circuito, elegí **ArduCAM y TFT ST7735 con ESP32-S3**: comparte SCLK/MOSI y usa CS separados; MicroPython solicita una foto y, después de cada ciclo completo, espera un segundo antes de volver a solicitarla. Como la captura, la decodificación y el dibujo se suman a esa pausa, el intervalo entre imágenes es mayor a un segundo. Es una vista casi en vivo compuesta por capturas; no es un flujo de video continuo por SPI. Cambiar la selección del circuito no apaga la webcam; **Detener**, cambiar de proyecto o salir de la página sí la libera.
+
+La TFT recibe 128 × 96 RGB565 con bandas negras. Para mantener el tiempo de respuesta en esp-emu, esta primera versión representa los bloques JPEG por su color promedio (detalle efectivo aproximado de 40 × 30); la IDCT completa y la prueba en hardware físico quedan pendientes. El driver solo usa APIs normales de MicroPython. Diseño y alcance: [SDD-ARDUCAM-TFT.md](SDD-ARDUCAM-TFT.md).
+
+En localhost, el navegador y el backend simulan la salida JPEG de la cámara; el OV2640 de la ArduCAM física comprime la imagen dentro del propio sensor. El ESP32 no codifica en ninguno de esos recorridos: en localhost codifican navegador/backend y, físicamente, el OV2640. MicroPython sí decodifica el JPEG para que la TFT reciba píxeles RGB565. Los tiempos del emulador no estiman el rendimiento físico.
 
 ## Placas soportadas
 
@@ -261,6 +266,10 @@ claude mcp add --transport http emulador-esp32 http://127.0.0.1:5180/mcp
 O abrí Claude Code en esta carpeta: toma [`.mcp.json`](.mcp.json) automáticamente. Solo acepta clientes locales — las páginas de otro origen reciben 403.
 
 Herramientas: `estado`, `listar_proyectos`, `crear_proyecto`, `ver_proyecto`, `leer_archivo`, `escribir_archivo`, `placas`, `esquema_placa`, `validar_placa`, `certificar_placa`, `catalogo`, `importar_modulo`, `quitar_modulo_catalogo`, `agregar_modulo`, `quitar_modulo`, `mover_modulo`, `configurar_modulo`, `conectar`, `desconectar`, `compilar`, `ejecutar`, `parar`, `resetear`, `accionar_modulo`, `poner_pin`, `enviar_rf`, `leer_pines`, `leer_log`, `esperar_log`, `chips`, `mover_entorno`. Más las 7 de debug cuando el depurador está activo.
+
+Las mediciones de `leer_pines` y `ver_proyecto` provienen del mismo contrato eléctrico que
+la interfaz. `leer_pines` acepta un proyecto explícito y distingue apagado de desconocido;
+ver [observación eléctrica compartida](docs/observacion-electrica.md).
 
 ## Tests
 

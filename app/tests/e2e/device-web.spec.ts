@@ -14,7 +14,7 @@ test('el planeta abre solo el circuito compilado y permite compartir sus control
   await page.route('**/api/previews', route => route.fulfill({ json: { path: '/preview.html#abcdef' } }));
   await context.route('**/api/previews/abcdef', route => route.fulfill({ json: {
     name, active, diagram: { modules: project.modules, wires: project.wires }, catalog: catalog.filter(module => types.has(module.type)),
-    links: ['http://192.168.1.20:5180/preview.html#abcdef'], live: active ? { cerrados: closed ? ['btn1'] : [], electrico: { leds: [], modulos: {} } } : null,
+    links: ['http://192.168.1.20:5180/preview.html#abcdef'], live: active ? { cerrados: closed ? ['btn1'] : [], electrico: { resuelto: true, leds: [], modulos: {} } } : null,
   } }));
   await context.route('**/api/previews/abcdef/controls', async route => {
     const change = route.request().postDataJSON(); changes.push(change); closed = change.cerrado;

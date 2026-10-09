@@ -498,8 +498,8 @@
     "notes": [
       "Emulado con avr8js (el núcleo AVR de Wokwi), ciclo a ciclo a 16 MHz.",
       "Las entradas llegan al pad real del chip: digitalRead, interrupciones y pull-ups se comportan como en la placa.",
-      "Periféricos emulados: GPIO, Serial (USART0), timers 0/1/2 (millis, delay, PWM), ADC (lee 0 V) y EEPROM.",
-      "Todavía sin I2C/SPI hacia módulos del dibujo ni RF 433; solo las librerías que trae el core arduino:avr."
+      "Periféricos emulados: GPIO, Serial (USART0), timers 0/1/2 (millis, delay, PWM), ADC ideal de 10 bits con tensiones DC del circuito y EEPROM. El ADC rechaza entradas o referencias desconocidas; no modela ruido ni adquisición analógica.",
+      "I2C/SPI funcionales hacia chips del catálogo: no equivalen a un bus eléctrico completo por flancos. El reloj de CPU y el circuito externo aún no comparten co-simulación analógica temporal."
     ]
   }
 }

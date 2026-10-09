@@ -113,6 +113,28 @@ export function crearLienzo(svg, ctx) {
     for (const [g, vivo] of vivos) aplicarEstadoVivo(g, vivo);
   }
 
+  /** Refresca las medidas sin reconstruir geometría; los cortos sí cambian los nodos. */
+  function refrescarFisica() {
+    if (!capa) return render();
+    for (const g of capa.querySelectorAll('.cable')) {
+      const corto = ctx.enCorto(g.getAttribute('data-from')) && ctx.enCorto(g.getAttribute('data-to'));
+      if (Boolean(corto) !== g.classList.contains('en-corto')) return render();
+    }
+    pintarVivo();
+    for (const inst of ctx.diagrama().modules) {
+      const def = ctx.def(inst.type) ?? defDesconocido(inst.type);
+      for (const p of def.pins) {
+        const ref = `${inst.id}.${p.name}`;
+        const g = capa.querySelector(`.pin[data-ref="${CSS.escape(ref)}"]`);
+        if (!g) return render();
+        g.setAttribute('class', `pin ${p.kind} ${ctx.clasePin(ref)}`);
+        const titulo = g.querySelector('title')?.firstChild;
+        const extra = ctx.descripcionPin(ref);
+        if (titulo) titulo.nodeValue = `${def.name} · ${p.name.replace(/_\d+$/, '')}${extra ? ` — ${extra}` : ''}`;
+      }
+    }
+  }
+
   function render() {
     if (frame) {
       cancelAnimationFrame(frame);
@@ -584,5 +606,5 @@ export function crearLienzo(svg, ctx) {
     return true;
   }
 
-  return { render, pedirRender, moverVisual, ajustar, centroVisible, cancelarCable, zoom: (f) => zoomEn(f) };
+  return { render, pedirRender, refrescarFisica, moverVisual, ajustar, centroVisible, cancelarCable, zoom: (f) => zoomEn(f) };
 }

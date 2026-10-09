@@ -4,12 +4,13 @@
 > módulo de pantalla (...) deja documentada cada una de las posibilidades, y sumale la
 > e-paper, independientemente la medida, para evaluarlo más adelante".
 
-## Estado actual (2026-10-03)
+## Estado actual (2026-10-04)
 
 | Pantalla | Arduino Uno | ESP32 con MicroPython | ESP32 con ESPHome / ESP-IDF / Arduino |
 |---|---|---|---|
 | OLED SSD1306 128×64 (`oled-ssd1306-128x64`) | I2C emulado por el TWI del ATmega328P | I2C por el puente de `machine.I2C` / `SoftI2C` | Sin soporte de chips hacia el dibujo |
 | TFT ST7735 128×160 (`tft-st7735-128x160`) | SPI emulado: D13 SCK, D11 MOSI; CS/DC/RESET en GPIO | SPI por el puente de `machine.SPI` / `SoftSPI` | Sin soporte de chips hacia el dibujo |
+| ArduCAM Mini 2MP Plus → TFT ST7735 (`arducam-tft-esp32-s3`) | — | Captura webcam solicitada por firmware, JPEG→RGB565 y TFT por SPI compartido | Solo foto fija; el primer decodificador reduce por promedio de bloque (detalle efectivo ~40×30); hardware físico pendiente |
 | 7 segmentos / matriz LED | Pendiente | Pendiente | Pendiente |
 | LCD HD44780 | Pendiente | Pendiente | Pendiente |
 | E-paper | Pendiente: falta elegir y emular un controlador concreto | Ídem | Además falta soporte del bus hacia el dibujo |

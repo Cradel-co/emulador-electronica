@@ -50,7 +50,10 @@ español, vista previa y Última captura recibida con número, dimensiones y hor
 La elección de dispositivo se realiza con la cámara detenida. Las etiquetas disponibles se
 actualizan después de obtener permiso.
 
-1. Activar solicita getUserMedia con video y audio=false; nunca se activa automáticamente.
+1. La primera activación solicita getUserMedia con video y audio=false. El permiso lo administra
+   y recuerda el navegador, no se serializa en el proyecto. Al volver a montar el panel, si el
+   navegador informa que el permiso ya está concedido, el frontend puede reanudar la cámara;
+   después de pulsar Detener no se reanuda automáticamente.
 2. Obtenido el stream, el frontend crea una sesión para proyecto e instancia.
 3. Ante rechazo del backend, se detienen inmediatamente las pistas.
 4. El video local muestra el stream y habilita Capturar cuando hay un fotograma disponible.
@@ -63,7 +66,9 @@ evitar activar una instancia que aún no existe en el backend. Los guardados se 
 
 La imagen local no representa una captura confirmada. Un error conserva la última imagen
 confirmada y muestra el problema. Solo hay una captura pendiente por sesión. Seleccionar otro
-módulo cierra la cámara; la última foto continúa disponible hasta su eliminación o expulsión.
+módulo mantiene la sesión y el stream activo; la última foto continúa disponible hasta su
+eliminación o expulsión. Detener, cambiar de proyecto, salir de la página o perder la conexión
+libera las pistas y la sesión.
 
 ## 4. Contratos e interfaces
 

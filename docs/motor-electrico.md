@@ -1,4 +1,4 @@
-# Motor eléctrico: análisis DC con ngspice
+# Motor eléctrico: DC vivo y análisis transitorio de diseño
 
 Actualizado el **4 de octubre de 2026**. Esta guía describe el camino activo y sus límites. La [auditoría](../AUDITORIA-FIDELIDAD-ELECTRONICA.md) conserva los defectos de la base anterior; el [plan de fidelidad](PLAN-FIDELIDAD-FISICA.md) define los requisitos y la evidencia pendiente.
 
@@ -6,14 +6,16 @@ La aplicación resuelve una **red global de equivalentes eléctricos** mediante 
 
 ## Alcance del análisis
 
-El netlist activo ejecuta **`.op`: punto de operación de continua**. No ejecuta `.tran`, `.ac` ni `.noise`. En este régimen un capacitor ideal no conduce en estado estacionario y un inductor ideal tiene caída DC nula; declararlos en el SDK no añade carga/descarga, resonancia, flyback ni memoria de energía. Los distintos modos de análisis se describen en el [manual oficial ngspice](https://ngspice.sourceforge.io/docs/ngspice-manual.pdf); su versión no identifica automáticamente la del WASM instalado.
+El circuito que acompaña al firmware ejecuta **`.op`: punto de operación de continua**. En este régimen un capacitor ideal no conduce en estado estacionario y un inductor ideal tiene caída DC nula. La API de diseño añade **`.tran`** con condiciones iniciales y trazas RC/RL/RLC, manteniendo GPIO/topología fijos: todavía no es una co-simulación temporal del firmware. `.ac` y `.noise` siguen fuera del camino integrado. Véase [análisis temporal, ADC y evidencia](ANALISIS-TEMPORAL-Y-EVIDENCIA.md). El [manual oficial ngspice](https://ngspice.sourceforge.io/docs/ngspice-manual.pdf) describe los modos; su versión no identifica automáticamente la del WASM instalado.
 
 El SDK expone R, C, L, D, V, I, S, SV y REG. Las ecuaciones de las primitivas son el equivalente matemático seleccionado; sus **parámetros no son universales**. Consumo del chip, resistencia de pad, pulls, Vf/ruptura del LED y dropout pueden ser valores genéricos o típicos. Un modelo de LED ajustado a Vf nominal no es una curva caracterizada de cualquier LED de ese color.
 
 | Fenómeno | Representación actual y límite |
 |---|---|
 | Ohm, redes resistivas, KCL/KVL | Resolución nodal global; válido para la topología y parámetros modelados. |
-| Potencia DC | Convención pasiva: `P=(Va−Vb)·I`; positiva absorbe, negativa entrega. No calcula temperatura ni energía transitoria. |
+| Potencia DC | Convención pasiva: `P=(Va−Vb)·I`; positiva absorbe, negativa entrega. El DC vivo no integra temperatura. |
+| Transitorio de diseño | `.tran` de topología fija, condiciones iniciales, fuentes PWL y trazas V/I/P. Pruebas RC/RL/RLC; separado del firmware. |
+| Térmica opcional | Cuerpo RC isotermo con parámetros declarados y potencia de R/S de una traza; sin realimentación eléctrica ni averías. |
 | Diodos/LEDs | Curva no lineal con polaridad y parámetros del modelo; no certifica brillo, ruptura ni tiempo de avería de un número de parte no identificado. |
 | Fuente CV/CC | Equivalente estático limitado; no representa dinámica del lazo, overshoot ni todas las características source/sink de una fuente física. |
 | Regulador | Equivalente de caída/límite y consumo propio; los parámetros proceden del descriptor. No implica comportamiento térmico o transitorio del regulador real. |
@@ -86,7 +88,7 @@ Las entradas se clasifican con VIL/VIH del descriptor y la tensión del riel. Un
 
 El sensado se agrupa con una demora de **50 ms** después del trabajo activo y mantiene como máximo un grupo pendiente. Esto acota solicitudes; **no captura necesariamente todos los flancos**. Polling AVR/MicroPython y la red externa todavía no forman una co-simulación analógica por eventos con reloj compartido. PWM, pulsos cortos, fase y energía por ciclo no están acreditados.
 
-La alimentación calculada se propaga a chips durante la ejecución; su transición y registros siguen el alcance del backend/modelo. I2C/SPI funcionales y firmware precompilado prueban bytes, registros y ciertos tiempos, no capacitancia de bus, umbrales por bit, arbitraje eléctrico universal ni contención analógica. El ADC no queda conectado al circuito por el mero hecho de existir un periférico virtual.
+La alimentación calculada se propaga a chips durante la ejecución; su transición y registros siguen el alcance del backend/modelo. I2C/SPI funcionales y firmware precompilado prueban bytes, registros y ciertos tiempos, no capacitancia de bus, umbrales por bit, arbitraje eléctrico universal ni contención analógica. El ADC ideal del Uno recibe el snapshot DC resuelto y sus referencias; una entrada desconocida no produce cero ficticio. No representa adquisición, ruido ni ADC de ESP32. Véase el contrato y las pruebas en [análisis temporal](ANALISIS-TEMPORAL-Y-EVIDENCIA.md).
 
 La política de parada aplica los diagnósticos a **cada placa correspondiente**; no interpreta que una placa independiente deba perder energía porque otra falla. Es una decisión del entorno de emulación, no un modelo térmico ni una garantía de seguridad del montaje.
 
@@ -122,11 +124,11 @@ Las suites existentes incluyen fórmulas independientes, redes resistivas, fuent
 
 **Evidencia histórica:** la versión anterior de esta guía registraba 332 pruebas unitarias y 43 e2e y observaciones manuales. Esos resultados corresponden a aquella entrega; algunas comprobaciones de “quemadura permanente” describían un comportamiento visual retirado. La auditoría posterior registra sus propios comandos y 304 pruebas existentes, además de reproducciones adversariales. Ninguno de esos totales es el resultado final de esta actualización.
 
-**Esta actualización documental no ejecutó pruebas.** El informe de la entrega debe registrar comandos, versiones, aprobados/fallidos/omitidos y límites de cobertura. No se asignan aquí nuevos totales ni se afirma validación de navegador. **El baseline de laboratorio sigue pendiente**: faltarían partes/revisiones identificadas, instrumentos, condiciones e incertidumbre para acreditar exactitud física.
+El informe de entrega del [plan de fidelidad](PLAN-FIDELIDAD-FISICA.md) registra comandos, versiones, aprobados/fallidos/omitidos y límites de cobertura. No se afirma validación de navegador. **El baseline de laboratorio sigue pendiente**: faltan partes/revisiones identificadas, instrumentos, condiciones e incertidumbre para acreditar exactitud física. El verificador de registros de medición valida declaraciones, no autentica instrumentos ni certifica exactitud.
 
 ## Límites honestos
 
-- Solo punto de operación DC: sin evolución de carga/flujo, AC, ruido eléctrico general, rebote, flyback, PWM energético ni integración térmica.
+- El vivo permanece DC. `.tran` y térmica de diseño no ejecutan firmware ni sustituyen el reloj físico común que falta. AC, ruido general, rebote, PWM energético y térmica calibrada por parte siguen pendientes.
 - Modelos concretos limitados y parámetros parcialmente genéricos; un símbolo visual no garantiza una representación completa del dispositivo.
 - Sin modelo calibrado de avería permanente, latch-up, envejecimiento, protección térmica o batería electroquímica.
 - Firmware/entradas/buses no comparten aún una co-simulación física temporal completa; inyecciones directas son herramientas de prueba, no medidas del nodo.
