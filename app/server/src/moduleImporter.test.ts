@@ -282,6 +282,26 @@ describe('importar + instalar', () => {
 });
 
 describe('módulos con código (modelo eléctrico)', () => {
+  const modeloTs = `const ron: number = 0.05;
+module.exports = { circuito(ctx) { ctx.interruptor(ctx.pin('SIG'), ctx.pin('GND'), ctx.control, { ron }, 'contacto'); } };`;
+
+  it.each(['zip', 'github'] as const)('instala y valida model.ts desde %s sin perder su fuente', async fuente => {
+    const dir = dirTemporal();
+    const zip = zipSync({
+      'repo-main/modulo/module.json': strToU8(moduloOk({ model: 'model.ts' })),
+      'repo-main/modulo/module.svg': strToU8(SVG_OK),
+      'repo-main/modulo/model.ts': strToU8(modeloTs),
+    });
+    const solicitud = fuente === 'zip'
+      ? { fuente: 'zip' as const, base64: Buffer.from(zip).toString('base64') }
+      : { fuente: 'url' as const, url: 'https://github.com/yo/mods' };
+    const resultado = await importar(solicitud, new ModuleInstaller(dir), {},
+      fetchFalso({ 'https://github.com/yo/mods/archive/HEAD.zip': zip }));
+    expect(resultado.errores).toEqual([]);
+    expect(resultado.importados.map(m => m.type)).toEqual(['boton-grande']);
+    expect(readFileSync(path.join(dir, 'boton-grande', 'model.ts'), 'utf8')).toBe(modeloTs);
+  });
+
   // Un pulsador grande con su propio modelo: une SIG con GND mientras está apretado.
   const MODELO = `module.exports = { circuito(ctx) { ctx.interruptor(ctx.pin('SIG'), ctx.pin('GND'), ctx.control, { ron: 0.05 }, 'contacto'); } };`;
   const conModelo = (codigo?: string, extra: Record<string, unknown> = {}) => ({
