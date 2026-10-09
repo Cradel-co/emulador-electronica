@@ -1,3 +1,5 @@
+import { finalizarObservacion, revisionElectrica } from './observacionElectrica.js';
+import { firmaDiagramaElectrico, type ObservacionElectrica } from '@emu/shared';
 import { crearActualizadorElectrico } from './actualizadorElectrico.js';
 import { VigenciaElectrica } from './vigenciaElectrica.js';
 import { transmitirPorCanalRf } from './rf/canalRf.js';
@@ -1291,6 +1293,7 @@ let proyectoEnergizado: string | null = null;
 const fuentesApagadasDe = (p: Project): boolean => !p.board && proyectoEnergizado !== p.name;
 
 function energizar(nombre: string, encendido: boolean): void {
+  vigenciaElectrica.invalidar();
   const antes = proyectoEnergizado;
   if (encendido) proyectoEnergizado = nombre;
   else if (proyectoEnergizado === nombre) proyectoEnergizado = null;
@@ -1304,6 +1307,7 @@ const cerradosDe = (nombre: string): Set<string> => controlesCerrados.get(nombre
 const estadosModulos = new Map<string, Map<string, Record<string, unknown>>>();
 
 async function fijarControl(nombre: string, id: string, cerrado: boolean): Promise<void> {
+  vigenciaElectrica.invalidar();
   const set = controlesCerrados.get(nombre) ?? new Set<string>();
   if (cerrado) set.add(id);
   else set.delete(id);
@@ -1483,53 +1487,46 @@ async function avisosDelProyecto(
    * placa: null = proyecto sin placa. energizado: el circuito sin placa está prendido (▶).
    * tensiones: lo que mediría un tester en cada pin cableado.
    */
-  electrico: {
-    resuelto: boolean;
-    leds: LedElectrico[];
-    fuentes: FuenteElectrica[];
-    placa: EstadoPlaca | null;
-    placas: Record<string, EstadoPlaca>;
-    energizado: boolean;
-    tensiones: Record<string, number>;
-    mediciones: { modulo: string; moduloNombre: string; elemento: string; tipo: string; tensionV: number; corrienteMa: number; potenciaMw: number; resistenciaOhm: number | null }[];
-    /** Estado visible que decidió el modelo de cada módulo (`observar` → ui), con la física en vivo. */
-    modulos: Record<string, { on?: boolean; brillo?: number }>;
-    /**
-     * Qué suena y cómo, para que el navegador lo sintetice (ver docs/audio.md). Viaja por la
-     * misma instantánea que `modulos` a propósito: el sonido y la luz de un módulo salen del
-     * mismo cálculo y tienen que llegar juntos.
-     */
-    sonidos: EventoSonido[];
-  };
+  electrico: ObservacionElectrica;
 }> {
+  const generacion = runGeneration;
+  const corriendo = runningProject;
+  const energizado = proyectoEnergizado;
+  const revision = revisionElectrica(project);
+  const vigente = vigenciaElectrica.capturar(() => generacion === runGeneration
+    && corriendo === runningProject && energizado === proyectoEnergizado);
+  const placas = placasDelProyecto(project).map(b => b.id);
+  const reportados = project.name === corriendo
+    ? new Map([...nivelesPorPlaca].filter(([id]) => placas.includes(id)).map(([id, niveles]) => [id, new Map(niveles)])) : new Map<string, Map<number, 0 | 1>>();
+  const pwm = new Map(placas.map(id => [id, project.name === corriendo ? new Map(pwmDePlaca(id)) : new Map<number, PwmPin>()]));
+  const pwmSnapshot = (id: string): ReadonlyMap<number, PwmPin> => pwm.get(id) ?? new Map();
+  const cerrados = new Set(cerradosDe(project.name));
+  const fuentesApagadas = !project.board && energizado !== project.name;
   const pins = await pinsDeCodigo(project);
   const catalogo = await loadCatalog();
   const buscar = (t: string): ModuloCatalogo | undefined => catalogo.find((m) => m.type === t);
   const conLaPlaca = conPlaca(project);
-  const cerrados = cerradosDe(project.name);
-  const fuentesApagadas = fuentesApagadasDe(project);
   // Con los niveles reales de la simulación: avisos, lo que entrega cada fuente, si la placa tiene energía.
   const estados = estadosModulos.get(project.name) ?? new Map<string, Record<string, unknown>>();
   const direccionesPorPlaca = await direccionesTodas(project);
   const direcciones = direccionesPorPlaca.get(placasDelProyecto(project)[0]?.id ?? 'board') ?? new Map<number, DireccionPin>();
-  const levels = project.name === runningProject ? nivelesPorPlaca : new Map<string, Map<number, 0 | 1>>();
   // Un pin con PWM activo se resuelve en alto: el registro GPIO_OUT que muestrea el puente no
   // refleja lo que maneja el LEDC. Ver nivelesConPwm en pwmEsp.ts.
-  const niveles = nivelesConPwm(levels, pwmDePlaca, placasDelProyecto(project).map((b) => b.id));
+  const niveles = nivelesConPwm(reportados, pwmSnapshot, placas);
   const vivo = await analizarCircuito(conLaPlaca, buscar, { nivelesReales: true, nivelesPorPlaca: niveles, cerrados, fuentesApagadas, estados, direccionesPorPlaca });
   // Lo que cada modelo quiere recordar vuelve en el próximo cálculo (solo del vivo: los otros son hipotéticos).
-  for (const [id, m] of Object.entries(vivo.modulos)) if (m.estado) estados.set(id, m.estado);
-  estadosModulos.set(project.name, estados);
+
   const placa = project.board ? estadoAlimentacion(vivo.alimentacion, vivo.resuelto) : null;
   // Misma instantánea para UI, medidas y diagnóstico: LED activo bajo o entre dos
   // GPIO depende de niveles reales. Todos-altos/todos-bajos no son un peor caso general.
   const leds = vivo.leds;
   const { avisos: electricos, fuentes } = vivo;
-  return {
-    pins,
-    electrico: {
+  const electrico = await finalizarObservacion({
+      contexto: { proyecto: project.name, placas, corrida: generacion, revision, topologia: firmaDiagramaElectrico(conLaPlaca) },
+      estado: vivo.resuelto ? 'valida' : 'no-resuelta',
+      nivelesPorPlaca: Object.fromEntries([...reportados].map(([id, valores]) => [id, Object.fromEntries(valores)])),
       resuelto: vivo.resuelto,
-      leds, fuentes, placa, energizado: proyectoEnergizado === project.name, tensiones: vivo.tensiones,
+      leds, fuentes, placa, energizado: energizado === project.name, tensiones: vivo.tensiones,
       placas: Object.fromEntries(Object.entries(vivo.alimentacionesPorPlaca ?? {}).map(([id, a]) => [id, estadoAlimentacion(a, vivo.resuelto)])),
       mediciones: vivo.elementos.map((e) => {
         const inst = project.modules.find((m) => m.id === e.dueno);
@@ -1551,20 +1548,32 @@ async function avisosDelProyecto(
         (id) => vivo.modulos[id]?.ui,
         // El PWM está indexado por GPIO de la placa; gpioDe sigue el cableado (y los passthrough).
         (id, pin) => {
-          if (project.name !== runningProject) return undefined;
+          if (project.name !== corriendo) return undefined;
           for (const placa of placasDelProyecto(project)) {
             const gpio = gpioDe(project, id, pin, buscar, placa.id);
             if (gpio === null) continue;
-            const pwm = pwmDePlaca(placa.id).get(gpio);
+            const pwm = pwmSnapshot(placa.id).get(gpio);
             if (pwm) return pwm;
           }
           return undefined;
         },
       ),
-    },
+    }, async () => {
+      if (!vigente()) return false;
+      const actual = await store.read(project.name).catch(() => null);
+      return vigente() && actual !== null && revisionElectrica(actual) === revision;
+    });
+  if (electrico.estado === 'valida') {
+    for (const [id, m] of Object.entries(vivo.modulos)) if (m.estado) estados.set(id, m.estado);
+    estadosModulos.set(project.name, estados);
+  }
+  return {
+    pins, electrico,
     warnings: [
+      ...(electrico.estado === 'obsoleta' ? [{ kind: 'advertencia-electrica' as const, pin: -1,
+        message: 'La observación eléctrica quedó obsoleta durante el cálculo; solicitá una lectura nueva.' }] : []),
       ...diffDiagramVsCode(project, pins, project.board ? buscar(project.board)?.board : undefined),
-      ...electricos.map((a) => ({
+      ...(electrico.estado !== 'obsoleta' ? electricos : []).map((a) => ({
         kind: a.severidad === 'peligro' ? ('peligro-electrico' as const) : ('advertencia-electrica' as const),
         pin: a.pin,
         message: a.mensaje,

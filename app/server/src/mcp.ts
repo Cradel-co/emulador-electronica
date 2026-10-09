@@ -1,3 +1,4 @@
+import { estadoSalidaDesdeFisica, riesgoDesdeFisica, placasDelProyecto, firmaDiagramaElectrico, invalidarLecturaElectrica, type ObservacionElectrica } from '@emu/shared';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { DEFAULT_BOARD, LANGUAGES, placaDelProyecto, type Language, type Project } from '@emu/shared';
@@ -47,7 +48,7 @@ export interface McpContexto {
   pinesYAvisos: (nombre: string) => Promise<{
     pins: number[];
     warnings: { message: string }[];
-    electrico?: { fuentes: unknown[]; placa: { estado: string; quemada: boolean; mensaje: string } | null; energizado: boolean };
+    electrico?: ObservacionElectrica;
   }>;
   /** La placa es un módulo: se agrega a un proyecto sin placa eligiendo su lenguaje, y se quita. */
   agregarPlaca: (nombre: string, tipo: string, lenguaje: Language, pos?: { x?: number; y?: number }) => Promise<Project>;
@@ -122,6 +123,14 @@ export function crearServidorMcp(ctx: McpContexto): McpServer {
   );
   if (ctx.depurador) registrarHerramientasDepuracion(server, ctx.depurador);
   const defs = async (): Promise<Map<string, ModuloCatalogo>> => new Map((await ctx.catalogo()).map((m) => [m.type, m]));
+  const consultarFisica = async (nombre: string, p: Project) => {
+    const chequeo = await ctx.pinesYAvisos(nombre);
+    const lectura = chequeo.electrico;
+    if (lectura && (lectura.contexto.proyecto !== nombre || lectura.contexto.topologia !== firmaDiagramaElectrico(p))) {
+      return { ...chequeo, electrico: invalidarLecturaElectrica({ ...lectura, estado: 'obsoleta' }) };
+    }
+    return chequeo;
+  };
 
   // --- Estado y proyectos --------------------------------------------------------
 
@@ -238,7 +247,7 @@ export function crearServidorMcp(ctx: McpContexto): McpServer {
     const p = conPlaca(await ctx.store.read(nombre));
     const catalogo = await defs();
     const archivos = await ctx.store.listFiles(nombre, p.language);
-    const chequeo = await ctx.pinesYAvisos(nombre);
+    const chequeo = await consultarFisica(nombre, p);
     return json(`Proyecto ${p.name} (${p.board}, ${p.language}):`, {
       placa: p.board,
       modulos: p.modules.map((m) => {
@@ -263,10 +272,11 @@ export function crearServidorMcp(ctx: McpContexto): McpServer {
       avisos: chequeo.warnings.map((w) => w.message),
       alimentacionPlaca: chequeo.electrico?.placa
         ? { estado: chequeo.electrico.placa.estado, quemada: chequeo.electrico.placa.quemada, detalle: chequeo.electrico.placa.mensaje }
-        : 'sin placa',
+        : p.board ? 'sin observación válida' : 'sin placa',
       ...(p.board ? {} : { energizado: Boolean(chequeo.electrico?.energizado) }),
       // Lo que entrega cada fuente regulable (CV/CC, mA, W): lo mismo que la ventana Debug.
       fuentes: chequeo.electrico?.fuentes,
+      electrico: chequeo.electrico,
     });
   }));
 
@@ -677,29 +687,41 @@ export function crearServidorMcp(ctx: McpContexto): McpServer {
 
   server.registerTool('leer_pines', {
     title: 'Leer pines y salidas',
-    description: 'Niveles de salida de los GPIO que reportó el firmware, y cómo está cada módulo de salida del circuito (LED prendido, relé cerrado...).',
-    inputSchema: {},
-  }, seguro(async () => {
-    const niveles = ctx.niveles();
-    const nombre = ctx.proyectoCorriendo();
+    description: 'GPIO reportados por firmware y salidas calculadas por el motor eléctrico. Incluye proyecto, placas, medidas y validez; encendido null significa desconocido. Sin proyecto explícito consulta el que corre o está energizado.',
+    inputSchema: { proyecto: proyecto.optional() },
+  }, seguro(async ({ proyecto: solicitado }) => {
+    const nombre = solicitado ?? ctx.proyectoCorriendo() ?? ctx.proyectoEnergizado();
+    if (!nombre) return json('Pines:', { estado: ctx.estadoEmulador().state, proyecto: null,
+      niveles: {}, nivelesPorPlaca: {}, electrico: null, modulosDeSalida: [] });
+    const p = conPlaca(await ctx.store.read(nombre));
+    const catalogo = await defs();
+    const { electrico } = await consultarFisica(nombre, p);
+    const valida = electrico?.resuelto === true && electrico.contexto.proyecto === nombre && electrico.estado === 'valida';
     const salidas: Record<string, unknown>[] = [];
-    if (nombre) {
-      const p = conPlaca(await ctx.store.read(nombre));
-      const catalogo = await defs();
-      for (const inst of p.modules) {
-        const def = catalogo.get(inst.type);
-        if (def?.bridge?.role !== 'output') continue;
-        const gpio = gpioDe(p, inst.id, def.bridge.pin, (t) => catalogo.get(t));
-        const faltan = pinesSinAlimentar(p, inst.id, def);
-        // Sin GND/VCC, "encendido" da false aunque el pin esté en 1: como en la vida real.
-        salidas.push({
-          id: inst.id, modulo: def.name, gpio,
-          encendido: gpio !== null && niveles[gpio] === 1 && faltan.length === 0,
-          ...(faltan.length ? { sinAlimentar: faltan } : {}),
-        });
-      }
+    for (const inst of p.modules) {
+      const def = catalogo.get(inst.type);
+      const led = electrico?.leds.find(l => l.id === inst.id);
+      const modelo = electrico?.modulos[inst.id];
+      if (def?.bridge?.role !== 'output' && !led && typeof modelo?.on !== 'boolean') continue;
+      const lectura = { valida, led, modelo };
+      const placas = placasDelProyecto(p);
+      const gpiosPorPlaca = Object.fromEntries(placas.map(b => [b.id,
+        def?.bridge ? gpioDe(p, inst.id, def.bridge.pin, t => catalogo.get(t), b.id) : null]));
+      const faltan = def ? pinesSinAlimentar(p, inst.id, def) : [];
+      salidas.push({ id: inst.id, modulo: def?.name ?? inst.type,
+        // Metadatos de cableado conservados por compatibilidad; no deciden conducción.
+        gpio: placas[0] ? gpiosPorPlaca[placas[0].id] ?? null : null, gpiosPorPlaca,
+        ...(faltan.length ? { sinAlimentar: faltan } : {}),
+        encendido: estadoSalidaDesdeFisica(lectura),
+        riesgo: valida && led && Number.isFinite(led.mA) ? riesgoDesdeFisica(lectura) : null,
+        corrienteMa: valida && led && Number.isFinite(led.mA) ? led.mA : null,
+      });
     }
-    return json('Pines:', { estado: ctx.estadoEmulador().state, niveles, modulosDeSalida: salidas });
+    const nivelesPorPlaca = valida ? electrico.nivelesPorPlaca : {};
+    const primera = placasDelProyecto(p)[0]?.id;
+    return json('Pines:', { estado: ctx.estadoEmulador().state, proyecto: nombre,
+      niveles: primera ? nivelesPorPlaca[primera] ?? {} : {}, nivelesPorPlaca,
+      electrico, modulosDeSalida: salidas });
   }));
 
   server.registerTool('leer_log', {
