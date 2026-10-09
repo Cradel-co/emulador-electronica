@@ -1,7 +1,7 @@
 # SDD — Consolidación del emulador de electrónica
 
 Fecha: 2026-10-08. Base analizada: `4744351` de `origin/main`.
-Estado: etapas 1 y 2 implementadas y verificadas en ramas; etapas 3–6 pendientes.
+Estado: etapas 1 y 2 integradas; etapa 3 implementada y verificada en rama; etapas 4–6 pendientes.
 
 ## 1. Problema y resultado esperado
 
@@ -189,9 +189,10 @@ Una mejora de fidelidad debe declarar dominio y procedencia de parámetros, adem
 |---|---|---|
 | SDD y revisión de dependencias | Redactado | Diagnóstico y PR #55/#69/#70 |
 | Regresiones iniciales | En rojo antes del arreglo | 6 fallan y 66 pasan en pruebas focalizadas |
-| Etapa 1 | Implementada; pendiente de revisión/merge | 72 pruebas focalizadas; 1552 pasan y 1 omitida en `npx vitest run`; build general y typechecks server/web pasan |
-| Etapa 2 | Implementada; pendiente de revisión/merge | E2E: 133 pasan, 13 omisiones existentes; recarga Aprender 3/3; Vitest: 1552 pasan, 1 omitida; build/typechecks pasan |
-| Etapas 3–6 | Pendientes | No declarar realizadas por completar este documento |
+| Etapa 1 | Integrada en PR #71 | 72 pruebas focalizadas; 1552 pasan y 1 omitida en `npx vitest run`; build general y typechecks server/web pasan |
+| Etapa 2 | Integrada en PR #72 | E2E: 133 pasan, 13 omisiones existentes; recarga Aprender 3/3; Vitest: 1552 pasan, 1 omitida; build/typechecks pasan |
+| Etapa 3 | Implementada; pendiente de revisión/merge | Vitest: 1572 pasan, 1 omitida; E2E: 135 pasan, 13 omisiones existentes; build/typechecks pasan |
+| Etapas 4–6 | Pendientes | No declarar realizadas por completar este documento |
 
 La suite final se ejecutó sin flags de concurrencia, con la configuración nueva de dos procesos.
 Las seis regresiones nuevas pasaron después de fallar en la base. Las pruebas TCP se ejecutaron
@@ -221,6 +222,32 @@ verificando que realmente prende/apaga y que no crea ni quita nodos. En verde co
 Aprender pasó en la suite general y en tres repeticiones de recarga. La intermitencia anterior
 no se reprodujo; esas ejecuciones no prueban ausencia de intermitencias bajo toda carga.
 Vitest volvió a dar 1552 aprobadas y 1 omitida; build y typechecks server/web pasan.
+
+### Tercera entrega: observación eléctrica
+
+Fecha: 2026-10-09. Base: `c38ef2a`, con PR #71 y #72 integrados. Se revisó PR #55 antes
+de modificar index.ts, app.ts y los recorridos compartidos; no se incorporaron sus cambios.
+
+Se extrajo la política pura de indicadores al paquete compartido conservando su umbral y
+los imports existentes. MCP dejó de inferir conducción de HIGH. REST y MCP publican el
+mismo contrato, con proyecto/placas, generación, huella, topología, niveles por placa y
+validez. La ausencia se diferencia de una lectura válida apagada o de cero voltios.
+
+Las consultas copian GPIO/PWM y controles, comprueban vigencia al terminar y retiran medidas
+si cambió el contexto. La UI invalida al editar el circuito antes de guardar; mover el dibujo
+no cambia la firma física. Dos E2E existentes esperan la resolución antes de comprobar
+avisos, porque ahora muestran correctamente la ausencia transitoria de medición.
+
+Se reprodujeron seis regresiones MCP en rojo antes del cambio. Las pruebas nuevas usan
+el solver real para LOW activo, GPIO opuestos/equipotenciales, sin energía y dos placas con
+GPIO7. La integración compara REST/MCP/indicador UI contra un servidor aislado. El alcance
+y la compatibilidad están en [el contrato](docs/observacion-electrica.md).
+
+Validación final: 1572 pruebas unitarias aprobadas y 1 omitida; 135 E2E aprobadas con las
+13 omisiones condicionales existentes. Build general y typechecks server/web pasan. No se
+introdujeron skips, retries ni cambios de ecuaciones para lograr esos resultados. Las pruebas
+TCP y Chrome usaron permisos locales y carpetas temporales aisladas.
+
 
 Referencias: [CLAUDE.md](CLAUDE.md), [arquitectura web](docs/arquitectura-web.md),
 [perfiles físicos](docs/PERFILES-FISICOS.md), [análisis temporal](docs/ANALISIS-TEMPORAL-Y-EVIDENCIA.md),

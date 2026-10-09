@@ -263,6 +263,10 @@ O abrí Claude Code en esta carpeta: toma [`.mcp.json`](.mcp.json) automáticame
 
 Herramientas: `estado`, `listar_proyectos`, `crear_proyecto`, `ver_proyecto`, `leer_archivo`, `escribir_archivo`, `placas`, `esquema_placa`, `validar_placa`, `certificar_placa`, `catalogo`, `importar_modulo`, `quitar_modulo_catalogo`, `agregar_modulo`, `quitar_modulo`, `mover_modulo`, `configurar_modulo`, `conectar`, `desconectar`, `compilar`, `ejecutar`, `parar`, `resetear`, `accionar_modulo`, `poner_pin`, `enviar_rf`, `leer_pines`, `leer_log`, `esperar_log`, `chips`, `mover_entorno`. Más las 7 de debug cuando el depurador está activo.
 
+Las mediciones de `leer_pines` y `ver_proyecto` provienen del mismo contrato eléctrico que
+la interfaz. `leer_pines` acepta un proyecto explícito y distingue apagado de desconocido;
+ver [observación eléctrica compartida](docs/observacion-electrica.md).
+
 ## Tests
 
 ```bash
