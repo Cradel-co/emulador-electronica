@@ -1,3 +1,5 @@
+import { escribirAtomico } from './escrituraAtomica.js';
+import { enProyecto } from './colaProyectos.js';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import {
@@ -60,6 +62,15 @@ export class ProjectStore {
   constructor(readonly root = PATHS.projects) {}
   /** Recursos efímeros asociados al diagrama, también para cambios por MCP. */
   alCambiar?: (name: string, modules: Project['modules']) => void | Promise<void>;
+
+  /** Agrupa lectura, validación y escrituras; no usar Promise.all para mutaciones anidadas. */
+  transaccion<T>(name: string, tarea: () => Promise<T>): Promise<T> {
+    return enProyecto(path.resolve(this.projectDir(name)), tarea);
+  }
+
+  actualizar(name: string, cambio: (actual: Project) => Project | Promise<Project>): Promise<Project> {
+    return this.transaccion(name, async () => this.save(await cambio(await this.read(name))));
+  }
 
   async init(): Promise<void> {
     await fs.mkdir(this.root, { recursive: true });
@@ -146,37 +157,41 @@ export class ProjectStore {
     placa: { id: string; desc?: BoardDescriptor },
     archivos: Record<string, string>,
   ): Promise<Project> {
-    if (!isValidProjectName(name)) {
-      throw new ProjectError(
-        `Nombre inválido: "${name}". Solo [a-z0-9-], hasta 40 caracteres, sin "..".`,
-        400,
-      );
-    }
-    if (await this.exists(name)) {
-      throw new ProjectError(`El proyecto "${name}" ya existe`, 409);
-    }
-    const project = defaultProject(name, language, placa.id, placa.desc);
-    const dir = this.projectDir(name);
-    await this.assertSafePath(dir);
-    await fs.mkdir(dir, { recursive: true });
-    for (const [rel, content] of Object.entries(archivos)) {
-      // Mismas reglas que un archivo que escribe el usuario: sin traversal ni extensiones raras.
-      const full = this.resolveFile(name, rel, language);
-      await this.assertSafePath(full);
-      await fs.mkdir(path.dirname(full), { recursive: true });
-      await fs.writeFile(full, content.replaceAll('${name}', name), 'utf8');
-    }
-    await this.save(project);
-    return project;
+    return this.transaccion(name, async () => {
+      if (!isValidProjectName(name)) {
+        throw new ProjectError(
+          `Nombre inválido: "${name}". Solo [a-z0-9-], hasta 40 caracteres, sin "..".`,
+          400,
+        );
+      }
+      if (await this.exists(name)) {
+        throw new ProjectError(`El proyecto "${name}" ya existe`, 409);
+      }
+      const project = defaultProject(name, language, placa.id, placa.desc);
+      const dir = this.projectDir(name);
+      await this.assertSafePath(dir);
+      await fs.mkdir(dir, { recursive: true });
+      for (const [rel, content] of Object.entries(archivos)) {
+        // Mismas reglas que un archivo que escribe el usuario: sin traversal ni extensiones raras.
+        const full = this.resolveFile(name, rel, language);
+        await this.assertSafePath(full);
+        await fs.mkdir(path.dirname(full), { recursive: true });
+        await escribirAtomico(full, content.replaceAll('${name}', name));
+      }
+      await this.save(project);
+      return project;
+    });
   }
 
   /** Proyecto sin placa: solo un circuito con una fuente regulable, sin código. */
   async crearSinPlaca(name: string): Promise<Project> {
-    if (!isValidProjectName(name)) {
-      throw new ProjectError(`Nombre inválido: "${name}". Solo [a-z0-9-], hasta 40 caracteres, sin "..".`, 400);
-    }
-    if (await this.exists(name)) throw new ProjectError(`El proyecto "${name}" ya existe`, 409);
-    return this.save(proyectoSinPlaca(name));
+    return this.transaccion(name, async () => {
+      if (!isValidProjectName(name)) {
+        throw new ProjectError(`Nombre inválido: "${name}". Solo [a-z0-9-], hasta 40 caracteres, sin "..".`, 400);
+      }
+      if (await this.exists(name)) throw new ProjectError(`El proyecto "${name}" ya existe`, 409);
+      return this.save(proyectoSinPlaca(name));
+    });
   }
 
   /**
@@ -184,14 +199,16 @@ export class ProjectStore {
    * estén (si la placa se quitó y se vuelve a poner, su código sigue ahí).
    */
   async escribirSiFalta(name: string, language: Language, archivos: Record<string, string>, boardId = BOARD_MODULE_ID): Promise<void> {
-    for (const [rel, content] of Object.entries(archivos)) {
-      const full = this.resolveFile(name, rel, language, boardId);
-      await this.assertSafePath(full);
-      const existe = await fs.stat(full).then(() => true, () => false);
-      if (existe) continue;
-      await fs.mkdir(path.dirname(full), { recursive: true });
-      await fs.writeFile(full, content.replaceAll('${name}', name), 'utf8');
-    }
+    return this.transaccion(name, async () => {
+      for (const [rel, content] of Object.entries(archivos)) {
+        const full = this.resolveFile(name, rel, language, boardId);
+        await this.assertSafePath(full);
+        const existe = await fs.stat(full).then(() => true, () => false);
+        if (existe) continue;
+        await fs.mkdir(path.dirname(full), { recursive: true });
+        await escribirAtomico(full, content.replaceAll('${name}', name));
+      }
+    });
   }
 
   /**
@@ -226,50 +243,56 @@ export class ProjectStore {
 
   /** Crea `name` copiando la plantilla `templateId` tal cual (circuito, código, README). */
   async createFromTemplate(name: string, templateId: string): Promise<Project> {
-    if (!isValidProjectName(name)) {
-      throw new ProjectError(`Nombre inválido: "${name}". Solo [a-z0-9-], hasta 40 caracteres, sin "..".`, 400);
-    }
-    if (!isValidProjectName(templateId)) throw new ProjectError(`Plantilla inválida: "${templateId}"`, 400);
-    if (await this.exists(name)) throw new ProjectError(`El proyecto "${name}" ya existe`, 409);
-    const origen = path.join(this.templatesDir, templateId);
-    await this.assertSafePath(path.join(origen, 'project.json'));
-    await this.assertSafePath(this.projectDir(name));
-    const raw = await fs.readFile(path.join(origen, 'project.json'), 'utf8').catch(() => {
-      throw new ProjectError(`No hay una plantilla "${templateId}"`, 404);
+    return this.transaccion(name, async () => {
+      if (!isValidProjectName(name)) {
+        throw new ProjectError(`Nombre inválido: "${name}". Solo [a-z0-9-], hasta 40 caracteres, sin "..".`, 400);
+      }
+      if (!isValidProjectName(templateId)) throw new ProjectError(`Plantilla inválida: "${templateId}"`, 400);
+      if (await this.exists(name)) throw new ProjectError(`El proyecto "${name}" ya existe`, 409);
+      const origen = path.join(this.templatesDir, templateId);
+      await this.assertSafePath(path.join(origen, 'project.json'));
+      await this.assertSafePath(this.projectDir(name));
+      const raw = await fs.readFile(path.join(origen, 'project.json'), 'utf8').catch(() => {
+        throw new ProjectError(`No hay una plantilla "${templateId}"`, 404);
+      });
+      const base = ProjectSchema.parse(JSON.parse(raw));
+      await this.assertSafeTemplate(origen);
+      // Sin archivos ocultos (caché de compilación, etc.): solo lo que el autor dejó a propósito.
+      await fs.cp(origen, this.projectDir(name), {
+        recursive: true,
+        filter: (src) => src === origen || !path.basename(src).startsWith('.'),
+      });
+      if (templateId === 'arducam-esp32-s3') {
+        await escribirAtomico(path.join(this.projectDir(name), 'arducam.py'), arducamDriver);
+        await escribirAtomico(path.join(this.projectDir(name), 'main.py'), arducamMain);
+      }
+      if (templateId === 'arducam-tft-esp32-s3') {
+        await escribirAtomico(path.join(this.projectDir(name), 'arducam.py'), arducamDriver);
+        await escribirAtomico(path.join(this.projectDir(name), 'jpeg.py'), decodificadorJpegMicroPython);
+        await escribirAtomico(path.join(this.projectDir(name), 'st7735.py'), st7735MicroPython);
+        await escribirAtomico(path.join(this.projectDir(name), 'main.py'), arducamTftMain);
+      }
+      return this.save({ ...base, name });
     });
-    const base = ProjectSchema.parse(JSON.parse(raw));
-    await this.assertSafeTemplate(origen);
-    // Sin archivos ocultos (caché de compilación, etc.): solo lo que el autor dejó a propósito.
-    await fs.cp(origen, this.projectDir(name), {
-      recursive: true,
-      filter: (src) => src === origen || !path.basename(src).startsWith('.'),
-    });
-    if (templateId === 'arducam-esp32-s3') {
-      await fs.writeFile(path.join(this.projectDir(name), 'arducam.py'), arducamDriver);
-      await fs.writeFile(path.join(this.projectDir(name), 'main.py'), arducamMain);
-    }
-    if (templateId === 'arducam-tft-esp32-s3') {
-      await fs.writeFile(path.join(this.projectDir(name), 'arducam.py'), arducamDriver);
-      await fs.writeFile(path.join(this.projectDir(name), 'jpeg.py'), decodificadorJpegMicroPython);
-      await fs.writeFile(path.join(this.projectDir(name), 'st7735.py'), st7735MicroPython);
-      await fs.writeFile(path.join(this.projectDir(name), 'main.py'), arducamTftMain);
-    }
-    return this.save({ ...base, name });
   }
 
   async save(project: Project): Promise<Project> {
-    const dir = this.projectDir(project.name);
-    await this.assertSafePath(path.join(dir, 'project.json'));
-    await fs.mkdir(dir, { recursive: true });
-    const parsed = ProjectSchema.parse(project);
-    await fs.writeFile(path.join(dir, 'project.json'), JSON.stringify(parsed, null, 2) + '\n', 'utf8');
-    await this.alCambiar?.(parsed.name, parsed.modules);
-    return parsed;
+    return this.transaccion(project.name, async () => {
+      const dir = this.projectDir(project.name);
+      await this.assertSafePath(path.join(dir, 'project.json'));
+      await fs.mkdir(dir, { recursive: true });
+      const parsed = ProjectSchema.parse(project);
+      await escribirAtomico(path.join(dir, 'project.json'), JSON.stringify(parsed, null, 2) + '\n');
+      await this.alCambiar?.(parsed.name, parsed.modules);
+      return parsed;
+    });
   }
 
   async delete(name: string): Promise<void> {
-    await fs.rm(this.projectDir(name), { recursive: true, force: true });
-    await this.alCambiar?.(name, []);
+    return this.transaccion(name, async () => {
+      await fs.rm(this.projectDir(name), { recursive: true, force: true });
+      await this.alCambiar?.(name, []);
+    });
   }
 
   /** Resuelve una ruta relativa dentro del proyecto, sin salir de la carpeta. */
@@ -308,33 +331,37 @@ export class ProjectStore {
 
   /** Crea carpetas físicas: las vacías también sobreviven al reiniciar y volver a listar. */
   async createDirectory(name: string, relPath: string, language: Language | null, boardId = BOARD_MODULE_ID): Promise<string> {
-    const full = this.resolveDirectory(name, relPath, language, boardId);
-    try {
-      await this.assertSafePath(full);
-      await fs.mkdir(path.dirname(full), { recursive: true });
-      await fs.mkdir(full);
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      if (code === 'EEXIST' || code === 'ENOTDIR') throw new ProjectError('Ya existe un archivo o carpeta con ese nombre', 409);
-      throw error;
-    }
-    return path.relative(this.projectCodeDir(name, boardId), full).split(path.sep).join('/');
+    return this.transaccion(name, async () => {
+      const full = this.resolveDirectory(name, relPath, language, boardId);
+      try {
+        await this.assertSafePath(full);
+        await fs.mkdir(path.dirname(full), { recursive: true });
+        await fs.mkdir(full);
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code === 'EEXIST' || code === 'ENOTDIR') throw new ProjectError('Ya existe un archivo o carpeta con ese nombre', 409);
+        throw error;
+      }
+      return path.relative(this.projectCodeDir(name, boardId), full).split(path.sep).join('/');
+    });
   }
 
   /** Apertura exclusiva: dos solicitudes simultáneas nunca pisan un archivo ya creado. */
   async createFile(name: string, relPath: string, language: Language | null, content: string, boardId = BOARD_MODULE_ID): Promise<string> {
-    if (relPath === 'project.json') throw new ProjectError('El proyecto es compartido; no es un archivo de placa', 403);
-    const full = this.resolveFile(name, relPath, language, boardId);
-    try {
-      await this.assertSafePath(full);
-      await fs.mkdir(path.dirname(full), { recursive: true });
-      await fs.writeFile(full, content, { encoding: 'utf8', flag: 'wx' });
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      if (code === 'EEXIST' || code === 'ENOTDIR') throw new ProjectError('Ya existe un archivo o carpeta con ese nombre', 409);
-      throw error;
-    }
-    return path.relative(this.projectCodeDir(name, boardId), full).split(path.sep).join('/');
+    return this.transaccion(name, async () => {
+      if (relPath === 'project.json') throw new ProjectError('El proyecto es compartido; no es un archivo de placa', 403);
+      const full = this.resolveFile(name, relPath, language, boardId);
+      try {
+        await this.assertSafePath(full);
+        await fs.mkdir(path.dirname(full), { recursive: true });
+        await escribirAtomico(full, content, true);
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code === 'EEXIST' || code === 'ENOTDIR') throw new ProjectError('Ya existe un archivo o carpeta con ese nombre', 409);
+        throw error;
+      }
+      return path.relative(this.projectCodeDir(name, boardId), full).split(path.sep).join('/');
+    });
   }
 
   async readFile(name: string, relPath: string, language: Language | null, boardId = BOARD_MODULE_ID): Promise<string> {
@@ -344,19 +371,23 @@ export class ProjectStore {
   }
 
   async writeFile(name: string, relPath: string, language: Language | null, content: string, boardId = BOARD_MODULE_ID): Promise<void> {
-    const full = this.resolveFile(name, relPath, language, boardId);
-    await this.assertSafePath(full);
-    await fs.mkdir(path.dirname(full), { recursive: true });
-    await fs.writeFile(full, content, 'utf8');
+    return this.transaccion(name, async () => {
+      const full = this.resolveFile(name, relPath, language, boardId);
+      await this.assertSafePath(full);
+      await fs.mkdir(path.dirname(full), { recursive: true });
+      await escribirAtomico(full, content);
+    });
   }
 
   async deleteFile(name: string, relPath: string, language: Language | null, boardId = BOARD_MODULE_ID): Promise<void> {
-    if (language && relPath === MAIN_FILE[language]) {
-      throw new ProjectError('No se puede borrar el archivo principal', 400);
-    }
-    const full = this.resolveFile(name, relPath, language, boardId);
-    await this.assertSafePath(full);
-    await fs.rm(full, { force: true });
+    return this.transaccion(name, async () => {
+      if (language && relPath === MAIN_FILE[language]) {
+        throw new ProjectError('No se puede borrar el archivo principal', 400);
+      }
+      const full = this.resolveFile(name, relPath, language, boardId);
+      await this.assertSafePath(full);
+      await fs.rm(full, { force: true });
+    });
   }
 
   /** Recorrido compartido: ignora datos privados y enlaces, conserva carpetas sin archivos. */

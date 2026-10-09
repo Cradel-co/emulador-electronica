@@ -408,3 +408,16 @@ describe('creación de archivos y carpetas del explorador', () => {
     expect((await pedir(`/api/projects/${name}`)).body.project.name).toBe(name);
   });
 });
+
+it('dos modificaciones REST simultáneas conservan configuración y circuito', async () => {
+  const nombre = 'persistencia-concurrente';
+  expect((await pedir('/api/projects', { method: 'POST', body: { name: nombre, board: null } })).status).toBe(201);
+  const respuestas = await Promise.all([
+    pedir(`/api/projects/${nombre}`, { method: 'PUT', body: { sim: { wifiSsid: 'concurrente', wifiPassword: '', autoReload: true } } }),
+    pedir(`/api/projects/${nombre}/diagram`, { method: 'PUT', body: { modules: [{ id: 'r', type: 'resistor', x: 0, y: 0, props: { ohms: 470 } }], wires: [] } }),
+  ]);
+  expect(respuestas.map(r => r.status)).toEqual([200, 200]);
+  const guardado = await pedir(`/api/projects/${nombre}`);
+  expect(guardado.body.project.sim.wifiSsid).toBe('concurrente');
+  expect(guardado.body.project.modules).toEqual([{ id: 'r', type: 'resistor', x: 0, y: 0, props: { ohms: 470 } }]);
+});

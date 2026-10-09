@@ -1,7 +1,7 @@
 # SDD — Consolidación del emulador de electrónica
 
 Fecha: 2026-10-08. Base analizada: `4744351` de `origin/main`.
-Estado: etapas 1–3 integradas; etapa 5 en revisión en PR #74; etapas 4 y 6 pendientes.
+Estado: etapas 1–3 y 5 integradas; primera entrega de etapa 4 verificada para revisión; etapa 6 pendiente.
 
 ## 1. Problema y resultado esperado
 
@@ -197,8 +197,8 @@ Una mejora de fidelidad debe declarar dominio y procedencia de parámetros, adem
 | Etapa 1 | Integrada en PR #71 | 72 pruebas focalizadas; 1552 pasan y 1 omitida en `npx vitest run`; build general y typechecks server/web pasan |
 | Etapa 2 | Integrada en PR #72 | E2E: 133 pasan, 13 omisiones existentes; recarga Aprender 3/3; Vitest: 1552 pasan, 1 omitida; build/typechecks pasan |
 | Etapa 3 | Integrada en PR #73 | Vitest: 1572 pasan, 1 omitida; E2E: 135 pasan, 13 omisiones existentes; build/typechecks pasan |
-| Etapa 4 | Pendiente | Escritura atómica, conflictos, integridad y presupuesto de descarga |
-| Etapa 5 | Implementada y verificada en PR #74; pendiente de revisión/merge | Vitest: 1608 pasan, 1 omitida; E2E: 135 pasan, 13 omisiones existentes; build/typechecks pasan; [contratos y límites](docs/coordinacion.md) |
+| Etapa 4 | Primera entrega verificada; pendiente de revisión/merge | Vitest: 1618 pasan, 1 omitida; E2E: 135 pasan, 13 omisiones existentes; build/tipos pasan. Conflictos, firmware y descarga pendientes |
+| Etapa 5 | Integrada en PR #74 | Vitest: 1608 pasan, 1 omitida; E2E: 135 pasan, 13 omisiones existentes; build/typechecks pasan; [contratos y límites](docs/coordinacion.md) |
 | Etapa 6 | Pendiente | Exportación y presentación del análisis físico |
 
 La suite final se ejecutó sin flags de concurrencia, con la configuración nueva de dos procesos.
@@ -276,3 +276,15 @@ usan directorios temporales; no se ensayó firmware Docker opcional ni hardware 
 Referencias: [CLAUDE.md](CLAUDE.md), [arquitectura web](docs/arquitectura-web.md),
 [perfiles físicos](docs/PERFILES-FISICOS.md), [análisis temporal](docs/ANALISIS-TEMPORAL-Y-EVIDENCIA.md),
 [plan de fidelidad](docs/PLAN-FIDELIDAD-FISICA.md), [módulos](SDD-MODULOS.md).
+
+### Cuarta etapa: persistencia del servidor
+
+Primera entrega sobre `d953935`, con #74 integrado. Se revisó #55 antes de modificar
+ProjectStore e index.ts; sus cambios de Aprender no se incorporan. Esta entrega cubre
+escritura atómica y serialización desde la lectura inicial; el [contrato de persistencia](docs/persistencia.md)
+explica límites y uso. Conflictos entre clientes, firmware y descargas siguen pendientes.
+
+Validación: cuatro regresiones en rojo antes del cambio; nueve pruebas finales de persistencia
+y una nueva integración REST. Suite general: 1618 aprobadas y una omisión existente.
+E2E estándar completos en dos tandas: 86 + 49 aprobados y 8 + 5 omisiones condicionales
+existentes. Build general y typechecks server/web pasan; no se agregaron skips ni retries.
