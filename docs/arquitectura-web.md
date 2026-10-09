@@ -68,7 +68,7 @@ El dibujo del circuito, el editor y la consola **no** pasan por el ciclo de rend
 |---|---|---|
 | Niveles de pin en el circuito | hasta 60 por segundo | `pedirRender()` toca atributos de nodos que ya existen (#18) |
 | Consola | ráfagas de miles de líneas | append incremental al `<pre>`, con cache |
-| Editor | cada tecla | resaltado por `innerHTML`, gutter y marcas a mano |
+| Editor | cada tecla | adaptador CodeMirror 6 para MicroPython; resaltado/gutter heredados para otros lenguajes |
 
 React monta el contenedor y se corre del camino (`react/Lienzo.tsx`). Medido en #18: 0 nodos creados
 por pulso de `pin.out` y 16,6 ms por pulso con 201 módulos, el techo de `requestAnimationFrame`.
@@ -193,3 +193,10 @@ ventanas conservan sus nodos, y el docking sigue guardándose por proyecto fuera
 El adaptador tiene su proyecto TypeScript con `strictNullChecks` habilitado, requisito de
 TanStack. El typecheck del workspace compila sus declaraciones antes del frontend heredado;
 Vite usa las fuentes originales. No se debilitan los tipos de la biblioteca para integrarla.
+
+## Coordinación del guardado
+
+`guardado-diagrama.ts` posee el debounce, la cola de envíos y la revisión del circuito mediante
+puertos propios sin DOM. `app.ts` conecta API, notificación y efectos visuales. Tiene un proyecto
+TypeScript estricto independiente; la web heredada mantiene su migración gradual. El contrato,
+la caracterización y los límites de sincronización están en [coordinacion.md](coordinacion.md).

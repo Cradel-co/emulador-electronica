@@ -1,7 +1,7 @@
 # SDD — Consolidación del emulador de electrónica
 
 Fecha: 2026-10-08. Base analizada: `4744351` de `origin/main`.
-Estado: etapas 1 y 2 integradas; etapa 3 implementada y verificada en rama; etapas 4–6 pendientes.
+Estado: etapas 1–3 integradas; etapa 5 en revisión; etapas 4 y 6 pendientes.
 
 ## 1. Problema y resultado esperado
 
@@ -104,7 +104,7 @@ Las descargas se cortan durante lectura al superar el presupuesto, aunque no hay
 | 2. Pruebas de recorrido | Reconciliar seis E2E, aislar intermitencia de recarga | E2E estándar completos en verde sin omitir escenarios ni relajar assertions | Coordinar con PR #55 |
 | 3. Observación eléctrica | Unificar `leer_pines`, ampliar `ver_proyecto`, contexto multiplaca | REST/UI/MCP coinciden en fixtures activos bajo, entre GPIO, sin energía y solver fallido | Contrato compartido y etapa 2 |
 | 4. Datos y descargas | Escritura atómica, mutaciones serializadas, conflicto entre clientes, integridad firmware, descarga acotada | Pruebas de interrupción/concurrencia y límites pasan; política de caché documentada | Revisar cambios de ProjectStore en #55 |
-| 5. Arquitectura y documentación | Extraer coordinación, migrar tipos por responsabilidad, reconciliar alcance | Caracterización sin cambios funcionales; módulos extraídos estrictos; docs trazables al código | Etapas 2–4 y SDD existentes |
+| 5. Arquitectura y documentación | Extraer coordinación, migrar tipos por responsabilidad, reconciliar alcance | Caracterización sin cambios funcionales; módulos extraídos estrictos; docs trazables al código | Etapas 2–3; conservar persistencia actual hasta etapa 4 |
 | 6. Resultado del prototipado | Exportar circuito y medidas; UI para análisis físicos | Exportación completa legible, dominio/unidades/validez explícitos y pruebas visuales | Observación etapa 3; SDD específico de exportación |
 
 No se prometen fechas sin medir las primeras entregas. El tamaño de un PR se decide por
@@ -159,7 +159,12 @@ Habilitar strictness por módulo migrado; no convertir todo `app.ts` en un únic
 
 ## 8. PR concurrentes y compatibilidad
 
-Revisados el 2026-10-08:
+Situación revisada al comenzar etapa 5, el 2026-10-09:
+
+#69 y #70 están integrados en `main`, junto con #71, #72 y #73. #55 sigue abierto y
+en borrador: sus conflictos fueron resueltos sin integrarlo y queda a cargo de Brian.
+La etapa 5 parte de `ca9171a` y revisó los archivos compartidos con #55 antes de escribir.
+Los siguientes puntos conservan el contexto de la revisión inicial del 2026-10-08:
 
 - #69 (`chore/changelog-por-rama`): agrega CLI y regla de fragmentos; modifica la última entrada
   de scripts en app/package.json. Etapa 1 agrega scripts en shared/package.json, por lo que no
@@ -191,8 +196,10 @@ Una mejora de fidelidad debe declarar dominio y procedencia de parámetros, adem
 | Regresiones iniciales | En rojo antes del arreglo | 6 fallan y 66 pasan en pruebas focalizadas |
 | Etapa 1 | Integrada en PR #71 | 72 pruebas focalizadas; 1552 pasan y 1 omitida en `npx vitest run`; build general y typechecks server/web pasan |
 | Etapa 2 | Integrada en PR #72 | E2E: 133 pasan, 13 omisiones existentes; recarga Aprender 3/3; Vitest: 1552 pasan, 1 omitida; build/typechecks pasan |
-| Etapa 3 | Implementada; pendiente de revisión/merge | Vitest: 1572 pasan, 1 omitida; E2E: 135 pasan, 13 omisiones existentes; build/typechecks pasan |
-| Etapas 4–6 | Pendientes | No declarar realizadas por completar este documento |
+| Etapa 3 | Integrada en PR #73 | Vitest: 1572 pasan, 1 omitida; E2E: 135 pasan, 13 omisiones existentes; build/typechecks pasan |
+| Etapa 4 | Pendiente | Escritura atómica, conflictos, integridad y presupuesto de descarga |
+| Etapa 5 | Implementada y verificada; pendiente de revisión/merge | Vitest: 1608 pasan, 1 omitida; E2E: 135 pasan, 13 omisiones existentes; build/typechecks pasan; [contratos y límites](docs/coordinacion.md) |
+| Etapa 6 | Pendiente | Exportación y presentación del análisis físico |
 
 La suite final se ejecutó sin flags de concurrencia, con la configuración nueva de dos procesos.
 Las seis regresiones nuevas pasaron después de fallar en la base. Las pruebas TCP se ejecutaron
@@ -248,7 +255,25 @@ Validación final: 1572 pruebas unitarias aprobadas y 1 omitida; 135 E2E aprobad
 introdujeron skips, retries ni cambios de ecuaciones para lograr esos resultados. Las pruebas
 TCP y Chrome usaron permisos locales y carpetas temporales aisladas.
 
+### Quinta etapa: separación por responsabilidad
+
+Se ejecuta antes de la etapa 4 por pedido del usuario. La extracción conserva la persistencia
+actual y documenta sus riesgos; no depende de prometer atomicidad o resolver conflictos.
+Se separan la cola de corridas, el servicio de observación, la publicación de eventos y
+el guardado de diagrama web. Las políticas, puertos, tipos y caracterización se trazan
+a los archivos en [coordinacion.md](docs/coordinacion.md). Los puntos de entrada siguen
+conectando HTTP, WebSocket, motores y DOM; no se declara migrado todo el frontend.
+
+
+Validación final: 19 pruebas de caracterización, ejecutadas contra las implementaciones
+originales antes de conectar las extracciones. La suite general terminó con 1608 aprobadas y
+1 omisión existente. E2E estándar completos en dos tandas disjuntas: 86 y 49 aprobadas,
+8 y 5 omisiones condicionales existentes (total: 135/13). Build y typechecks server/web pasan.
+No se agregaron skips, retries ni relajaciones de assertions. Proyectos y catálogo de E2E
+usan directorios temporales; no se ensayó firmware Docker opcional ni hardware físico.
+
 
 Referencias: [CLAUDE.md](CLAUDE.md), [arquitectura web](docs/arquitectura-web.md),
 [perfiles físicos](docs/PERFILES-FISICOS.md), [análisis temporal](docs/ANALISIS-TEMPORAL-Y-EVIDENCIA.md),
 [plan de fidelidad](docs/PLAN-FIDELIDAD-FISICA.md), [módulos](SDD-MODULOS.md).
+
