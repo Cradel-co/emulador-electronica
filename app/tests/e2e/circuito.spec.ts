@@ -109,6 +109,7 @@ test.describe('código por módulo', () => {
     await page.locator('.modulo-card[data-type="remote-433"]').click();
     await expect(modulo(page, 'control1')).toBeVisible();
     const panel = page.locator('#panel-modulo');
+    await expect(panel).not.toContainText('Sin medición eléctrica válida');
     await expect(panel.locator('.insp-badge')).toContainText('Inalámbrico');
     await expect(panel.locator('.insp-pines')).toHaveCount(0);
     await expect(panel.locator('input[data-prop="codeA"]')).toHaveValue(/^[01]{24}$/);
@@ -164,19 +165,24 @@ test.describe('cableado', () => {
     await abrirProyectoNuevo(page, request);
     await page.locator('.modulo-card[data-type="rxb6"]').click();
     // Recién agregado: ningún pin conectado, así que GND y VCC ya están marcados.
+    await expect(page.locator('#panel-modulo')).not.toContainText('Sin medición eléctrica válida');
     await expect(page.locator('#panel-modulo .insp-badge.advertencia')).toContainText('VCC y GND');
     await expect(page.locator('#lienzo .pin[data-ref="rx1.VCC"]')).toHaveClass(/sin-alimentar/);
     await expect(page.locator('#lienzo .pin[data-ref="rx1.GND"]')).toHaveClass(/sin-alimentar/);
 
     await cablear(page, 'rx1.DATA', 'board.GPIO4');
+    await expect(page.locator('#panel-modulo')).not.toContainText('Sin medición eléctrica válida');
     await expect(page.locator('#panel-modulo .insp-badge.advertencia')).toContainText('VCC y GND'); // DATA no alcanza
 
     await cablear(page, 'rx1.VCC', 'board.3V3');
+    await expect(page.locator('#panel-modulo')).not.toContainText('Sin medición eléctrica válida');
     await expect(page.locator('#panel-modulo .insp-badge.advertencia')).toContainText('GND');
+    await expect(page.locator('#panel-modulo')).not.toContainText('Sin medición eléctrica válida');
     await expect(page.locator('#panel-modulo .insp-badge.advertencia')).not.toContainText('VCC y GND');
     await expect(page.locator('#lienzo .pin[data-ref="rx1.VCC"]')).not.toHaveClass(/sin-alimentar/);
 
     await cablear(page, 'rx1.GND', 'board.GND');
+    await expect(page.locator('#panel-modulo')).not.toContainText('Sin medición eléctrica válida');
     await expect(page.locator('#panel-modulo .insp-badge.advertencia')).toHaveCount(0);
     await expect(page.locator('#lienzo .pin[data-ref="rx1.GND"]')).not.toHaveClass(/sin-alimentar/);
   });

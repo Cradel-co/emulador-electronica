@@ -1,3 +1,4 @@
+import { firmaDiagramaElectrico } from '@emu/shared';
 import { riesgoDesdeFisica, salidaDesdeFisica } from './estado-electrico.js';
 // Orquestación del frontend: componentes persistentes y efectos contra la API local.
 import { resolveWorkspaceSelection } from './navigation-selection.js';
@@ -1098,6 +1099,10 @@ async function esperarDiagramaCamara(proyecto: string) {
   }
 }
 function guardarDiagrama() {
+  if (topologiaObservada !== firmaDiagramaElectrico(state.diagrama)) {
+    invalidarObservacionFisica();
+    lienzo.refrescarFisica();
+  }
   revisionDiagrama++;
   // Todos los cambios del dibujo pasan por acá: es el lugar para avisarle a React, que no ve
   // las mutaciones de adentro de `wires`/`modules` (ver react/estado.ts).
@@ -1952,9 +1957,11 @@ async function quitarDelCatalogo(m) {
 // --- Avisos dibujo ↔ código -----------------------------------------------------
 
 let revisionObservacionFisica = 0;
+let topologiaObservada = '';
 /** Suelta medidas anteriores e invalida respuestas pendientes de otro contexto. */
 function invalidarObservacionFisica(avisos: typeof state.avisosDibujo = []): void {
   revisionObservacionFisica++;
+  for (const modulo of audio.leer().sonando) eventoSonido({ modulo, sonando: false, ganancia: 0 });
   state.fisicaValida = false;
   state.electrico = new Map();
   state.uiModulos = new Map();
@@ -1974,16 +1981,24 @@ async function refrescarAvisos() {
   if (!state.proyecto) return;
   const revision = ++revisionObservacionFisica;
   const proyecto = state.proyecto.name;
+  const topologia = firmaDiagramaElectrico(state.diagrama);
   let avisosFallidos: typeof state.avisosDibujo | null = null;
   try {
     const respuesta = await api(`/api/projects/${proyecto}/pins`);
     if (revision !== revisionObservacionFisica || state.proyecto?.name !== proyecto) return;
-    if (respuesta.electrico?.resuelto !== true || !Array.isArray(respuesta.electrico.leds)) {
-      avisosFallidos = Array.isArray(respuesta.warnings) ? respuesta.warnings : null;
+    if (respuesta.electrico?.resuelto !== true || respuesta.electrico?.estado !== 'valida'
+      || respuesta.electrico?.contexto?.proyecto !== proyecto
+      || respuesta.electrico?.contexto?.topologia !== topologia
+      || topologia !== firmaDiagramaElectrico(state.diagrama) || !Array.isArray(respuesta.electrico.leds)) {
+      // Los diagnósticos de otro contexto tampoco pertenecen al circuito visible.
+      avisosFallidos = respuesta.electrico?.contexto?.proyecto === proyecto
+        && respuesta.electrico?.contexto?.topologia === topologia
+        && Array.isArray(respuesta.warnings) ? respuesta.warnings : null;
       throw new Error('El servidor no entregó una instantánea eléctrica resuelta.');
     }
     const { pins, warnings } = respuesta;
     state.fisicaValida = respuesta.electrico.resuelto === true;
+    topologiaObservada = topologia;
     state.codePins = new Set(pins);
     state.avisosDibujo = warnings;
     state.electrico = new Map((respuesta.electrico?.leds ?? []).map((l) => [l.id, l]));
