@@ -1,7 +1,7 @@
 # SDD — Consolidación del emulador de electrónica
 
 Fecha: 2026-10-08. Base analizada: `4744351` de `origin/main`.
-Estado: etapas 1–3 integradas; etapa 5 en revisión; etapas 4 y 6 pendientes.
+Estado: etapas 1–3 integradas; etapa 5 en revisión en PR #74; etapas 4 y 6 pendientes.
 
 ## 1. Problema y resultado esperado
 
@@ -198,7 +198,7 @@ Una mejora de fidelidad debe declarar dominio y procedencia de parámetros, adem
 | Etapa 2 | Integrada en PR #72 | E2E: 133 pasan, 13 omisiones existentes; recarga Aprender 3/3; Vitest: 1552 pasan, 1 omitida; build/typechecks pasan |
 | Etapa 3 | Integrada en PR #73 | Vitest: 1572 pasan, 1 omitida; E2E: 135 pasan, 13 omisiones existentes; build/typechecks pasan |
 | Etapa 4 | Pendiente | Escritura atómica, conflictos, integridad y presupuesto de descarga |
-| Etapa 5 | Implementada y verificada; pendiente de revisión/merge | Vitest: 1608 pasan, 1 omitida; E2E: 135 pasan, 13 omisiones existentes; build/typechecks pasan; [contratos y límites](docs/coordinacion.md) |
+| Etapa 5 | Implementada y verificada en PR #74; pendiente de revisión/merge | Vitest: 1608 pasan, 1 omitida; E2E: 135 pasan, 13 omisiones existentes; build/typechecks pasan; [contratos y límites](docs/coordinacion.md) |
 | Etapa 6 | Pendiente | Exportación y presentación del análisis físico |
 
 La suite final se ejecutó sin flags de concurrencia, con la configuración nueva de dos procesos.
@@ -276,4 +276,3 @@ usan directorios temporales; no se ensayó firmware Docker opcional ni hardware 
 Referencias: [CLAUDE.md](CLAUDE.md), [arquitectura web](docs/arquitectura-web.md),
 [perfiles físicos](docs/PERFILES-FISICOS.md), [análisis temporal](docs/ANALISIS-TEMPORAL-Y-EVIDENCIA.md),
 [plan de fidelidad](docs/PLAN-FIDELIDAD-FISICA.md), [módulos](SDD-MODULOS.md).
-

@@ -1,4 +1,4 @@
-Las corridas, las lecturas eléctricas y el guardado del circuito conservan su comportamiento con coordinación independiente y verificable.
+Las corridas, las lecturas eléctricas y el guardado del circuito conservan su comportamiento con coordinación independiente y verificable. (#74)
 
 Se separan responsabilidades del servidor y la web con contratos propios y pruebas contra la
 implementación anterior. El módulo de guardado tiene TypeScript estricto. Las garantías de
