@@ -22,12 +22,27 @@ function freeze(layout: DockLayout) {
 }
 
 describe('layout docking por defecto y persistencia', () => {
-  it('ubica las cinco ventanas y mantiene Explorador cerrado inicialmente', () => {
+  it('ubica las seis ventanas y abre todas las ventanas inicialmente', () => {
     const layout = defaultDockLayout(); assertComplete(layout);
-    expect(layout.open).toEqual({ explorador: false, componentes: true, circuito: true, codigo: true, consola: true });
+    expect(layout.open).toEqual({ explorador: true, componentes: true, circuito: true, codigo: true, detalle: true, consola: true });
     expect(layout.root).toMatchObject({ axis: 'vertical', sizes: [72, 28] });
     for (const id of DOCK_WINDOWS) expect(location(layout, id).id).toBe(`grupo-${id}`);
     expect(defaultDockLayout()).not.toBe(layout);
+  });
+  it('migra un diseño anterior conservando posiciones y añade Detalle cerrado', () => {
+    const legacy = { version: 1, open: { explorador: true, componentes: false, circuito: true, codigo: true, consola: true }, root: {
+      kind: 'split', id: 'viejo', axis: 'horizontal', sizes: [40, 60], children: [
+        { kind: 'group', id: 'izquierda', views: ['explorador', 'componentes', 'circuito'], active: 'circuito' },
+        { kind: 'group', id: 'derecha', views: ['codigo', 'consola'], active: 'codigo' },
+      ],
+    } };
+    const migrated = normalizeDockLayout(legacy);
+    assertComplete(migrated);
+    expect(location(migrated, 'circuito')).toEqual(legacy.root.children[0]);
+    expect(location(migrated, 'codigo')).toEqual(legacy.root.children[1]);
+    expect(migrated.open).toEqual({ ...legacy.open, detalle: false });
+    expect(migrated.root).toMatchObject({ id: 'viejo', sizes: [40, 60] });
+    expect(normalizeDockLayout(migrated)).toEqual(migrated);
   });
   it('reconstruye JSON persistido sin compartir objetos con la entrada', () => {
     let layout = moveDockWindow(defaultDockLayout(), 'consola', 'grupo-codigo', 'center');

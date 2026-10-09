@@ -80,8 +80,8 @@ export class ProjectStore {
   }
 
   /** Rechaza enlaces simbólicos en proyectos/código; la raíz configurada es de confianza. */
-  private async assertSafePath(full: string): Promise<void> {
-    const root = path.resolve(this.root);
+  private async assertSafePath(full: string, boundary = this.root): Promise<void> {
+    const root = path.resolve(boundary);
     const relative = path.relative(root, path.resolve(full));
     if (relative.startsWith('..') || path.isAbsolute(relative)) throw new ProjectError('Ruta fuera de proyectos', 403);
     let current = root;
@@ -97,13 +97,13 @@ export class ProjectStore {
   }
 
   /** Valida toda la plantilla antes de copiar para que un rechazo no deje copias parciales. */
-  private async assertSafeTemplate(dir: string): Promise<void> {
-    await this.assertSafePath(dir);
+  private async assertSafeTemplate(dir: string, boundary = this.root): Promise<void> {
+    await this.assertSafePath(dir, boundary);
     const entries = await fs.readdir(dir, { withFileTypes: true });
     for (const entry of entries) {
       if (entry.name.startsWith('.')) continue;
       if (entry.isSymbolicLink()) throw new ProjectError('La plantilla contiene enlaces simbólicos', 403);
-      if (entry.isDirectory()) await this.assertSafeTemplate(path.join(dir, entry.name));
+      if (entry.isDirectory()) await this.assertSafeTemplate(path.join(dir, entry.name), boundary);
     }
   }
 
@@ -204,14 +204,23 @@ export class ProjectStore {
 
   /** Plantillas disponibles; nombre y descripción salen del título y primer párrafo del README.md. */
   async listTemplates(): Promise<PlantillaProyecto[]> {
-    const entries = await fs.readdir(this.templatesDir, { withFileTypes: true }).catch(() => []);
+    return this.listLibrary(this.templatesDir, this.root);
+  }
+
+  async listLearning(): Promise<PlantillaProyecto[]> {
+    return this.listLibrary(PATHS.learning, path.dirname(PATHS.learning));
+  }
+
+  private async listLibrary(library: string, boundary: string): Promise<PlantillaProyecto[]> {
+    await this.assertSafePath(library, boundary);
+    const entries = await fs.readdir(library, { withFileTypes: true }).catch(() => []);
     const out: PlantillaProyecto[] = [];
     for (const e of entries) {
       if (!e.isDirectory() || !isValidProjectName(e.name)) continue;
-      const dir = path.join(this.templatesDir, e.name);
+      const dir = path.join(library, e.name);
       try {
-        await this.assertSafePath(path.join(dir, 'project.json'));
-        await this.assertSafePath(path.join(dir, 'README.md'));
+        await this.assertSafePath(path.join(dir, 'project.json'), boundary);
+        await this.assertSafePath(path.join(dir, 'README.md'), boundary);
         const p = ProjectSchema.parse(JSON.parse(await fs.readFile(path.join(dir, 'project.json'), 'utf8')));
         const readme = await fs.readFile(path.join(dir, 'README.md'), 'utf8').catch(() => '');
         const nombre = /^#\s+(.+)$/m.exec(readme)?.[1]?.trim() ?? e.name;
@@ -226,25 +235,33 @@ export class ProjectStore {
 
   /** Crea `name` copiando la plantilla `templateId` tal cual (circuito, código, README). */
   async createFromTemplate(name: string, templateId: string): Promise<Project> {
+    return this.createFromLibrary(name, templateId, this.templatesDir, this.root);
+  }
+
+  async createFromLearning(name: string, exampleId: string, library = PATHS.learning): Promise<Project> {
+    return this.createFromLibrary(name, exampleId, library, path.dirname(library));
+  }
+
+  private async createFromLibrary(name: string, templateId: string, library: string, boundary: string): Promise<Project> {
     if (!isValidProjectName(name)) {
       throw new ProjectError(`Nombre inválido: "${name}". Solo [a-z0-9-], hasta 40 caracteres, sin "..".`, 400);
     }
     if (!isValidProjectName(templateId)) throw new ProjectError(`Plantilla inválida: "${templateId}"`, 400);
     if (await this.exists(name)) throw new ProjectError(`El proyecto "${name}" ya existe`, 409);
-    const origen = path.join(this.templatesDir, templateId);
-    await this.assertSafePath(path.join(origen, 'project.json'));
+    const origen = path.join(library, templateId);
+    await this.assertSafePath(path.join(origen, 'project.json'), boundary);
     await this.assertSafePath(this.projectDir(name));
     const raw = await fs.readFile(path.join(origen, 'project.json'), 'utf8').catch(() => {
       throw new ProjectError(`No hay una plantilla "${templateId}"`, 404);
     });
     const base = ProjectSchema.parse(JSON.parse(raw));
-    await this.assertSafeTemplate(origen);
+    await this.assertSafeTemplate(origen, boundary);
     // Sin archivos ocultos (caché de compilación, etc.): solo lo que el autor dejó a propósito.
     await fs.cp(origen, this.projectDir(name), {
       recursive: true,
       filter: (src) => src === origen || !path.basename(src).startsWith('.'),
     });
-    if (templateId === 'arducam-esp32-s3') {
+    if (library === this.templatesDir && templateId === 'arducam-esp32-s3') {
       await fs.writeFile(path.join(this.projectDir(name), 'arducam.py'), arducamDriver);
       await fs.writeFile(path.join(this.projectDir(name), 'main.py'), arducamMain);
     }

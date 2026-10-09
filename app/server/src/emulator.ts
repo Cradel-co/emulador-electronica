@@ -32,6 +32,8 @@ export interface EmulatorStatus {
   pid: number | null;
   project: string | null;
   ports: EmuPorts | null;
+  /** Distingue HTTP del puerto reutilizado por el REPL de MicroPython. */
+  usesWeb?: boolean;
   ip: string | null;
   startedAt: number | null;
   exitInfo: string | null;
@@ -89,6 +91,7 @@ export class EmulatorManager implements Emulador {
       pid: null,
       project: null,
       ports: null,
+      usesWeb: false,
       ip: null,
       startedAt: null,
       exitInfo: null,
@@ -163,6 +166,7 @@ export class EmulatorManager implements Emulador {
       pid: child.pid ?? null,
       project: projectName,
       ports,
+      usesWeb: artifacts.usesWebServer,
       ip: null,
       startedAt: Date.now(),
       exitInfo: null,

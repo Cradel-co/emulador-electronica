@@ -22,7 +22,7 @@ export function OpcionesProyectos() {
       {/* Vacía y oculta: sin ella un <select> nativo muestra el primero como elegido aunque no haya ninguno abierto. */}
       <option value="" hidden />
       {(proyectos ?? []).map((p) => (
-        <option key={p.name} value={p.name}>{`${p.name} (${p.board ? p.language : 'sin placa'})`}</option>
+        <option key={p.name} value={p.name}>{p.name}</option>
       ))}
     </>
   );

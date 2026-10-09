@@ -3,7 +3,7 @@ import 'dockview/dist/styles/dockview.css';
 import './docking-engine.css';
 import { DOCK_WINDOWS, normalizeDockLayout, type DockLayout, type DockNode, type WindowId } from './docking-layout.js';
 
-export const DOCK_TITLES: Record<WindowId, string> = { explorador: 'Explorador', componentes: 'Componentes', circuito: 'Circuito', codigo: 'Código', consola: 'Consola' };
+export const DOCK_TITLES: Record<WindowId, string> = { explorador: 'Explorador', componentes: 'Componentes', circuito: 'Circuito', codigo: 'Código', detalle: 'Detalle', consola: 'Consola' };
 type GridNode = SerializedDockview['grid']['root'];
 const opposite = (axis: 'horizontal' | 'vertical') => axis === 'horizontal' ? 'vertical' : 'horizontal';
 // Los porcentajes son aproximaciones: una segunda normalización no debe recrear todo el motor.
@@ -38,9 +38,11 @@ export function toDockviewLayout(layout: DockLayout, width = 1000, height = 700)
 /** Conserva identificadores propios cuando una división sigue reuniendo los mismos grupos. */
 export function fromDockviewLayout(serialized: SerializedDockview, previous: DockLayout): DockLayout {
   const ids = new Map<string, string>();
+  const leaves = (node: DockNode): string[] => node.kind === 'group' ? [node.id] : node.children.flatMap(leaves);
   function signature(node: DockNode): string {
     if (node.kind === 'group') return node.id;
-    const key = node.children.map(signature).sort().join('|');
+    node.children.forEach(signature);
+    const key = leaves(node).sort().join('|');
     ids.set(`${node.axis}:${key}`, node.id); return key;
   }
   signature(previous.root);
@@ -63,10 +65,7 @@ export function fromDockviewLayout(serialized: SerializedDockview, previous: Doc
     if (!Array.isArray(raw.data) || !raw.data.length) throw new Error('Distribución vacía');
     const children = raw.data.map(child => visit(child, opposite(axis)));
     if (children.length === 1) return children[0];
-    const key = children.map(child => {
-      const leaves = (n: DockNode): string[] => n.kind === 'group' ? [n.id] : n.children.flatMap(leaves);
-      return leaves(child).sort().join('|');
-    }).sort().join('|');
+    const key = children.flatMap(leaves).sort().join('|');
     let id = ids.get(`${axis}:${key}`);
     if (!id) {
       do { id = `split-engine-${++sequence}`; } while (splitIds.has(id) || seenGroups.has(id));
@@ -109,6 +108,7 @@ export function createDockingEngine(host: HTMLElement, initial: DockLayout, opti
       const view = id as WindowId;
       const element = document.createElement('div');
       element.className = 'dock-window-tab';
+      element.dataset.windowDrag = view;
       element.hidden = !current.open[view];
       const grip = document.createElement('span');
       grip.className = 'window-grip'; grip.textContent = '⠿'; grip.dataset.windowDrag = view;
@@ -126,6 +126,7 @@ export function createDockingEngine(host: HTMLElement, initial: DockLayout, opti
         queueMicrotask(() => {
           if (disposed || !element.isConnected) return;
           tab = element.closest<HTMLElement>('.dv-tab');
+          if (tab) tab.dataset.windowDrag = view;
           tab?.addEventListener('pointerdown', stopAtTab);
         });
         element.addEventListener('pointerdown', event => {
@@ -142,7 +143,7 @@ export function createDockingEngine(host: HTMLElement, initial: DockLayout, opti
   });
   let pointer: number | null = null;
   const start = (event: PointerEvent) => {
-    if (event.target instanceof Element && event.target.closest('[data-window-drag]')) pointer = event.pointerId;
+    if (event.target instanceof Element && !event.target.closest('.dock-tab-close') && event.target.closest('[data-window-drag]')) pointer = event.pointerId;
   };
   const finish = () => { pointer = null; delete host.dataset.dockDragging; };
   const cancel = (event: KeyboardEvent) => {
@@ -161,9 +162,9 @@ export function createDockingEngine(host: HTMLElement, initial: DockLayout, opti
     window.removeEventListener('pointercancel', finish);
     window.removeEventListener('keydown', cancel, true);
   } });
-  // El agarre es el único inicio de arrastre; el título sigue permitiendo seleccionar pestañas.
+  // Toda la pestaña permite arrastrar; la cruz conserva su acción de cierre.
   disposables.push(api.onWillDragPanel(event => {
-    if (!(event.nativeEvent.target instanceof Element) || !event.nativeEvent.target.closest('[data-window-drag]')) event.nativeEvent.preventDefault();
+    if (!(event.nativeEvent.target instanceof Element) || event.nativeEvent.target.closest('.dock-tab-close') || !event.nativeEvent.target.closest('[data-window-drag]')) event.nativeEvent.preventDefault();
     else host.dataset.dockDragging = event.panel.id;
   }));
   disposables.push(api.onWillDragGroup(event => event.nativeEvent.preventDefault()));

@@ -29,7 +29,7 @@ async function mutacionesDurante(page: Page, accion: (p: Page) => Promise<void>)
 test('una medición física válida prende el LED y no crea ni destruye nodos', async ({ page, request }) => {
   const firmware = await firmwareFixture(page, request, 0);
   await abrirProyectoNuevo(page, request);
-  await page.locator('#usb').click();
+  await page.locator('#lienzo .modulo[data-id="board"] .placa-usb').click();
   // El circuito de prueba del ESP32-S3: botón en GPIO6 y LED directo en GPIO7.
   await expect(modulo(page, 'led1')).toBeVisible();
   await page.waitForTimeout(800); // que termine de encuadrar y lleguen los avisos

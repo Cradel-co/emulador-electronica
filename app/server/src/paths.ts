@@ -11,6 +11,8 @@ export const PATHS = {
   app: path.join(ROOT, 'app'),
   /** Se puede apuntar a otra carpeta (tests e2e) para no tocar los proyectos reales. */
   projects: process.env.EMU_PROJECTS_DIR ?? path.join(ROOT, 'projects'),
+  /** Ejemplos educativos distribuidos con la app, independientes de proyectos personales. */
+  learning: path.join(ROOT, 'projects', '_learning'),
   builds: path.join(ROOT, '.build'),
   cache: path.join(ROOT, '.cache'),
   firmware: path.join(ROOT, 'firmware'),

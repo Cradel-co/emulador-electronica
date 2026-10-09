@@ -71,6 +71,10 @@ export function createWorkspaceNavigation(options: WorkspaceNavigationOptions): 
       ...(typeof search.paso === 'string' ? { paso: search.paso } : {}),
     }),
   });
+  const temas = createRoute({ getParentRoute: () => root, path: '/aprender/temas' });
+  const tema = createRoute({ getParentRoute: () => root, path: '/aprender/temas/$slug' });
+  const rutas = createRoute({ getParentRoute: () => root, path: '/aprender/rutas' });
+  const ruta = createRoute({ getParentRoute: () => root, path: '/aprender/rutas/$slug' });
   const project = createRoute({
     getParentRoute: () => root,
     path: '/projects/$project',
@@ -81,7 +85,7 @@ export function createWorkspaceNavigation(options: WorkspaceNavigationOptions): 
     }),
   });
   const router = createRouter({
-    routeTree: root.addChildren([home, aprender, leccionAprendizaje, project]),
+    routeTree: root.addChildren([home, aprender, leccionAprendizaje, temas, tema, rutas, ruta, project]),
     history,
     isServer: false,
     origin: typeof window === 'undefined' ? 'http://localhost' : window.location.origin,
@@ -177,7 +181,9 @@ export function createWorkspaceNavigation(options: WorkspaceNavigationOptions): 
       if (!(await canLeave()) || destroyed || request !== navigationRevision) return;
       // El guardado ya terminó. El blocker del historial cubre Atrás/Adelante.
       if (normalized.project === null && normalized.aprender) {
-        if (normalized.aprender.leccion) {
+        if (normalized.learning) {
+          await router.navigate({ to: workspaceRoutePath(normalized), replace: navigationOptions.replace, ignoreBlocker: true });
+        } else if (normalized.aprender.leccion) {
           await router.navigate({
             to: '/aprender/$leccion', params: { leccion: normalized.aprender.leccion },
             search: { paso: normalized.aprender.paso }, replace: navigationOptions.replace, ignoreBlocker: true,

@@ -17,6 +17,7 @@ import { Paleta } from './Paleta.js';
 import { Miga, Notificaciones, Pestanas } from './Barra.js';
 import { DebugAlimentacion, ErroresCompilacion, Problemas, ResultadoImportacion } from './Problemas.js';
 import { OpcionesLenguajePlaca, OpcionesPlacaNueva, OpcionesPlacas, OpcionesPlantillas, OpcionesProyectos } from './Selectores.js';
+import { AprenderNav } from './Aprender.js';
 import { Aprendizaje } from './Aprendizaje.js';
 
 /**
@@ -43,6 +44,7 @@ const ISLAS: [string, FunctionComponent, boolean][] = [
   ['dock-layout', DockWorkspace, true],
   ['tw-explorador', ExplorerIcon, false],
   ['lista-proyectos', Proyectos, false],
+  ['aprendizaje-nav', AprenderNav, false],
   ['pantalla-aprender', Aprendizaje, false],
   ['panel-modulo', PanelDerecho, false],
   ['menu', Menu, false],

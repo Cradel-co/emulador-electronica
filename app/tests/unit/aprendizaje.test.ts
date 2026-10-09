@@ -4,7 +4,7 @@ import { contenidoAprendizaje, leccionPorId, validarCatalogoAprendizaje } from '
 describe('contenido de Aprender', () => {
   it('publica una lección de LED completa con IDs únicos y pasos navegables', () => {
     expect(validarCatalogoAprendizaje(contenidoAprendizaje)).toEqual([]);
-    expect(contenidoAprendizaje.map(leccion => leccion.id)).toEqual(['encender-un-led']);
+    expect(contenidoAprendizaje.map(leccion => leccion.id)).toContain('encender-un-led');
     const leccion = leccionPorId('encender-un-led');
     expect(leccion?.pasos.map(paso => paso.id)).toEqual([
       'identificar', 'seguir-circuito', 'estimar-corriente', 'probar', 'invertir-led',

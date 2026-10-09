@@ -153,6 +153,7 @@ test('el panel derecho lo rinde React: pines, propiedades y el pulsador que se s
   await expect(boton).toHaveText('Mantener presionado');
   await expect(boton).not.toHaveClass(/activo/);
 
+  await boton.hover(); // Detalle puede requerir scroll al compartir altura con Código.
   const caja = await boton.boundingBox();
   await page.mouse.move(caja!.x + caja!.width / 2, caja!.y + caja!.height / 2);
   await page.mouse.down();

@@ -9,7 +9,7 @@ import { abrirProyectoNuevo, modulo } from './helpers.js';
  * escribieron antes de migrarlos a React (#9) y contra el código imperativo.
  */
 
-test('el selector de proyectos lista cada uno con su lenguaje y cambia de proyecto', async ({ page, request }) => {
+test('el selector de proyectos lista solo los nombres y cambia de proyecto', async ({ page, request }) => {
   // Por la API y no con abrirProyectoNuevo: ese helper espera el YAML de ESPHome en el editor.
   const a = `sel-mp-${Date.now().toString(36)}`;
   const b = `sel-sin-placa-${Date.now().toString(36)}`;
@@ -20,8 +20,10 @@ test('el selector de proyectos lista cada uno con su lenguaje y cambia de proyec
 
   const s = page.locator('#proyecto');
   await expect(s).toHaveValue(a);
-  await expect(s.locator(`option[value="${a}"]`)).toHaveText(`${a} (micropython)`);
-  await expect(s.locator(`option[value="${b}"]`)).toHaveText(`${b} (sin placa)`);
+  await expect(page.locator('.titlebar #dispositivo, .titlebar #quitar-placa, .titlebar #config-run, .titlebar #nuevo, .titlebar #buscar-todo')).toHaveCount(0);
+  await page.locator('.titlebar').screenshot({ path: '/tmp/emulador-barra-simplificada.png' });
+  await expect(s.locator(`option[value="${a}"]`)).toHaveText(a);
+  await expect(s.locator(`option[value="${b}"]`)).toHaveText(b);
   // La opción vacía existe pero está oculta: sin ella el <select> mostraría el primero como elegido.
   await expect(s.locator('option[value=""]')).toHaveJSProperty('hidden', true);
 
@@ -36,7 +38,9 @@ test('"Nuevo proyecto": las placas, "sin placa", la de por defecto y las plantil
     cpSync(path.resolve(import.meta.dirname, '../../../projects/_template/circuito-continuo'), destino, { recursive: true });
   }
   await abrirProyectoNuevo(page, request);
-  await page.locator('#nuevo').click();
+  await page.locator('#menu-principal').click();
+  await page.locator('#menu > .menu-item').filter({ hasText: /^Archivo/ }).hover();
+  await page.getByRole('menuitem', { name: 'Nuevo proyecto…', exact: true }).click();
   const dlg = page.locator('#dlg-nuevo');
   await expect(dlg).toBeVisible();
 
@@ -60,7 +64,9 @@ test('"Nuevo proyecto": las placas, "sin placa", la de por defecto y las plantil
   // Recuerda la última placa elegida en la sesión.
   await placa.selectOption('esp32-c3-devkitm-1');
   await page.keyboard.press('Escape');
-  await page.locator('#nuevo').click();
+  await page.locator('#menu-principal').click();
+  await page.locator('#menu > .menu-item').filter({ hasText: /^Archivo/ }).hover();
+  await page.getByRole('menuitem', { name: 'Nuevo proyecto…', exact: true }).click();
   await expect(page.locator('#nuevo-placa')).toHaveValue('esp32-c3-devkitm-1');
 });
 

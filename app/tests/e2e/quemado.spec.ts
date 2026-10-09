@@ -5,7 +5,7 @@ import { firmwareFixture, ledPrendido } from './fisica-fixture.js';
 test('el riesgo de sobrecorriente no provoca daño permanente y desaparece al apagar', async ({ page, request }) => {
   const firmware = await firmwareFixture(page, request);
   await abrirProyectoNuevo(page, request);
-  await page.locator('#usb').click();
+  await page.locator('#lienzo .modulo[data-id="board"] .placa-usb').click();
   await expect.poll(() => ledPrendido(page, 'led1')).toBe(true);
   await seleccionarModulo(page, 'led1');
   await expect(page.locator('#panel-modulo')).toContainText('Riesgo de sobrecorriente');

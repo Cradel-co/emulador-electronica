@@ -121,7 +121,6 @@ button.widget:hover, label.widget:hover { background: rgba(255, 255, 255, .08); 
   background: var(--color-proyecto, #5e6066); color: #fff; font-size: 10.5px; font-weight: 700; letter-spacing: -.02em;
 }
 .run-widgets { display: flex; align-items: center; gap: 2px; }
-#dispositivo, #config-run { color: var(--texto2); }
 
 /* --- Menú principal (hamburguesa) y popovers -------------------------------- */
 .menu, .popover {
@@ -342,43 +341,21 @@ body.sin-abajo .consola-panel, body.sin-abajo .resizer-h { display: none; }
 .avisos div.error::before { content: "✕"; }
 
 /* --- Circuito ----------------------------------------------------------------- */
-.lienzo-panel { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; grid-template-columns: minmax(0, 1fr); }
-.lienzo-panel .editor-tabs { align-items: center; }
-.ayuda-lienzo {
-  margin-left: auto; padding-right: 8px; font-size: 12px; color: var(--tenue);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
-}
-body.simulando .ayuda-lienzo { color: var(--verde); }
+.lienzo-panel { display: grid; grid-template-rows: minmax(0, 1fr) auto; grid-template-columns: minmax(0, 1fr); }
 .badge-modo {
-  display: flex; align-items: center; gap: 6px; margin-left: 10px; padding: 1px 9px; flex: none;
+  position: absolute; top: 12px; right: 12px; z-index: 2; pointer-events: none;
+  display: flex; align-items: center; gap: 6px; margin: 0; padding: 1px 9px; flex: none;
   border-radius: 999px; background: rgba(95, 184, 101, .14); color: var(--verde);
   font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
 }
 .badge-modo[hidden] { display: none; } /* el [hidden] del navegador no gana solo contra la regla de arriba */
-/* Alimentación de la placa: USB, fuente (con consumo), sin energía, o quemada (click = reemplazar). */
-.badge-alim {
-  display: flex; align-items: center; margin-left: 8px; padding: 1px 9px; flex: none; border: 0;
-  border-radius: 999px; font: 700 11px var(--font-ui); letter-spacing: .02em; cursor: default;
-}
-.badge-alim[hidden] { display: none; }
-.badge-alim:disabled { opacity: 1; }
-.alim-wrap { display: flex; align-items: center; flex: none; }
-.badge-alim.ok { background: rgba(95, 184, 101, .14); color: var(--verde); }
-.badge-alim.sin { background: rgba(242, 197, 92, .14); color: var(--amarillo); }
-.badge-alim.quemada { background: rgba(219, 92, 92, .18); color: #f3b0b0; cursor: pointer; }
-.badge-alim.quemada:hover { background: rgba(219, 92, 92, .3); }
-.widget-usb { cursor: pointer; color: var(--tenue); }
-.widget-usb[hidden] { display: none; }
-.widget-usb.activa { color: var(--verde); background: rgba(95, 184, 101, .12); }
-.widget-usb.activa svg { color: var(--verde); }
 .badge-modo .punto { width: 7px; height: 7px; border-radius: 50%; background: var(--verde); box-shadow: 0 0 6px var(--verde); animation: modo-pulso 1.4s ease-in-out infinite; }
 @keyframes modo-pulso { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
 .lienzo-wrap { position: relative; min-height: 0; background: var(--isla); }
-body.simulando .lienzo-wrap { box-shadow: inset 0 0 0 1px rgba(95, 184, 101, .45); }
 #lienzo { position: absolute; inset: 0; width: 100%; height: 100%; cursor: grab; user-select: none; }
 #lienzo.paneando { cursor: grabbing; }
 .lienzo-zoom {
-  position: absolute; right: 12px; bottom: 12px; display: flex; gap: 2px; padding: 3px;
+  position: absolute; right: 12px; bottom: 12px; display: flex; flex-direction: column; gap: 2px; padding: 3px;
   background: var(--popup); border: 1px solid var(--borde2); border-radius: 8px; box-shadow: 0 4px 14px rgba(0, 0, 0, .35);
 }
 .lienzo-zoom button { padding: 2px 10px; border: 0; min-width: 28px; font-size: 13px; }
@@ -631,9 +608,9 @@ body.inicio #pantalla-inicio {
 body.inicio .workspace, body.inicio .stripe, body.inicio .solo-proyecto, body.inicio #ir-inicio { display: none; }
 #pantalla-aprender { display: none; }
 body.aprender #pantalla-aprender {
-  grid-column: 1 / -1; grid-row: 2; display: block; min-height: 0; overflow: auto; padding: 0 6px 6px;
+  grid-column: 2; grid-row: 1; display: block; min-height: 0; overflow: auto; padding: 24px;
 }
-body.aprender #pantalla-inicio, body.aprender .workspace, body.aprender .stripe,
+body.aprender #inicio-proyectos, body.aprender .workspace, body.aprender .stripe,
 body.aprender .solo-proyecto, body.aprender #ir-inicio { display: none; }
 #bienvenida-proyectos, #bienvenida-acerca { justify-content: flex-start; border: 0; padding: 6px 10px; }
 .aprendizaje-pagina { min-height: 100%; padding: 28px clamp(18px, 5vw, 72px); background: var(--isla); border-radius: var(--radio-isla); overflow: auto; }
@@ -839,9 +816,6 @@ body.depuracion-parada .punto-estado { background: var(--azul); box-shadow: 0 0 
 .consola-entrada[hidden] { display: none; }
 
 /* Proyecto sin placa: quitar/agregar la placa y la fuente apagada en Debug. */
-.quitar-placa { border: 0; background: transparent; color: var(--tenue); font-size: 15px; line-height: 1; padding: 0 2px; margin-left: 2px; cursor: pointer; border-radius: 4px; }
-.quitar-placa:hover { color: var(--rojo); background: rgba(219, 92, 92, .12); }
-.quitar-placa[hidden] { display: none; }
 .modo-fuente.apagada { background: rgba(134, 138, 145, .18); color: var(--tenue); }
 
 /* Capturas de la webcam y fotografía confirmada por el servidor. */
@@ -868,7 +842,6 @@ body.depuracion-parada .punto-estado { background: var(--azul); box-shadow: 0 0 
 
 .tool-window { flex: 1 1 0; min-height: 100px; }
 .tool-window[hidden] { display: none; }
-.tool-window .panel-header { flex-shrink: 0; }
 .explorador-archivos { --explorer-indent: 12px; --explorer-row-height: 22px; display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: auto; padding: 4px 3px; }
 .explorador-archivos ul { list-style: none; margin: 0; padding: 0 0 0 var(--explorer-indent); }
 .explorador-archivos li { margin: 0; padding: 0; }
@@ -896,12 +869,12 @@ body.depuracion-parada .punto-estado { background: var(--azul); box-shadow: 0 0 
 
 /* Distribución acoplable: cada división conserva sus proporciones por proyecto. */
 .workspace { display: block; }
-.dock-workspace { width: 100%; height: 100%; position: relative; min-width: 0; min-height: 0; }
+/* Los paneles inactivos del motor no deben agrandar ni desplazar el documento. */
+.dock-workspace { width: 100%; height: 100%; position: relative; min-width: 0; min-height: 0; overflow: clip; }
 .dock-workspace [hidden] { display: none !important; }
 .window-grip { cursor: grab; touch-action: none; flex-shrink: 0; min-width: 22px; padding: 1px 4px; border: 0; background: transparent; color: var(--tenue); font-size: 19px; line-height: 1; }
 .editor-tabs > .window-grip { min-height: 30px; align-self: center; }
 .editor-tabs > .window-grip::before { display: none; }
-.window-code-header { flex-shrink: 0; background: var(--isla); border-radius: var(--radio-isla); margin: 0; }
 .layout-settings-actions { display: flex; flex-direction: column; gap: 10px; grid-column: 1 / -1; }
 .layout-settings-actions button { text-align: left; }
 .editor-tabs > .tw-ocultar::before { display: none; }
@@ -913,3 +886,30 @@ body.depuracion-parada .punto-estado { background: var(--azul); box-shadow: 0 0 
 .explorer-group-children { padding-left: var(--explorer-indent); }
 .explorer-board-root > summary { color: #c5a65b; }
 .explorer-board-root > .explorer-group-children > ul { padding-left: 0; }
+
+/* Alimentación propia de cada placa: el control queda derecho aunque se rote. */
+.placa-usb { cursor: pointer; color: var(--tenue); outline: none; }
+.placa-usb rect { fill: var(--panel); stroke: var(--borde); }
+.placa-usb text { fill: currentColor; font: 11px var(--font-ui); pointer-events: none; }
+.placa-usb.activa { color: var(--verde); }
+.placa-usb.activa rect { fill: #23382b; stroke: var(--verde); }
+.placa-usb:hover rect, .placa-usb:focus-visible rect { stroke: var(--acento); stroke-width: 2; }
+
+/* La vista compartida tiene su propio contenedor, sin cambiar la distribución del editor. */
+body.preview-page { display: block; overflow: hidden; margin: 0; }
+.preview-page #preview-root { height: 100dvh; }
+.preview-shell { display: flex; flex-direction: column; width: 100%; height: 100%; background: var(--bg, #191b1d); }
+.preview-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 12px; border-bottom: 1px solid #444; }
+.preview-toolbar span { flex: 1; }
+.preview-page #lienzo { flex: 1; min-height: 0; width: 100%; }
+.preview-links, .preview-page [role="alert"] { padding: 8px 16px; }
+.preview-links input { width: min(600px, 75vw); margin-right: 8px; }
+.preview-page .placa-usb { display: none; }
+.preview-page #lienzo { position: relative; inset: auto; height: auto; overflow: hidden; }
+.preview-page #lienzo .modulo, .preview-page #lienzo .pin { cursor: default; }
+.preview-page #lienzo .ctrl { cursor: pointer; }
+
+.tool-window-actions { display: flex; justify-content: flex-end; flex-shrink: 0; padding: 6px 10px; }
+
+body.aprendiendo #pantalla-aprender { display: block; min-width: 0; flex: 1; padding: 24px; overflow: auto; background: var(--isla); border-radius: 12px; }
+body:not(.aprendiendo) #aprendizaje-nav { display: none; }

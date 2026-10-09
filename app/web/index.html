@@ -31,20 +31,6 @@
       <button id="volver-aprendizaje" class="widget solo-proyecto" type="button" title="Volver a la lección" hidden>Volver a la lección</button>
       <span class="crece"></span>
       <div class="run-widgets">
-        <span id="dispositivo" class="widget solo-proyecto" title="Placa que se emula">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="3" width="12" height="18" rx="2"/><path d="M10 7h4M9 17h6"/></svg>
-          <span id="dispositivo-texto">ESP32-S3 DevKitC-1</span>
-          <button id="quitar-placa" type="button" class="quitar-placa" title="Quitar la placa (el proyecto queda como circuito sin placa; el código se guarda)" aria-label="Quitar la placa" hidden>×</button>
-        </span>
-        <button id="usb" type="button" class="widget widget-usb solo-proyecto" aria-pressed="false" hidden
-          title="USB conectado: alimenta la placa como si la enchufaras a la PC. Desconectado, hace falta una Fuente regulable cableada a la placa.">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="19" r="2"/><path d="M12 17V3"/><path d="m9 6 3-3 3 3"/><path d="M12 14 7 11V8"/><path d="m12 12 5-3V7"/><rect x="15.5" y="4.5" width="3" height="2.5"/><circle cx="7" cy="7" r="1.3"/></svg>
-          <span>USB</span>
-        </button>
-        <span id="config-run" class="widget solo-proyecto" title="Lenguaje del proyecto">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
-          <span id="config-run-texto">–</span>
-        </span>
         <button id="ejecutar" class="tb-icono run solo-proyecto" title="Compilar y ejecutar (Shift+F10 · Ctrl+Enter)" aria-label="Ejecutar">
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.5v15a1 1 0 0 0 1.5.86l12.5-7.5a1 1 0 0 0 0-1.72L8.5 3.64A1 1 0 0 0 7 4.5Z"/></svg>
         </button>
@@ -57,18 +43,12 @@
         <button id="reset" class="tb-icono solo-proyecto" title="Reset por el canal de control" aria-label="Reset">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>
         </button>
-        <button id="abrir-web" class="tb-icono solo-proyecto" title="Abrir la web del dispositivo simulado" aria-label="Abrir web" disabled>
+        <button id="abrir-web" class="tb-icono solo-proyecto" title="Abrir vista de prueba y compartir el circuito" aria-label="Abrir vista de prueba" disabled>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>
         </button>
       </div>
       <span class="tb-sep"></span>
-      <button id="nuevo" class="tb-icono" title="Nuevo proyecto" aria-label="Nuevo proyecto">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
-      </button>
-      <button id="buscar-todo" class="tb-icono" title="Buscar en todo (Shift doble · Ctrl+Shift+P)" aria-label="Buscar en todo">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-      </button>
-      <button id="act-ajustes" class="tb-icono" title="Configuración" aria-label="Configuración">
+      <button id="act-ajustes" disabled class="tb-icono" title="Configuración" aria-label="Configuración">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
       </button>
     </header>
@@ -82,13 +62,6 @@
       <button id="tw-catalogo" class="act activa" title="Componentes (Alt+1)" aria-label="Componentes" aria-expanded="true" aria-controls="ventana-componentes">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4a2 2 0 0 0 1-1.73Z"/><path d="M3.3 7 12 12l8.7-5"/><path d="M12 22V12"/></svg>
       </button>
-      <button id="act-proyectos" class="act" title="Proyectos">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-      </button>
-      <button id="act-mover" class="act" title="Mover / seleccionar: los pines no arrancan cables (M)">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/><path d="M13 13l6 6"/></svg>
-      </button>
-      <button id="tw-circuito" class="act activa" title="Circuito" aria-label="Circuito" aria-controls="ventana-circuito"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="6" cy="6" r="3"/><circle cx="18" cy="18" r="3"/><path d="M9 6h6v12"/></svg></button>
       <span class="crece"></span>
       <button id="tw-build" class="act" data-tw-tab="build" title="Compilación (Alt+0)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 12-8.4 8.4a2.1 2.1 0 0 1-3-3L12 9"/><path d="M17.6 15 22 10.6M20.9 11.7l-1.3-1.3a2 2 0 0 1 0-2.8l.1-.1-4-4-.2.1a2 2 0 0 1-2.8 0L11.4 2.3 9 4.7l1.3 1.3a2 2 0 0 1 0 2.8"/></svg>
@@ -118,8 +91,9 @@
         <button id="bienvenida-proyectos" class="activa" type="button">Proyectos</button>
         <button id="bienvenida-importar" type="button">Importar módulos</button>
         <button id="bienvenida-acerca" type="button">Aprender</button>
+        <div id="aprendizaje-nav"></div>
       </aside>
-      <div class="bienvenida-cuerpo">
+      <div id="inicio-proyectos" class="bienvenida-cuerpo">
         <div class="inicio-cabecera">
           <label class="buscar">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
@@ -130,9 +104,8 @@
           <!-- El contenido lo rinde React (issue #9), montado sobre este mismo nodo. -->
           <div id="lista-proyectos" class="lista-proyectos"></div>
       </div>
+      <section id="pantalla-aprender" aria-label="Aprender"></section>
     </section>
-
-    <section id="pantalla-aprender" aria-label="Aprender"></section>
 
     <!-- Área de trabajo: "islas" como en el tema Islands de Android Studio -->
     <div id="dock-layout" class="workspace"></div>
@@ -143,25 +116,13 @@
 
 
         <section id="ventana-circuito" class="panel isla lienzo-panel" aria-label="Circuito">
-          <div class="editor-tabs">
-            <button type="button" class="window-grip" data-window-drag="circuito" aria-label="Mover ventana Circuito" title="Mantener presionado y arrastrar">⠿</button>
-            <span class="editor-tab activa">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M8.5 6H13a3 3 0 0 1 3 3v6.5"/></svg>
-              Circuito
-            </span>
-            <span id="badge-modo" class="badge-modo" hidden><span class="punto"></span>En vivo</span>
-            <!-- Envuelto: como hijo directo heredaría el estilo (e ícono) de las pestañas de archivo. -->
-            <span class="alim-wrap"><button id="badge-alimentacion" type="button" class="badge-alim" hidden disabled></button></span>
-            <span id="ayuda-lienzo" class="ayuda-lienzo">Para cablear: click en un pin y después en otro.</span>
-            <button type="button" class="tw-ocultar" data-close-window="circuito" aria-label="Ocultar Circuito">−</button>
-          </div>
           <div class="lienzo-wrap">
+            <span id="badge-modo" class="badge-modo" hidden><span class="punto"></span>En vivo</span>
             <!-- El <svg id="lienzo"> lo rinde React (issue #9); canvas.ts lo maneja igual que siempre. -->
             <div id="react-lienzo"></div>
             <div class="lienzo-zoom">
-              <button id="zoom-menos" title="Alejar (Ctrl+−)" aria-label="Alejar">−</button>
-              <button id="zoom-ajustar" title="Encuadrar todo (Ctrl+0)">Ajustar</button>
               <button id="zoom-mas" title="Acercar (Ctrl+=)" aria-label="Acercar">+</button>
+              <button id="zoom-menos" title="Alejar (Ctrl+−)" aria-label="Alejar">−</button>
             </div>
           </div>
           <!-- El contenido lo rinde React (issue #9), montado sobre este mismo nodo. -->
@@ -170,7 +131,6 @@
 
 
         <aside id="ventana-codigo" class="panel derecha" aria-label="Código">
-          <h2 class="panel-header window-code-header"><button type="button" class="window-grip" data-window-drag="codigo" aria-label="Mover ventana Código" title="Mantener presionado y arrastrar">⠿</button>Código<span class="crece"></span><button type="button" class="tw-ocultar" data-close-window="codigo" aria-label="Ocultar Código">−</button></h2>
           <div class="panel isla editor-window">
           <section id="panel-codigo" class="panel-codigo">
             <div class="tabs editor-tabs" id="tabs-archivos"></div>
@@ -187,8 +147,10 @@
             </div>
             <div id="avisos" class="avisos"></div>
           </section>
-          <section id="panel-modulo" class="panel-modulo" hidden></section>
           </div>
+        </aside>
+        <aside id="ventana-detalle" class="panel detalle-window" aria-label="Detalle">
+          <section id="panel-modulo" class="panel-modulo"></section>
         </aside>
       </main>
 
@@ -254,8 +216,8 @@
 
     <!-- Franja derecha -->
     <nav class="stripe stripe-der" aria-label="Ventanas de herramientas (derecha)">
-      <button id="act-codigo" class="act activa" title="Código / propiedades (Alt+2)">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+      <button id="act-detalle" class="act" title="Detalle (Alt+3)" aria-label="Detalle" aria-controls="ventana-detalle" aria-expanded="false">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/></svg>
       </button>
       <button id="tw-notificaciones" class="act" title="Notificaciones">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>

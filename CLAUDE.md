@@ -31,8 +31,8 @@ Si hay un PR abierto que toca los mismos archivos, **revisarlo antes de escribir
 export PATH="$HOME/.nvm/versions/node/v24.14.0/bin:$PATH"
 cd /home/marcos/marcos/emulador-electronica/app && npm run dev
 
-# Para entrar desde la tailnet (http://100.64.0.1:5180): el server escucha en 127.0.0.1
-# y además valida el Host contra DNS rebinding, así que hacen falta las dos variables.
+# Para habilitar el editor completo desde la tailnet (http://100.64.0.1:5180):
+# por defecto la LAN solo accede al visor; el editor requiere HOST y Host permitido.
 # El package.json está en app/, no en la raíz del repo.
 cd /home/marcos/marcos/emulador-electronica/app && HOST=0.0.0.0 EMU_ALLOWED_HOSTS=100.64.0.1:5180 npm run dev
 

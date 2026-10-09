@@ -41,7 +41,9 @@ test.describe('catálogo de módulos', () => {
 test.describe('proyecto nuevo', () => {
   test('se crea desde la UI con el ESP32, un botón y un LED ya cableados', async ({ page }) => {
     await page.goto('/');
-    await page.locator('#nuevo').click();
+    await page.locator('#menu-principal').click();
+    await page.locator('#menu > .menu-item').filter({ hasText: /^Archivo/ }).hover();
+    await page.getByRole('menuitem', { name: 'Nuevo proyecto…', exact: true }).click();
     const nombre = `e2e-ui-${Date.now().toString(36)}`;
     await page.locator('#dlg-nuevo input[name="name"]').fill(nombre);
     await page.locator('#dlg-nuevo button[value="crear"]').click();
@@ -58,7 +60,7 @@ test.describe('proyecto nuevo', () => {
     // La placa arranca desenchufada: sin energía no circula nada (ni hay nada que avisar).
     await expect(page.locator('#avisos-dibujo')).toContainText('no tiene alimentación');
     // La alimentación USB no inventa una salida HIGH sin firmware.
-    await page.locator('#usb').click();
+    await page.locator('#lienzo .modulo[data-id="board"] .placa-usb').click();
     await expect(page.locator('#avisos-dibujo div')).toHaveCount(0);
     await expect(page.locator('.tabs button')).toHaveText(['main.yaml']);
   });
@@ -88,11 +90,11 @@ test.describe('proyectos', () => {
 });
 
 test.describe('código por módulo', () => {
-  test('el ESP32 muestra el editor; un módulo sin código muestra sus pines', async ({ page, request }) => {
+  test('el código sigue visible mientras Detalle muestra los pines del componente', async ({ page, request }) => {
     await abrirProyectoNuevo(page, request);
 
     await seleccionarModulo(page, 'btn1');
-    await expect(page.locator('#panel-codigo')).toBeHidden();
+    await expect(page.locator('#panel-codigo')).toBeVisible();
     const panel = page.locator('#panel-modulo');
     await expect(panel).toBeVisible();
     await expect(panel.locator('.insp-badge')).toContainText('Sin código');
@@ -101,7 +103,8 @@ test.describe('código por módulo', () => {
 
     await seleccionarModulo(page, 'board');
     await expect(page.locator('#panel-codigo')).toBeVisible();
-    await expect(panel).toBeHidden();
+    await expect(panel).toBeVisible();
+    await expect(panel.locator('.panel-header')).toContainText('ESP32-S3');
   });
 
   test('un módulo inalámbrico no tiene pines ni código', async ({ page, request }) => {
@@ -127,6 +130,22 @@ test.describe('código por módulo', () => {
     expect(project.boards.map((b: { language: string }) => b.language)).toEqual(['esphome', 'micropython']);
     expect((await (await request.get(`/api/projects/${name}/files/main.yaml`)).json()).content).toBe(original);
     expect((await request.get(`/api/projects/${name}/files/main.py?boardId=board2`)).ok()).toBeTruthy();
+    // La alimentación pertenece a cada placa, incluso si no es la seleccionada.
+    await expect(page.locator('.titlebar #usb')).toHaveCount(0);
+    const usb1 = modulo(page, 'board').locator('.placa-usb');
+    const usb2 = modulo(page, 'board2').locator('.placa-usb');
+    await expect(usb1).toHaveAttribute('aria-pressed', 'false');
+    await expect(usb2).toHaveAttribute('aria-pressed', 'false');
+    const guardado = page.waitForResponse(r => r.url().includes('/diagram') && r.request().method() === 'PUT' && r.ok());
+    await usb1.click();
+    await guardado;
+    await expect(usb1).toHaveAttribute('aria-pressed', 'true');
+    await expect(usb2).toHaveAttribute('aria-pressed', 'false');
+    await page.reload();
+    await expect(usb1).toHaveAttribute('aria-pressed', 'true');
+    await expect(usb2).toHaveAttribute('aria-pressed', 'false');
+    await page.locator('#ventana-circuito').screenshot({ path: '/tmp/emulador-usb-por-placa.png' });
+
   });
 });
 
@@ -142,7 +161,7 @@ test.describe('cableado', () => {
     const antes = await caja(modulo(page, 'rx1'));
     await arrastrarModulo(page, 'rx1', placa.x + placa.width + 60 - antes.x, placa.y + 40 - antes.y);
     // A la derecha de la placa puede quedar fuera del lienzo: como haría un usuario, encuadra.
-    await page.locator('#zoom-ajustar').click();
+    await page.keyboard.press('Control+0');
 
     await cablear(page, 'rx1.DATA', 'board.GPIO4');
     await cablear(page, 'rx1.VCC', 'board.3V3');
@@ -218,11 +237,20 @@ test.describe('cableado', () => {
 
   test('cablear arrastrando de un pin a otro', async ({ page, request }) => {
     await abrirProyectoNuevo(page, request);
+    await expect(page.locator('.lienzo-zoom button')).toHaveCount(2);
+    await expect(page.locator('.lienzo-zoom')).toHaveCSS('flex-direction', 'column');
+    await expect(page.locator('#zoom-ajustar')).toHaveCount(0);
+    const original = await modulo(page, 'board').boundingBox();
+    await page.locator('#zoom-mas').click();
+    const enlarged = await modulo(page, 'board').boundingBox();
+    expect(enlarged!.width).toBeGreaterThan(original!.width);
+    await page.locator('#zoom-menos').click();
+
     await page.locator('.modulo-card[data-type="led"]').click();
     const placa = await caja(modulo(page, 'board'));
     const antes = await caja(modulo(page, 'led2'));
     await arrastrarModulo(page, 'led2', placa.x + placa.width + 60 - antes.x, placa.y + 150 - antes.y);
-    await page.locator('#zoom-ajustar').click();
+    await page.keyboard.press('Control+0');
     await pin(page, 'led2.IN').dragTo(pin(page, 'board.GPIO21'));
     await expect(cable(page, 'led2.IN', 'board.GPIO21')).toHaveCount(1);
   });
@@ -280,7 +308,7 @@ test.describe('Ley de Ohm', () => {
     await abrirProyectoNuevo(page, request);
     // El proyecto nuevo trae el LED directo al GPIO7, sin resistencia. Enchufada por USB, con la
     // resistencia interna del pin del S3 no se quema al instante, pero queda sobreexigido: el motor lo avisa.
-    await page.locator('#usb').click();
+    await page.locator('#lienzo .modulo[data-id="board"] .placa-usb').click();
     await expect(page.locator('#avisos-dibujo')).toContainText('resistencia en serie');
 
     // Lo saca del medio y mete una resistencia (220 Ω por defecto) en serie.
@@ -319,10 +347,28 @@ test.describe('propiedades y controles', () => {
   });
 
   test('sin simulación, los controles piden ejecutar', async ({ page, request }) => {
+    await page.addInitScript(() => {
+      const Original = window.WebSocket;
+      (window as any).WebSocket = class extends Original {
+        constructor(...args: ConstructorParameters<typeof WebSocket>) { super(...args); (window as any).__ws = this; }
+      };
+    });
     await abrirProyectoNuevo(page, request);
     await modulo(page, 'btn1').locator('.ctrl').click();
     await expect(page.locator('#nota')).toContainText('Ejecutar');
     await expect(page.locator('#panel-modulo')).toContainText('Pulsador');
+    await expect(page.locator('#ventana-circuito > .editor-tabs')).toHaveCount(0);
+    await page.evaluate(() => (window as any).__ws.onmessage({ data: JSON.stringify({ type: 'bridge.ready', boardId: 'board', version: 1 }) }));
+    const badge = page.locator('#badge-modo');
+    const canvas = page.locator('#ventana-circuito .lienzo-wrap');
+    await expect(badge).toBeVisible();
+    await expect(badge).toHaveCSS('position', 'absolute');
+    await expect(badge).toHaveCSS('pointer-events', 'none');
+    await expect(canvas).toHaveCSS('box-shadow', 'none');
+    const box = await canvas.boundingBox();
+    const badgeBox = await badge.boundingBox();
+    expect(Math.abs(badgeBox!.x + badgeBox!.width - (box!.x + box!.width - 12))).toBeLessThan(2);
+    expect(Math.abs(badgeBox!.y - box!.y - 12)).toBeLessThan(2);
   });
 
   test('el panel del módulo tiene un botón para "apretarlo", no solo el dibujo chico', async ({ page, request }) => {

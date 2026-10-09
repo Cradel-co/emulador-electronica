@@ -1,0 +1,51 @@
+## La potencia también necesita signos
+
+Usá la **convención pasiva**: p = v · i es positiva cuando la corriente entra por el terminal tomado como positivo de la tensión. Un resistor absorbe potencia; una fuente que entrega energía tiene potencia negativa con esta convención.
+
+<Formula descripcion="Balance de Tellegen para una red que satisface KCL y KVL">Σ pk = Σ vk · ik = 0</Formula>
+
+El balance se obtiene de las leyes de Kirchhoff y la conectividad de la red. No exige que todos los elementos sean resistencias. En este ejemplo DC resistivo no hay energía almacenada cambiando con el tiempo.
+
+<Circuito ejemplo="serie" />
+
+<Ejemplo titulo="Potencia suministrada y absorbida">
+
+1. I = 5 / (1000 + 1000) = **2,5 mA**.
+2. Cada resistor cae 2,5 V y absorbe 2,5 · 0,0025 = **6,25 mW**.
+3. La corriente sale por el positivo de la fuente: su potencia pasiva es −5 · 0,0025 = **−12,5 mW**.
+4. Balance: −12,5 + 6,25 + 6,25 = **0 mW**.
+
+| Elemento | Potencia pasiva | Interpretación |
+| --- | --- | --- |
+| fuente1 | −12,5 mW | Entrega energía |
+| R1 | +6,25 mW | Absorbe energía |
+| R2 | +6,25 mW | Absorbe energía |
+| Red completa | 0 mW | Potencia equilibrada |
+
+</Ejemplo>
+
+<Actividad />
+
+<Aviso titulo="Interpretá la medida de la fuente">
+
+Si el panel de la fuente expresa potencia entregada como magnitud positiva, asignale signo negativo al armar el balance pasivo. No sumes potencias absolutas como si fueran potencias algebraicas.
+
+</Aviso>
+
+## Cerrá el recorrido
+
+La variante con R2 = 2 kΩ tiene I = **1,667 mA**. Calculá las potencias con los valores sin redondear:
+
+- PR1 = I² · 1000 = **2,778 mW**.
+- PR2 = I² · 2000 = **5,556 mW**.
+- Pfuente = −5 · I = **−8,333 mW**.
+
+<Circuito ejemplo="serie-desigual" />
+
+<Actividad ejemplo="serie-desigual" />
+
+Los valores redondeados dejan un residuo de 0,001 mW. La suma con los valores completos es cero. En el emulador, comprobá el balance usando la tensión de salida y la corriente que realmente calcula el modelo de la fuente.
+
+<Pregunta titulo="¿Un balance de potencia correcto demuestra por sí solo que el circuito está bien conectado?" respuesta="No. Una red distinta de la que querías construir también puede conservar potencia. Revisá primero su topología, luego KCL, KVL y el balance energético." />
+
+[MIT: teorema de Tellegen](https://circuits.mit.edu/S26/psets/00/tellegen).

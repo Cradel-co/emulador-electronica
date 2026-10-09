@@ -31,7 +31,7 @@ export interface Acciones {
   abrirProyecto: (nombre: string) => void;
   navegarAprendizaje: (leccion?: string, paso?: string) => void;
   completarAprendizaje: (leccion: string, revision: number, paso: string) => void;
-  crearPracticaAprendizaje: (plantillaId: string) => void;
+  crearPracticaAprendizaje: (plantillaId: string, nombre?: string) => void;
   continuarPracticaAprendizaje: (leccion: string) => void;
   volverALeccionAprendizaje: () => void;
   irAInicio: () => void;

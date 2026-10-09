@@ -27,6 +27,9 @@ import {
   nombreRef as nombreRefPuro, pinesSinAlimentar as pinesSinAlimentarPuro,
 } from './consultas.js';
 import { fmtMa, fmtV } from './formato.js';
+import './aprendizaje.css';
+import { leccionMdxPorId, leccionesMdx, RUTA_PILOTO } from './aprendizaje/piloto.js';
+import { aprendizaje } from './react/aprendizaje-estado.js';
 import { contenidoAprendizaje, leccionPorId } from './aprendizaje/contenido.js';
 import { almacenLocalAprendizaje, asociarProyecto, CLAVE_PROGRESO_APRENDIZAJE, completarLeccion, quitarAsociacionProyecto, registrarPaso, registroDeLeccion, restablecerRespaldoProgreso } from './aprendizaje/progreso.js';
 import { crearConRecuperacion } from './aprendizaje/practica.js';
@@ -231,9 +234,11 @@ registrarAcciones({
   },
   completarAprendizaje: (leccion, revision, paso) => {
     completarLeccion(almacenLocalAprendizaje(), leccion, revision, paso);
-    void navegacion.navigate({ project: null, aprender: {} });
+    const indice = leccionesMdx.findIndex(item => item.id === leccion);
+    const siguiente = indice >= 0 ? leccionesMdx[indice + 1] : undefined;
+    void navegacion.navigate(indice < 0 ? { project: null, aprender: {} } : siguiente ? { project: null, aprender: { leccion: siguiente.id } } : { project: null, aprender: {}, learning: 'rutas', slug: RUTA_PILOTO });
   },
-  crearPracticaAprendizaje: (plantillaId) => void crearPracticaAprendizaje(plantillaId),
+  crearPracticaAprendizaje: (plantillaId, nombre) => void crearPracticaAprendizaje(plantillaId, nombre),
   continuarPracticaAprendizaje: (leccion) => void continuarPracticaAprendizaje(leccion),
   volverALeccionAprendizaje: () => void volverALeccionAprendizaje(),
   irAInicio: () => void navegacion.navigate({ project: null }),
@@ -635,10 +640,9 @@ function aplicarEstadoEmulador(status, boardId?: string) {
   document.body.classList.toggle('corriendo', corriendo);
   btn('ejecutar').disabled = corriendo;
   btn('parar').disabled = !corriendo;
-  const web = status.ports?.web;
   btn('recargar').disabled = !corriendo;
-  btn('abrir-web').disabled = !(corriendo && web && status.usesWeb !== false);
-  btn('abrir-web').dataset.url = web ? `http://127.0.0.1:${web}` : '';
+  btn('abrir-web').disabled = !corriendo;
+  btn('abrir-web').title = corriendo ? 'Abrir vista de prueba y compartir el circuito' : 'Ejecutá el proyecto para abrir la vista de prueba';
   marcarSimulacion(boardId ? state.sim.placasListas.size > 0 : status.state === 'bridge');
   // Por si el panel de un módulo está abierto mostrando "Apretá Ejecutar": que pase a "esperando..." sin
   // que haga falta reseleccionarlo (marcarSimulacion no repinta en los estados intermedios, solo al llegar a "bridge").
@@ -674,11 +678,6 @@ function marcarSimulacion(listo) {
     // Al parar se sueltan los interruptores (el server también): hay que recalcular la corriente.
     void refrescarAvisos();
   }
-  $('ayuda-lienzo').textContent = listo
-    ? sinPlaca()
-      ? 'Circuito energizado: usá los pulsadores e interruptores. ⏹ lo apaga.'
-      : 'Simulación corriendo: usá los controles de los módulos (botones, interruptores, control remoto).'
-    : 'Para cablear: click en un pin y después en otro.';
   $('badge-modo').hidden = !listo;
   document.body.classList.toggle('simulando', listo);
   lienzo.render();
@@ -951,7 +950,7 @@ async function seleccionarPlaca(boardId: string, archivo?: string) {
     state.activo = null;
     if (main && loaded) mostrarContenidoArchivo(main.path, loaded.content);
     else editarContenido('');
-    pintarPanelDerecho(); pintarWidgetsProyecto(); pintarAlimentacion(); lienzo.render();
+    pintarPanelDerecho(); pintarWidgetsProyecto(); lienzo.render();
     const status = state.sim.estadosPorPlaca.get(boardId);
     if (status) aplicarEstadoEmulador(status, boardId);
     await refrescarAvisos();
@@ -1545,63 +1544,18 @@ async function reemplazarPlaca() {
   await refrescarAvisos();
 }
 
-function instanciaPlaca() {
-  return state.diagrama.modules.find((m) => m.id === state.placaActivaId);
-}
-
-/** El "USB conectado" de la placa (prop `usb`), o null si la placa no lo tiene (descriptor sin `power`). */
-function usbDePlaca(): boolean | null {
-  const inst = instanciaPlaca();
+/** Alimentación USB independiente por instancia de placa. */
+function alternarUsb(boardId: string) {
+  const inst = state.diagrama.modules.find(m => m.id === boardId);
   const def = inst && state.catalogo.get(inst.type);
-  if (!def?.props?.usb) return null;
-  return Boolean(inst.props?.usb ?? def.props.usb.default);
-}
-
-function alternarUsb() {
-  const inst = instanciaPlaca();
-  if (!inst || usbDePlaca() === null) return;
-  const on = !usbDePlaca();
+  if (!inst || !def?.programmable || !def.props?.usb) return;
+  const on = !Boolean(inst.props?.usb ?? def.props.usb.default);
   inst.props = { ...inst.props, usb: on };
-  nota(on ? `USB conectado: ${nombrePlaca()} alimentada por USB.` : `USB desconectado: ${nombrePlaca()} necesita una Fuente regulable para arrancar.`);
-  pintarAlimentacion();
+  notificar();
+  nota(`USB ${on ? 'conectado' : 'desconectado'}: ${def.name} · ${boardId}.`);
+  lienzo.render();
   guardarDiagrama();
 }
-
-
-/** Botón USB de la barra + píldora de alimentación del circuito + columna de la ventana Debug. */
-function pintarAlimentacion() {
-  const usb = usbDePlaca();
-  const boton = $('usb') as HTMLButtonElement;
-  boton.hidden = usb === null;
-  boton.classList.toggle('activa', Boolean(usb));
-  boton.setAttribute('aria-pressed', String(Boolean(usb)));
-
-  const a = state.alimentacion;
-  const pildora = $('badge-alimentacion') as HTMLButtonElement;
-  pildora.hidden = !a && !sinPlaca();
-  if (sinPlaca()) {
-    // Sin placa: la píldora muestra si el circuito está energizado y cuánto entregan las fuentes.
-    const total = state.fuentes.reduce((s, f) => s + (f.mA ?? 0), 0);
-    pildora.className = `badge-alim ${state.energizado ? 'ok' : 'sin'}`;
-    pildora.textContent = state.energizado
-      ? `⚡ Energizado · ${fmtMa(total)}`
-      : `⚡ Apagado${state.fuentes.length ? '' : ' · sin fuentes'}`;
-    pildora.title = state.energizado ? 'Las fuentes regulables entregan tensión. ⏹ apaga el circuito.' : '▶ energiza el circuito (prende las fuentes regulables).';
-    pildora.disabled = true;
-  } else if (a) {
-    const f = state.fuentes.find((x) => x.id === a.fuenteId);
-    const [clase, texto] = a.quemada
-      ? ['quemada', 'Placa quemada · Reemplazar']
-      : a.estado === 'ok'
-        ? ['ok', a.via === 'usb' ? 'USB' : a.via === 'fuente' && f ? `${a.fuenteId} · ${fmtV(f.vSalida)} · ${fmtMa(f.mA)}` : 'Alimentada']
-        : ['sin', a.estado === 'baja' ? 'Tensión insuficiente' : 'Sin alimentación'];
-    pildora.className = `badge-alim ${clase}`;
-    pildora.textContent = `⚡ ${texto}`;
-    pildora.title = a.quemada ? `${a.mensaje}\nClick para reemplazar la placa.` : a.mensaje;
-    pildora.disabled = !a.quemada;
-  }
-}
-
 
 // --- Cortocircuitos -----------------------------------------------------------------
 // El motor eléctrico del server manda, con cada aviso de cortocircuito, las refs "id.PIN"
@@ -1688,6 +1642,7 @@ function clasePin(ref) {
 let lienzo;
 alLienzoListo((l) => { lienzo = l; });
 registrarCtx({
+  alternarUsb,
   diagrama: () => state.diagrama,
   def: (type) => state.catalogo.get(type),
   seleccion: () => state.seleccion,
@@ -1757,24 +1712,15 @@ function seleccionar(s) {
   if (s?.tipo === 'modulo' && placasDelProyecto(state.proyecto).some(b => b.id === s.id) && s.id !== state.placaActivaId) void navegarPlaca(s.id);
   state.seleccion = s;
   pintarPanelDerecho();
+  if (s && !ventanaVisible('detalle')) abrirVentana('detalle', true);
   lienzo.render();
 }
 
-/** El panel derecho muestra el código si se eligió el ESP32 (o nada); si no, el módulo o el cable. */
-/**
- * Qué se ve a la derecha: el editor de código o el panel del módulo. El contenido del panel lo
- * rinde <PanelDerecho> (#9); acá solo queda decidir cuál de los dos se muestra, porque es `app.ts`
- * el que sabe del editor.
- */
+/** Código y Detalle conservan contenidos y visibilidad independientes. */
 function pintarPanelDerecho() {
-  const s = state.seleccion;
-  const inst = s?.tipo === 'modulo' ? state.diagrama.modules.find((m) => m.id === s.id) : null;
-  const def = inst ? state.catalogo.get(inst.type) : null;
-  const muestraCodigo = !s || (s.tipo === 'modulo' && (!inst || def?.programmable));
-  // Sin placa no hay código: en su lugar, el panel cuenta qué es un proyecto sin placa.
-  const codigo = muestraCodigo && Boolean(state.placaActivaId);
-  $('panel-codigo').hidden = !codigo;
-  $('panel-modulo').hidden = codigo;
+  if (state.proyecto && !state.placaActivaId && state.distribucion.open.codigo) actualizarDistribucion(setDockWindowOpen(state.distribucion, 'codigo', false));
+  $('panel-codigo').hidden = !state.placaActivaId;
+  $('panel-modulo').hidden = false;
 }
 
 // --- Catálogo -----------------------------------------------------------------
@@ -2016,7 +1962,6 @@ async function refrescarAvisos() {
       if (sinPlaca()) aplicarEnergia();
     }
     reflejarPlacaQuemada();
-    pintarAlimentacion();
 
     actualizarCortos(warnings);
     actualizarCuentaProblemas();
@@ -2045,10 +1990,10 @@ async function cargarProyectos(seleccionarNombre?: string) {
 function mostrarInicio() {
   detenerCamarasDeOtrosProyectos(null);
   document.body.classList.add('inicio');
-  invalidarObservacionFisica();
-  document.body.classList.remove('aprender');
+  document.body.classList.remove('aprender', 'aprendiendo');
   $('bienvenida-proyectos').classList.add('activa');
   $('bienvenida-acerca').classList.remove('activa');
+  invalidarObservacionFisica();
   state.aprendizajeRuta = null;
   state.leccionPracticaId = null;
   state.proyecto = null;
@@ -2082,17 +2027,10 @@ function pintarWidgetsProyecto() {
     raiz.setProperty('--color-proyecto', colorProyecto(p.name));
     raiz.setProperty('--tinte', colorProyecto(p.name).replace(')', ' / .22)'));
     $('insignia-proyecto').textContent = iniciales(p.name);
-    const contextoPlaca = placaActiva();
-    const placa = contextoPlaca ? state.catalogo.get(contextoPlaca.board) : null;
-    $('dispositivo-texto').textContent = contextoPlaca ? `${placa?.name ?? contextoPlaca.board} · ${contextoPlaca.id}` : 'Sin placa';
-    $('dispositivo').title = p.board ? 'Placa que se emula' : 'Proyecto sin placa: solo circuito. Agregá una placa desde el catálogo para programarla.';
     // Sin placa no hay lenguaje, ni reset, ni web del dispositivo: ▶ solo energiza el circuito.
-    $('config-run').hidden = !p.board;
-    $('quitar-placa').hidden = !p.board;
     $('reset').hidden = !p.board;
     $('recargar').hidden = !p.board;
     $('abrir-web').hidden = !p.board;
-    $('config-run-texto').textContent = contextoPlaca?.language ? (NOMBRE_LENGUAJE_PROYECTO[contextoPlaca.language] ?? contextoPlaca.language) : '';
     btn('ejecutar').title = p.board ? 'Compilar y ejecutar placas (Shift+F10 · Ctrl+Enter)' : 'Energizar el circuito: prende las fuentes regulables (Shift+F10 · Ctrl+Enter)';
     btn('parar').title = p.board ? 'Parar (Ctrl+F2)' : 'Apagar el circuito (Ctrl+F2)';
     document.title = `${p.name} – Emulador de electrónica`;
@@ -2178,7 +2116,7 @@ async function abrirProyecto(nombre) {
   state.proyecto = project;
   if (cambioProyecto) {
     state.filtroModulos = projectDockFilter(nombre);
-    actualizarDistribucion(projectDockLayout(nombre));
+    actualizarDistribucion(projectDockLayout(nombre, Boolean(board)));
   }
   state.placaActivaId = placasDelProyecto(project)[0]?.id ?? null;
   depuracion?.alCambiarContexto();
@@ -2246,7 +2184,6 @@ $('imp-validar').onclick = () => void ejecutarImportacion(true);
 
 $('zoom-mas').onclick = () => lienzo.zoom(1.2);
 $('zoom-menos').onclick = () => lienzo.zoom(1 / 1.2);
-$('zoom-ajustar').onclick = () => lienzo.ajustar();
 
 async function cambiarDeProyecto(nombre: string) {
   if (nombre) await navegacion.navigate({ project: nombre });
@@ -2256,7 +2193,6 @@ sel('proyecto').addEventListener('change', () => void cambiarDeProyecto(sel('pro
 
 $('ir-inicio').onclick = () => void irAInicio();
 $('volver-aprendizaje').onclick = () => void volverALeccionAprendizaje();
-$('act-proyectos').onclick = () => void irAInicio();
 
 // --- Nuevo proyecto: placa y lenguaje ----------------------------------------------
 
@@ -2335,7 +2271,6 @@ sel('nuevo-placa').addEventListener('change', () => {
   placaNuevaRecordada = sel('nuevo-placa').value;
   filtrarLenguajesNuevo();
 });
-$('nuevo').onclick = abrirNuevoProyecto;
 $('nuevo-inicio').onclick = abrirNuevoProyecto;
 
 $('dlg-nuevo').addEventListener('close', async () => {
@@ -2391,11 +2326,6 @@ $('parar').onclick = async () => {
   await api('/api/emulator/stop', { method: 'POST' });
   if (sinPlaca()) await refrescarAvisos();
 };
-$('usb').onclick = alternarUsb;
-$('quitar-placa').onclick = () => void quitarPlaca();
-$('badge-alimentacion').onclick = () => {
-  if (state.alimentacion?.quemada) void reemplazarPlaca();
-};
 /**
  * Lleva al chip el código guardado sin reiniciar el emulador. En MicroPython es un
  * soft reboot (instantáneo); en los lenguajes que compilan, el server compila y relanza.
@@ -2442,9 +2372,18 @@ $('reset').onclick = async () => {
     log('emu', `[control] ${String(((e as Error))?.message ?? e)}`);
   }
 };
-$('abrir-web').onclick = () => {
-  const url = btn('abrir-web').dataset.url;
-  if (url) window.open(url, '_blank');
+$('abrir-web').onclick = async () => {
+  if (!state.proyecto) return;
+  const popup = window.open('about:blank', '_blank');
+  if (popup) popup.opener = null;
+  try {
+    const result = await api('/api/previews', { method: 'POST', body: JSON.stringify({ name: state.proyecto.name }) });
+    if (popup) popup.location.replace(result.path);
+    else nota('Permití abrir pestañas para mostrar la vista de prueba.');
+  } catch (error) {
+    popup?.close();
+    nota(String((error as Error).message));
+  }
 };
 
 // --- Ventanas de herramientas (se muestran/ocultan como en Android Studio y VS Code) ---
@@ -2468,12 +2407,14 @@ function ventanaVisible(id: WindowId) {
 }
 
 function actualizarDistribucion(layout: DockLayout) {
+  if (state.proyecto && !placasDelProyecto(state.proyecto).length && layout.open.codigo) layout = setDockWindowOpen(layout, 'codigo', false);
   ahora(() => { state.distribucion = layout; });
   if (state.proyecto) saveProjectDockLayout(state.proyecto.name, layout);
   sincronizarFranjas();
 }
 
 function abrirVentana(id: WindowId, visible?: boolean) {
+  if (id === 'codigo' && !state.placaActivaId) return;
   actualizarDistribucion(setDockWindowOpen(state.distribucion, id, visible ?? !ventanaVisible(id)));
 }
 
@@ -2489,10 +2430,8 @@ function sincronizarFranjas() {
     $(button).classList.toggle('activa', visible);
     $(button).setAttribute('aria-expanded', String(visible));
   }
-  $('act-codigo').classList.toggle('activa', state.distribucion.open.codigo);
-  $('act-codigo').setAttribute('aria-expanded', String(state.distribucion.open.codigo));
-  $('tw-circuito').classList.toggle('activa', state.distribucion.open.circuito);
-  $('tw-circuito').setAttribute('aria-expanded', String(state.distribucion.open.circuito));
+  $('act-detalle').classList.toggle('activa', state.distribucion.open.detalle);
+  $('act-detalle').setAttribute('aria-expanded', String(state.distribucion.open.detalle));
   const abajo = state.distribucion.open.consola;
   for (const id of ['tw-build', 'tw-emu', 'tw-debug', 'tw-problemas']) {
     $(id).classList.toggle('activa', abajo && $(id).dataset.twTab === state.tab);
@@ -2528,21 +2467,13 @@ for (const b of document.querySelectorAll('[data-close-window]')) {
 }
 $('tw-catalogo').onclick = () => mostrarHerramienta('componentes');
 $('tw-explorador').onclick = () => mostrarHerramienta('explorador');
-$('tw-circuito').onclick = () => abrirVentana('circuito');
-$('act-codigo').onclick = () => {
-  // Oculto: se abre. Abierto con un módulo elegido: vuelve al código. Abierto con el código: se oculta.
-  if (!ventanaVisible('codigo')) mostrarVentana('der', true);
-  else if (state.seleccion) seleccionar(null);
-  else mostrarVentana('der', false);
-};
+$('act-detalle').onclick = () => abrirVentana('detalle');
 
 function alternarModoMover() {
   state.modoMover = !state.modoMover;
-  btn('act-mover').classList.toggle('activa', state.modoMover);
   document.body.classList.toggle('modo-mover', state.modoMover);
   nota(state.modoMover ? 'Modo mover: los pines no arrancan cables (M para volver).' : '');
 }
-$('act-mover').onclick = alternarModoMover;
 
 function restaurarVentanas() {
   document.body.classList.remove(...Object.values(VENTANAS));
@@ -2648,7 +2579,8 @@ const ACCIONES = [
   { id: 'buscar-modulo', titulo: 'Buscar un módulo en el catálogo', menu: 'Editar', hacer: buscarModulo, habilitada: hayProyecto },
   { id: 'ver-catalogo', titulo: 'Componentes', menu: 'Ver', atajo: 'Alt+1', teclas: ['Alt+1', 'Ctrl+B'], hacer: () => mostrarHerramienta('componentes') },
   { id: 'ver-explorador', titulo: 'Explorador de archivos', menu: 'Ver', atajo: 'Ctrl+Shift+E', hacer: () => mostrarHerramienta('explorador', true) },
-  { id: 'ver-codigo', titulo: 'Código / propiedades', menu: 'Ver', atajo: 'Alt+2', hacer: () => mostrarVentana('der') },
+  { id: 'ver-detalle', titulo: 'Detalle', menu: 'Ver', atajo: 'Alt+3', hacer: () => abrirVentana('detalle') },
+  { id: 'ver-codigo', titulo: 'Código', menu: 'Ver', atajo: 'Alt+2', hacer: () => mostrarVentana('der'), habilitada: () => Boolean(state.placaActivaId) },
   { id: 'ver-circuito', titulo: 'Circuito', menu: 'Ver', hacer: () => abrirVentana('circuito') },
   { id: 'ver-consola', titulo: 'Consola', menu: 'Ver', atajo: 'Ctrl+J', teclas: ['Ctrl+J', 'Ctrl+`'], hacer: () => mostrarVentana('abajo') },
   { id: 'ver-build', titulo: 'Compilación', menu: 'Ver', atajo: 'Alt+0', hacer: () => alternarConsola('build') },
@@ -2676,7 +2608,7 @@ const ACCIONES = [
     id: 'auto-recarga', titulo: 'Recargar al guardar (activar / desactivar)', menu: 'Simulación',
     hacer: () => void alternarAutoReload(), habilitada: () => Boolean(state.proyecto?.board),
   },
-  { id: 'abrir-web', titulo: 'Abrir la web del dispositivo', menu: 'Simulación', hacer: () => btn('abrir-web').click(), habilitada: () => !btn('abrir-web').disabled },
+  { id: 'abrir-web', titulo: 'Abrir vista de prueba y compartir el circuito', menu: 'Simulación', hacer: () => btn('abrir-web').click(), habilitada: () => !btn('abrir-web').disabled },
   { id: 'ver-debug', titulo: 'Ventana Debug', menu: 'Depurar', atajo: 'Alt+5', hacer: () => alternarConsola('debug') },
   {
     id: 'dbg-continuar', titulo: 'Continuar', menu: 'Depurar', atajo: 'F9', hacer: () => void depuracion.control('continue'),
@@ -2813,20 +2745,21 @@ registrarPaleta({ candidatos: () => candidatosPaleta() });
 $('dlg-buscar').addEventListener('click', (e) => {
   if (e.target === e.currentTarget) ($('dlg-buscar') as HTMLDialogElement).close(); // click en el fondo
 });
-$('buscar-todo').onclick = () => abrirPaleta();
 $('act-ajustes').onclick = () => { state.distribucionMensaje = ''; ($('dlg-ajustes') as HTMLDialogElement).showModal(); };
 $('bienvenida-acerca').onclick = () => void navegacion.navigate({ project: null, aprender: {} });
 $('bienvenida-importar').onclick = abrirImportador;
 
-async function crearPracticaAprendizaje(plantillaId: string): Promise<void> {
+async function crearPracticaAprendizaje(plantillaId: string, nombreSolicitado?: string): Promise<void> {
   if (state.creandoPracticaAprendizaje) return;
-  const nombre = window.prompt('Nombre del proyecto de práctica:', 'practica-led')?.trim();
+  const nombre = (nombreSolicitado ?? window.prompt('Nombre del proyecto de práctica:', 'practica-led'))?.trim();
   if (!nombre || state.creandoPracticaAprendizaje) return;
   state.creandoPracticaAprendizaje = true;
   const leccion = state.aprendizajeRuta?.leccion ? leccionPorId(state.aprendizajeRuta.leccion) : undefined;
   try {
     await crearConRecuperacion(
-      () => api('/api/projects', { method: 'POST', body: JSON.stringify({ name: nombre, template: plantillaId }) }),
+      () => leccion && leccionMdxPorId(leccion.id)
+        ? api(`/api/learning/examples/${encodeURIComponent(plantillaId)}/projects`, { method: 'POST', body: JSON.stringify({ name: nombre }) })
+        : api('/api/projects', { method: 'POST', body: JSON.stringify({ name: nombre, template: plantillaId }) }),
       async () => {
         const encontrado = await api(`/api/projects/${encodeURIComponent(nombre)}`);
         return encontrado.project?.name === nombre ? encontrado : null;
@@ -2908,7 +2841,7 @@ const depuracion = crearDepuracion({
 
 /** El estado visible es la fuente para canonicalizar rutas resueltas o recuperadas. */
 function rutaActual(): WorkspaceRoute {
-  if (state.aprendizajeRuta) return { project: null, aprender: { ...state.aprendizajeRuta } };
+  if (state.aprendizajeRuta) return { ...aprendizaje.route, project: null, aprender: { ...state.aprendizajeRuta } };
   return state.proyecto ? {
     project: state.proyecto.name,
     ...(state.placaActivaId ? { board: state.placaActivaId } : {}),
@@ -2960,15 +2893,15 @@ async function aplicarRuta(route: WorkspaceRoute): Promise<WorkspaceRoute> {
         else aprender.paso = leccion.pasos[0]?.id;
         if (aprender.paso) registrarPaso(almacenLocalAprendizaje(), leccion.id, leccion.revision, aprender.paso);
       }
+      aprendizaje.route = { ...route, aprender };
       state.aprendizajeRuta = aprender;
-      document.body.classList.remove('inicio');
-      document.body.classList.add('aprender');
+      document.body.classList.add('inicio', 'aprender', 'aprendiendo');
       $('bienvenida-proyectos').classList.remove('activa');
       $('bienvenida-acerca').classList.add('activa');
       return rutaActual();
     }
     state.aprendizajeRuta = null;
-    document.body.classList.remove('aprender');
+    document.body.classList.remove('aprender', 'aprendiendo');
     if (!route.project) {
       mostrarInicio();
       await cargarProyectos();
@@ -2987,6 +2920,7 @@ async function aplicarRuta(route: WorkspaceRoute): Promise<WorkspaceRoute> {
     }
     if (state.proyecto?.name !== route.project) await abrirProyecto(route.project);
     if (state.proyecto?.name !== route.project) return rutaActual();
+    document.body.classList.remove('inicio');
     await aplicarContextoRuta(route);
     return rutaActual();
   } catch (error) {
@@ -3042,6 +2976,7 @@ const navegacion = createWorkspaceNavigation({
   // Antes que nada: React monta el lienzo (sincrónico, ver montarReact) y todo lo que viene
   // después ya puede dibujar en él.
   montarReact();
+  btn('act-ajustes').disabled = false;
   restaurarVentanas();
   const { modules } = await api('/api/modules').catch(() => ({ modules: [] }));
   state.catalogo = new Map(modules.map((m) => [m.type, m]));

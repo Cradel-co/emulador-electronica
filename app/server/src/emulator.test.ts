@@ -39,6 +39,21 @@ setInterval(() => {}, 1000);
   return bin;
 }
 
+describe('EmulatorManager: disponibilidad HTTP', () => {
+  afterEach(() => { vi.unstubAllEnvs(); vi.resetModules(); });
+  it.each([false, true])('publica usesWeb=%s según el firmware y no confunde HTTP con REPL', async usesWebServer => {
+    vi.stubEnv('ESP_EMU_BIN', binarioQueIgnoraSigterm());
+    const { EmulatorManager } = await import('./emulator.js');
+    const emu = new EmulatorManager({ onLog: () => {}, onState: () => {}, onBridgeMessage: () => {}, onBridgeState: () => {} });
+    expect(emu.getStatus().usesWeb).toBe(false);
+    try {
+      const status = await emu.start('http-status', { firmware: '/dev/null', elf: null, usesWebServer, usesApi: false, needsRepl: false });
+      expect(status.usesWeb).toBe(usesWebServer);
+      expect(emu.getStatus().usesWeb).toBe(usesWebServer);
+    } finally { await emu.stop(); }
+  });
+});
+
 describe('EmulatorManager: consola redirigida (--uart-tcp, MicroPython)', () => {
   afterEach(() => {
     vi.unstubAllEnvs();
