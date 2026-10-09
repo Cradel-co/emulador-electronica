@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PATHS } from './paths.js';
+import { salidaDesdeFisica } from '@emu/shared';
 
 /**
  * API de placas y proyectos contra un server de verdad (tsx server/src/index.ts), en
@@ -69,6 +70,44 @@ afterAll(() => {
   server?.kill('SIGTERM');
   rmSync(proyectos, { recursive: true, force: true });
   rmSync(modulos, { recursive: true, force: true });
+});
+
+it('REST, MCP y el indicador UI coinciden con y sin energía; MCP permite consultar un proyecto detenido', async () => {
+  const nombre = 'observacion-api';
+  await pedir('/api/projects', { method: 'POST', body: { name: nombre, board: null } });
+  await pedir(`/api/projects/${nombre}/diagram`, { method: 'PUT', body: {
+    modules: [
+      { id: 'f', type: 'fuente-regulable', x: 0, y: 0, props: { voltage: 5, currentLimitMa: 100 } },
+      { id: 'r', type: 'resistor', x: 100, y: 0, props: { ohms: 220 } },
+      { id: 'led', type: 'led', x: 200, y: 0, props: {} },
+    ], wires: [{ from: 'f.V', to: 'r.1' }, { from: 'r.2', to: 'led.IN' }, { from: 'led.GND', to: 'f.GND' }],
+  } });
+  const mcp = async (name: string) => {
+    const respuesta = await fetch(`${BASE}/mcp`, { method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: { proyecto: nombre } } }),
+    });
+    const json = await respuesta.json() as { error?: unknown; result?: { isError?: boolean; content: { text: string }[] } };
+    expect(json.error).toBeUndefined();
+    if (!json.result) throw new Error('MCP no devolvió un resultado');
+    expect(json.result.isError).not.toBe(true);
+    const texto = json.result.content[0]?.text ?? '';
+    return JSON.parse(texto.slice(texto.indexOf('\n') + 1));
+  };
+  for (const encendido of [false, true]) {
+    await pedir(`/api/projects/${nombre}/energia`, { method: 'POST', body: { encendido } });
+    const rest = (await pedir(`/api/projects/${nombre}/pins`)).body.electrico;
+    const pines = await mcp('leer_pines');
+    const proyecto = await mcp('ver_proyecto');
+    expect(rest).toMatchObject({ estado: 'valida', resuelto: true, contexto: { proyecto: nombre, placas: [] } });
+    expect(pines.electrico).toEqual(rest);
+    expect(proyecto.electrico).toEqual(rest);
+    const led = rest.leds.find((l: { id: string }) => l.id === 'led');
+    const ui = salidaDesdeFisica({ valida: rest.resuelto, led });
+    expect(ui).toBe(encendido);
+    expect(pines.modulosDeSalida.find((l: { id: string }) => l.id === 'led').encendido).toBe(ui);
+    expect(pines.nivelesPorPlaca).toEqual({});
+  }
 });
 
 describe('GET /api/boards', () => {
