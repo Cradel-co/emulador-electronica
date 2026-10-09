@@ -12,9 +12,14 @@ Guía para Claude Code (claude.ai/code) al trabajar en este repositorio.
    con `--base <esa-rama>`: GitHub rebasa la base sola cuando la otra se mergea.
 2. Commits chicos y temáticos, mensaje en español, imperativo, que diga **qué problema resuelve**
    (no "arreglos varios"). Un commit por idea.
-3. Antes de pushear: `npx vitest run` y `npx tsc -p server/tsconfig.json --noEmit` (desde `app/`) en verde.
-4. `gh pr create --base <rama-base> --fill` y describir en el body: qué cambia, por qué, y cómo se probó.
-5. Mergea el principal (Marcos), no el agente. El agente no mergea ni cierra PRs salvo pedido explícito.
+3. **Una entrada de changelog por rama**: un archivo `changelog.d/<tipo>-<descripcion-corta>.md`
+   con el mismo tipo que el prefijo de la rama. Primera línea = qué cambia para quien usa la app.
+   Es un archivo por cambio y no un `CHANGELOG.md` único **porque ese daría conflicto en cada
+   merge**; la suite valida todos los fragmentos. Formato y por qué:
+   [changelog.d/README.md](./changelog.d/README.md).
+4. Antes de pushear: `npx vitest run` y `npx tsc -p server/tsconfig.json --noEmit` (desde `app/`) en verde.
+5. `gh pr create --base <rama-base> --fill` y describir en el body: qué cambia, por qué, y cómo se probó.
+6. Mergea el principal (Marcos), no el agente. El agente no mergea ni cierra PRs salvo pedido explícito.
 
 Si hay un PR abierto que toca los mismos archivos, **revisarlo antes de escribir código**
 (`gh pr view <n> --json files`) para no duplicar trabajo ni generar conflictos.
