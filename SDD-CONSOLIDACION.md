@@ -1,7 +1,7 @@
 # SDD — Consolidación del emulador de electrónica
 
 Fecha: 2026-10-08. Base analizada: `4744351` de `origin/main`.
-Estado: etapa 1 implementada y verificada en rama; etapas posteriores pendientes.
+Estado: etapas 1 y 2 implementadas y verificadas en ramas; etapas 3–6 pendientes.
 
 ## 1. Problema y resultado esperado
 
@@ -190,12 +190,37 @@ Una mejora de fidelidad debe declarar dominio y procedencia de parámetros, adem
 | SDD y revisión de dependencias | Redactado | Diagnóstico y PR #55/#69/#70 |
 | Regresiones iniciales | En rojo antes del arreglo | 6 fallan y 66 pasan en pruebas focalizadas |
 | Etapa 1 | Implementada; pendiente de revisión/merge | 72 pruebas focalizadas; 1552 pasan y 1 omitida en `npx vitest run`; build general y typechecks server/web pasan |
-| Etapas 2–6 | Pendientes | No declarar realizadas por completar este documento |
+| Etapa 2 | Implementada; pendiente de revisión/merge | E2E: 133 pasan, 13 omisiones existentes; recarga Aprender 3/3; Vitest: 1552 pasan, 1 omitida; build/typechecks pasan |
+| Etapas 3–6 | Pendientes | No declarar realizadas por completar este documento |
 
 La suite final se ejecutó sin flags de concurrencia, con la configuración nueva de dos procesos.
 Las seis regresiones nuevas pasaron después de fallar en la base. Las pruebas TCP se ejecutaron
-con sockets locales habilitados. No se repitió la suite E2E en esta etapa porque no cambia UI
-ni los escenarios que fallaron; el estado inicial E2E sigue siendo la evidencia de la etapa 2.
+con sockets locales habilitados. En la etapa 1 no se repitió E2E porque no cambiaba UI; la etapa 2 ejecutó la suite completa.
+
+### Segunda entrega: contratos E2E y refresco físico
+
+Se revisó el diff de PR #55 antes de modificar los E2E compartidos. Sus cambios de selectores
+no resuelven las expectativas eléctricas antiguas; esta entrega conserva los selectores de
+la base y modifica esas expectativas. La rama parte de la etapa 1 y su PR usa esa rama como base.
+
+El catálogo se contrasta por cantidad e identidad con la API. Conectar USB sin ejecutar
+firmware no debe inventar HIGH. La fixture declara dirección y nivel de GPIO7, calcula las
+corrientes/tensiones con `analizarCircuito` y adapta esa observación a `/pins`; no compila ni
+sustituye los ensayos de firmware real. Ohm y Problemas conservan sus escenarios activos.
+El riesgo de sobrecorriente se prueba con conducción, apagado y encendido posterior, sin
+atribuir daño permanente a una instantánea DC.
+
+La nueva regresión de render falló correctamente antes del arreglo: encendía el LED pero
+creaba 724 nodos. `refrescarAvisos` y la rama de eventos eléctricos reconstruían el dibujo.
+Ahora el lienzo aplica estados visibles, clases y títulos de pines en los nodos existentes.
+Si cambia la estructura visual de un corto o de una quemadura heredada, conserva el render
+completo. La prueba grande usa 100 LEDs, un GPIO conectado y 40 cambios de nivel calculados,
+verificando que realmente prende/apaga y que no crea ni quita nodos. En verde conservó
+5251 nodos durante los 40 pulsos. La suite estándar terminó con 133 aprobadas y las mismas
+13 omisiones condicionales preexistentes (firmware/Docker); no se añadieron skips ni retries.
+Aprender pasó en la suite general y en tres repeticiones de recarga. La intermitencia anterior
+no se reprodujo; esas ejecuciones no prueban ausencia de intermitencias bajo toda carga.
+Vitest volvió a dar 1552 aprobadas y 1 omitida; build y typechecks server/web pasan.
 
 Referencias: [CLAUDE.md](CLAUDE.md), [arquitectura web](docs/arquitectura-web.md),
 [perfiles físicos](docs/PERFILES-FISICOS.md), [análisis temporal](docs/ANALISIS-TEMPORAL-Y-EVIDENCIA.md),
