@@ -1,3 +1,4 @@
+import { InformePrototipoDialog } from './InformePrototipo.js';
 import { ConflictosGuardado } from './ConflictosGuardado.js';
 import { createRoot } from 'react-dom/client';
 import { createElement, type FunctionComponent } from 'react';
@@ -42,6 +43,7 @@ const ISLAS: [string, FunctionComponent, boolean][] = [
   ['avisos-dibujo', Avisos, false],
   ['tool-windows', ToolWindows, true],
   ['conflictos-guardado', ConflictosGuardado, true],
+  ['dlg-informe-prototipo', InformePrototipoDialog, true],
   ['dock-layout', DockWorkspace, true],
   ['tw-explorador', ExplorerIcon, false],
   ['lista-proyectos', Proyectos, false],
