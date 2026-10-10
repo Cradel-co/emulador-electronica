@@ -12,3 +12,4 @@ export * from './i2cFisico.js';
 export * from './analogico.js';
 export * from './analogicoEsp.js';
 export * from './electrico.js';
+export * from './informe.js';

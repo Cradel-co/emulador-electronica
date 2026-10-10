@@ -1,3 +1,4 @@
+import { type InformePrototipo } from '@emu/shared';
 import { VersionesGuardado, ErrorRevision, type ConflictoGuardado } from './versiones-guardado.js';
 import { GuardadoDiagrama } from './guardado-diagrama.js';
 import { firmaDiagramaElectrico } from '@emu/shared';
@@ -140,6 +141,7 @@ const state = observable({
   /** Hay cambios en el editor que todavía no se guardaron. */
   editorSucio: false,
   conflictoGuardado: null as ConflictoGuardado | null,
+  informePrototipo: null as InformePrototipo | null,
   /** Últimas notificaciones (globos), para la ventana de notificaciones. */
   notificaciones: ([] as { texto: string, hora: Date }[]),
   /** Errores de la última compilación (para la pestaña Problemas). */
@@ -443,6 +445,29 @@ async function resolverConflicto(opcion: 'descargar' | 'remoto' | 'local'): Prom
     if (state.conflictoGuardado === conflicto) state.conflictoGuardado = null;
     await refrescarAvisos();
   } catch (error) { nota(`No se pudo resolver: ${String((error as Error).message)}`); }
+}
+
+let informeEnCurso = false;
+/** La descarga usa la instantánea aceptada, no la última observación pintada. */
+async function abrirInformePrototipo(): Promise<void> {
+  if (informeEnCurso || ($('dlg-informe-prototipo') as HTMLDialogElement).open) return;
+  if (!state.proyecto || !await guardarAntesDeNavegar()) return;
+  if (informeEnCurso) return;
+  const proyecto = state.proyecto.name;
+  const revision = versionesGuardado.revision(recursoProyecto(proyecto));
+  if (!revision) { nota('Cargá el proyecto antes de solicitar el informe.'); return; }
+  const dibujo = guardadoDiagrama.revision;
+  const contenido = contenidoEditor();
+  informeEnCurso = true;
+  try {
+    const informe: InformePrototipo = await api(`${recursoProyecto(proyecto)}/report`, { headers: { 'if-match': revision } });
+    if (state.proyecto?.name !== proyecto || guardadoDiagrama.revision !== dibujo || state.editorSucio || contenidoEditor() !== contenido || versionesGuardado.revision(recursoProyecto(proyecto)) !== revision) {
+      nota('El proyecto cambió durante la captura. Solicitá otro informe.'); return;
+    }
+    state.informePrototipo = informe;
+    ($('dlg-informe-prototipo') as HTMLDialogElement).showModal();
+  } catch (error) { nota(`No se pudo crear el informe: ${String((error as Error).message)}`); }
+  finally { informeEnCurso = false; }
 }
 
 // --- Consola ----------------------------------------------------------------
@@ -2711,6 +2736,7 @@ function buscarModulo() {
 const ACCIONES = [
   { id: 'nuevo', titulo: 'Nuevo proyecto…', menu: 'Archivo', hacer: abrirNuevoProyecto },
   { id: 'abrir', titulo: 'Abrir otro proyecto…', menu: 'Archivo', hacer: () => void irAInicio(), habilitada: hayProyecto },
+  { id: 'informe-prototipo', titulo: 'Informe del prototipo…', menu: 'Archivo', hacer: () => void abrirInformePrototipo(), habilitada: hayProyecto },
   { id: 'guardar', titulo: 'Guardar', menu: 'Archivo', atajo: 'Ctrl+S', hacer: () => void guardar(false), habilitada: hayProyecto },
   { id: 'formatear-micropython', titulo: 'Formatear MicroPython', menu: 'Editar', atajo: 'Ctrl+Shift+I', hacer: () => void formatearMicroPython(), habilitada: () => microPythonActivo && !formateandoMicroPython },
   { id: 'ajustes-editor', titulo: 'Ajustes del editor…', menu: 'Editar', hacer: () => ($('dlg-editor-preferences') as HTMLDialogElement).showModal() },

@@ -464,3 +464,23 @@ it('un cambio por MCP invalida la revisión del circuito cargada por REST', asyn
   expect(guardado.status).toBe(412);
   expect((await pedir(`/api/projects/${nombre}`)).body.project.modules.some((m: { id: string }) => m.id === 'mcp-r')).toBe(true);
 });
+
+it('exporta una instantánea nueva con circuito completo y sin credenciales', async () => {
+  const name = 'informe-api';
+  expect((await pedir('/api/projects', { method: 'POST', body: { name, language: 'esphome' } })).status).toBe(201);
+  await pedir(`/api/projects/${name}`, { method: 'PUT', body: { sim: { wifiSsid: 'ssid-privado', wifiPassword: 'clave-privada' } } });
+  const r = await pedir(`/api/projects/${name}/report`);
+  expect(r.status, JSON.stringify(r.body)).toBe(200); expect(r.body.schemaVersion).toBe(1);
+  expect(r.body.circuito.modules.some((m: { id: string }) => m.id === 'board')).toBe(true);
+  expect(r.body.observacion.contexto.proyecto).toBe(name);
+  expect(r.body.dominio).toBe('instantanea-dc');
+  expect(JSON.stringify(r.body)).not.toContain('clave-privada'); expect(JSON.stringify(r.body)).not.toContain('ssid-privado');
+});
+it('rechaza exportar con una revisión de proyecto desactualizada', async () => {
+  const name = 'informe-revision';
+  await pedir('/api/projects', { method: 'POST', body: { name, board: null } });
+  const antes = (await pedir(`/api/projects/${name}`)).body;
+  await pedir(`/api/projects/${name}/diagram`, { method: 'PUT', body: { modules: [], wires: [] } });
+  const r = await fetch(`${BASE}/api/projects/${name}/report`, { headers: { 'x-cliente': 'ui', 'if-match': antes.revision } });
+  expect(r.status).toBe(412); expect(await r.json()).toMatchObject({ code: 'REVISION_CONFLICT' });
+});

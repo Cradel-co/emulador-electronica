@@ -924,3 +924,12 @@ body.depuracion-parada .punto-estado { background: var(--azul); box-shadow: 0 0 
 .conflicto-guardado menu { display: flex; flex-wrap: wrap; gap: .5rem; padding: 0; }
 .conflicto-versiones { display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); gap: 1rem; }
 .conflicto-versiones pre { max-height: 15rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+#dlg-informe-prototipo { width: min(64rem, calc(100vw - 3rem)); max-height: 85vh; overflow: auto; }
+.informe-prototipo { display: flex; flex-direction: column; gap: .6rem; }
+.informe-prototipo h2, .informe-prototipo p { margin: 0; }
+.informe-tabla { overflow-x: auto; }
+.informe-tabla table { border-collapse: collapse; width: 100%; }
+.informe-tabla th, .informe-tabla td { padding: .45rem; border: 1px solid var(--borde); text-align: left; white-space: nowrap; }
+.informe-prototipo pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 30vh; overflow: auto; }
+.informe-acciones { display: flex; flex-wrap: wrap; gap: .5rem; justify-content: flex-end; }

@@ -1,7 +1,7 @@
 # SDD — Consolidación del emulador de electrónica
 
 Fecha: 2026-10-08. Base analizada: `4744351` de `origin/main`.
-Estado: etapas 1–3 y 5 integradas; primera entrega de etapa 4 integrada en #75; segunda entrega integrada en #76; tercera entrega validada, pendiente de revisión e integración; etapa 6 pendiente.
+Estado: etapas 1–3 y 5 integradas; primera entrega de etapa 4 integrada en #75; segunda entrega integrada en #76; tercera entrega integrada en #77; primera entrega de etapa 6 validada, pendiente de revisión e integración.
 
 ## 1. Problema y resultado esperado
 
@@ -197,9 +197,9 @@ Una mejora de fidelidad debe declarar dominio y procedencia de parámetros, adem
 | Etapa 1 | Integrada en PR #71 | 72 pruebas focalizadas; 1552 pasan y 1 omitida en `npx vitest run`; build general y typechecks server/web pasan |
 | Etapa 2 | Integrada en PR #72 | E2E: 133 pasan, 13 omisiones existentes; recarga Aprender 3/3; Vitest: 1552 pasan, 1 omitida; build/typechecks pasan |
 | Etapa 3 | Integrada en PR #73 | Vitest: 1572 pasan, 1 omitida; E2E: 135 pasan, 13 omisiones existentes; build/typechecks pasan |
-| Etapa 4 | Primera y segunda entregas integradas en #75 y #76; tercera validada, pendiente de integración | Vitest: 1618 pasan, 1 omitida; E2E: 135 pasan, 13 omisiones existentes; build/tipos pasan. Conflictos integrados; firmware y descarga validados; pendientes de integración |
+| Etapa 4 | Primera y segunda entregas integradas en #75 y #76; tercera integrada en #77 | Vitest: 1618 pasan, 1 omitida; E2E: 135 pasan, 13 omisiones existentes; build/tipos pasan. Conflictos integrados; firmware y descarga integrados |
 | Etapa 5 | Integrada en PR #74 | Vitest: 1608 pasan, 1 omitida; E2E: 135 pasan, 13 omisiones existentes; build/typechecks pasan; [contratos y límites](docs/coordinacion.md) |
-| Etapa 6 | Pendiente | Exportación y presentación del análisis físico |
+| Etapa 6 | Primera entrega validada, pendiente de integración | Informe JSON/HTML con circuito y observación DC; controles de análisis físico pendientes |
 
 La suite final se ejecutó sin flags de concurrencia, con la configuración nueva de dos procesos.
 Las seis regresiones nuevas pasaron después de fallar en la base. Las pruebas TCP se ejecutaron
@@ -317,3 +317,18 @@ Validación de la tercera entrega: 1642 pruebas unitarias aprobadas y una omisi�
 5 E2E del importador aprobados. Typecheck del servidor, build de producción y fragmento de
 changelog pasan. Sin nuevas omisiones. La suite E2E completa anterior corresponde a #76;
 esta entrega ejecuta el recorrido afectado de importación.
+
+### Sexta etapa, primera entrega: informe de prototipado
+
+Base `2dc7b41`, con PR #77 validado y mergeado. [SDD-EXPORTACION.md](SDD-EXPORTACION.md)
+define JSON versionado y HTML autónomo para circuito completo y medidas de una observación
+nueva. [El manual](docs/informe-prototipo.md) explica dominio, signos, unidades, validez y
+límites. La UI guarda pendientes, comprueba contexto y no aplica una respuesta tardía tras
+editar. El informe abierto es una instantánea, no un monitor vivo. No incluye credenciales Wi-Fi
+ni código ejecutable. Los controles UI para AC/transitorio/térmico quedan en una entrega posterior.
+
+Validación de la primera entrega de etapa 6: 1650 pruebas unitarias aprobadas y una omisión
+existente; E2E estándar completos en dos tandas: 90 + 52 aprobados, 8 + 5 omisiones condicionales
+existentes. Incluye tres recorridos nuevos de descarga/captura/vigencia. Build de producción,
+typechecks server/web y fragmento de changelog pasan; vista previa y HTML descargado inspeccionados.
+No se agregan omisiones ni retries. No se ejecutó firmware nuevo en Docker ni hardware físico.
