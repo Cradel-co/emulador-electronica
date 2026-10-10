@@ -12,15 +12,25 @@ export interface PuertosGuardadoDiagrama {
 /** Conserva el debounce y la cola locales. No arbitra conflictos entre clientes. */
 export class GuardadoDiagrama {
   private version = 0;
+  private guardada = 0;
+  private epoca = 0;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private guardado: Promise<unknown> = Promise.resolve();
   constructor(private readonly puertos: PuertosGuardadoDiagrama) {}
 
+  get sucio(): boolean { return this.version !== this.guardada; }
+  aceptarCarga(): void { this.descartar(); this.guardada = this.version; this.epoca++; this.guardado = Promise.resolve(); }
+
   get revision(): number { return this.version; }
   get pendiente(): boolean { return Boolean(this.timer); }
 
-  private enviar(proyecto: string, contenido: string): Promise<unknown> {
-    this.guardado = this.guardado.catch(() => {}).then(() => this.puertos.enviar(proyecto, contenido));
+  private enviar(proyecto: string, contenido: string, revision = this.version): Promise<unknown> {
+    const epoca = this.epoca;
+    this.guardado = this.guardado.catch(() => {}).then(async () => {
+      const respuesta = await this.puertos.enviar(proyecto, contenido);
+      if (epoca === this.epoca && this.puertos.proyecto() === proyecto) this.guardada = Math.max(this.guardada, revision);
+      return respuesta;
+    });
     return this.guardado;
   }
 
@@ -31,10 +41,11 @@ export class GuardadoDiagrama {
     const proyecto = this.puertos.proyecto();
     if (!proyecto) return;
     const contenido = this.puertos.contenido();
+    const revision = this.version;
     this.timer = setTimeout(async () => {
       this.timer = null;
       try {
-        await this.enviar(proyecto, contenido);
+        await this.enviar(proyecto, contenido, revision);
         if (this.puertos.proyecto() === proyecto) await this.puertos.alGuardar();
       } catch (error) { this.puertos.alError(error); }
     }, 300);

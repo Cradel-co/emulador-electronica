@@ -1,3 +1,4 @@
+import { revisionContenido, revisionProyecto, revisionDiagrama, comprobarRevision, ConflictoRevision } from './revisionGuardado.js';
 import { crearTransporteEventos } from './transporteEventos.js';
 import { crearServicioObservacion } from './observacionElectrica.js';
 import { ColaCorridas } from './colaCorridas.js';
@@ -393,7 +394,7 @@ function fail(reply: { code: (n: number) => { send: (b: unknown) => void } }, er
   const codigo = (err as { statusCode?: unknown })?.statusCode;
   const status = err instanceof ProjectError ? err.statusCode : typeof codigo === 'number' ? codigo : 500;
   const message = err instanceof Error ? err.message : String(err);
-  reply.code(status).send({ error: message });
+  reply.code(status).send({ error: message, ...(err instanceof ConflictoRevision ? { code: err.code, revisionActual: err.revisionActual } : {}) });
 }
 
 async function requireProject(name: string) {
@@ -563,7 +564,7 @@ async function registerRoutes(): Promise<void> {
         store.listDirectories(name, elegida?.language ?? null, elegida?.id),
       ]);
       const placa = elegida ? await buscarPlaca(elegida.board) : undefined;
-      reply.send({ project, files, directories, placa: placa ? await placaParaUi(placa) : null });
+      reply.header('etag', revisionProyecto(project)).send({ project, revision: revisionProyecto(project), revisionDiagrama: revisionDiagrama(project), files, directories, placa: placa ? await placaParaUi(placa) : null });
     } catch (err) {
       fail(reply, err);
     }
@@ -605,6 +606,7 @@ async function registerRoutes(): Promise<void> {
     try {
       await store.transaccion(name, async () => {
         const project = await requireProject(name);
+        comprobarRevision(req.headers, revisionProyecto(project));
         const body = (req.body ?? {}) as Partial<Project>;
         // La placa y el lenguaje se eligen al crear el proyecto: sus archivos (sdkconfig,
         // CMake, plantilla) dependen de eso, y cambiarlos a mano dejaría un proyecto que no compila.
@@ -620,7 +622,7 @@ async function registerRoutes(): Promise<void> {
         if (body.name !== undefined && body.name !== name) throw new ProjectError('No se puede cambiar el nombre por esta ruta.', 400);
         if (body.modules !== undefined) await validarModulosPlacas(project, body.modules);
         const updated = await store.save({ ...project, ...body, name });
-        reply.send({ project: updated });
+        reply.header('etag', revisionProyecto(updated)).send({ project: updated, revision: revisionProyecto(updated), revisionDiagrama: revisionDiagrama(updated) });
       });
     } catch (err) {
       fail(reply, err);
@@ -634,7 +636,8 @@ async function registerRoutes(): Promise<void> {
       const project = await requireProject(name);
       const elegida = placaParaArchivo(project, (req.query as { boardId?: string }).boardId);
       const content = await store.readFile(name, file, elegida.language, elegida.id);
-      reply.send({ path: file, content });
+      const revision = revisionContenido(`archivo:${name}/${elegida.id}/${file}`, content);
+      reply.header('etag', revision).send({ path: file, content, revision });
     } catch (err) {
       fail(reply, err);
     }
@@ -684,11 +687,17 @@ async function registerRoutes(): Promise<void> {
       await store.transaccion(name, async () => {
         const project = await requireProject(name);
         const elegida = placaParaArchivo(project, (req.query as { boardId?: string }).boardId);
+        const anterior = await store.readFile(name, file, elegida.language, elegida.id).catch((error: NodeJS.ErrnoException) => {
+          if (error.code === 'ENOENT') return null;
+          throw error;
+        });
+        comprobarRevision(req.headers, revisionContenido(`archivo:${name}/${elegida.id}/${file}`, anterior));
         await store.writeFile(name, file, elegida.language, String(body.content ?? ''), elegida.id);
         broadcast({ type: 'project.changed', project: name, what: 'file', file, boardId: elegida.id, origin: clienteDe(req) });
         // No se espera: guardar tiene que contestar al toque, la recarga va por la consola.
         agendarAutoReload(project, elegida.id);
-        reply.send({ ok: true, path: file });
+        const revision = revisionContenido(`archivo:${name}/${elegida.id}/${file}`, String(body.content ?? ''));
+        reply.header('etag', revision).send({ ok: true, path: file, revision });
       });
     } catch (err) {
       fail(reply, err);
@@ -715,6 +724,7 @@ async function registerRoutes(): Promise<void> {
     try {
       await store.transaccion(name, async () => {
         const project = await requireProject(name);
+        comprobarRevision(req.headers, revisionDiagrama(project));
         const body = (req.body ?? {}) as { modules?: unknown[]; wires?: unknown[] };
         if (body.modules !== undefined) await validarModulosPlacas(project, body.modules);
         const updated = await store.save({
@@ -730,7 +740,7 @@ async function registerRoutes(): Promise<void> {
         // satura. Es lo mismo que hace fijarControl al apretar un interruptor.
         void refrescarEntradasDelCircuito(name);
         broadcast({ type: 'project.changed', project: name, what: 'diagram', origin: clienteDe(req) });
-        reply.send({ project: updated });
+        reply.header('etag', revisionDiagrama(updated)).send({ project: updated, revision: revisionProyecto(updated), revisionDiagrama: revisionDiagrama(updated) });
       });
     } catch (err) {
       fail(reply, err);

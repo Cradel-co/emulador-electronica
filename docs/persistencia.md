@@ -33,11 +33,12 @@ lecturas no esperan la cola y observan un archivo completo anterior o posterior 
 
 La cola coordina un único proceso servidor. No bloquea otros procesos ni ediciones externas
 hechas directamente en disco, y raíces distintas que apuntan al mismo lugar mediante enlaces
-no comparten identidad. Un cliente todavía puede enviar una versión vieja y reemplazar cambios
-recientes: el contrato de revisiones y el tratamiento del conflicto en UI son la próxima entrega.
-El keepalive y la política de cambios externos del navegador todavía conservan su comportamiento.
+no comparten identidad. Un cliente histórico que omite la revisión todavía puede reemplazar cambios recientes.
+La UI usa escrituras condicionales y conserva su edición cuando encuentra un conflicto; el
+contrato y la compatibilidad están en [conflictos-guardado.md](conflictos-guardado.md).
+Ese contrato también describe el keepalive condicional y la conservación de cambios ante eventos externos.
 
-La verificación de caché de firmware y los presupuestos durante las descargas también siguen
+La verificación de caché de firmware y los presupuestos durante las descargas siguen
 pendientes. No se presenta esta entrega como el cierre completo de la etapa 4.
 
 ## Evidencia

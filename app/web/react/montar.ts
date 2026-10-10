@@ -1,3 +1,4 @@
+import { ConflictosGuardado } from './ConflictosGuardado.js';
 import { createRoot } from 'react-dom/client';
 import { createElement, type FunctionComponent } from 'react';
 import { flushSync } from 'react-dom';
@@ -40,6 +41,7 @@ const ISLAS: [string, FunctionComponent, boolean][] = [
   ['react-lienzo', Lienzo, true],
   ['avisos-dibujo', Avisos, false],
   ['tool-windows', ToolWindows, true],
+  ['conflictos-guardado', ConflictosGuardado, true],
   ['dock-layout', DockWorkspace, true],
   ['tw-explorador', ExplorerIcon, false],
   ['lista-proyectos', Proyectos, false],

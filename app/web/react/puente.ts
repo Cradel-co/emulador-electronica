@@ -24,6 +24,7 @@ let alEntregar: ((l: Lienzo) => void) | null = null;
  * arrancar y los componentes las piden cuando el usuario hace algo.
  */
 export interface Acciones {
+  resolverConflicto: (opcion: 'descargar' | 'remoto' | 'local') => Promise<void>;
   crearCamara: (project: string, instance: string, camera: CameraDescriptor) => ControladorCamara;
   agregarModulo: (type: string) => void;
   quitarDelCatalogo: (m: { type: string; name: string }) => void;

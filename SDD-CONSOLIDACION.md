@@ -1,7 +1,7 @@
 # SDD — Consolidación del emulador de electrónica
 
 Fecha: 2026-10-08. Base analizada: `4744351` de `origin/main`.
-Estado: etapas 1–3 y 5 integradas; primera entrega de etapa 4 verificada para revisión; etapa 6 pendiente.
+Estado: etapas 1–3 y 5 integradas; primera entrega de etapa 4 integrada en #75; segunda entrega validada, pendiente de revisión e integración; etapa 6 pendiente.
 
 ## 1. Problema y resultado esperado
 
@@ -197,7 +197,7 @@ Una mejora de fidelidad debe declarar dominio y procedencia de parámetros, adem
 | Etapa 1 | Integrada en PR #71 | 72 pruebas focalizadas; 1552 pasan y 1 omitida en `npx vitest run`; build general y typechecks server/web pasan |
 | Etapa 2 | Integrada en PR #72 | E2E: 133 pasan, 13 omisiones existentes; recarga Aprender 3/3; Vitest: 1552 pasan, 1 omitida; build/typechecks pasan |
 | Etapa 3 | Integrada en PR #73 | Vitest: 1572 pasan, 1 omitida; E2E: 135 pasan, 13 omisiones existentes; build/typechecks pasan |
-| Etapa 4 | Primera entrega verificada; pendiente de revisión/merge | Vitest: 1618 pasan, 1 omitida; E2E: 135 pasan, 13 omisiones existentes; build/tipos pasan. Conflictos, firmware y descarga pendientes |
+| Etapa 4 | Primera entrega integrada en #75; segunda en validación | Vitest: 1618 pasan, 1 omitida; E2E: 135 pasan, 13 omisiones existentes; build/tipos pasan. Conflictos implementados en validación; firmware y descarga pendientes |
 | Etapa 5 | Integrada en PR #74 | Vitest: 1608 pasan, 1 omitida; E2E: 135 pasan, 13 omisiones existentes; build/typechecks pasan; [contratos y límites](docs/coordinacion.md) |
 | Etapa 6 | Pendiente | Exportación y presentación del análisis físico |
 
@@ -288,3 +288,17 @@ Validación: cuatro regresiones en rojo antes del cambio; nueve pruebas finales 
 y una nueva integración REST. Suite general: 1618 aprobadas y una omisión existente.
 E2E estándar completos en dos tandas: 86 + 49 aprobados y 8 + 5 omisiones condicionales
 existentes. Build general y typechecks server/web pasan; no se agregaron skips ni retries.
+
+### Cuarta etapa, segunda entrega: conflictos
+
+Se implementa sobre `06d3ba1`, con PR #75 integrado y revisión del solapamiento con #55.
+El [contrato de revisiones](docs/conflictos-guardado.md) define recursos, cabeceras, errores,
+compatibilidad REST/MCP y resolución explícita en UI. La edición local se conserva ante
+cambios externos; una respuesta tardía no pisa ediciones nuevas. Firmware y descargas
+siguen pendientes. No se declara obligatoriedad universal para clientes históricos.
+
+Validación de la segunda entrega: 1627 pruebas unitarias aprobadas y una omisión existente;
+E2E completos en dos grupos, 90 + 49 aprobados y 8 + 5 omisiones condicionales existentes.
+Incluye cuatro E2E nuevos; no se agregaron skips ni retries. Typechecks server/web, build de
+producción y validación del fragmento de changelog pasan. No se ensayó cierre real del navegador,
+firmware nuevo en Docker ni hardware físico.

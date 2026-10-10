@@ -5,6 +5,6 @@
     "tsBuildInfoFile": ".types/coordinacion/tsconfig.tsbuildinfo"
   },
   "files": [
-    "guardado-diagrama.ts"
+    "guardado-diagrama.ts", "versiones-guardado.ts"
   ]
 }

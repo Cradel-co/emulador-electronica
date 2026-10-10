@@ -421,3 +421,46 @@ it('dos modificaciones REST simultáneas conservan configuración y circuito', a
   expect(guardado.body.project.sim.wifiSsid).toBe('concurrente');
   expect(guardado.body.project.modules).toEqual([{ id: 'r', type: 'resistor', x: 0, y: 0, props: { ohms: 470 } }]);
 });
+
+it('rechaza dos guardados del mismo circuito leídos desde la misma revisión', async () => {
+  const nombre = 'conflicto-diagrama';
+  await pedir('/api/projects', { method: 'POST', body: { name: nombre, board: null } });
+  const lectura = await pedir(`/api/projects/${nombre}`);
+  expect(lectura.body.revisionDiagrama).toMatch(/^"[a-f0-9]{64}"$/);
+  const escribir = (ohms: number) => fetch(`${BASE}/api/projects/${nombre}/diagram`, {
+    method: 'PUT', headers: { 'content-type': 'application/json', 'x-cliente': 'cliente', 'if-match': lectura.body.revisionDiagrama },
+    body: JSON.stringify({ modules: [{ id: 'r', type: 'resistor', x: 0, y: 0, props: { ohms } }], wires: [] }),
+  });
+  const respuestas = await Promise.all([escribir(220), escribir(470)]);
+  expect(respuestas.map(r => r.status).sort()).toEqual([200, 412]);
+  const fallo = respuestas.find(r => r.status === 412);
+  expect(await fallo?.json()).toMatchObject({ code: 'REVISION_CONFLICT' });
+});
+
+it('exige revisión a la UI y conserva un archivo ante un guardado desactualizado', async () => {
+  const nombre = 'conflicto-codigo';
+  await pedir('/api/projects', { method: 'POST', body: { name: nombre, language: 'micropython' } });
+  const ruta = `/api/projects/${nombre}/files/main.py`;
+  const lectura = await pedir(ruta);
+  expect(lectura.body.revision).toMatch(/^"[a-f0-9]{64}"$/);
+  const escribir = (content: string, revision?: string) => fetch(BASE + ruta, { method: 'PUT',
+    headers: { 'content-type': 'application/json', 'x-cliente': 'cliente', ...(revision ? { 'if-match': revision } : {}) }, body: JSON.stringify({ content }) });
+  expect((await escribir('sin revisión')).status).toBe(428);
+  expect((await escribir('primero', lectura.body.revision)).status).toBe(200);
+  expect((await escribir('viejo', lectura.body.revision)).status).toBe(412);
+  expect((await pedir(ruta)).body.content).toBe('primero');
+});
+
+it('un cambio por MCP invalida la revisión del circuito cargada por REST', async () => {
+  const nombre = 'conflicto-mcp';
+  await pedir('/api/projects', { method: 'POST', body: { name: nombre, board: null } });
+  const antes = (await pedir(`/api/projects/${nombre}`)).body;
+  const respuesta = await fetch(`${BASE}/mcp`, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'agregar_modulo', arguments: { proyecto: nombre, tipo: 'resistor', id: 'mcp-r' } } }) });
+  const resultado = await respuesta.json() as { result?: { isError?: boolean }; error?: unknown };
+  expect(resultado.error).toBeUndefined(); expect(resultado.result?.isError).not.toBe(true);
+  const guardado = await fetch(`${BASE}/api/projects/${nombre}/diagram`, { method: 'PUT', headers: { 'content-type': 'application/json', 'if-match': antes.revisionDiagrama },
+    body: JSON.stringify({ modules: antes.project.modules, wires: antes.project.wires }) });
+  expect(guardado.status).toBe(412);
+  expect((await pedir(`/api/projects/${nombre}`)).body.project.modules.some((m: { id: string }) => m.id === 'mcp-r')).toBe(true);
+});
