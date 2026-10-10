@@ -38,12 +38,12 @@ el guardado del editor, la navegación y la recepción de WebSocket.
 Un cambio captura proyecto y contenido al programarse. Sólo refresca avisos si ese proyecto
 sigue seleccionado. La cámara espera también ediciones que llegan durante el envío y rechaza
 la operación si cambia el proyecto. Navegar espera los envíos pendientes y comprueba revisión;
-un fallo conserva la navegación pendiente. Un cambio externo descarta el debounce local.
+un fallo conserva la navegación pendiente. La política actual de cambios externos y revisiones se describe en [conflictos-guardado.md](conflictos-guardado.md).
 
-Estos comportamientos son los anteriores: descartar cambios locales al recibir un cambio externo
-no resuelve conflictos entre clientes. El `keepalive` de cierre se envía directamente y puede
-solaparse con la cola. Tampoco se garantiza durabilidad. Son límites de la etapa 4, que permanece
-pendiente; la extracción permite abordarlos con pruebas sin depender del navegador.
+La etapa 5 caracterizó el debounce y la cola originales antes de extraerlos. La segunda entrega
+de etapa 4 agrega revisiones y resolución de conflictos mediante puertos. El keepalive conserva
+su carácter de entrega tentativa; ahora incluye revisión y no se solapa con la cola HTTP activa.
+El [contrato de persistencia](persistencia.md) distingue publicación atómica de durabilidad.
 
 ## Tipos y evidencia
 
