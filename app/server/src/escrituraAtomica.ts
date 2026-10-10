@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 
 /** Reemplaza un archivo completo. No promete durabilidad ante un corte de energía. */
-export async function escribirAtomico(destino: string, contenido: string, exclusivo = false): Promise<void> {
+export async function escribirAtomico(destino: string, contenido: string | Uint8Array, exclusivo = false): Promise<void> {
   const temporal = path.join(path.dirname(destino), `.emu-${randomUUID()}.tmp`);
   const anterior = await fs.stat(destino).catch((error: NodeJS.ErrnoException) => {
     if (error.code === 'ENOENT') return null;

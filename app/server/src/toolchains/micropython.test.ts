@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -5,14 +6,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BoardDescriptorSchema, defaultProject } from '@emu/shared';
 import type { ContextoBuild } from './tipos.js';
 
-const fixture = vi.hoisted(() => ({ firmwareRoot: '', run: vi.fn() }));
+const fixture = vi.hoisted(() => ({ firmwareRoot: '', run: vi.fn(), fetch: vi.fn<typeof fetch>() }));
 vi.mock('../paths.js', async (importOriginal) => {
   const original = await importOriginal<typeof import('../paths.js')>();
   return { ...original, PATHS: { ...original.PATHS, get firmware() { return fixture.firmwareRoot; } } };
 });
 vi.mock('../dockerRunner.js', () => ({ run: fixture.run }));
 
-import { micropython } from './micropython.js';
+import { ensureMicropythonFirmware, micropython } from './micropython.js';
 
 let root: string;
 let sourceDir: string;
@@ -22,9 +23,12 @@ beforeEach(async () => {
   fixture.firmwareRoot = path.join(root, 'firmware');
   fixture.run.mockReset();
   fixture.run.mockImplementation(() => { throw new Error('La prueba no debe descargar firmware.'); });
+  fixture.fetch.mockReset();
+  fixture.fetch.mockImplementation(async () => { throw new Error('La prueba no debe acceder a la red.'); });
+  vi.stubGlobal('fetch', fixture.fetch);
   await fs.mkdir(sourceDir);
 });
-afterEach(async () => { await fs.rm(root, { recursive: true, force: true }); });
+afterEach(async () => { vi.unstubAllGlobals(); await fs.rm(root, { recursive: true, force: true }); });
 
 function context(): ContextoBuild {
   return {
@@ -67,6 +71,7 @@ describe('MicroPython toolchain: manifiesto de archivos', () => {
     await fs.mkdir(path.join(fixture.firmwareRoot, 'micropython'), { recursive: true });
     const cached = path.join(fixture.firmwareRoot, 'micropython', 'cached.bin');
     await fs.writeFile(cached, 'firmware fixture');
+    await fs.writeFile(cached + '.sha256', createHash('sha256').update('firmware fixture').digest('hex') + '  cached.bin\n');
 
     const result = await micropython.build(context());
     expect(result.ok).toBe(true);
@@ -86,4 +91,40 @@ describe('MicroPython toolchain: manifiesto de archivos', () => {
     expect(fixture.run).not.toHaveBeenCalled();
     await expect(fs.stat(fixture.firmwareRoot)).rejects.toThrow();
   });
+});
+
+
+it('rechaza firmware cacheado que no coincide con la huella conservada', async () => {
+  const target = path.join(fixture.firmwareRoot, 'micropython', 'corrupto.bin');
+  await fs.mkdir(path.dirname(target), { recursive: true });
+  await fs.writeFile(target, 'corrupto');
+  await fs.writeFile(target + '.sha256', '0'.repeat(64) + '  corrupto.bin\n');
+  await expect(ensureMicropythonFirmware({ onLine: () => {} }, 'corrupto.bin')).rejects.toThrow('integridad');
+  expect(await fs.readFile(target, 'utf8')).toBe('corrupto');
+});
+it('rechaza caché histórica sin huella en lugar de acreditar verificación', async () => {
+  const target = path.join(fixture.firmwareRoot, 'micropython', 'historico.bin');
+  await fs.mkdir(path.dirname(target), { recursive: true });
+  await fs.writeFile(target, 'historico');
+  await expect(ensureMicropythonFirmware({ onLine: () => {} }, 'historico.bin')).rejects.toThrow('sin huella');
+  await expect(fs.stat(target + '.sha256')).rejects.toThrow();
+});
+
+it('comparte una descarga concurrente del mismo firmware y verifica la caché siguiente', async () => {
+  let liberar: () => void = () => {};
+  const espera = new Promise<void>(resolve => { liberar = resolve; });
+  fixture.fetch.mockImplementationOnce(async () => { await espera; return new Response('firmware nuevo'); });
+  const a = ensureMicropythonFirmware({ onLine: () => {} }, 'nuevo.bin');
+  const b = ensureMicropythonFirmware({ onLine: () => {} }, 'nuevo.bin');
+  expect(a).toBe(b); liberar();
+  expect(await a).toBe(await b);
+  await ensureMicropythonFirmware({ onLine: () => {} }, 'nuevo.bin');
+  expect(fixture.fetch).toHaveBeenCalledTimes(1);
+});
+it('una descarga fallida libera la cola para reintentar sin publicar un binario parcial', async () => {
+  fixture.fetch.mockRejectedValueOnce(new Error('sin red')).mockResolvedValueOnce(new Response('recuperado'));
+  await expect(ensureMicropythonFirmware({ onLine: () => {} }, 'retry.bin')).rejects.toThrow('sin red');
+  await expect(fs.stat(path.join(fixture.firmwareRoot, 'micropython', 'retry.bin'))).rejects.toMatchObject({ code: 'ENOENT' });
+  await ensureMicropythonFirmware({ onLine: () => {} }, 'retry.bin');
+  expect(fixture.fetch).toHaveBeenCalledTimes(2);
 });
