@@ -1,3 +1,4 @@
+import { VersionesGuardado, ErrorRevision, type ConflictoGuardado } from './versiones-guardado.js';
 import { GuardadoDiagrama } from './guardado-diagrama.js';
 import { firmaDiagramaElectrico } from '@emu/shared';
 import { riesgoDesdeFisica, salidaDesdeFisica } from './estado-electrico.js';
@@ -138,6 +139,7 @@ const state = observable({
   timerNota: null,
   /** Hay cambios en el editor que todavía no se guardaron. */
   editorSucio: false,
+  conflictoGuardado: null as ConflictoGuardado | null,
   /** Últimas notificaciones (globos), para la ventana de notificaciones. */
   notificaciones: ([] as { texto: string, hora: Date }[]),
   /** Errores de la última compilación (para la pestaña Problemas). */
@@ -203,6 +205,7 @@ window.addEventListener('storage', event => {
 // Lo que los componentes de React necesitan disparar (#9). Van por el puente y no importándose,
 // para no armar un ciclo entre app.ts y los componentes.
 registrarAcciones({
+  resolverConflicto,
   crearCamara: (project, instance, camera) => crearControladorCamara(project, instance, `/api/projects/${encodeURIComponent(project)}/cameras/${encodeURIComponent(instance)}`, {
     media: navigator.mediaDevices,
     permissions: navigator.permissions,
@@ -335,16 +338,111 @@ function nota(texto) {
 
 // --- API --------------------------------------------------------------------
 
+const versionesGuardado = new VersionesGuardado();
+const recursoProyecto = (nombre: string) => `/api/projects/${encodeURIComponent(nombre)}`;
+const recursoDiagrama = (nombre: string) => `${recursoProyecto(nombre)}/diagram`;
+const claveRecurso = (ruta: string) => /^\/api\/projects\/[^/]+(?:\?.*)?$/.test(ruta) ? ruta.split('?')[0] : ruta;
+const recursoProtegido = (ruta: string) => /^\/api\/projects\/[^/]+(?:\/diagram|\/files\/.+)?(?:\?.*)?$/.test(ruta);
+
 async function api(path: string, opts: RequestInit = {}) {
-  // content-type solo con cuerpo: Fastify rechaza (400) un JSON vacío, y Parar/Reset no mandan cuerpo.
-  const res = await fetch(path, {
-    ...opts,
-    headers: { 'x-cliente': CLIENTE, ...(opts.body ? { 'content-type': 'application/json' } : {}) },
-  });
-  const texto = await res.text();
-  const datos = texto ? JSON.parse(texto) : {};
-  if (!res.ok) throw new Error(datos.error ?? `HTTP ${res.status}`);
-  return datos;
+  const enviar = async (revision?: string) => {
+    const headers = new Headers(opts.headers);
+    headers.set('x-cliente', CLIENTE);
+    if (opts.body) headers.set('content-type', 'application/json');
+    if (revision) headers.set('if-match', revision);
+    const res = await fetch(path, { ...opts, headers });
+    const texto = await res.text();
+    const datos = texto ? JSON.parse(texto) : {};
+    if (!res.ok) {
+      if (res.status === 412 || res.status === 428) throw new ErrorRevision(datos.error ?? 'Conflicto de guardado.', res.status);
+      throw new Error(datos.error ?? `HTTP ${res.status}`);
+    }
+    return datos;
+  };
+  if (opts.method?.toUpperCase() !== 'PUT' || !recursoProtegido(path)) return enviar();
+  const recurso = claveRecurso(path);
+  try {
+    const respuesta = await versionesGuardado.guardar(recurso, async revision => {
+      const datos = await enviar(revision);
+      return { revision: path.endsWith('/diagram') ? datos.revisionDiagrama : datos.revision, datos };
+    }, new Headers(opts.headers).get('if-match') ?? undefined);
+    if (state.proyecto && (recurso === recursoProyecto(state.proyecto.name) || recurso === recursoDiagrama(state.proyecto.name))) {
+      state.proyecto = respuesta.datos.project;
+      versionesGuardado.cargar(recursoProyecto(state.proyecto.name), respuesta.datos.revision);
+      pintarWidgetsProyecto();
+    }
+    return respuesta.datos;
+  } catch (error) {
+    if (error instanceof ErrorRevision) {
+      versionesGuardado.bloquear(recurso);
+      await mostrarConflicto(recurso, String(opts.body ?? '{}'));
+    }
+    throw error;
+  }
+}
+
+let cargaConflicto = 0;
+function contenidoLocal(recurso: string): string {
+  if (recurso.endsWith('/diagram')) return JSON.stringify(state.diagrama);
+  if (recurso.includes('/files/')) return JSON.stringify({ content: contenidoEditor() });
+  return state.conflictoGuardado?.local ?? '{}';
+}
+async function mostrarConflicto(recurso: string, local: string): Promise<void> {
+  const proyecto = state.proyecto?.name;
+  if (!proyecto || !recurso.startsWith(recursoProyecto(proyecto) + '/') && recurso !== recursoProyecto(proyecto)) return;
+  const carga = ++cargaConflicto;
+  const titulo = recurso.endsWith('/diagram') ? 'Circuito' : recurso.includes('/files/') ? 'Archivo' : 'Configuración';
+  state.conflictoGuardado = { recurso, proyecto, titulo, local, remoto: 'Cargando versión guardada…' };
+  try {
+    const datos = await api(recurso.endsWith('/diagram') ? recursoProyecto(proyecto) : recurso);
+    if (carga !== cargaConflicto || state.proyecto?.name !== proyecto) return;
+    const remoto = recurso.endsWith('/diagram') ? JSON.stringify({ modules: datos.project.modules, wires: datos.project.wires })
+      : recurso.includes('/files/') ? JSON.stringify({ content: datos.content }) : JSON.stringify(datos.project);
+    state.conflictoGuardado = { recurso, proyecto, titulo, local, remoto,
+      revisionRemota: recurso.endsWith('/diagram') ? datos.revisionDiagrama : datos.revision };
+  } catch (error) {
+    if (carga === cargaConflicto) state.conflictoGuardado = { recurso, proyecto, titulo, local, remoto: `No se pudo cargar: ${String((error as Error).message)}` };
+  }
+  nota('Hay un conflicto. Tus cambios siguen disponibles; elegí cómo resolverlo.');
+}
+async function resolverConflicto(opcion: 'descargar' | 'remoto' | 'local'): Promise<void> {
+  const conflicto = state.conflictoGuardado;
+  if (!conflicto || state.proyecto?.name !== conflicto.proyecto) return;
+  const { recurso, proyecto } = conflicto;
+  const local = contenidoLocal(recurso);
+  if (opcion === 'descargar') {
+    const contenido = recurso.includes('/files/') ? JSON.parse(local).content : JSON.stringify(JSON.parse(local), null, 2);
+    const enlace = document.createElement('a');
+    const url = URL.createObjectURL(new Blob([contenido], { type: 'text/plain;charset=utf-8' }));
+    enlace.href = url; enlace.download = recurso.includes('/files/') ? decodeURIComponent(recurso.split('/files/')[1].split('?')[0]).split('/').pop() : `${proyecto}-circuito.json`;
+    enlace.click(); setTimeout(() => URL.revokeObjectURL(url), 0); return;
+  }
+  try {
+    if (opcion === 'local') {
+      if (!conflicto.revisionRemota) return;
+      await api(recurso, { method: 'PUT', body: local, headers: { 'if-match': conflicto.revisionRemota } });
+      if (state.proyecto?.name !== proyecto) return;
+      if (contenidoLocal(recurso) === local) {
+        if (recurso.endsWith('/diagram')) guardadoDiagrama.aceptarCarga();
+        else if (recurso.includes('/files/')) state.editorSucio = false;
+      }
+    } else {
+      const datos = await api(recurso.endsWith('/diagram') ? recursoProyecto(proyecto) : recurso);
+      if (state.proyecto?.name !== proyecto || contenidoLocal(recurso) !== local) { nota('Hubo cambios mientras cargaba. Se conservan tus ediciones.'); return; }
+      if (recurso.includes('/files/')) {
+        versionesGuardado.cargar(recurso, datos.revision);
+        editarContenido(datos.content); state.editorSucio = false; clearTimeout(state.timerGuardado);
+      } else {
+        // Un cambio de placas puede afectar al archivo; resolverlo también antes de recargar.
+        if (state.editorSucio) { nota('Conservá o guardá el archivo antes de cargar el proyecto.'); return; }
+        if (!recurso.endsWith('/diagram') && guardadoDiagrama.sucio) { nota('Resolvé primero los cambios del circuito.'); return; }
+        await recargarProyecto(proyecto);
+        if (guardadoDiagrama.sucio || state.editorSucio) return;
+      }
+    }
+    if (state.conflictoGuardado === conflicto) state.conflictoGuardado = null;
+    await refrescarAvisos();
+  } catch (error) { nota(`No se pudo resolver: ${String((error as Error).message)}`); }
 }
 
 // --- Consola ----------------------------------------------------------------
@@ -871,6 +969,7 @@ function guardarAuto() {
 
 async function guardar(silencioso = false) {
   if (!state.proyecto || !state.activo) return true;
+  if (!state.editorSucio) return true;
   clearTimeout(state.timerGuardado);
   const proyecto = state.proyecto.name;
   const archivo = state.activo;
@@ -899,20 +998,24 @@ async function abrirArchivo(ruta) {
   const proyecto = state.proyecto.name;
   const boardId = state.placaActivaId;
   if (!boardId) return;
-  if (state.activo && state.activo !== ruta && !await guardar(true)) return;
+  if (state.activo && (state.activo !== ruta || state.editorSucio) && (!await guardar(true) || state.editorSucio)) return;
   if (version !== aperturasArchivo) return;
-  const { content } = await api(urlArchivo(proyecto, ruta, boardId));
+  const contenidoPrevio = contenidoEditor();
+  const { content, revision } = await api(urlArchivo(proyecto, ruta, boardId));
   // Si mientras cargaba se cambió de proyecto, este contenido es de otro: no se muestra
   // (si no, el autoguardado lo escribiría en el proyecto equivocado).
   if (version !== aperturasArchivo || state.proyecto?.name !== proyecto || state.placaActivaId !== boardId) return;
-  if (state.editorSucio && state.activo !== ruta && (!await guardar(true) || state.editorSucio)) return;
+  if (state.activo === ruta && contenidoEditor() !== contenidoPrevio) return;
+  if (state.editorSucio && (!await guardar(true) || state.editorSucio)) return;
   if (version !== aperturasArchivo || state.proyecto?.name !== proyecto || state.placaActivaId !== boardId) return;
   const preservarErrores = proyectoEditor === proyecto && placaEditor === boardId && Boolean(state.activo) && state.activo !== ruta;
-  mostrarContenidoArchivo(ruta, content, preservarErrores);
+  mostrarContenidoArchivo(ruta, content, preservarErrores, revision);
 }
 
 /** Aplica contenido que ya se cargó: no deja una selección parcial si falla la red. */
-function mostrarContenidoArchivo(ruta: string, content: string, preservarErrores = false): void {
+function mostrarContenidoArchivo(ruta: string, content: string, preservarErrores = false, revision?: string): void {
+  if (state.proyecto && revision) versionesGuardado.cargar(urlArchivo(state.proyecto.name, ruta), revision);
+  state.editorSucio = false;
   state.activo = ruta;
   editor.lenguaje = lenguajeDeArchivo(ruta);
   $('lenguaje-status').textContent = NOMBRE_LENGUAJE[editor.lenguaje];
@@ -949,7 +1052,7 @@ async function seleccionarPlaca(boardId: string, archivo?: string) {
     state.carpetas = resultado.directories ?? [];
     state.archivos = files;
     state.activo = null;
-    if (main && loaded) mostrarContenidoArchivo(main.path, loaded.content);
+    if (main && loaded) mostrarContenidoArchivo(main.path, loaded.content, false, loaded.revision);
     else editarContenido('');
     pintarPanelDerecho(); pintarWidgetsProyecto(); pintarAlimentacion(); lienzo.render();
     const status = state.sim.estadosPorPlaca.get(boardId);
@@ -1083,8 +1186,10 @@ const guardadoDiagrama = new GuardadoDiagrama({
   alGuardar: refrescarAvisos,
   alError: error => nota(`No se pudo guardar el circuito: ${String((error as Error)?.message ?? error)}`),
   enviarAlSalir: (proyecto, contenido) => {
-    void fetch(`/api/projects/${proyecto}/diagram`, {
-      method: 'PUT', headers: { 'content-type': 'application/json', 'x-cliente': CLIENTE },
+    const recurso = recursoDiagrama(proyecto), revision = versionesGuardado.revision(recurso);
+    if (!revision || versionesGuardado.bloqueado(recurso) || versionesGuardado.enCurso(recurso)) return;
+    void fetch(recurso, {
+      method: 'PUT', headers: { 'content-type': 'application/json', 'x-cliente': CLIENTE, 'if-match': revision },
       body: contenido, keepalive: true,
     }).catch(() => {});
   },
@@ -1101,6 +1206,10 @@ function guardarDiagrama() {
 
 const guardarDiagramaYa = () => guardadoDiagrama.alSalir();
 window.addEventListener('pagehide', guardarDiagramaYa);
+window.addEventListener('beforeunload', event => {
+  if (!state.editorSucio && !guardadoDiagrama.sucio && !state.conflictoGuardado) return;
+  event.preventDefault(); event.returnValue = '';
+});
 
 function nuevoId(type) {
   const PREFIJOS = {
@@ -1777,6 +1886,13 @@ async function aplicarCambioExterno(msg) {
   let files = resumen.files;
   let directories = resumen.directories ?? [];
   if (state.proyecto?.name !== nombre) return;
+  const cambioPlacas = JSON.stringify(placasDelProyecto(project)) !== JSON.stringify(placasDelProyecto(state.proyecto));
+  if ((msg.what === 'diagram' && guardadoDiagrama.sucio) || (cambioPlacas && (guardadoDiagrama.sucio || state.editorSucio))) {
+    const recurso = recursoDiagrama(nombre);
+    versionesGuardado.bloquear(recurso);
+    await mostrarConflicto(recurso, JSON.stringify(state.diagrama));
+    return;
+  }
   // Se agregó o se quitó la placa (otra pestaña, el MCP): cambian el código, la barra y el modo de ▶.
   if (JSON.stringify(placasDelProyecto(project)) !== JSON.stringify(placasDelProyecto(state.proyecto))) {
     await recargarProyecto(nombre);
@@ -1789,8 +1905,10 @@ async function aplicarCambioExterno(msg) {
     directories = contexto.directories ?? [];
   }
   if (msg.what === 'diagram') {
-    // El cambio de afuera gana: lo pendiente de esta pestaña se descarta.
-    guardadoDiagrama.descartar();
+    versionesGuardado.cargar(recursoDiagrama(nombre), resumen.revisionDiagrama);
+    versionesGuardado.cargar(recursoProyecto(nombre), resumen.revision);
+    guardadoDiagrama.aceptarCarga();
+    state.proyecto = project;
     state.diagrama = { modules: [...project.modules], wires: [...project.wires] };
     for (const board of placasDelProyecto(project)) {
       if (!state.diagrama.modules.some(m => m.id === board.id)) state.diagrama.modules.unshift({ id: board.id, type: board.board, x: 0, y: 0, props: {} });
@@ -1805,11 +1923,17 @@ async function aplicarCambioExterno(msg) {
   } else {
     state.carpetas = directories ?? [];
     state.archivos = files.filter((f) => !/(^|\/)(secrets\.yaml|project\.json)$/.test(f.path));
-    if (msg.file === state.activo) {
+    if (msg.file === state.activo && (!msg.boardId || msg.boardId === state.placaActivaId)) {
       if (state.editorSucio) {
-        nota(`${msg.file} cambió afuera, pero tenés cambios sin guardar: se mantienen los tuyos.`);
+        const recurso = urlArchivo(nombre, msg.file);
+        versionesGuardado.bloquear(recurso);
+        await mostrarConflicto(recurso, JSON.stringify({ content: contenidoEditor() }));
       } else {
-        const { content } = await api(urlArchivo(nombre, msg.file));
+        const recurso = urlArchivo(nombre, msg.file), boardId = state.placaActivaId;
+        const { content, revision } = await api(recurso);
+        if (state.proyecto?.name !== nombre || state.activo !== msg.file || state.placaActivaId !== boardId) return;
+        if (state.editorSucio) { versionesGuardado.bloquear(recurso); await mostrarConflicto(recurso, JSON.stringify({ content: contenidoEditor() })); return; }
+        versionesGuardado.cargar(recurso, revision);
         const scroll = scrollEditor();
         editarContenido(content);
         ponerScrollEditor(scroll);
@@ -2123,8 +2247,9 @@ async function actualizarExplorador(): Promise<void> {
 }
 
 async function abrirProyecto(nombre) {
+  const revisionDibujo = guardadoDiagrama.revision;
   const mia = ++aperturas;
-  const { project, files, directories, placa } = await api(`/api/projects/${encodeURIComponent(nombre)}`);
+  const { project, files, directories, placa, revision, revisionDiagrama } = await api(`/api/projects/${encodeURIComponent(nombre)}`);
   const visibles = files.filter((f) => !/(^|\/)(secrets\.yaml|project\.json)$/.test(f.path));
   const board = placasDelProyecto(project)[0];
   const main = visibles.find(f => /^(main\.(yaml|c|cpp|py)|sketch\.cpp)$/.test(f.path)) ?? visibles[0];
@@ -2133,12 +2258,17 @@ async function abrirProyecto(nombre) {
   // Se puede seguir escribiendo mientras llega el proyecto: guardar también esa versión.
   if (state.editorSucio && (!await guardar(true) || state.editorSucio)) return;
   if (mia !== aperturas) return;
+  if (guardadoDiagrama.revision !== revisionDibujo && guardadoDiagrama.sucio) { nota('El circuito cambió durante la carga. Se conservan tus ediciones.'); return; }
   document.body.classList.remove('inicio');
   const cambioProyecto = state.proyecto?.name !== nombre;
   if (cambioProyecto) detenerCamarasDeOtrosProyectos(nombre);
   if (cambioProyecto) state.exploradorPlacas = [];
   invalidarObservacionFisica();
   state.proyecto = project;
+  versionesGuardado.cargar(recursoProyecto(nombre), revision);
+  versionesGuardado.cargar(recursoDiagrama(nombre), revisionDiagrama);
+  guardadoDiagrama.aceptarCarga();
+  state.conflictoGuardado = null;
   if (cambioProyecto) {
     state.filtroModulos = projectDockFilter(nombre);
     actualizarDistribucion(projectDockLayout(nombre));
@@ -2159,7 +2289,7 @@ async function abrirProyecto(nombre) {
   state.seleccion = null;
   state.activo = null;
   editarContenido('');
-  if (main && loaded) mostrarContenidoArchivo(main.path, loaded.content);
+  if (main && loaded) mostrarContenidoArchivo(main.path, loaded.content, false, loaded.revision);
   if (mia !== aperturas) return;
   pintarPanelDerecho();
   pintarWidgetsProyecto();
@@ -2979,7 +3109,7 @@ async function guardarAntesDeNavegar(): Promise<boolean> {
     nota('No se pudo guardar el archivo. La navegación quedó pendiente; reintentá cuando se recupere la conexión.');
     return false;
   }
-  if (state.editorSucio || guardadoDiagrama.revision !== revision || guardadoDiagrama.pendiente) {
+  if (state.editorSucio || guardadoDiagrama.sucio || state.conflictoGuardado || guardadoDiagrama.revision !== revision || guardadoDiagrama.pendiente) {
     sel('proyecto').value = state.proyecto?.name ?? '';
     nota('Hubo cambios durante el guardado. Reintentá la navegación para conservarlos.');
     return false;

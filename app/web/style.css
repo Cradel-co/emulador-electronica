@@ -913,3 +913,14 @@ body.depuracion-parada .punto-estado { background: var(--azul); box-shadow: 0 0 
 .explorer-group-children { padding-left: var(--explorer-indent); }
 .explorer-board-root > summary { color: #c5a65b; }
 .explorer-board-root > .explorer-group-children > ul { padding-left: 0; }
+
+.conflicto-guardado {
+  position: fixed; bottom: 2rem; left: 50%; transform: translateX(-50%);
+  z-index: 1000; width: min(48rem, calc(100vw - 2rem)); max-height: 60vh; overflow: auto;
+  background: var(--panel, #20242b); color: var(--text, #eee); border: 2px solid #d69c35;
+  border-radius: .5rem; padding: 1rem; box-shadow: 0 .5rem 2rem #0008;
+}
+.conflicto-guardado h2 { font-size: 1rem; margin: 0 0 .5rem; }
+.conflicto-guardado menu { display: flex; flex-wrap: wrap; gap: .5rem; padding: 0; }
+.conflicto-versiones { display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); gap: 1rem; }
+.conflicto-versiones pre { max-height: 15rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }

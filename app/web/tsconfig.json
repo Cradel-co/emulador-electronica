@@ -18,6 +18,6 @@
     "disableSourceOfProjectReferenceRedirect": true
   },
   "include": ["*.ts", "*.tsx", "react/**/*.ts", "react/**/*.tsx"],
-  "exclude": ["dist", ".types", "navigation.ts", "navigation-route.ts", "guardado-diagrama.ts"],
+  "exclude": ["dist", ".types", "navigation.ts", "navigation-route.ts", "guardado-diagrama.ts", "versiones-guardado.ts"],
   "references": [{ "path": "./tsconfig.navigation.json" }, { "path": "./tsconfig.coordinacion.json" }]
 }
