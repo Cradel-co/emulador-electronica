@@ -1,7 +1,7 @@
 # SDD — Consolidación del emulador de electrónica
 
 Fecha: 2026-10-08. Base analizada: `4744351` de `origin/main`.
-Estado: etapas 1–3 y 5 integradas; primera entrega de etapa 4 integrada en #75; segunda entrega validada, pendiente de revisión e integración; etapa 6 pendiente.
+Estado: etapas 1–3 y 5 integradas; primera entrega de etapa 4 integrada en #75; segunda entrega integrada en #76; tercera entrega validada, pendiente de revisión e integración; etapa 6 pendiente.
 
 ## 1. Problema y resultado esperado
 
@@ -197,7 +197,7 @@ Una mejora de fidelidad debe declarar dominio y procedencia de parámetros, adem
 | Etapa 1 | Integrada en PR #71 | 72 pruebas focalizadas; 1552 pasan y 1 omitida en `npx vitest run`; build general y typechecks server/web pasan |
 | Etapa 2 | Integrada en PR #72 | E2E: 133 pasan, 13 omisiones existentes; recarga Aprender 3/3; Vitest: 1552 pasan, 1 omitida; build/typechecks pasan |
 | Etapa 3 | Integrada en PR #73 | Vitest: 1572 pasan, 1 omitida; E2E: 135 pasan, 13 omisiones existentes; build/typechecks pasan |
-| Etapa 4 | Primera entrega integrada en #75; segunda en validación | Vitest: 1618 pasan, 1 omitida; E2E: 135 pasan, 13 omisiones existentes; build/tipos pasan. Conflictos implementados en validación; firmware y descarga pendientes |
+| Etapa 4 | Primera y segunda entregas integradas en #75 y #76; tercera validada, pendiente de integración | Vitest: 1618 pasan, 1 omitida; E2E: 135 pasan, 13 omisiones existentes; build/tipos pasan. Conflictos integrados; firmware y descarga validados; pendientes de integración |
 | Etapa 5 | Integrada en PR #74 | Vitest: 1608 pasan, 1 omitida; E2E: 135 pasan, 13 omisiones existentes; build/typechecks pasan; [contratos y límites](docs/coordinacion.md) |
 | Etapa 6 | Pendiente | Exportación y presentación del análisis físico |
 
@@ -302,3 +302,18 @@ E2E completos en dos grupos, 90 + 49 aprobados y 8 + 5 omisiones condicionales e
 Incluye cuatro E2E nuevos; no se agregaron skips ni retries. Typechecks server/web, build de
 producción y validación del fragmento de changelog pasan. No se ensayó cierre real del navegador,
 firmware nuevo en Docker ni hardware físico.
+
+### Cuarta etapa, tercera entrega: firmware y descargas
+
+Base `b58ca62`, con PR #76 integrado. El [contrato de integridad y descargas](docs/integridad-firmware-descargas.md)
+define la referencia TOFU, el rechazo explícito de caché histórica sin huella, recuperación y
+publicación atómica de binario y referencia por separado. Las descargas de módulos y firmware
+cuentan bytes durante lectura y cancelan al superar presupuesto o plazo del cuerpo.
+Tres regresiones fallaron antes del cambio; no se incorpora código de #55 ni autenticidad
+inexistente del primer download. La recuperación conjunta ante borrado externo de una placa
+continúa como límite específico de conflictos, documentado en su contrato.
+
+Validación de la tercera entrega: 1642 pruebas unitarias aprobadas y una omisión existente;
+5 E2E del importador aprobados. Typecheck del servidor, build de producción y fragmento de
+changelog pasan. Sin nuevas omisiones. La suite E2E completa anterior corresponde a #76;
+esta entrega ejecuta el recorrido afectado de importación.

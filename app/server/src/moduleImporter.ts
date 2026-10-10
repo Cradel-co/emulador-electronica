@@ -1,3 +1,4 @@
+import { descargarAcotado } from './descargaAcotada.js';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { unzipSync } from 'fflate';
@@ -383,19 +384,8 @@ export async function descargar(url: string, fetcher: typeof fetch = fetch): Pro
     throw new ImportError(`URL inválida: ${url}`);
   }
   if (u.protocol !== 'https:') throw new ImportError('solo se aceptan URLs https://');
-  let res: Response;
-  try {
-    res = await fetcher(u, { signal: AbortSignal.timeout(LIMITES.timeoutMs), redirect: 'follow' });
-  } catch (err) {
-    throw new ImportError(`no se pudo descargar ${url}: ${(err as Error).message}`);
-  }
-  if (res.url && !res.url.startsWith('https:')) throw new ImportError('la descarga redirigió a una URL que no es https');
-  if (!res.ok) throw new ImportError(`no se pudo descargar ${url}: HTTP ${res.status}`);
-  const largo = Number(res.headers.get('content-length') ?? 0);
-  if (largo > LIMITES.descarga) throw new ImportError('el archivo es demasiado grande (máx. 15 MB)');
-  const datos = new Uint8Array(await res.arrayBuffer());
-  if (datos.length > LIMITES.descarga) throw new ImportError('el archivo es demasiado grande (máx. 15 MB)');
-  return datos;
+  try { return await descargarAcotado(u.href, LIMITES.descarga, LIMITES.timeoutMs, fetcher); }
+  catch (err) { throw new ImportError(`no se pudo descargar ${url}: ${(err as Error).message}`); }
 }
 
 /** Repos de GitHub: https://github.com/dueño/repo[/tree/rama/sub/carpeta] */

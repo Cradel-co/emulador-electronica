@@ -38,8 +38,8 @@ La UI usa escrituras condicionales y conserva su edición cuando encuentra un co
 contrato y la compatibilidad están en [conflictos-guardado.md](conflictos-guardado.md).
 Ese contrato también describe el keepalive condicional y la conservación de cambios ante eventos externos.
 
-La verificación de caché de firmware y los presupuestos durante las descargas siguen
-pendientes. No se presenta esta entrega como el cierre completo de la etapa 4.
+La tercera entrega agrega [integridad de firmware y descargas acotadas](integridad-firmware-descargas.md),
+con política explícita para caché histórica y referencias conservadas.
 
 ## Evidencia
 

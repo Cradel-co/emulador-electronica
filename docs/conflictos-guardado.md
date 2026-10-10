@@ -79,7 +79,7 @@ E2E reales usan dos pestañas, descarga de código, un editor externo sobre disc
 resolución del dibujo y navegación posterior. El ensayo de pagehide comprueba la cabecera y el
 rechazo del servidor; no se presenta como un ensayo de cierre real ni persistencia tras un crash.
 
-Siguen pendientes integridad de caché de firmware y límites durante las descargas. La cola sólo
+La tercera entrega implementa [integridad de caché y límites de descarga](integridad-firmware-descargas.md). La cola sólo
 coordina un proceso y no hace compare-and-swap frente a un editor externo que escriba entre el
 chequeo y rename. Tampoco hay fusión semántica de cambios ni aislamiento multiusuario. La recuperación conjunta
 de código pendiente y una placa borrada externamente necesita un flujo específico: esta entrega

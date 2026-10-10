@@ -350,3 +350,17 @@ module.exports = { circuito(ctx) { ctx.interruptor(ctx.pin('SIG'), ctx.pin('GND'
     expect(readdirSync(dir)).toEqual([]);
   });
 });
+
+
+it('cancela una descarga chunked al superar el presupuesto durante la lectura', async () => {
+  let cancelado = false;
+  let leidos = 0;
+  const stream = new ReadableStream<Uint8Array>({
+    pull(c) { leidos++; if (leidos <= 20) c.enqueue(new Uint8Array(1024 * 1024)); else c.close(); },
+    cancel() { cancelado = true; },
+  });
+  const fetcher: typeof fetch = async () => new Response(stream);
+  await expect(paquetesDeUrl('https://x.com/grande.zip', {}, fetcher)).rejects.toThrow('demasiado grande');
+  expect(cancelado).toBe(true);
+  expect(leidos).toBeLessThan(20);
+});
