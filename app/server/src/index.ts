@@ -1,3 +1,4 @@
+import { crearInforme } from '@emu/shared';
 import { revisionContenido, revisionProyecto, revisionDiagrama, comprobarRevision, ConflictoRevision } from './revisionGuardado.js';
 import { crearTransporteEventos } from './transporteEventos.js';
 import { crearServicioObservacion } from './observacionElectrica.js';
@@ -897,6 +898,23 @@ async function registerRoutes(): Promise<void> {
     } catch (err) {
       fail(reply, err);
     }
+  });
+
+  app.get('/api/projects/:name/report', async (req, reply) => {
+    const { name } = req.params as { name: string };
+    try {
+      await store.transaccion(name, async () => {
+        const project = await requireProject(name);
+        const revision = revisionProyecto(project);
+        comprobarRevision(req.headers, revision);
+        const resultado = await avisosDelProyecto(project);
+        const catalogo = await loadCatalog();
+        if (revisionProyecto(await requireProject(name)) !== revision) throw new ConflictoRevision(revisionProyecto(await requireProject(name)));
+        const informe = crearInforme(conPlaca(project), resultado.electrico, revision, catalogo, new Date().toISOString());
+        informe.avisos.push(...resultado.warnings.map(w => w.message));
+        reply.header('cache-control', 'no-store').send(informe);
+      });
+    } catch (err) { fail(reply, err); }
   });
 
   app.get('/api/projects/:name/pins', async (req, reply) => {
