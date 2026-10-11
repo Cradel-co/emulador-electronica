@@ -6,7 +6,7 @@ analógica, con un sensor cuyos números salen de la hoja de datos.
 
 ## Para probarlo
 
-Apretá **▶** y mirá la consola: imprime una línea por segundo con las cuentas del ADC, los voltios
+Apretá **▶**, abrí la consola y seleccioná la pestaña **Emulador** (no **Compilación**): imprime una línea por segundo con las cuentas del ADC, los voltios
 y los decibeles. Después cambiá **Nivel de sonido del ambiente (dBA)** en el panel de propiedades
 del sonómetro y mirá cómo cambia la lectura.
 
@@ -30,8 +30,9 @@ Medido con el motor sobre esta misma plantilla:
 | 100 dBA | 2,00 V | 2646 | 100,1 dBA |
 | 130 dBA | 2,60 V | 3440 | 130,2 dBA |
 
-El error de ida y vuelta es de **0,2 dB**, por la cuantización del ADC. Queda bastante por debajo
-del ±1,5 dB del propio sensor.
+En este escenario, la diferencia de ida y vuelta observada es de **0,1–0,2 dB**. Incluye la
+diferencia entre la tensión resuelta por el motor y el valor ideal, la cuantización del ADC y
+el redondeo de la impresión. No es una calibración ni una garantía de error máximo del sensor.
 
 ## Por qué el perfil de ADC está en el proyecto
 

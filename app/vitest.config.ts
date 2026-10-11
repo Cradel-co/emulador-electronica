@@ -14,6 +14,5 @@ export default defineConfig({
     // Cada archivo de física puede crear un worker ngspice/WASM: acotar la suite evita
     // saturar memoria/CPU y convertir plazos de arranque en falsas regresiones.
     maxWorkers: 2,
-    minWorkers: 1,
   },
 });
