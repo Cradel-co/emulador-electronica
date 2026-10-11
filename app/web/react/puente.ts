@@ -1,3 +1,4 @@
+import type { ControladorMicrofono } from '../microfono.js';
 import type { CameraDescriptor } from '@emu/shared';
 import type { ControladorCamara } from '../camera.js';
 /**
@@ -24,6 +25,7 @@ let alEntregar: ((l: Lienzo) => void) | null = null;
  * arrancar y los componentes las piden cuando el usuario hace algo.
  */
 export interface Acciones {
+  crearMicrofono: (proyecto: string, instancia: string) => ControladorMicrofono;
   resolverConflicto: (opcion: 'descargar' | 'remoto' | 'local') => Promise<void>;
   crearCamara: (project: string, instance: string, camera: CameraDescriptor) => ControladorCamara;
   agregarModulo: (type: string) => void;

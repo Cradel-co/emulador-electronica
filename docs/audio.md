@@ -312,7 +312,9 @@ la hoja de datos y ninguno hay que inventarlo.
 | Respuesta | 31,5 Hz a 8,5 kHz, constante de 125 ms |
 
 El nivel del ambiente se pone en la prop **Nivel de sonido del ambiente (dBA)**, igual que la
-posición de un potenciómetro. No hay simulación acústica: es un dato de la escena.
+posición de un potenciómetro. Desde Debug también se puede usar el micrófono del computador
+como estímulo estimado con referencia ajustable, sin ponderación A ni calibración SPL.
+No hay simulación acústica. Ver [cómo conectarlo y probarlo](sonometro.md#micrófono-del-computador).
 
 **La salida se modela con un `regulador`, no con una `fuenteTension`.** Así la energía que entrega
 sale de su VCC en vez de aparecer de la nada, y si la alimentación no alcanza, el fondo de escala

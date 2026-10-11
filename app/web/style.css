@@ -933,3 +933,28 @@ body.depuracion-parada .punto-estado { background: var(--azul); box-shadow: 0 0 
 .informe-tabla th, .informe-tabla td { padding: .45rem; border: 1px solid var(--borde); text-align: left; white-space: nowrap; }
 .informe-prototipo pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 30vh; overflow: auto; }
 .informe-acciones { display: flex; flex-wrap: wrap; gap: .5rem; justify-content: flex-end; }
+
+/* Historial de instantáneas separado de los canales digitales de Debug. */
+#debug { grid-template-rows: auto minmax(0, 1fr) auto; overflow-y: auto; }
+#monitor-detalles > summary { padding: 8px 12px; cursor: pointer; }
+.monitor-panel { max-height: 310px; overflow: auto; padding: 6px 10px; border-bottom: 1px solid var(--borde); }
+.monitor-panel header { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.monitor-panel h4, .monitor-serie { margin: 0; }
+.monitor-panel p, .monitor-panel small { font-size: 11px; opacity: .8; }
+.monitor-panel p { margin: 5px 0; }
+.monitor-serie { display: inline-block; vertical-align: top; width: min(100%, 550px); padding: 8px 10px 8px 0; }
+.monitor-serie figcaption { font-size: 12px; }
+.monitor-serie svg { display: block; width: 100%; max-height: 80px; }
+.monitor-serie text { fill: currentColor; font-size: 10px; }
+/* Al desplegar Monitoreo usa el espacio de Debug; al cerrarlo vuelve la vista del depurador. */
+#debug:has(#monitor-detalles[open]) { grid-template-rows: auto minmax(0, 1fr); }
+#debug:has(#monitor-detalles[open]) .dbg-cuerpo { display: none; }
+#dbg-monitoreo { min-height: 0; overflow: auto; }
+.monitor-panel > small { display: block; }
+.microfono-entrada { margin: 8px 0; padding: 8px 0; border-bottom: 1px solid var(--borde); }
+.microfono-controles { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 6px 0; }
+.microfono-controles input { width: 85px; }
+.microfono-panel figure { margin: 8px 0; max-width: 550px; }
+.microfono-panel figcaption, .microfono-panel small { font-size: 11px; }
+.microfono-panel canvas { display: block; width: 100%; height: 100px; background: var(--fondo, #17191b); }
+.microfono-panel [role="alert"] { color: var(--rojo, #ff8c8c); }

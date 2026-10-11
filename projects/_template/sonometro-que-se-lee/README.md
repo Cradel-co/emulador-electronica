@@ -20,7 +20,7 @@ El sensor es lineal: **20 mV por decibel**, 0,6 V con 30 dBA y 2,6 V con 130 dBA
 declarado con atenuación de 11 dB y fondo de escala de 3,1 V, así que la cuenta es
 `4096 · V / 3,1`. El programa deshace las dos.
 
-Medido con el motor sobre esta misma plantilla:
+Medido con el motor en el circuito original, antes de agregar la TFT:
 
 | Nivel | Tensión | Cuentas del ADC | Vuelve como |
 |---|---|---|---|
@@ -49,3 +49,39 @@ motivo (`SIN_MODELO_CANAL`). Por eso el programa lo atrapa y lo imprime en vez d
 El nivel de sonido del ambiente es un **dato de la escena**, no una simulación acústica: lo pones
 vos con la prop. Tampoco se modelan la ponderación A real del sensor (31,5 Hz a 8,5 kHz), su
 constante de tiempo de 125 ms ni su error de ±1,5 dB.
+
+## TFT: los últimos 10 segundos
+
+La ST7735 de 128×160 muestra el nivel actual y su evolución entre 30 y 130. El eje horizontal
+va de −10 s a ahora; la ventana arranca vacía y se completa con lecturas reales. El programa
+intenta muestrear cada 250 ms, conserva como máximo 40 puntos y usa el reloj de MicroPython.
+Si SPI tarda más, no inventa lecturas para compensarlo. Los errores ADC producen huecos y `---`.
+La curva muestra el nivel sonoro, no la onda acústica. La pantalla dice **dB simulados**: con
+entrada del computador no hay calibración SPL ni ponderación A.
+
+| TFT | ESP32-S3 |
+|---|---|
+| VCC y LED | 3V3 |
+| GND | GND |
+| SCK | GPIO12 |
+| SDA/MOSI | GPIO11 |
+| CS | GPIO10 |
+| A0/DC | GPIO9 |
+| RESET | GPIO8 |
+
+El sensor sigue conectado a GPIO4. No hacen falta bibliotecas externas: al crear el proyecto
+se generan `main.py` y `st7735.py` desde los generadores TypeScript del servidor. El generador
+principal está en `app/server/src/templates/sonometroTft.ts`.
+
+También podés conectar el micrófono en **Debug → Monitoreo de señales**. El ADC y la TFT leen el
+mismo circuito estimulado; al detener la captura vuelven al nivel manual. Más detalles en
+[Cómo probar y entender el sonómetro](../../../docs/sonometro.md).
+
+
+### Diseño del gráfico
+
+El historial circular guarda hasta 40 pares de instante y nivel. Se filtra por edad usando
+`ticks_diff`, incluida la vuelta del reloj; la posición horizontal depende de esa edad.
+Una lectura inválida corta el trazo. El framebuffer RGB565 usa colores con bytes intercambiados
+para transmitirlos en el orden que espera SPI. El primer cuadro se envía completo; después se
+comparan dos zonas (encabezado y gráfico) y se transmiten solamente sus rectángulos modificados.
