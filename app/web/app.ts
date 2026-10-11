@@ -1,5 +1,5 @@
 import { firmaVistaAnalisis } from './analisis-fisico.js';
-import { ParametrosVistaTransitorio, RespuestaVistaTransitorio, type ResultadoVistaAnalisis } from '@emu/shared';
+import { ParametrosVistaTransitorio, RespuestaVistaTransitorio, type ResultadoVistaAnalisis, type ConfiguracionTermicaVista, ModeloTermicoRcSchema } from '@emu/shared';
 import { ControladorMicrofono, desconectarMicrofono } from './microfono.js';
 import { observarMonitoreo, reiniciarMonitoreo } from './monitoreo-store.js';
 import { type InformePrototipo } from '@emu/shared';
@@ -477,8 +477,12 @@ async function abrirInformePrototipo(): Promise<void> {
 }
 
 /** Captura una instantánea de diseño y rechaza respuestas de otro contexto. */
-async function analizarFisica(modo: 'dc' | 'transitorio', parametros: ParametrosVistaTransitorio, signal: AbortSignal): Promise<ResultadoVistaAnalisis> {
-  if (modo === 'transitorio') ParametrosVistaTransitorio.parse(parametros);
+async function analizarFisica(modo: 'dc' | 'transitorio' | 'termico', parametros: ParametrosVistaTransitorio, signal: AbortSignal, termica?: ConfiguracionTermicaVista): Promise<ResultadoVistaAnalisis> {
+  if (modo !== 'dc') ParametrosVistaTransitorio.parse(parametros);
+  if (modo === 'termico') {
+    if (!termica?.elemento) throw new Error('Elegí un elemento disipativo identificado.');
+    ModeloTermicoRcSchema.parse(termica.modelo);
+  }
   if (!state.proyecto || !await guardarAntesDeNavegar()) throw new Error('Guardá o resolvé los cambios antes de analizar.');
   signal.throwIfAborted();
   const proyecto = state.proyecto.name;
@@ -487,7 +491,7 @@ async function analizarFisica(modo: 'dc' | 'transitorio', parametros: Parametros
   const firmaVista = firmaVistaAnalisis(state.proyecto, state.diagrama);
   const dibujo = guardadoDiagrama.revision, contenido = contenidoEditor();
   const respuesta = await api(`${recursoProyecto(proyecto)}/${modo === 'dc' ? 'report' : 'analysis/transient'}`, {
-    signal, headers: { 'if-match': revision }, ...(modo === 'transitorio' ? { method: 'POST', body: JSON.stringify({ parametros }) } : {}),
+    signal, headers: { 'if-match': revision }, ...(modo !== 'dc' ? { method: 'POST', body: JSON.stringify({ parametros, ...(modo === 'termico' && termica ? { termica: { [termica.elemento]: termica.modelo } } : {}) }) } : {}),
   });
   signal.throwIfAborted();
   if (state.proyecto?.name !== proyecto || firmaVistaAnalisis(state.proyecto, state.diagrama) !== firmaVista
@@ -497,7 +501,9 @@ async function analizarFisica(modo: 'dc' | 'transitorio', parametros: Parametros
   }
   const base = { schemaVersion: 1 as const, proyecto, revisionProyecto: revision, fechaUtc: respuesta.fechaUtc, firmaVista };
   if (modo === 'dc') return { ...base, dominio: 'instantanea-dc', resultado: respuesta as InformePrototipo };
-  return { ...base, dominio: 'transitorio-diseno', resultado: RespuestaVistaTransitorio.parse(respuesta) };
+  const resultado = RespuestaVistaTransitorio.parse(respuesta);
+  if (modo === 'termico' && (!termica || !resultado.termica?.[termica.elemento] || resultado.unidades.temperaturaC !== '°C' || resultado.unidades.energia !== 'J')) throw new Error('Falta un resultado térmico válido.');
+  return { ...base, dominio: modo === 'termico' ? 'termico-diseno' : 'transitorio-diseno', resultado };
 }
 
 // --- Consola ----------------------------------------------------------------

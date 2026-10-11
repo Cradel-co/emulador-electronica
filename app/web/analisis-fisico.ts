@@ -5,9 +5,10 @@ export function firmaVistaAnalisis(proyecto: Project | null, diagrama: Pick<Proj
   return JSON.stringify({ nombre: proyecto?.name, board: proyecto?.board, boards: proyecto?.boards,
     sim: proyecto?.sim, dibujo: firmaDiagramaElectrico(diagrama) });
 }
-export interface SerieVistaFisica { id: string; nombre: string; unidad: 'V' | 'A' | 'W'; valores: number[] }
+export interface SerieVistaFisica { id: string; nombre: string; unidad: 'V' | 'A' | 'W' | '°C'; valores: number[] }
 export function seriesFisicas(r: RespuestaVistaTransitorio): SerieVistaFisica[] {
   return [
+    ...Object.entries(r.termica ?? {}).map(([id, t]) => ({ id: `temperatura:${id}`, nombre: `${id} · temperatura`, unidad: '°C' as const, valores: t.temperaturaC })),
     ...Object.entries(r.pines).map(([id, valores]) => ({ id: `pin:${id}`, nombre: `${id} respecto a tierra`, unidad: 'V' as const, valores })),
     ...Object.entries(r.elementos).flatMap(([id, e]) => ([
       { id: `v:${id}`, nombre: `${id} · tensión`, unidad: 'V' as const, valores: e.v },

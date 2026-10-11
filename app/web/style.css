@@ -967,3 +967,7 @@ body.depuracion-parada .punto-estado { background: var(--azul); box-shadow: 0 0 
 .analisis-fisicos svg { display: block; width: 100%; max-height: 350px; margin: 12px 0; }
 .analisis-fisicos svg text { fill: currentColor; font-size: 12px; }
 .analisis-fisicos > button { margin: 8px 8px 0 0; }
+
+.modelo-termico { margin: 12px 0; padding: 12px; border: 1px solid var(--borde); }
+.termica-campos { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-top: 12px; }
+.termica-campos input { width: 100%; box-sizing: border-box; }
