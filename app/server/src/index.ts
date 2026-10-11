@@ -810,16 +810,17 @@ async function registerRoutes(app: FastifyInstance, fastifyStatic: typeof import
   });
 
   registrarRutasAnalisisFisico(app, {
+    revisionActual: async nombre => revisionProyecto(await requireProject(nombre)),
     cargar: async nombre => {
       const proyecto = await requireProject(nombre);
       const catalogo = await loadCatalog();
       const opciones: OpcionesAnalisis = {
         nivelesReales: true,
-        nivelesPorPlaca: nombre === runningProject ? nivelesPorPlaca : new Map(),
+        nivelesPorPlaca: nombre === runningProject ? new Map([...nivelesPorPlaca].map(([id, niveles]) => [id, new Map(niveles)])) : new Map(),
         direccionesPorPlaca: await direccionesTodas(proyecto),
-        cerrados: cerradosDe(nombre), fuentesApagadas: fuentesApagadasDe(proyecto),
+        cerrados: new Set(cerradosDe(nombre)), fuentesApagadas: fuentesApagadasDe(proyecto),
       };
-      return { proyecto: conPlaca(proyecto), buscar: tipo => catalogo.find(m => m.type === tipo), opciones };
+      return { proyecto: conPlaca(proyecto), revision: revisionProyecto(proyecto), buscar: tipo => catalogo.find(m => m.type === tipo), opciones };
     },
   });
 

@@ -1,0 +1,90 @@
+import { useEffect, useRef, useState } from 'react';
+import { formatearMedidaInforme, ParametrosVistaTransitorio, type ResultadoVistaAnalisis } from '@emu/shared';
+import { firmaVistaAnalisis, seriesFisicas, trazaFisica } from '../analisis-fisico.js';
+import { acciones, estado } from './puente.js';
+import { useVersion } from './estado.js';
+
+export function AnalisisFisicosDialog() {
+  useVersion();
+  const s = estado();
+  const nombre = s.proyecto?.name as string | undefined;
+  const [modo, setModo] = useState<'dc' | 'transitorio'>('dc');
+  const [duracion, setDuracion] = useState('0.005'), [paso, setPaso] = useState('0.00001');
+  const [inicializacion, setInicializacion] = useState<'equilibrio' | 'explicita'>('explicita');
+  const [resultado, setResultado] = useState<ResultadoVistaAnalisis | null>(null);
+  const [error, setError] = useState(''), [ocupado, setOcupado] = useState(false), [senal, setSenal] = useState('');
+  const captura = useRef<AbortController | null>(null);
+  const panel = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    const cerrar = () => { captura.current?.abort(); captura.current = null; setOcupado(false); };
+    const dialogo = panel.current?.closest('dialog');
+    dialogo?.addEventListener('close', cerrar);
+    return () => { cerrar(); dialogo?.removeEventListener('close', cerrar); };
+  }, []);
+  useEffect(() => { captura.current?.abort(); captura.current = null; setOcupado(false); setResultado(null); setError(''); }, [nombre]);
+  const obsoleto = resultado !== null && (resultado.firmaVista !== firmaVistaAnalisis(s.proyecto, s.diagrama) || s.editorSucio || s.conflictoGuardado != null);
+  const series = resultado?.dominio === 'transitorio-diseno' ? seriesFisicas(resultado.resultado) : [];
+  const serie = series.find(v => v.id === senal) ?? series[0];
+  const traza = resultado?.dominio === 'transitorio-diseno' && serie ? trazaFisica(resultado.resultado.t, serie.valores) : null;
+  async function calcular() {
+    captura.current?.abort(); const controller = new AbortController(); captura.current = controller;
+    setResultado(null); setError(''); setOcupado(true);
+    try {
+      const validacion = ParametrosVistaTransitorio.safeParse({ pasoS: Number(paso), duracionS: Number(duracion), inicializacion });
+      if (modo === 'transitorio' && !validacion.success) throw new Error('Duración y paso deben ser positivos, paso no mayor que duración y hasta 20000 muestras estimadas.');
+      const parametros = modo === 'transitorio' && validacion.success ? validacion.data : { pasoS: 0.00001, duracionS: 0.005, inicializacion };
+      const r = await acciones().analizarFisica(modo, parametros, controller.signal);
+      if (!controller.signal.aborted && captura.current === controller) { setResultado(r); setSenal(''); }
+    } catch (e) { if (!controller.signal.aborted) setError(e instanceof Error ? e.message : String(e)); }
+    finally { if (captura.current === controller) { captura.current = null; setOcupado(false); } }
+  }
+  function descargar() {
+    if (!resultado || obsoleto) return;
+    // La firma local incluye configuración interna; no forma parte del informe público.
+    const { firmaVista: _firma, ...publico } = resultado;
+    const url = URL.createObjectURL(new Blob([JSON.stringify(publico, null, 2)], { type: 'application/json;charset=utf-8' }));
+    const a = document.createElement('a'); a.href = url; a.download = `${resultado.proyecto}-${resultado.dominio}.json`; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  }
+  const medidas = resultado?.dominio === 'instantanea-dc' ? resultado.resultado.observacion.mediciones : [];
+  return <section ref={panel} className="analisis-fisicos">
+    <h2>Análisis físicos: {nombre ?? 'Sin proyecto'}</h2>
+    <p>Instantáneas de diseño. El transitorio mantiene GPIO y topología fijos; no ejecuta firmware ni reproduce el audio del micrófono.</p>
+    <div className="analisis-controles">
+      <label>Análisis <select aria-label="Tipo de análisis" value={modo} disabled={ocupado} onChange={e => { setModo(e.target.value as typeof modo); setResultado(null); setError(''); }}>
+        <option value="dc">DC · punto de funcionamiento</option><option value="transitorio">Transitorio · evolución temporal</option>
+      </select></label>
+      {modo === 'transitorio' && <>
+        <label>Duración (s) <input type="number" step="any" min="0" value={duracion} onChange={e => { setDuracion(e.target.value); setResultado(null); }} disabled={ocupado}/></label>
+        <label>Paso máximo (s) <input type="number" step="any" min="0" value={paso} onChange={e => { setPaso(e.target.value); setResultado(null); }} disabled={ocupado}/></label>
+        <label>Inicialización <select value={inicializacion} disabled={ocupado} onChange={e => { setInicializacion(e.target.value as typeof inicializacion); setResultado(null); }}>
+          <option value="equilibrio">Equilibrio DC</option><option value="explicita">Condiciones C/L del proyecto</option>
+        </select></label>
+      </>}
+      <button disabled={ocupado || !nombre} onClick={() => void calcular()}>{ocupado ? 'Calculando…' : 'Calcular'}</button>
+    </div>
+    {error && <p role="alert">{error}</p>}
+    {resultado && <>
+      <p>Dominio: <strong>{resultado.dominio}</strong> · Capturado: <time>{resultado.fechaUtc}</time></p>
+      {obsoleto && <p role="alert">El circuito cambió. Recalculá para obtener resultados vigentes.</p>}
+      {resultado.dominio === 'instantanea-dc' ? <>
+        <p>Estado: {resultado.resultado.observacion.estado}</p>
+        <div className="informe-tabla"><table><caption>Medidas DC</caption><thead><tr><th>Elemento</th><th>Tensión (V)</th><th>Corriente (mA)</th><th>Potencia (mW)</th><th>Validez</th></tr></thead>
+          <tbody>{medidas.map((m, i) => <tr key={i}><td>{m.modulo}.{m.elemento}</td><td>{formatearMedidaInforme(m.tensionV)}</td><td>{formatearMedidaInforme(m.corrienteMa)}</td><td>{formatearMedidaInforme(m.potenciaMw)}</td><td>{m.validez}</td></tr>)}</tbody></table></div>
+        {!medidas.length && <p>No hay medidas disponibles.</p>}
+      </> : <>
+        <label>Señal <select aria-label="Señal" value={serie?.id ?? ''} onChange={e => setSenal(e.target.value)}>{series.map(v => <option key={v.id} value={v.id}>{v.nombre} ({v.unidad})</option>)}</select></label>
+        {traza && serie ? <svg viewBox="0 0 640 265" role="img" aria-label={`Gráfico de ${serie.nombre} en ${serie.unidad}`}>
+          <path d="M95,30 V220 H620" fill="none" stroke="currentColor"/>
+          <text x="90" textAnchor="end" y="25">{traza.max.toPrecision(4)} {serie.unidad}</text><text x="90" textAnchor="end" y="220">{traza.min.toPrecision(4)}</text>
+          <text x="95" y="250">{traza.inicio.toPrecision(4)} s</text><text x="520" y="250">{traza.fin.toPrecision(4)} s</text>
+          <path data-testid="traza-fisica" d={traza.path} fill="none" stroke="#35c798" strokeWidth="2"/>
+        </svg> : <p>No hay señales referenciadas disponibles.</p>}
+        <p>{resultado.resultado.t.length} muestras adaptativas. La descarga conserva todas las muestras.</p>
+      </>}
+      <ul>{(resultado.dominio === 'instantanea-dc' ? resultado.resultado.avisos : resultado.resultado.advertencias).map((a, i) => <li key={i}>{a}</li>)}</ul>
+      <button disabled={obsoleto} onClick={descargar}>Descargar análisis JSON</button>
+    </>}
+    <button onClick={() => panel.current?.closest('dialog')?.close()}>Cerrar</button>
+  </section>;
+}

@@ -126,3 +126,22 @@ it('API electro térmica devuelve 422 sin trazas parciales si falla el acoplamie
     expect(r.json()).toEqual({ resuelto: false, error: 'Sin convergencia térmica' });
   } finally { await app.close(); }
 });
+
+it('If-Match rechaza una revisión ajena y cambios durante el cálculo', async () => {
+  const { revisionProyecto } = await import('../../../server/src/revisionGuardado.js');
+  const revision = revisionProyecto(proyecto), ajena = `"${'a'.repeat(64)}"`;
+  let actual = revision;
+  const resolver = vi.fn<NonNullable<DependenciasAnalisisFisico['resolver']>>().mockImplementation(async () => { actual = ajena; return resultado; });
+  const app = Fastify();
+  registrarRutasAnalisisFisico(app, {
+    cargar: async () => ({ proyecto, buscar: () => undefined, opciones: {}, revision }),
+    revisionActual: async () => actual, resolver,
+  });
+  try {
+    const url = '/api/projects/analisis/analysis/transient';
+    const rechazada = await app.inject({ method: 'POST', url, headers: { 'if-match': ajena }, payload: { parametros } });
+    expect(rechazada.statusCode).toBe(412); expect(resolver).not.toHaveBeenCalled();
+    const tardia = await app.inject({ method: 'POST', url, headers: { 'if-match': revision }, payload: { parametros } });
+    expect(tardia.statusCode).toBe(412); expect(tardia.json().t).toBeUndefined();
+  } finally { await app.close(); }
+});

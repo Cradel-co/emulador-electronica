@@ -1,6 +1,6 @@
 # SDD — Monitoreo de señales y entrada de micrófono
 
-Estado: primeras dos entregas implementadas en la rama de monitoreo; entrada de micrófono pendiente. Continuación del monitoreo de la etapa 6.
+Estado: monitoreo y entrada de micrófono integrados en #80/#81; TFT integrada en #83. Continuación del monitoreo de la etapa 6.
 
 ## Objetivo
 
@@ -10,7 +10,7 @@ Observar cómo un estímulo de sonido llega al firmware sin confundir la onda ac
 
 Debug dispone de una grabadora de eventos y un analizador lógico digital. Los análisis transitorios de diseño cuentan con API, pero no con una ventana de osciloscopio. El sonómetro recibe `dbA` manual y su modelo recorta la salida al equivalente de 30–130 dBA. Este recorte es una decisión del modelo, no evidencia experimental fuera del rango del fabricante.
 
-La entrada del micrófono del computador aún no está implementada. La actualización de dependencias y las verificaciones del sonómetro deben publicarse antes de iniciar este bloque en una rama independiente.
+La entrada del micrófono del computador está implementada, junto con referencia ajustable, RMS/dBFS y onda relativa. La actualización de dependencias está integrada en #79.
 
 ## Señales y procedencia
 
@@ -80,3 +80,11 @@ final de presentación se repitieron los cinco casos de Monitoreo y Problemas. L
 se ejecutó con MicroPython real y se contrastaron los niveles 30, 50, 80, 100 y 130 dBA y
 el retorno a 50 contra la consola y las muestras exportadas. Esto verifica software, no
 calibración acústica de un dispositivo físico.
+
+## Entregas integradas y límites actuales
+
+Las entregas 1–3 están integradas. El JSON de monitoreo incluye origen y referencia del micrófono; todavía no existe una serie estructurada de lecturas ADC publicadas por firmware. Esa comparación automática y la extensión a otras magnitudes siguen pendientes.
+
+La plantilla genera firmware y driver para una TFT ST7735 por SPI. Presenta nivel actual y un buffer de 40 lecturas de los últimos diez segundos del reloj MicroPython, con objetivo de muestreo de 250 ms. El emulador puede avanzar más lentamente que el reloj de pared. La curva representa nivel acondicionado, no la onda acústica.
+
+La integración fue verificada con 1676 tests unitarios, una omisión existente, build y ocho E2E, incluida ejecución MicroPython real. El micrófono fue probado con WebAudio sintético: no acredita calibración acústica ni prueba de hardware físico. [Guía del sonómetro](sonometro.md).

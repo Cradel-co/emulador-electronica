@@ -14,3 +14,5 @@ export * from './analogicoEsp.js';
 export * from './electrico.js';
 export * from './informe.js';
 export * from './entradaSonido.js';
+
+export * from './analisisFisico.js';

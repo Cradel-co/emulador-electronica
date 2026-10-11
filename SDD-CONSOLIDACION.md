@@ -1,7 +1,7 @@
 # SDD — Consolidación del emulador de electrónica
 
 Fecha: 2026-10-08. Base analizada: `4744351` de `origin/main`.
-Estado: etapas 1–3 y 5 integradas; primera entrega de etapa 4 integrada en #75; segunda entrega integrada en #76; tercera entrega integrada en #77; primera entrega de etapa 6 validada, pendiente de revisión e integración.
+Estado: etapas 1–3 y 5 integradas; primera entrega de etapa 4 integrada en #75; segunda entrega integrada en #76; tercera entrega integrada en #77; informe de etapa 6 integrado en #78; monitoreo, micrófono y TFT integrados en #80, #81 y #83. Próximo bloque: interfaz DC y transitorio.
 
 ## 1. Problema y resultado esperado
 
@@ -199,7 +199,7 @@ Una mejora de fidelidad debe declarar dominio y procedencia de parámetros, adem
 | Etapa 3 | Integrada en PR #73 | Vitest: 1572 pasan, 1 omitida; E2E: 135 pasan, 13 omisiones existentes; build/typechecks pasan |
 | Etapa 4 | Primera y segunda entregas integradas en #75 y #76; tercera integrada en #77 | Vitest: 1618 pasan, 1 omitida; E2E: 135 pasan, 13 omisiones existentes; build/tipos pasan. Conflictos integrados; firmware y descarga integrados |
 | Etapa 5 | Integrada en PR #74 | Vitest: 1608 pasan, 1 omitida; E2E: 135 pasan, 13 omisiones existentes; build/typechecks pasan; [contratos y límites](docs/coordinacion.md) |
-| Etapa 6 | Primera entrega validada, pendiente de integración | Informe JSON/HTML con circuito y observación DC; controles de análisis físico pendientes |
+| Etapa 6 | Informe integrado en #78; monitoreo/micrófono/TFT integrados en #80/#81/#83 | Informe JSON/HTML e historial disponibles; próxima entrega: controles DC/transitorio |
 
 La suite final se ejecutó sin flags de concurrencia, con la configuración nueva de dos procesos.
 Las seis regresiones nuevas pasaron después de fallar en la base. Las pruebas TCP se ejecutaron
@@ -332,3 +332,13 @@ existente; E2E estándar completos en dos tandas: 90 + 52 aprobados, 8 + 5 omisi
 existentes. Incluye tres recorridos nuevos de descarga/captura/vigencia. Build de producción,
 typechecks server/web y fragmento de changelog pasan; vista previa y HTML descargado inspeccionados.
 No se agregan omisiones ni retries. No se ejecutó firmware nuevo en Docker ni hardware físico.
+
+### Etapa 6: estado reconciliado al 2026-10-11
+
+El informe (#78), la actualización de dependencias (#79), el monitoreo (#80), el micrófono (#81) y la TFT (#83) están integrados en `main`. La cadena #83 → #81 → #80 se validó con 1676 pruebas unitarias, una omisión existente, build y ocho E2E, incluido MicroPython real. #84/#85 separaron fixtures y capas del servidor. Estos números describen esa integración, no una validación de futuros cambios.
+
+El siguiente bloque se especifica en [SDD-ANALISIS-FISICOS.md](SDD-ANALISIS-FISICOS.md): punto DC y transitorio de diseño. AC y térmico quedan para entregas posteriores.
+
+### Etapa 6: interfaz DC y transitorio
+
+La siguiente entrega está implementada y validada en rama, pendiente de revisión e integración. El panel de [análisis físicos](docs/analisis-fisicos.md) reutiliza el informe DC y el transitorio de diseño; conserva tiempos y unidades, exporta las series completas y comprueba la revisión del proyecto antes y después del cálculo. Evidencia y alcance en [SDD-ANALISIS-FISICOS.md](SDD-ANALISIS-FISICOS.md). AC y térmico continúan pendientes.
