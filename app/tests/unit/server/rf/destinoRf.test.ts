@@ -1,8 +1,8 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { loadCatalog, type ModuloCatalogo } from '../../../../server/src/catalog.js';
 import { validarDestinoRf } from '../../../../server/src/rf/destinoRf.js';
-import { enlaceRfDePrueba } from '../../../../server/src/rf/canalRf.fixture.js';
-import { proyectoRfDePrueba, analisisRfDePrueba } from '../../../../server/src/rf/destinoRf.fixture.js';
+import { enlaceRfDePrueba } from '../../../fixtures/server/rf/canalRf.fixture.js';
+import { proyectoRfDePrueba, analisisRfDePrueba } from '../../../fixtures/server/rf/destinoRf.fixture.js';
 
 let catalogo: ModuloCatalogo[];
 beforeAll(async () => { catalogo = await loadCatalog(); });

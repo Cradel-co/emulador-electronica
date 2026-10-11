@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ClientEventSchema, ServerEventSchema } from '@emu/shared';
-import { enlaceRfDePrueba } from '../../../../server/src/rf/canalRf.fixture.js';
+import { enlaceRfDePrueba } from '../../../fixtures/server/rf/canalRf.fixture.js';
 import { transmitirPorCanalRf } from '../../../../server/src/rf/canalRf.js';
 
 describe('canal RF recibido desde WebSocket', () => {

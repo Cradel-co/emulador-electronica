@@ -3,9 +3,9 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { expect, it, vi } from 'vitest';
 import { crearServidorMcp, type McpContexto } from '../../../../server/src/mcp.js';
 import { loadCatalog } from '../../../../server/src/catalog.js';
-import { enlaceRfDePrueba } from '../../../../server/src/rf/canalRf.fixture.js';
+import { enlaceRfDePrueba } from '../../../fixtures/server/rf/canalRf.fixture.js';
 import { validarDestinoRf } from '../../../../server/src/rf/destinoRf.js';
-import { analisisRfDePrueba, proyectoRfDePrueba } from '../../../../server/src/rf/destinoRf.fixture.js';
+import { analisisRfDePrueba, proyectoRfDePrueba } from '../../../fixtures/server/rf/destinoRf.fixture.js';
 
 it('enviar_rf conserva el perfil funcional identificado y filtra la trama por el umbral configurado', async () => {
   const enviarRf = vi.fn(() => true);

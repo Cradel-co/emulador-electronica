@@ -1,5 +1,5 @@
 import { defaultProject, type Project } from '@emu/shared';
-import type { AnalisisCircuito } from '../sim/analisis.js';
+import type { AnalisisCircuito } from '../../../../server/src/sim/analisis.js';
 
 export function proyectoRfDePrueba(): Project {
   return { ...defaultProject('prueba-rf', 'esphome'), modules: [
