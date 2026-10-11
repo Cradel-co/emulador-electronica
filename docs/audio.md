@@ -205,7 +205,7 @@ Su [`model.js`](../modules/buzzer-activo/model.js) solo resuelve lo eléctrico �
 `interruptorControlado` con umbral de 2,5 V (el oscilador) y la resistencia equivalente de los
 30 mA a 5 V (lo que consume zumbando). La frecuencia no está ahí: está en `salidas`.
 
-Verificado contra ngspice en `app/server/src/sim/buzzerActivo.test.ts`:
+Verificado contra ngspice en `app/tests/unit/server/sim/buzzerActivo.test.ts`:
 
 | Tensión | Qué pasa |
 |---|---|
@@ -320,7 +320,7 @@ cae solo: a 2,5 V de alimentación ya no puede sostener los 2,6 V de salida.
 
 Cableado a un GPIO con ADC1 (en el S3, del 1 al 10) su tensión llega al canal del ADC y se lee
 desde el código. Ese camino es el del PR #54 y está verificado en
-`app/server/src/sim/sen0232.test.ts`.
+`app/tests/unit/server/sim/sen0232.test.ts`.
 
 **Lo que no modela**, dicho en el propio modelo: la ponderación A real, la constante de tiempo de
 125 ms, el error de ±1,5 dB y el consumo a potencia constante de su regulador conmutado (la hoja

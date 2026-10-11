@@ -39,7 +39,7 @@ El escáner de pines no reconocía `machine.PWM`, así que el pin quedaba sin ma
 
 ## Qué se valida solo
 
-`app/server/src/changelog.test.ts` revisa **todos** los fragmentos del repo en cada corrida de la
+`app/tests/unit/server/changelog.test.ts` revisa **todos** los fragmentos del repo en cada corrida de la
 suite, así que un archivo mal nombrado o con un resumen de relleno pone un test en rojo en vez de
 llegar al changelog. Rechaza:
 

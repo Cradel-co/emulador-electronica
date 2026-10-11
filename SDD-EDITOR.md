@@ -225,7 +225,7 @@ rechaza enlaces simbólicos y limita cantidad y tamaño. Una prueba optativa de 
 imports entre archivos, imports relativos de paquetes y el resultado real del programa.
 
 Las pruebas de interfaz están en `app/tests/e2e/multiplaca-explorer.spec.ts` y
-`explorer-files.spec.ts`. Las pruebas de física en `app/server/src/sim/multiplaca.test.ts` verifican comunicación entre placas, niveles y
+`explorer-files.spec.ts`. Las pruebas de física en `app/tests/unit/server/sim/multiplaca.test.ts` verifican comunicación entre placas, niveles y
 alimentación independientes y mediciones referidas a la tierra de cada placa. Las pruebas se
 ejecutan en serie, con un worker y memoria limitada, conservando `pnpm run dev` en el puerto 5180.
 
