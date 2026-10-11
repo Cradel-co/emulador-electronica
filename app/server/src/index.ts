@@ -15,7 +15,7 @@ import { estadoAlimentacion, motivoSinArranque, type EstadoAlimentacion as Estad
 import { leerFuentesMicroPython } from './micropythonSources.js';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import Fastify from 'fastify';
+import type { FastifyInstance } from 'fastify';
 import { WebSocketServer, type WebSocket } from 'ws';
 import {
   DEFAULT_BOARD,
@@ -50,7 +50,6 @@ import { certificar, leerCertificacion, type ReporteCertificacion } from './cert
 import { invalidarCatalogo, loadCatalog, type ModuloCatalogo } from './catalog.js';
 import { ImportError, ModuleInstaller, importar, type OpcionesImportacion, type SolicitudImportacion } from './moduleImporter.js';
 import { crearServidorMcp, type McpContexto } from './mcp.js';
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { scanPins, direccionesDeCodigo } from './pinScan.js';
 import { conPlaca, ponerPlaca, sacarPlaca } from './diagramOps.js';
 import { analizarCircuito, type AnalisisCircuito, type DireccionPin, type OpcionesAnalisis } from './sim/analisis.js';
@@ -61,20 +60,31 @@ import { chipsDelProyecto } from './bus/proyectoChips.js';
 import { chipPublico, chipsDe, moverEntorno, registrarRutasChips, type CorridaChips, type DepsChips } from './bus/rutasChips.js';
 import { cargarChips } from './bus/catalogoChips.js';
 import { guardarMemoria, leerMemoria } from './bus/memoriaChips.js';
+import { registrarRutasPlacas } from './routes/boards.js';
+import { registrarRutasModulos } from './routes/modules.js';
+import { registrarRutasMcp } from './routes/mcp.js';
+import { crearAppServer, iniciarServidor } from './bootstrap.js';
+import { crearServicioProyectos } from './application/proyectos.js';
 
 const PORT = Number(process.env.PORT ?? 5180);
 const HOST = process.env.HOST ?? '127.0.0.1'; // por defecto nunca 0.0.0.0 (sección 13)
 
-export interface ServerDeps {
-  store: ProjectStore;
-  builder: BuildService;
-  emulator: Emulador;
-}
-
-const logger = Fastify({ logger: false });
+const app = crearAppServer();
 
 const store = new ProjectStore();
 const builder = new BuildService();
+const servicioProyectos = crearServicioProyectos({
+  store,
+  catalogo: loadCatalog,
+  buscarPlaca,
+  listarPlacas,
+  plantillaToolchain: (lenguaje, placa) => {
+    const destino = placa.desc.languages[lenguaje]!;
+    return TOOLCHAINS[destino.toolchain]?.plantilla(lenguaje, placa, destino.options) ?? {};
+  },
+  estaEnergizado: nombre => proyectoEnergizado === nombre,
+  apagarCircuito: nombre => energizar(nombre, false),
+});
 const camaras = new ServicioCamara(broadcast);
 const entradasSonido = new ServicioEntradaSonido(nombre => {
   vigenciaElectrica.invalidar();
@@ -315,73 +325,7 @@ function certificarEnFondo(placa: Placa, lenguaje?: Language): 'iniciada' | 'ya-
   return ya ? 'ya-en-curso' : 'iniciada';
 }
 
-/**
- * La placa del catálogo y los archivos de código con que arranca en un lenguaje (la plantilla
- * de la placa o la de su toolchain). Valida placa ↔ lenguaje.
- */
-async function placaConArchivos(board: string, lenguaje: Language) {
-  const placa = await buscarPlaca(board);
-  if (!placa) {
-    const ids = (await listarPlacas()).map((p) => p.id).join(', ');
-    throw new ProjectError(`Placa desconocida: "${board}". Placas: ${ids}`, 400);
-  }
-  const destino = placa.desc.languages[lenguaje];
-  if (!destino) {
-    throw new ProjectError(
-      `${placa.nombre} no se puede programar en ${lenguaje}. Lenguajes de esta placa: ${lenguajesDe(placa.desc).join(', ')}.`,
-      400,
-    );
-  }
-  const propia = placa.desc.templates[lenguaje]?.files;
-  const archivos =
-    propia && Object.keys(propia).length > 0
-      ? propia
-      : (TOOLCHAINS[destino.toolchain]?.plantilla(lenguaje, placa, destino.options) ?? {});
-  return { placa, archivos };
-}
-
-/**
- * Crea un proyecto: con placa (valida placa ↔ lenguaje y escribe su plantilla de código), sin
- * placa (`board: null`: solo un circuito con una fuente regulable), o desde una plantilla.
- */
-async function crearProyecto(nombre: string, lenguaje: Language | null, board: string | null = DEFAULT_BOARD, plantilla?: string): Promise<Project> {
-  // Desde una plantilla (projects/_template/<id>/): placa, lenguaje, circuito y código salen de ella.
-  if (plantilla) {
-    const datos = (await store.listTemplates()).find((t) => t.id === plantilla);
-    if (!datos) throw new ProjectError(`No hay una plantilla "${plantilla}" en projects/_template/`, 404);
-    if (datos.board && !(await buscarPlaca(datos.board))) {
-      throw new ProjectError(`La plantilla "${plantilla}" usa la placa "${datos.board}", que no está en el catálogo.`, 400);
-    }
-    return store.createFromTemplate(nombre, plantilla);
-  }
-  if (board === null) return store.crearSinPlaca(nombre);
-  if (!lenguaje) throw new ProjectError('Falta el lenguaje de la placa', 400);
-  const { placa, archivos } = await placaConArchivos(board, lenguaje);
-  return store.create(nombre, lenguaje, { id: placa.id, desc: placa.desc }, archivos);
-}
-
-/**
- * Agrega una placa a un proyecto sin placa (la placa es un módulo que se agrega y se quita):
- * la pone en el dibujo y escribe su código inicial sin pisar el que ya hubiera de antes.
- */
-async function agregarPlaca(nombre: string, board: string, lenguaje: Language, pos: { x?: number; y?: number } = {}): Promise<Project> {
-  return store.transaccion(nombre, async () => {
-    const { placa, archivos } = await placaConArchivos(board, lenguaje);
-    const def = (await loadCatalog()).find((m) => m.type === placa.id);
-    if (!def) throw new ProjectError(`La placa "${board}" no está en el catálogo`, 400);
-    const actual = await store.read(nombre);
-    const puesta = ponerPlaca(actual, def, lenguaje, pos);
-    // Al incorporar el procesador queda activa la recarga al guardar: es la razón de ser
-    // del campo, y un proyecto recién armado es justo donde se edita el código a cada rato.
-    const nuevo = { ...puesta, sim: { ...puesta.sim, autoReload: true } };
-    // Con placa, ▶ vuelve a significar "correr el firmware": el circuito deja de estar energizado aparte.
-    if (proyectoEnergizado === nombre) energizar(nombre, false);
-    const agregada = placasDelProyecto(nuevo).find((p) => !placasDelProyecto(actual).some((a) => a.id === p.id));
-    await store.escribirSiFalta(nombre, lenguaje, archivos, agregada?.id);
-    const guardado = await store.save(nuevo);
-    return guardado;
-  });
-}
+const { crearProyecto, agregarPlaca } = servicioProyectos;
 
 /** Quita la placa (y sus cables). El código queda en disco: si se vuelve a poner la placa, sigue ahí. */
 async function quitarPlaca(nombre: string, boardId?: string): Promise<Project> {
@@ -430,9 +374,7 @@ async function validarModulosPlacas(project: Project, modules: unknown[]): Promi
 
 // --- Rutas ------------------------------------------------------------------
 
-async function registerRoutes(): Promise<void> {
-  const app = logger;
-
+async function registerRoutes(app: FastifyInstance, fastifyStatic: typeof import('@fastify/static').default): Promise<void> {
   app.addHook('onRequest', async (req, reply) => {
     const origin = typeof req.headers.origin === 'string' ? req.headers.origin : undefined;
     if (!origenPermitido(origin, req.headers.host)) {
@@ -447,48 +389,19 @@ async function registerRoutes(): Promise<void> {
 
   app.get('/api/health', async () => ({ ok: true, port: PORT }));
 
-  // Registro de placas: sale del catálogo (módulos programables con bloque `board`).
-  app.get('/api/boards', async () => ({
-    porDefecto: DEFAULT_BOARD,
-    motores: Object.values(ENGINES).map((m) => ({ nombre: m.nombre, descripcion: m.descripcion, disponible: m.disponible })),
-    toolchains: Object.values(TOOLCHAINS).map((t) => ({ nombre: t.nombre, descripcion: t.descripcion, disponible: t.disponible, lenguajes: t.lenguajes })),
-    boards: await Promise.all((await listarPlacas()).map(placaParaUi)),
-  }));
-
-  app.get('/api/boards/schema', async () => esquemaJsonPlaca());
-
-  // Valida un module.json de placa sin instalarlo (el importador instala; esto solo revisa).
-  app.post('/api/boards/validate', { bodyLimit: 5 * 1024 * 1024 }, async (req, reply) => {
-    const body = (req.body ?? {}) as { module?: unknown };
-    const r = validarPlaca(body.module ?? req.body);
-    reply.code(r.ok ? 200 : 400).send(r);
+  registrarRutasPlacas(app, {
+    motores: Object.values(ENGINES).map(({ nombre, descripcion, disponible }) => ({ nombre, descripcion, disponible })),
+    toolchains: Object.values(TOOLCHAINS).map(({ nombre, descripcion, disponible, lenguajes }) => ({ nombre, descripcion, disponible, lenguajes })),
+    listarPlacas,
+    buscarPlaca,
+    esquemaJsonPlaca: () => esquemaJsonPlaca(),
+    validarPlaca,
+    leerCertificacion,
+    placaParaUi,
+    certificarEnFondo,
+    certificando,
+    fallar: fail,
   });
-
-  // Certificación: compila y emula la plantilla de la placa, y prueba botón → LED.
-  app.post('/api/boards/:id/certify', async (req, reply) => {
-    const { id } = req.params as { id: string };
-    const body = (req.body ?? {}) as { language?: string };
-    try {
-      const placa = await buscarPlaca(id);
-      if (!placa) {
-        reply.code(404).send({ error: `No hay una placa "${id}" en el catálogo` });
-        return;
-      }
-      const lenguaje = body.language ? (LanguageSchema.parse(body.language) as Language) : undefined;
-      const job = certificarEnFondo(placa, lenguaje);
-      reply.code(202).send({ started: true, estado: job });
-    } catch (err) {
-      fail(reply, err);
-    }
-  });
-
-  app.get('/api/boards/:id/certification', async (req, reply) => {
-    const { id } = req.params as { id: string };
-    const enCurso = certificando.get(id);
-    reply.send({ enCurso: Boolean(enCurso), ultimo: await leerCertificacion(id) });
-  });
-
-  app.get('/api/modules', async () => ({ modules: await loadCatalog() }));
 
   registrarRutasChips(app, depsChips, fail);
   registrarRutasCamara(app, camaras, async (name, id) => {
@@ -499,53 +412,8 @@ async function registerRoutes(): Promise<void> {
     return (await loadCatalog()).find(m => m.type === inst.type)?.camera ?? null;
   });
 
-  // Importador de módulos (carpeta, zip, chip de Wokwi, URL / GitHub).
-  app.post('/api/modules/import', { bodyLimit: 25 * 1024 * 1024 }, async (req, reply) => {
-    const body = (req.body ?? {}) as Record<string, unknown> & OpcionesImportacion;
-    try {
-      const solicitud = solicitudDe(body);
-      const resultado = await importarModulos(solicitud, body);
-      reply.code(resultado.importados.length === 0 && resultado.errores.length > 0 ? 400 : 200).send(resultado);
-    } catch (err) {
-      fail(reply, err);
-    }
-  });
-
-  app.delete('/api/modules/:type', async (req, reply) => {
-    const { type } = req.params as { type: string };
-    try {
-      await quitarDelCatalogo(type);
-      reply.send({ ok: true });
-    } catch (err) {
-      fail(reply, err);
-    }
-  });
-
-  // MCP (Streamable HTTP, sin sesión): control completo de la app para agentes.
-  app.post('/mcp', { bodyLimit: 25 * 1024 * 1024 }, async (req, reply) => {
-    const server = crearServidorMcp(contextoMcp);
-    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
-    reply.hijack();
-    reply.raw.on('close', () => {
-      void transport.close();
-      void server.close();
-    });
-    try {
-      await server.connect(transport);
-      await transport.handleRequest(req.raw, reply.raw, req.body);
-    } catch (err) {
-      if (!reply.raw.headersSent) {
-        reply.raw.writeHead(500, { 'content-type': 'application/json' });
-        reply.raw.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32603, message: (err as Error).message }, id: null }));
-      }
-    }
-  });
-  // Sin sesiones no hay stream de notificaciones (GET) ni cierre de sesión (DELETE).
-  const sinSesion = async (_req: unknown, reply: { code: (n: number) => { send: (b: unknown) => void } }): Promise<void> => {
-    reply.code(405).send({ jsonrpc: '2.0', error: { code: -32000, message: 'Método no permitido (MCP sin sesión: usar POST)' }, id: null });
-  };
-  app.get('/mcp', sinSesion);
-  app.delete('/mcp', sinSesion);
+  registrarRutasModulos(app, { loadCatalog, solicitudDe, importarModulos, quitarDelCatalogo, fallar: fail });
+  registrarRutasMcp(app, contextoMcp);
 
   app.get('/api/projects', async () => ({ projects: await store.list() }));
 
@@ -1764,35 +1632,22 @@ async function entregarRf(bits: string, protocolo: number, canalRf?: unknown, bo
 
 // --- Arranque ---------------------------------------------------------------
 
-// Import diferido para no cargar el plugin estático en las pruebas.
-let fastifyStatic: typeof import('@fastify/static').default;
-
 export async function startServer(): Promise<{ close: () => Promise<void>; port: number }> {
-  fastifyStatic = (await import('@fastify/static')).default;
-  await store.init();
-  await registerRoutes();
-
-  await logger.listen({ port: PORT, host: HOST });
-  attachWebSocket(logger.server);
-  console.log(`Emulador listo en http://${HOST}:${PORT}`);
-  // El motor eléctrico (ngspice) tarda ~0,7 s en arrancar: mejor ahora que en el primer cálculo.
-  void precalentar().catch((err) => console.error(`[motor eléctrico] no arrancó: ${(err as Error).message}`));
-
-  const close = async (): Promise<void> => {
-    await pararCorridas();
-    await Promise.all([...new Set(instancias.values())].map(e => e.shutdown()));
-    // Sin esto, close() espera a que el navegador suelte el WebSocket: nunca termina.
-    for (const ws of clients) ws.terminate();
-    await logger.close();
-  };
-  const shutdown = async (): Promise<void> => {
-    await close();
-    process.exit(0);
-  };
-  process.on('SIGINT', () => void shutdown());
-  process.on('SIGTERM', () => void shutdown());
-
-  return { close, port: PORT };
+  return iniciarServidor({
+    app,
+    host: HOST,
+    port: PORT,
+    inicializar: () => store.init(),
+    registrarRutas: registerRoutes,
+    conectarWebSocket: attachWebSocket,
+    precalentar,
+    cerrarRecursos: async () => {
+      await pararCorridas();
+      await Promise.all([...new Set(instancias.values())].map(e => e.shutdown()));
+      // Sin esto, close() espera a que el navegador suelte el WebSocket: nunca termina.
+      for (const ws of clients) ws.terminate();
+    },
+  });
 }
 
 if (process.argv[1]?.endsWith('index.ts') || process.argv[1]?.endsWith('index.js')) {

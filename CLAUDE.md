@@ -113,7 +113,17 @@ son propios, reutilizables y configurables; las bibliotecas se integran mediante
 Su estado interno no debe convertirse en el modelo de dominio ni propagarse por toda la aplicación.
 Ver [arquitectura-web.md](./docs/arquitectura-web.md#componentes-propios-y-adaptadores).
 
+## Server (`app/server`)
+
+La arquitectura es un monolito modular. Las reglas para las capas, los límites de dependencias,
+las rutas y la migración gradual de `index.ts` están en
+[docs/arquitectura-server.md](./docs/arquitectura-server.md). Los registradores de rutas reciben
+dependencias explícitas y no importan el punto de entrada.
+
 ## Documentación
+
+- [docs/arquitectura-server.md](./docs/arquitectura-server.md) — capas del server, dirección de
+  dependencias y migración gradual de rutas y arranque.
 
 - [README.md](./README.md) — puesta en marcha paso a paso y requisitos.
 - [docs/](./docs/) — alcance, placas, módulos, fuentes de alimentación, troubleshooting.
