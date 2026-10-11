@@ -51,6 +51,10 @@ llegar al changelog. Rechaza:
 
 ## Cerrar una versión
 
+La elección del número, la sincronización de paquetes, las verificaciones y la publicación
+están en [la política de versionado y releases](../docs/versionado-y-releases.md).
+Este comando solo consolida las notas y consume los fragmentos; no publica una release.
+
 ```bash
 cd app
 npm run changelog -- 0.2.0              # ver el bloque que saldría

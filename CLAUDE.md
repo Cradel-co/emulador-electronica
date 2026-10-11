@@ -24,6 +24,12 @@ Guía para Claude Code (claude.ai/code) al trabajar en este repositorio.
 Si hay un PR abierto que toca los mismos archivos, **revisarlo antes de escribir código**
 (`gh pr view <n> --json files`) para no duplicar trabajo ni generar conflictos.
 
+## Versionado y releases
+
+Seguir [docs/versionado-y-releases.md](./docs/versionado-y-releases.md): una versión común
+para los paquetes, criterios PATCH/MINOR/MAJOR y cierre mediante PR, etiqueta y GitHub Release.
+El merge de una funcionalidad no autoriza publicar una release.
+
 ## Comandos
 
 ```bash
