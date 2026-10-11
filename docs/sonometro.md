@@ -6,9 +6,8 @@ pero no Docker. Apretá ▶ y, en la consola, seleccioná **Emulador**. La pesta
 muestra la preparación y subida del programa: allí no aparecen las lecturas periódicas.
 
 Seleccioná el SEN0232 en el dibujo y cambiá **Nivel de sonido del ambiente (dBA)**. Es un nivel
-que vos declarás para la escena; este módulo no escucha el micrófono de la computadora.
-El micrófono/webcam del navegador pertenece a otras funciones. No hace falta habilitar permisos
-de micrófono para esta plantilla.
+que vos declarás para la escena. También podés usar el micrófono del computador desde Debug,
+como se explica abajo. El modo manual no requiere permisos.
 
 ## Qué sucede
 
@@ -64,3 +63,53 @@ procedencia, contexto y huecos en JSON. Cambiar de proyecto o iniciar otra corri
 el historial. La gráfica representa instantáneas DC; no es la onda acústica del micrófono.
 
 Podés agrandar la ventana Consola arrastrando su separador para ver las gráficas con más espacio.
+
+## Micrófono del computador
+
+En **Debug → Monitoreo de señales**, elegí el sonómetro de destino y pulsá **Conectar micrófono**.
+Aceptá el permiso del navegador. Requiere localhost o HTTPS. Hablá: la onda relativa muestra
+la envolvente mín/máx de la última ventana de 2048 muestras. No sale sonido por los parlantes.
+Después de autorizar el micrófono podés detenerlo, elegir otro dispositivo y reconectar.
+
+Se calcula RMS digital y `dBFS = 20 × log10(RMS)`. Son decibelios respecto al máximo digital;
+no miden presión acústica. La referencia inicial relaciona −20 dBFS con 80 dB estimados.
+Podés cambiar ambos valores: `estímulo = dBFS − referencia digital + nivel de referencia`.
+La sensibilidad y el procesamiento del computador afectan la lectura. Se solicita desactivar
+cancelación de eco, reducción de ruido y ganancia automática; el panel informa lo concedido.
+No hay ponderación A ni calibración acústica, por lo que el resultado no es dBA físico.
+
+El estímulo reemplaza temporalmente el nivel manual del sensor en el circuito y el ADC del
+firmware recibe su tensión. El SEN0232 conserva el recorte 30–130 (≈0,6–2,6 V con alimentación
+suficiente); un estímulo estimado menor o mayor permite probar esos límites. El silencio digital
+se representa con estímulo cero y también cae en el límite inferior del sensor.
+
+El audio crudo permanece en el navegador; al servidor se envían solo dBFS, referencia y secuencia
+hasta cuatro veces por segundo, con una petición en curso. Solo se admite una sesión de captura
+por servidor. No se guarda el nivel estimado en el proyecto. **Detener micrófono** libera el
+dispositivo y recupera el nivel manual guardado. También se detiene al ocultar la pestaña,
+cambiar de proyecto/destino, desconectar el dispositivo o perder conexión. Si el navegador
+se cierra sin avisar, la sesión vence a los seis segundos sin actualizaciones.
+
+Las gráficas eléctricas usan «dB estimados» durante la captura y conservan la referencia en la
+exportación JSON. Al pasar entre manual y micrófono se reinicia el historial para separar
+procedencias. Pausar la vista congela las gráficas eléctricas; la onda local del micrófono y el
+estímulo continúan hasta pulsar Detener. La onda local no se exporta ni se conserva como grabación.
+
+### Validación integrada de la captura
+
+Probado el 2026-10-10 en Chrome con una señal sintética de 375 Hz dentro de un MediaStream y
+Web Audio reales, el motor eléctrico, esp-emu y MicroPython. No se usó un micrófono físico.
+El seno de amplitud digital 0,1 midió −23,0103 dBFS; se usó esa referencia para esta prueba:
+
+| Estímulo estimado | OUT resuelto | ADC del firmware | Nivel impreso por la plantilla |
+|---|---:|---:|---:|
+| 80 | 1,603 V | 2118 | 80,1 |
+| 100 | 2,003 V | 2646 | 100,1 |
+| 160 | 2,604 V | 3440 | 130,2 |
+| 5 | 0,603 V | 796 | 30,1 |
+
+Después de detener la captura se recuperaron 1324 cuentas y 50,1, con el proyecto sin cambios.
+La plantilla sigue imprimiendo la etiqueta dBA de la escala del sensor emulado; eso no convierte
+la señal del computador en una medición acústica física. La validación cubre el camino digital,
+el recorte y la lectura del firmware; la selección y autorización de tu micrófono se realiza en
+tu navegador al pulsar Conectar.

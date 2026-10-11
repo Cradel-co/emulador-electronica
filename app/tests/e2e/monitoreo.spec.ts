@@ -43,7 +43,7 @@ test('grafica nivel y voltaje, pausa solo la vista y exporta muestras con huecos
   await page.unroute(`**/api/projects/${name}/pins`);
   await expect(panel).toContainText(/1\.60 V/);
   await panel.getByLabel('Señal', { exact: true }).selectOption('mic1.salida');
-  await expect(panel.getByRole('img')).toHaveCount(1);
+  await expect(panel.getByRole('img', { name: /Historial de/ })).toHaveCount(1);
   await page.screenshot({ path: '/tmp/monitoreo-ui.png' });
   const otro = `e2e-monitor-otro-${Date.now().toString(36)}`;
   expect((await request.post('/api/projects', { data: { name: otro, language: 'micropython' } })).ok()).toBeTruthy();

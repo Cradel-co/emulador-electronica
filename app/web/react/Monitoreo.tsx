@@ -1,3 +1,4 @@
+import { MicrofonoPanel } from './Microfono.js';
 import { useState, useSyncExternalStore } from 'react';
 import { leerMonitoreo, suscribirMonitoreo } from '../monitoreo-store.js';
 import { segmentosSerie, type HistorialMonitor, type SerieMonitor } from '../monitoreo.js';
@@ -42,6 +43,7 @@ export function Monitoreo() {
       <option value="todas">Todas</option>{historial.series.map(s => <option key={s.id} value={s.id}>{s.nombre} ({s.unidad})</option>)}
     </select><button onClick={() => congelar(pausa ? null : vivo)} disabled={!historial.muestras.length}>{pausa ? 'Reanudar vista' : 'Pausar vista'}</button>
       <button onClick={() => descargar(historial)} disabled={!historial.series.length}>Descargar muestras</button></header>
+    <MicrofonoPanel />
     <p>Instantáneas eléctricas · tiempo de recepción en el navegador. {pausa ? 'Vista pausada; la captura continúa.' : 'Vista en vivo.'}</p>
     {!historial.series.length && <p>Agregá un sonómetro SEN0232 para observar su nivel y su salida.</p>}
     {series.map(serie => <Grafica key={serie.id} historial={historial} serie={serie} />)}
