@@ -18,7 +18,8 @@ como se explica abajo. El modo manual no requiere permisos.
 4. `main.py` convierte cuentas a voltios (`cuentas × 3,1 / 4096`) y luego a dBA (`V / 0,02`).
    Imprime aproximadamente una vez por segundo; no hay que volver a compilar al cambiar el nivel.
 
-Prueba realizada el 2026-10-10 con Chrome, el motor eléctrico, MicroPython y esp-emu reales:
+Prueba realizada el 2026-10-10 con Chrome, el motor eléctrico, MicroPython y esp-emu reales,
+en el circuito original sin TFT:
 
 | Nivel configurado | ADC leído por firmware | Voltios impresos | Nivel impreso |
 |---|---:|---:|---:|
@@ -113,3 +114,28 @@ La plantilla sigue imprimiendo la etiqueta dBA de la escala del sensor emulado; 
 la señal del computador en una medición acústica física. La validación cubre el camino digital,
 el recorte y la lectura del firmware; la selección y autorización de tu micrófono se realiza en
 tu navegador al pulsar Conectar.
+
+## Pantalla TFT en el circuito
+
+La plantilla incluye una ST7735 por SPI y genera su driver y el firmware del gráfico al crear
+un proyecto. Pulsá ▶ y observá la TFT: muestra el nivel actual y los últimos diez segundos,
+con eje vertical 30–130 y marcas horizontales −10 s y 0 s. Solo se dibujan lecturas recibidas;
+la ventana inicial no se rellena con valores ficticios. Los errores ADC dejan huecos.
+
+El firmware intenta leer cada 250 ms y limita el historial a 40 puntos. Si una transferencia
+SPI demora, el eje sigue usando el tiempo real de MicroPython y retira muestras de más de diez
+segundos. La impresión en consola continúa aproximadamente una vez por segundo. La TFT usa
+GPIO12 (SCK), 11 (MOSI), 10 (CS), 9 (DC) y 8 (RESET), además de 3V3 para VCC/LED y GND.
+El sonómetro permanece en GPIO4.
+
+La TFT grafica **dB simulados** del ADC, también cuando usás el micrófono del computador.
+Representa la evolución del nivel del sensor, no la onda de audio del panel Debug. Los proyectos
+creados antes de esta versión conservan sus archivos: deben recibir también `st7735.py`, el
+firmware nuevo y el cableado de la TFT para incorporar el gráfico.
+
+
+Validación de la TFT: señal sintética en Web Audio → SEN0232 → ADC de MicroPython → SPI →
+píxeles ST7735. Con la pantalla alimentada se observaron 2115/2645 cuentas para estímulos
+80/100 y 3434/795 para estímulos 160/5, con el recorte correspondiente. La carga de la TFT
+cambia ligeramente las tensiones respecto al circuito original sin pantalla. La curva y el
+regreso a entrada manual se comprobaron en la app; no se usó hardware físico.
