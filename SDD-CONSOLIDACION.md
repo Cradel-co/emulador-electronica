@@ -341,4 +341,8 @@ El siguiente bloque se especifica en [SDD-ANALISIS-FISICOS.md](SDD-ANALISIS-FISI
 
 ### Etapa 6: interfaz DC y transitorio
 
-La siguiente entrega está implementada y validada en rama, pendiente de revisión e integración. El panel de [análisis físicos](docs/analisis-fisicos.md) reutiliza el informe DC y el transitorio de diseño; conserva tiempos y unidades, exporta las series completas y comprueba la revisión del proyecto antes y después del cálculo. Evidencia y alcance en [SDD-ANALISIS-FISICOS.md](SDD-ANALISIS-FISICOS.md). AC y térmico continúan pendientes.
+La entrega DC/transitorio está integrada en #86. El panel de [análisis físicos](docs/analisis-fisicos.md) reutiliza el informe DC y el transitorio de diseño; conserva tiempos y unidades, exporta las series completas y comprueba la revisión del proyecto antes y después del cálculo. Evidencia y alcance en [SDD-ANALISIS-FISICOS.md](SDD-ANALISIS-FISICOS.md). AC y térmico continúan pendientes.
+
+El siguiente bloque es el panel térmico RC con modelos explícitos; ver segunda entrega de [SDD-ANALISIS-FISICOS.md](SDD-ANALISIS-FISICOS.md). AC continúa pendiente de integración con ngspice.
+
+El panel térmico RC está implementado y validado en rama: 1694 tests unitarios (una omisión previa), cinco E2E de análisis, tipos y build correctos. Pendiente de revisión e integración; no se declara terminado AC ni el modo electro térmico acoplado.

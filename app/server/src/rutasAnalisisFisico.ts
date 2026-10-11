@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import type { Project } from '@emu/shared';
+import { ModeloTermicoRcSchema, type Project } from '@emu/shared';
 import { analizarTransitorioCircuito, type BuscarDef, type OpcionesAnalisis } from './sim/analisis.js';
 import { comprobarRevision, revisionProyecto, ConflictoRevision } from './revisionGuardado.js';
 import { ProjectError } from './projectStore.js';
@@ -12,14 +12,7 @@ const numero = z.number().finite();
 const identificador = z.string().min(1).max(200);
 const registro = <T extends z.ZodTypeAny>(valor: T) => z.record(identificador, valor)
   .refine(v => Object.keys(v).length <= 256, 'Hasta 256 elementos por solicitud.');
-const ModeloTermico = z.object({
-  id: z.string().trim().min(1).max(2000),
-  fuente: z.string().trim().min(1).max(2000),
-  condiciones: z.string().trim().min(1).max(2000),
-  resistenciaKPorW: numero.positive(), capacidadJPorK: numero.positive(),
-  ambienteC: numero.min(-273.15), inicialC: numero.min(-273.15),
-  rangoDeclaradoC: z.tuple([numero.min(-273.15), numero.min(-273.15)]),
-}).strict();
+const ModeloTermico = ModeloTermicoRcSchema;
 
 export const SolicitudAnalisisTemporal = z.object({
   parametros: z.object({
@@ -100,7 +93,7 @@ export function registrarRutasAnalisisFisico(app: FastifyInstance, deps: Depende
         const actual = await deps.revisionActual(nombre);
         if (actual !== capturada) throw new ConflictoRevision(actual);
       }
-      return { resuelto: true, revisionProyecto: capturada, fechaUtc: new Date().toISOString(), parametros: pedido.data.parametros, unidades: { t: 's', v: 'V', i: 'A', p: 'W' }, ...transitorio, termica };
+      return { resuelto: true, revisionProyecto: capturada, fechaUtc: new Date().toISOString(), parametros: pedido.data.parametros, unidades: { t: 's', v: 'V', i: 'A', p: 'W', ...(Object.keys(termica).length ? { temperaturaC: '°C', energia: 'J' } : {}) }, ...transitorio, termica };
     } catch (error) {
       if (error instanceof ProjectError) return reply.code(error.statusCode).send({ error: error.message });
       return reply.code(422).send({ resuelto: false, error: error instanceof Error ? error.message : 'Análisis físico no disponible.' });

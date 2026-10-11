@@ -1,3 +1,4 @@
+import { camposTermicos, formularioTermicoVacio, modeloDesdeFormulario, elementosTermicos } from '../termica-fisica.js';
 import { useEffect, useRef, useState } from 'react';
 import { formatearMedidaInforme, ParametrosVistaTransitorio, type ResultadoVistaAnalisis } from '@emu/shared';
 import { firmaVistaAnalisis, seriesFisicas, trazaFisica } from '../analisis-fisico.js';
@@ -8,11 +9,13 @@ export function AnalisisFisicosDialog() {
   useVersion();
   const s = estado();
   const nombre = s.proyecto?.name as string | undefined;
-  const [modo, setModo] = useState<'dc' | 'transitorio'>('dc');
+  const [modo, setModo] = useState<'dc' | 'transitorio' | 'termico'>('dc');
   const [duracion, setDuracion] = useState('0.005'), [paso, setPaso] = useState('0.00001');
   const [inicializacion, setInicializacion] = useState<'equilibrio' | 'explicita'>('explicita');
   const [resultado, setResultado] = useState<ResultadoVistaAnalisis | null>(null);
   const [error, setError] = useState(''), [ocupado, setOcupado] = useState(false), [senal, setSenal] = useState('');
+  const [modelo, setModelo] = useState(formularioTermicoVacio);
+  const [elementos, setElementos] = useState<string[]>([]), [elemento, setElemento] = useState(''), [firmaElementos, setFirmaElementos] = useState('');
   const captura = useRef<AbortController | null>(null);
   const panel = useRef<HTMLElement | null>(null);
   useEffect(() => {
@@ -21,20 +24,35 @@ export function AnalisisFisicosDialog() {
     dialogo?.addEventListener('close', cerrar);
     return () => { cerrar(); dialogo?.removeEventListener('close', cerrar); };
   }, []);
-  useEffect(() => { captura.current?.abort(); captura.current = null; setOcupado(false); setResultado(null); setError(''); }, [nombre]);
+  useEffect(() => { captura.current?.abort(); captura.current = null; setOcupado(false); setResultado(null); setError(''); setElementos([]); setElemento(''); setFirmaElementos(''); setModelo(formularioTermicoVacio()); }, [nombre]);
   const obsoleto = resultado !== null && (resultado.firmaVista !== firmaVistaAnalisis(s.proyecto, s.diagrama) || s.editorSucio || s.conflictoGuardado != null);
-  const series = resultado?.dominio === 'transitorio-diseno' ? seriesFisicas(resultado.resultado) : [];
+  const seleccionVigente = firmaElementos === firmaVistaAnalisis(s.proyecto, s.diagrama);
+  const series = resultado && resultado.dominio !== 'instantanea-dc' ? seriesFisicas(resultado.resultado) : [];
   const serie = series.find(v => v.id === senal) ?? series[0];
-  const traza = resultado?.dominio === 'transitorio-diseno' && serie ? trazaFisica(resultado.resultado.t, serie.valores) : null;
+  const traza = resultado && resultado.dominio !== 'instantanea-dc' && serie ? trazaFisica(resultado.resultado.t, serie.valores) : null;
   async function calcular() {
     captura.current?.abort(); const controller = new AbortController(); captura.current = controller;
     setResultado(null); setError(''); setOcupado(true);
     try {
       const validacion = ParametrosVistaTransitorio.safeParse({ pasoS: Number(paso), duracionS: Number(duracion), inicializacion });
-      if (modo === 'transitorio' && !validacion.success) throw new Error('Duración y paso deben ser positivos, paso no mayor que duración y hasta 20000 muestras estimadas.');
-      const parametros = modo === 'transitorio' && validacion.success ? validacion.data : { pasoS: 0.00001, duracionS: 0.005, inicializacion };
-      const r = await acciones().analizarFisica(modo, parametros, controller.signal);
+      if (modo !== 'dc' && !validacion.success) throw new Error('Duración y paso deben ser positivos, paso no mayor que duración y hasta 20000 muestras estimadas.');
+      const parametros = modo !== 'dc' && validacion.success ? validacion.data : { pasoS: 0.00001, duracionS: 0.005, inicializacion };
+      if (modo === 'termico' && (!seleccionVigente || !elementos.includes(elemento))) throw new Error('Identificá de nuevo los elementos del circuito antes de calcular.');
+      const configuracion = modo === 'termico' ? { elemento, modelo: modeloDesdeFormulario(modelo) } : undefined;
+      const r = await acciones().analizarFisica(modo, parametros, controller.signal, configuracion);
       if (!controller.signal.aborted && captura.current === controller) { setResultado(r); setSenal(''); }
+    } catch (e) { if (!controller.signal.aborted) setError(e instanceof Error ? e.message : String(e)); }
+    finally { if (captura.current === controller) { captura.current = null; setOcupado(false); } }
+  }
+  async function identificar() {
+    captura.current?.abort(); const controller = new AbortController(); captura.current = controller;
+    setOcupado(true); setError(''); setResultado(null); setElementos([]); setFirmaElementos('');
+    try {
+      const r = await acciones().analizarFisica('dc', { pasoS: 0.00001, duracionS: 0.005, inicializacion: 'equilibrio' }, controller.signal);
+      if (!controller.signal.aborted && captura.current === controller && r.dominio === 'instantanea-dc') {
+        const ids = elementosTermicos(r.resultado); setElementos(ids); setElemento(ids[0] ?? ''); setFirmaElementos(r.firmaVista);
+        if (!ids.length) setError('No hay resistencias o contactos disipativos con medidas válidas. Revisá el circuito y su alimentación.');
+      }
     } catch (e) { if (!controller.signal.aborted) setError(e instanceof Error ? e.message : String(e)); }
     finally { if (captura.current === controller) { captura.current = null; setOcupado(false); } }
   }
@@ -52,17 +70,31 @@ export function AnalisisFisicosDialog() {
     <p>Instantáneas de diseño. El transitorio mantiene GPIO y topología fijos; no ejecuta firmware ni reproduce el audio del micrófono.</p>
     <div className="analisis-controles">
       <label>Análisis <select aria-label="Tipo de análisis" value={modo} disabled={ocupado} onChange={e => { setModo(e.target.value as typeof modo); setResultado(null); setError(''); }}>
-        <option value="dc">DC · punto de funcionamiento</option><option value="transitorio">Transitorio · evolución temporal</option>
+        <option value="dc">DC · punto de funcionamiento</option><option value="transitorio">Transitorio · evolución temporal</option><option value="termico">Térmico · temperatura y energía</option>
       </select></label>
-      {modo === 'transitorio' && <>
+      {modo !== 'dc' && <>
         <label>Duración (s) <input type="number" step="any" min="0" value={duracion} onChange={e => { setDuracion(e.target.value); setResultado(null); }} disabled={ocupado}/></label>
         <label>Paso máximo (s) <input type="number" step="any" min="0" value={paso} onChange={e => { setPaso(e.target.value); setResultado(null); }} disabled={ocupado}/></label>
-        <label>Inicialización <select value={inicializacion} disabled={ocupado} onChange={e => { setInicializacion(e.target.value as typeof inicializacion); setResultado(null); }}>
+        <label>Inicialización <select aria-label="Inicialización" value={inicializacion} disabled={ocupado} onChange={e => { setInicializacion(e.target.value as typeof inicializacion); setResultado(null); }}>
           <option value="equilibrio">Equilibrio DC</option><option value="explicita">Condiciones C/L del proyecto</option>
         </select></label>
       </>}
       <button disabled={ocupado || !nombre} onClick={() => void calcular()}>{ocupado ? 'Calculando…' : 'Calcular'}</button>
     </div>
+    {modo === 'termico' && <fieldset className="modelo-termico" disabled={ocupado}>
+      <legend>Modelo térmico explícito</legend>
+      <p>Un cuerpo a temperatura uniforme y ambiente fijo, sin realimentación eléctrica. Declarar parámetros no acredita caracterización experimental.</p>
+      <button type="button" onClick={() => void identificar()}>Identificar elementos</button>
+      <label>Elemento disipativo <select aria-label="Elemento disipativo" value={seleccionVigente ? elemento : ''} onChange={e => { setElemento(e.target.value); setResultado(null); }}>
+        <option value="">Identificá el circuito y elegí un elemento</option>
+        {seleccionVigente && elementos.map(id => <option key={id} value={id}>{id}</option>)}
+      </select></label>
+      <div className="termica-campos">{camposTermicos.map(([k, titulo, numerico]) => <label key={k}>{titulo}
+        <input aria-label={titulo} type={numerico ? 'number' : 'text'} step={numerico ? 'any' : undefined} maxLength={numerico ? undefined : 2000} value={modelo[k]}
+          onChange={e => { setModelo({ ...modelo, [k]: e.target.value }); setResultado(null); }}/>
+      </label>)}</div>
+      <p>Configuración temporal del panel; no modifica las propiedades del proyecto.</p>
+    </fieldset>}
     {error && <p role="alert">{error}</p>}
     {resultado && <>
       <p>Dominio: <strong>{resultado.dominio}</strong> · Capturado: <time>{resultado.fechaUtc}</time></p>
@@ -82,6 +114,8 @@ export function AnalisisFisicosDialog() {
         </svg> : <p>No hay señales referenciadas disponibles.</p>}
         <p>{resultado.resultado.t.length} muestras adaptativas. La descarga conserva todas las muestras.</p>
       </>}
+      {resultado.dominio === 'termico-diseno' && <div className="informe-tabla"><table><caption>Energía del modelo térmico (J)</caption><thead><tr><th>Elemento</th><th>Disipada</th><th>Almacenada (Δ)</th><th>Evacuada</th><th>Rango declarado (°C)</th></tr></thead>
+        <tbody>{Object.entries(resultado.resultado.termica ?? {}).map(([id, t]) => <tr key={id}><td>{id}</td><td>{t.energiaDisipadaJ.toPrecision(5)}</td><td>{t.energiaAlmacenadaDeltaJ.toPrecision(5)}</td><td>{t.energiaEvacuadaJ.toPrecision(5)}</td><td>{t.modelo.rangoDeclaradoC.join(' a ')}</td></tr>)}</tbody></table><p>La temperatura inicial corresponde a la primera muestra del transitorio. Energía evacuada negativa: el ambiente aporta calor. Sin caracterización de laboratorio acreditada.</p></div>}
       <ul>{(resultado.dominio === 'instantanea-dc' ? resultado.resultado.avisos : resultado.resultado.advertencias).map((a, i) => <li key={i}>{a}</li>)}</ul>
       <button disabled={obsoleto} onClick={descargar}>Descargar análisis JSON</button>
     </>}

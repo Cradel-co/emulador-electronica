@@ -16,3 +16,4 @@ export * from './informe.js';
 export * from './entradaSonido.js';
 
 export * from './analisisFisico.js';
+export * from './termica.js';

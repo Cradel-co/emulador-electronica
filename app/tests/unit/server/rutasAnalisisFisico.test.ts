@@ -145,3 +145,14 @@ it('If-Match rechaza una revisión ajena y cambios durante el cálculo', async (
     expect(tardia.statusCode).toBe(412); expect(tardia.json().t).toBeUndefined();
   } finally { await app.close(); }
 });
+
+it('el modelo térmico exige rango y temperaturas coherentes antes de resolver', async () => {
+  const { respuesta, resolver } = await probar({ parametros, termica: { 'r.R': { ...termico, ambienteC: 150 } } });
+  expect(respuesta.statusCode).toBe(400); expect(resolver).not.toHaveBeenCalled();
+});
+it('publica unidades térmicas y devuelve fallo sin medidas si excede el rango', async () => {
+  const ok = await probar({ parametros, termica: { 'r.R': termico } });
+  expect(ok.respuesta.json().unidades).toMatchObject({ temperaturaC: '°C', energia: 'J' });
+  const fallo = await probar({ parametros, termica: { 'r.R': { ...termico, resistenciaKPorW: 1000, capacidadJPorK: 0.001, rangoDeclaradoC: [0, 26] } } });
+  expect(fallo.respuesta.statusCode).toBe(422); expect(fallo.respuesta.json().termica).toBeUndefined();
+});

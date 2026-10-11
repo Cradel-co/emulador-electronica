@@ -12,4 +12,34 @@ Elegí una señal: tensiones de pines respecto a tierra o tensión, corriente o 
 
 **Descargar análisis JSON** conserva todas las muestras y sus tiempos, unidades, parámetros, proyecto, revisión y fecha. El dibujo reduce puntos preservando extremos para facilitar la lectura. Si cambia el circuito, la vista avisa y requiere recalcular para exportar. Cerrar el panel descarta solicitudes en curso.
 
-AC, térmico, edición de estímulos PWL y correlación automática con lecturas de firmware quedan para entregas posteriores. Diseño y criterios: [SDD](../SDD-ANALISIS-FISICOS.md).
+AC, electro térmico acoplado y edición de estímulos PWL y correlación automática con lecturas de firmware quedan para entregas posteriores. Diseño y criterios: [SDD](../SDD-ANALISIS-FISICOS.md).
+
+## Temperatura y energía
+
+Elegí **Térmico · temperatura y energía** y **Identificar elementos**. Se guardan los cambios y se consulta el punto DC para listar resistencias y contactos con medidas válidas. Si el circuito no está alimentado o no tiene elementos disponibles, revisalo antes de continuar. Modificar el circuito requiere identificar de nuevo.
+
+Seleccioná un elemento y completá el identificador del modelo, la fuente de los parámetros y las condiciones de aplicación. Declarás resistencia térmica en K/W, capacidad térmica en J/K, temperatura ambiente e inicial en °C y el rango válido. Los campos empiezan vacíos; estos valores deben provenir del modelo que quieras estudiar. El catálogo no los inventa por vos.
+
+**Calcular** reutiliza el transitorio y aplica el modelo de un cuerpo a temperatura uniforme con ambiente constante. La señal inicial del resultado es su temperatura; también podés elegir tensión, corriente o potencia. La tabla presenta energía disipada, variación almacenada y energía evacuada, en J. Un valor evacuado negativo indica calor aportado por el ambiente. La temperatura inicial corresponde al primer tiempo devuelto por ngspice.
+
+Si la temperatura sale del rango declarado, el cálculo falla y retira las medidas. La descarga conserva el modelo explícito, temperaturas, energía, tiempos, parámetros y unidades. Cambiar un campo exige recalcular. La configuración del panel no modifica ni se guarda en el proyecto.
+
+Este modelo no realimenta la resistencia eléctrica según la temperatura ni simula varios cuerpos acoplados; tampoco acredita caracterización física del componente. Esta primera UI configura un elemento por solicitud. El backend conserva el análisis térmico de varios elementos y el modo electro térmico, cuya interfaz queda para otra entrega.
+
+### Cómo interpretar el modelo y la curva
+
+| Parámetro | Interpretación |
+|---|---|
+| Resistencia térmica (K/W) | Aumento de temperatura por watt en equilibrio. Mayor resistencia térmica significa menor facilidad para evacuar calor. |
+| Capacidad térmica (J/K) | Energía necesaria para aumentar un grado la temperatura del cuerpo. Mayor capacidad implica una respuesta más lenta para la misma potencia. |
+| Ambiente e inicial (°C) | Temperatura del entorno y del componente al comenzar la traza. |
+| Rango declarado (°C) | Intervalo de validez del modelo; no es un umbral automático de quemado. |
+| Fuente y condiciones | Procedencia de los parámetros y montaje/condiciones donde se aplican. |
+
+El eje horizontal muestra segundos de simulación y el vertical la unidad de la señal elegida; al seleccionar temperatura, muestra °C. Una curva ascendente que se aplana indica que el calor evacuado se acerca al generado y la temperatura tiende al equilibrio.
+
+Ejemplo exclusivamente ilustrativo: potencia constante de 0,25 W, resistencia térmica de 40 K/W, capacidad térmica de 0,01 J/K y ambiente e inicial de 25 °C. El aumento final sería **0,25 × 40 = 10 °C**: el cuerpo tendería a **35 °C**. La constante de tiempo es **40 × 0,01 = 0,4 s**; después de ese intervalo alcanza aproximadamente el 63 % del aumento, unos **31,32 °C**. Los valores no caracterizan una resistencia comercial.
+
+En la tabla, **Disipada** es la energía eléctrica transformada en calor; **Almacenada (Δ)** es el cambio de energía térmica del cuerpo y **Evacuada** es la transferida al ambiente. Para este modelo se cumple **disipada = almacenada + evacuada**. Las energías están en joules, no en watts: la potencia es energía por unidad de tiempo.
+
+Para un componente real, los parámetros deben corresponder al componente y su montaje. En este modo la temperatura calculada no cambia automáticamente la resistencia eléctrica ni quema el componente del emulador.
