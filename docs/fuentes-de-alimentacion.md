@@ -186,7 +186,7 @@ en la vida real". Un proyecto puede no tener placa (`board: null`, `language: nu
 ## Estado
 
 - **Hecho:** todo lo de arriba. Desde el motor nuevo los tests están en
-  `app/server/src/sim/motor.test.ts` (ver [motor-electrico.md](motor-electrico.md#cómo-se-verificó)).
+  `app/tests/unit/server/sim/motor.test.ts` (ver [motor-electrico.md](motor-electrico.md#cómo-se-verificó)).
 - **Cambio de comportamiento:** los proyectos existentes y los nuevos arrancan con el
   USB desenchufado; hasta prenderlo (o cablear una fuente) no ejecutan.
 - **Resuelto por el motor nuevo** (antes eran límites): mallas genéricas, polaridad de

@@ -3,7 +3,7 @@ import ts from 'typescript';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ColaCorridas } from '../../server/src/colaCorridas.js';
 import { GuardadoDiagrama } from '../../web/guardado-diagrama.js';
-import { colaOriginal, guardadoOriginal } from './fixtures/coordinacion-original.js';
+import { colaOriginal, guardadoOriginal } from '../fixtures/unit/coordinacion-original.js';
 
 function original<T>(fuente: string, entorno: object, salida: string): T {
   return runInNewContext(ts.transpileModule(`${fuente}\n${salida}`, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } }).outputText, entorno) as T;

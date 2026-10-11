@@ -243,7 +243,7 @@ Sin `model` ni flags, el módulo se cablea pero eléctricamente no está (no con
      tensión de cada pin y la corriente de cada uno de tus elementos (`<id>.<nombre>`).
 6. **Variá las condiciones**: tensión baja, alta, al revés, fuente con poco límite. Tiene
    que pasar lo que pasaría en la mesa.
-7. Si es de fábrica, sumalo a los tests: `app/server/src/sim/motor.test.ts` tiene casos
+7. Si es de fábrica, sumalo a los tests: `app/tests/unit/server/sim/motor.test.ts` tiene casos
    de módulos activos para copiar (comparan con la hoja de datos y exigen Kirchhoff y la
    energía en todo el circuito).
 

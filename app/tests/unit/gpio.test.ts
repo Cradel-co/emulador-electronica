@@ -1,6 +1,6 @@
 import { gpioDe, gpioDeRef, nombrePinGpio } from '../../web/consultas.js';
 import { describe, expect, it } from 'vitest';
-import { consultasOriginales } from './fixtures/gpio-original.js';
+import { consultasOriginales } from '../fixtures/unit/gpio-original.js';
 
 function actuales(state: any) {
   const descriptor = state.placa?.board ?? null;

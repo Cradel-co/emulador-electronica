@@ -107,7 +107,7 @@ cumplimiento completo de I2C**: faltan fases de datos, extensores, capacitancia
 distribuida, múltiples controladores, stretching y protecciones no lineales.
 
 Un ejemplo reproducible de los campos está en
-[`perfilI2c.ts`](../app/server/src/fixtures/perfilI2c.ts). Está marcado como sintético
+[`perfilI2c.ts`](../app/tests/fixtures/server/perfilI2c.ts). Está marcado como sintético
 y los tests modifican sus parámetros para verificar ausencia de pull-up, subida
 lenta, sobrecorriente, sobretensión y niveles lógicos inválidos.
 

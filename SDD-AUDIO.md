@@ -106,7 +106,7 @@ de la serie Murata PKB.
 
 **Hecho:** `salidas` en el esquema (`app/shared/src/module.ts`), la lógica pura de amplitud
 (`app/shared/src/audio.ts`), el módulo `modules/buzzer-activo/` y sus tests contra ngspice
-(`app/server/src/sim/buzzerActivo.test.ts`). **Falta** publicar el `EventoSonido` desde el
+(`app/tests/unit/server/sim/buzzerActivo.test.ts`). **Falta** publicar el `EventoSonido` desde el
 server y el adaptador del navegador (sección 8).
 
 ## 5. Caso B — PWM (buzzer pasivo, melodías)
