@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { evaluarCanalRf, transmitirPorCanalRf, type CanalRf, type PresupuestoRf } from '../../../../server/src/rf/canalRf.js';
-import { enlaceRfDePrueba } from '../../../../server/src/rf/canalRf.fixture.js';
+import { enlaceRfDePrueba } from '../../../fixtures/server/rf/canalRf.fixture.js';
 
 function presupuesto(entrada: unknown): PresupuestoRf {
   const r = evaluarCanalRf(entrada);
