@@ -1,3 +1,4 @@
+import { observarMonitoreo, reiniciarMonitoreo } from './monitoreo-store.js';
 import { type InformePrototipo } from '@emu/shared';
 import { VersionesGuardado, ErrorRevision, type ConflictoGuardado } from './versiones-guardado.js';
 import { GuardadoDiagrama } from './guardado-diagrama.js';
@@ -574,6 +575,7 @@ function conectarWS() {
         log('emu', msg.boardId && placasDelProyecto(state.proyecto).length > 1 ? `[${msg.boardId}] ${msg.line}` : msg.line);
         break;
       case 'emu.state':
+        if ((msg.status?.state ?? msg.state) === 'starting') reiniciarMonitoreo(state.proyecto?.name ?? '');
         aplicarEstadoEmulador(msg.status ?? { state: msg.state }, msg.boardId);
         if (!msg.boardId || msg.boardId === state.placaActivaId) depuracion?.alMensaje(msg);
         break;
@@ -2069,10 +2071,12 @@ async function quitarDelCatalogo(m) {
 // --- Avisos dibujo ↔ código -----------------------------------------------------
 
 let revisionObservacionFisica = 0;
+let lecturasFisicasEnCurso = 0;
 let topologiaObservada = '';
 /** Suelta medidas anteriores e invalida respuestas pendientes de otro contexto. */
 function invalidarObservacionFisica(avisos: typeof state.avisosDibujo = []): void {
   revisionObservacionFisica++;
+  if (state.proyecto) observarMonitoreo(state.proyecto.name, state.diagrama.modules, null, performance.now());
   for (const modulo of audio.leer().sonando) eventoSonido({ modulo, sonando: false, ganancia: 0 });
   state.fisicaValida = false;
   state.electrico = new Map();
@@ -2095,6 +2099,8 @@ async function refrescarAvisos() {
   const proyecto = state.proyecto.name;
   const topologia = firmaDiagramaElectrico(state.diagrama);
   let avisosFallidos: typeof state.avisosDibujo | null = null;
+  const modulosMonitor = structuredClone(state.diagrama.modules);
+  lecturasFisicasEnCurso++;
   try {
     const respuesta = await api(`/api/projects/${proyecto}/pins`);
     if (revision !== revisionObservacionFisica || state.proyecto?.name !== proyecto) return;
@@ -2108,6 +2114,7 @@ async function refrescarAvisos() {
         && Array.isArray(respuesta.warnings) ? respuesta.warnings : null;
       throw new Error('El servidor no entregó una instantánea eléctrica resuelta.');
     }
+    observarMonitoreo(proyecto, modulosMonitor, respuesta.electrico, performance.now());
     const { pins, warnings } = respuesta;
     state.fisicaValida = respuesta.electrico.resuelto === true;
     topologiaObservada = topologia;
@@ -2140,6 +2147,8 @@ async function refrescarAvisos() {
     invalidarObservacionFisica(avisosFallidos?.length ? avisosFallidos : [{ message: `Análisis eléctrico no válido: ${String((error as Error)?.message ?? error)}` }]);
     lienzo.refrescarFisica();
     pintarPanelDerecho();
+  } finally {
+    lecturasFisicasEnCurso--;
   }
 }
 
@@ -2164,6 +2173,7 @@ function mostrarInicio() {
   state.aprendizajeRuta = null;
   state.leccionPracticaId = null;
   state.proyecto = null;
+  reiniciarMonitoreo();
   state.placaActivaId = null;
   state.activo = null;
   sel('proyecto').value = '';
@@ -2290,6 +2300,7 @@ async function abrirProyecto(nombre) {
   if (cambioProyecto) state.exploradorPlacas = [];
   invalidarObservacionFisica();
   state.proyecto = project;
+  reiniciarMonitoreo(nombre);
   versionesGuardado.cargar(recursoProyecto(nombre), revision);
   versionesGuardado.cargar(recursoDiagrama(nombre), revisionDiagrama);
   guardadoDiagrama.aceptarCarga();
@@ -3173,3 +3184,8 @@ const navegacion = createWorkspaceNavigation({
     for (const line of emu.recentLog ?? []) log('emu', line);
   }
 })();
+
+// Sondeo acotado: solo mientras Debug está visible; no acumula solicitudes periódicas.
+setInterval(() => {
+  if (document.visibilityState === 'visible' && !$('debug').hidden && ($('monitor-detalles') as HTMLDetailsElement)?.open && state.proyecto && lecturasFisicasEnCurso === 0) void refrescarAvisos();
+}, 1000);

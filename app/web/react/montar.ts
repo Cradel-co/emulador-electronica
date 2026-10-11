@@ -1,3 +1,4 @@
+import { Monitoreo } from './Monitoreo.js';
 import { InformePrototipoDialog } from './InformePrototipo.js';
 import { ConflictosGuardado } from './ConflictosGuardado.js';
 import { createRoot } from 'react-dom/client';
@@ -61,6 +62,7 @@ const ISLAS: [string, FunctionComponent, boolean][] = [
   ['problemas', Problemas, false],
   ['avisos', ErroresCompilacion, false],
   ['dbg-alimentacion', DebugAlimentacion, false],
+  ['dbg-monitoreo', Monitoreo, true],
   ['imp-resultado', ResultadoImportacion, false],
   ['proyecto', OpcionesProyectos, false],
   ['nuevo-placa', OpcionesPlacaNueva, false],

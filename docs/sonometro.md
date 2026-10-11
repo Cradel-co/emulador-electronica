@@ -50,3 +50,17 @@ fuera del dominio declarado. Al cambiar un perfil, detené y arrancá la simulac
 
 No se modelan acústica del ambiente, ponderación A real, respuesta temporal del sensor ni su
 error experimental. No se ensayó un SEN0232 físico. Detalle del modelo: [audio.md](audio.md#el-que-ya-está-sonometro-sen0232).
+
+## Historial en Debug
+
+Abrí **Debug → Monitoreo de señales**. Cerrá ese desplegable para volver a las variables, alimentación y pines de Debug. La vista muestra el nivel declarado en dBA y
+OUT respecto a GND en voltios, en escalas separadas. Al abrirla consulta la instantánea
+una vez por segundo; los cambios del circuito también aportan muestras. Retiene hasta
+600 muestras, con tiempo de recepción en el navegador. Los cálculos inválidos dejan huecos.
+
+**Pausar vista** congela lo que ves y descargás, mientras el historial vivo continúa.
+**Reanudar vista** vuelve a las muestras recientes. **Descargar muestras** conserva unidades,
+procedencia, contexto y huecos en JSON. Cambiar de proyecto o iniciar otra corrida limpia
+el historial. La gráfica representa instantáneas DC; no es la onda acústica del micrófono.
+
+Podés agrandar la ventana Consola arrastrando su separador para ver las gráficas con más espacio.
