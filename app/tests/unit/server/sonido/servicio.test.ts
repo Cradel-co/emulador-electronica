@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
 import { ProjectSchema } from '@emu/shared';
-import { ServicioEntradaSonido, aplicarEntradaSonido } from './servicio.js';
+import { ServicioEntradaSonido, aplicarEntradaSonido } from '../../../../server/src/sonido/servicio.js';
 it('aplica una entrada temporal sin cambiar propiedades guardadas y vuelve a manual al cerrar', () => {
   const p = ProjectSchema.parse({ name: 'p', board: null, language: null, modules: [{ id: 'mic', type: 'sonometro-sen0232', x: 0, y: 0, props: { dbA: 50 } }], wires: [], sim: { wifiSsid: 'x', wifiPassword: '' } });
   const s = new ServicioEntradaSonido(() => {});

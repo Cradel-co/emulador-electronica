@@ -1,7 +1,7 @@
 import Fastify from 'fastify';
 import { expect, it } from 'vitest';
-import { registrarRutasEntradaSonido } from './rutas.js';
-import { ServicioEntradaSonido } from './servicio.js';
+import { registrarRutasEntradaSonido } from '../../../../server/src/sonido/rutas.js';
+import { ServicioEntradaSonido } from '../../../../server/src/sonido/servicio.js';
 it('valida destino, propiedad, secuencia y contrato sin admitir audio crudo', async () => {
   const app = Fastify(), servicio = new ServicioEntradaSonido(() => {});
   registrarRutasEntradaSonido(app, servicio, async (p, m) => p === 'p' && m === 'mic', async () => {});
