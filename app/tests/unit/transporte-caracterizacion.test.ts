@@ -3,7 +3,7 @@ import ts from 'typescript';
 import { ServerEventSchema, type ServerEvent } from '@emu/shared';
 import { describe, expect, it, vi } from 'vitest';
 import { crearTransporteEventos } from '../../server/src/transporteEventos.js';
-import { transporteOriginal } from './fixtures/coordinacion-original.js';
+import { transporteOriginal } from '../fixtures/unit/coordinacion-original.js';
 
 describe.each(['original', 'extraído'] as const)('transporte de eventos: %s', version => {
   it('valida, conserva el log de error y sólo envía a sockets abiertos del conjunto actual', () => {

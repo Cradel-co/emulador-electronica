@@ -171,11 +171,11 @@ de emulación).
 
 - **Con el maestro virtual** (`app/server/src/bus/maestroVirtual.ts`): `sondear`, `escribir`,
   `leer`, `leerRegistros` y `esperar(ms)` (corre los despertadores en orden). Ver los tests de
-  cada chip en `app/server/src/bus/*.test.ts`.
-- **Con firmware real**: el sketch va en `app/server/src/fixtures/chips/<nombre>/<nombre>.ino` y
-  se compila con `sh app/server/src/fixtures/chips/compilar.sh` (arduino-cli en Docker, librerías
+  cada chip en `app/tests/unit/server/bus/*.test.ts`.
+- **Con firmware real**: el sketch va en `app/tests/fixtures/server/chips/<nombre>/<nombre>.ino` y
+  se compila con `sh app/tests/fixtures/server/chips/compilar.sh` (arduino-cli en Docker, librerías
   con versión fija). Los `.hex` se versionan: los tests corren sin Docker.
-- `app/server/src/bus/catalogoChips.test.ts` exige que todos los chips de esta carpeta carguen.
+- `app/tests/unit/server/bus/catalogoChips.test.ts` exige que todos los chips de esta carpeta carguen.
 
 ## Chips de Wokwi
 

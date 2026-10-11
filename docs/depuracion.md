@@ -300,7 +300,7 @@ Cómo depura un agente, típicamente:
 - Ganchos chicos en: `index.ts`, `mcp.ts`, `emulator.ts` (`--gdb`), `avrEmulator.ts`,
   `avrWorker.ts`, `avrSim.ts` (breakpoints por PC), `bridgeClient.ts` (líneas crudas),
   `templates/micropythonBridge.ts` (`@DUMP`/`@EVAL`), `shared/src/protocol.ts` (eventos `debug.*`, `status.paused`).
-- Pruebas: `server/src/debug/*.test.ts` con fixtures en `server/src/fixtures/depuracion/`
+- Pruebas: `tests/unit/server/debug/*.test.ts` con fixtures en `tests/fixtures/server/depuracion/`
   (`uno-debug.*` compilado por arduino-cli; `dw5-xtensa.elf` compilado con el GCC 14 de
   ESP-IDF con `-gdwarf-5`).
 

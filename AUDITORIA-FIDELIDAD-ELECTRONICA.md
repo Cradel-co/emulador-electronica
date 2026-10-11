@@ -413,9 +413,9 @@ Pruebas físicas ejecutadas:
 ```bash
 cd app
 nice -n 10 ./node_modules/.bin/vitest run \
-  server/src/sim/motor.test.ts server/src/sim/regulador.test.ts \
-  server/src/sim/multiplaca.test.ts server/src/sim/comparacion.test.ts \
-  server/src/solver.test.ts server/src/circuitNetwork.test.ts \
+  tests/unit/server/sim/motor.test.ts tests/unit/server/sim/regulador.test.ts \
+  tests/unit/server/sim/multiplaca.test.ts tests/unit/server/sim/comparacion.test.ts \
+  tests/unit/server/solver.test.ts tests/unit/server/circuitNetwork.test.ts \
   --maxWorkers=1 --minWorkers=1
 ```
 
@@ -428,7 +428,7 @@ Pruebas adicionales de firmware y buses ejecutadas:
 ```bash
 cd app
 nice -n 10 ./node_modules/.bin/vitest run \
-  server/src/bus server/src/pinScan.test.ts server/src/avrSim.test.ts \
+  tests/unit/server/bus tests/unit/server/pinScan.test.ts tests/unit/server/avrSim.test.ts \
   --maxWorkers=1 --minWorkers=1
 ```
 

@@ -2,7 +2,7 @@ import { runInNewContext } from 'node:vm';
 import ts from 'typescript';
 import { expect, it, vi } from 'vitest';
 import { ProjectSchema, placasDelProyecto, firmaDiagramaElectrico, sonidosDelCircuito, type Project } from '@emu/shared';
-import { observacionOriginal } from './fixtures/coordinacion-original.js';
+import { observacionOriginal } from '../fixtures/unit/coordinacion-original.js';
 import { crearServicioObservacion, finalizarObservacion, revisionElectrica, type ResultadoObservacion, type DependenciasObservacion } from '../../server/src/observacionElectrica.js';
 import { analizarCircuito } from '../../server/src/sim/analisis.js';
 import { loadCatalog } from '../../server/src/catalog.js';

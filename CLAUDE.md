@@ -63,6 +63,11 @@ curl -s localhost:5180/api/projects/<proyecto>/pins | python3 -m json.tool | gre
 
 - **Español** en comentarios, mensajes de commit, nombres de dominio (`conduce`, `voltajes`, `fuente`) y
   texto de UI. Los identificadores de la API pública y los campos de los `.json` quedan como están.
+- **Tests separados del código**: los unitarios van bajo `app/tests/unit/`; los de `server` y
+  `shared` conservan allí sus subcarpetas y estructura por área. Los e2e van en `app/tests/e2e/` y
+  los fixtures exclusivos de tests en `app/tests/fixtures/`. Al implementar o modificar una
+  funcionalidad, actualizar el test existente o agregar uno en esa estructura; no crear archivos de
+  test ni fixtures exclusivos de test dentro de `src/`. Ver [docs/pruebas.md](./docs/pruebas.md).
 - TypeScript estricto con `noUncheckedIndexedAccess`: indexar un array devuelve `T | undefined`.
   Resolverlo con un chequeo explícito o un `?? 0` justificado, no con `!`.
 - `projects/*` **no se versiona** (salvo `projects/_template/`): los proyectos de cada quien son locales.
@@ -129,5 +134,5 @@ Ver [arquitectura-web.md](./docs/arquitectura-web.md#componentes-propios-y-adapt
 - [SDD-ESP-CAMERA.md](./SDD-ESP-CAMERA.md) — diseño de la cámara OV2640 por DVP en ESP32-S3,
   compatibilidad del driver físico y frontera de fidelidad de la emulación.
 - [chips/README.md](./chips/README.md) — chips con lógica (I2C/SPI en el Uno y puente MicroPython en ESP32): cómo se escriben y se prueban.
-  Los sketches de prueba se compilan con `sh app/server/src/fixtures/chips/compilar.sh` (Docker) y los
-  `.hex` se versionan: los tests corren sin Docker.
+  Los sketches de prueba se compilan con `sh app/tests/fixtures/server/chips/compilar.sh` (Docker) y
+  los `.hex` se versionan: los tests corren sin Docker.
