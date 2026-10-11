@@ -1,3 +1,5 @@
+import { ServicioEntradaSonido, aplicarEntradaSonido } from './sonido/servicio.js';
+import { registrarRutasEntradaSonido } from './sonido/rutas.js';
 import { crearInforme } from '@emu/shared';
 import { revisionContenido, revisionProyecto, revisionDiagrama, comprobarRevision, ConflictoRevision } from './revisionGuardado.js';
 import { crearTransporteEventos } from './transporteEventos.js';
@@ -74,8 +76,15 @@ const logger = Fastify({ logger: false });
 const store = new ProjectStore();
 const builder = new BuildService();
 const camaras = new ServicioCamara(broadcast);
+const entradasSonido = new ServicioEntradaSonido(nombre => {
+  vigenciaElectrica.invalidar();
+  broadcast({ type: 'project.changed', project: nombre, what: 'electrico', origin: 'server' });
+  void refrescarEntradasDelCircuito(nombre);
+});
+const circuitoVivo = (p: Project): Project => aplicarEntradaSonido(conPlaca(p), entradasSonido.leer(p.name));
 const capturasFirmware = new CoordinadorCapturas(camaras, mensaje => logBuild(mensaje));
 store.alCambiar = async (name, modules) => {
+  entradasSonido.reconciliar(name, modules);
   const catalogo = await loadCatalog();
   camaras.reconciliar(name, modules.filter(m => catalogo.some(d => d.type === m.type && d.camera)).map(m => m.id));
   if (runningProject === name) await actualizarCamarasDelCircuito(name);
@@ -430,6 +439,11 @@ async function registerRoutes(): Promise<void> {
       return reply.code(403).send({ error: 'Origen no permitido' });
     }
   });
+
+  registrarRutasEntradaSonido(app, entradasSonido, async (nombre, instancia) => {
+    const p = await store.read(nombre).catch(() => null);
+    return p?.modules.some(m => m.id === instancia && m.type === 'sonometro-sen0232') ?? false;
+  }, refrescarEntradasDelCircuito);
 
   app.get('/api/health', async () => ({ ok: true, port: PORT }));
 
@@ -1073,7 +1087,7 @@ async function recargarCodigo(nombre: string, boardId?: string): Promise<Recarga
           if (generation !== runGeneration || runningProject !== nombre) return { ok: false, motivo: 'se detuvo la ejecución durante la recarga' };
           nivelesPorPlaca.get(b.id)?.clear();
           sensadosPorPlaca.delete(b.id);
-          const electrico = await analizarCircuito(conPlaca(full), t => catalog.find(m => m.type === t), {
+          const electrico = await analizarCircuito(circuitoVivo(full), t => catalog.find(m => m.type === t), {
             nivelesReales: true, nivelesPorPlaca, direccionesPorPlaca: await direccionesTodas(full),
             cerrados: cerradosDe(nombre), fuentesApagadas: fuentesApagadasDe(full),
           });
@@ -1179,7 +1193,7 @@ async function ejecutarProyecto(
   const catalogo = await loadCatalog();
   const buscarDef = (t: string): ModuloCatalogo | undefined => catalogo.find(m => m.type === t);
   const directions = await direccionesTodas(full);
-  const electrico = await analizarCircuito(conPlaca(full), buscarDef, {
+  const electrico = await analizarCircuito(circuitoVivo(full), buscarDef, {
     nivelesReales: true,
     direccionesPorPlaca: directions, nivelesPorPlaca: runningProject === full.name ? nivelesPorPlaca : new Map(), cerrados: cerradosDe(full.name), fuentesApagadas: fuentesApagadasDe(full),
   });
@@ -1214,7 +1228,7 @@ async function ejecutarProyecto(
   controlesCerrados.clear();
   // La compilación puede tardar y el reset retiró los GPIO de la corrida anterior.
   // El primer analogRead recibe el circuito del arranque, no aquel preflight previo.
-  const electricoArranque = await analizarCircuito(conPlaca(full), buscarDef, {
+  const electricoArranque = await analizarCircuito(circuitoVivo(full), buscarDef, {
     nivelesReales: true, nivelesPorPlaca, direccionesPorPlaca: directions,
     cerrados: cerradosDe(full.name), fuentesApagadas: fuentesApagadasDe(full),
   });
@@ -1362,7 +1376,7 @@ async function actualizarCamarasDelCircuito(nombre: string): Promise<void> {
     const original = await store.read(nombre), catalogo = await loadCatalog();
     const buscar = (t: string) => catalogo.find(m => m.type === t);
     const placa = original.board ? await buscarPlaca(original.board) : undefined;
-    const r = await analizarCircuito(conPlaca(original), buscar, { nivelesReales: true, niveles, cerrados: cerradosDe(nombre), direcciones: await direccionesDe(original), fuentesApagadas: fuentesApagadasDe(original) });
+    const r = await analizarCircuito(circuitoVivo(original), buscar, { nivelesReales: true, niveles, cerrados: cerradosDe(nombre), direcciones: await direccionesDe(original), fuentesApagadas: fuentesApagadasDe(original) });
     return chipsDelProyecto(original, buscar, placa?.desc, undefined, id => r.resuelto && r.modulos[id]?.ui?.on === true).chips;
   }, chips => target.actualizarCamaras(chips),
   () => runningProject === nombre && generacion === runGeneration && emulator === target);
@@ -1392,7 +1406,7 @@ async function actualizarEntradasDelCircuito(nombre: string): Promise<void> {
       const catalogo = await loadCatalog();
       const buscar = (t: string): ModuloCatalogo | undefined => catalogo.find(m => m.type === t);
       const original = await store.read(nombre);
-      const r = await analizarCircuito(conPlaca(original), buscar, {
+      const r = await analizarCircuito(circuitoVivo(original), buscar, {
         nivelesReales: true, nivelesPorPlaca, cerrados: cerradosDe(nombre), direccionesPorPlaca: await direccionesTodas(original),
       });
       return { original, buscar, r };
@@ -1435,7 +1449,7 @@ async function actualizarEntradasDelCircuito(nombre: string): Promise<void> {
 async function alimentacionDe(project: Project): Promise<EstadoPlaca> {
   const catalogo = await loadCatalog();
   const buscar = (t: string): ModuloCatalogo | undefined => catalogo.find((m) => m.type === t);
-  const { alimentacion, resuelto } = await analizarCircuito(conPlaca(project), buscar, {
+  const { alimentacion, resuelto } = await analizarCircuito(circuitoVivo(project), buscar, {
     nivelesReales: true,
     direccionesPorPlaca: await direccionesTodas(project),
     nivelesPorPlaca, cerrados: cerradosDe(project.name), fuentesApagadas: fuentesApagadasDe(project),
@@ -1469,7 +1483,7 @@ async function revisarAlimentacion(nombre: string): Promise<void> {
     const p = await store.read(nombre);
     if (!p.board) return null; // sin placa no hay nada que se quede sin energía
     const catalogo = await loadCatalog();
-    const r = await analizarCircuito(conPlaca(p), t => catalogo.find(m => m.type === t), {
+    const r = await analizarCircuito(circuitoVivo(p), t => catalogo.find(m => m.type === t), {
       nivelesReales: true,
       nivelesPorPlaca: runningProject === nombre ? nivelesPorPlaca : undefined, direccionesPorPlaca: await direccionesTodas(p),
       cerrados: cerradosDe(nombre), fuentesApagadas: fuentesApagadasDe(p),
@@ -1498,6 +1512,7 @@ function pwmDePlaca(boardId: string): ReadonlyMap<number, PwmPin> {
 }
 
 const avisosDelProyecto = crearServicioObservacion({
+  entradasSonido: nombre => entradasSonido.leer(nombre),
   contexto: () => ({ generacion: runGeneration, corriendo: runningProject, energizado: proyectoEnergizado }),
   capturar: sigue => vigenciaElectrica.capturar(sigue),
   niveles: () => nivelesPorPlaca, pwm: pwmDePlaca, cerrados: cerradosDe,

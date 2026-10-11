@@ -53,3 +53,23 @@ describe('historial de monitoreo', () => {
     expect(registrarObservacion(h, 'a', modulos, observacion(), NaN)).toBe(h);
   });
 });
+it('separa manual y micrófono, exporta referencia y deja huecos cuando falta una lectura válida', () => {
+  const manual = registrarObservacion(historialVacio('a'), 'a', modulos, observacion(), 1);
+  const o = observacion();
+  o.contexto.entradasSonido = { mic: { origen: 'microfono', secuencia: 1, dbfs: -20, referencia: { dbfs: -20, nivel: 90 }, nivelEstimado: 90, recibidoMs: 100 } };
+  const audio = registrarObservacion(manual, 'a', modulos, o, 2);
+  expect(audio.muestras).toHaveLength(1);
+  expect(audio.series[0]).toMatchObject({ unidad: 'dB estimados', origen: 'microfono-estimado' });
+  expect(audio.muestras[0]?.valores['mic.nivel']).toBe(90);
+  expect(audio.muestras[0]?.entradasSonido?.mic?.referencia.nivel).toBe(90);
+  const entrada = o.contexto.entradasSonido.mic;
+  if (!entrada) throw new Error('Falta la entrada de prueba');
+  entrada.referencia.nivel = 100;
+  expect(audio.muestras[0]?.entradasSonido?.mic?.referencia.nivel).toBe(90);
+  const hueco = registrarObservacion(audio, 'a', modulos, null, 3);
+  expect(hueco.muestras.at(-1)?.valores['mic.nivel']).toBeNull();
+  expect(hueco.series[0]?.unidad).toBe('dB estimados');
+  const regreso = registrarObservacion(hueco, 'a', modulos, observacion(), 4);
+  expect(regreso.muestras).toHaveLength(1);
+  expect(regreso.series[0]?.unidad).toBe('dBA');
+});

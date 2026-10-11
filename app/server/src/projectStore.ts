@@ -18,6 +18,7 @@ import {
 import { arducamDriver, arducamMain } from './templates/arducam.js';
 import { arducamTftMain } from './templates/arducamTft.js';
 import { decodificadorJpegMicroPython } from './templates/jpegDecoder.js';
+import { sonometroTftMain } from './templates/sonometroTft.js';
 import { st7735MicroPython } from './templates/st7735MicroPython.js';
 import { PATHS } from './paths.js';
 
@@ -271,6 +272,10 @@ export class ProjectStore {
         await escribirAtomico(path.join(this.projectDir(name), 'jpeg.py'), decodificadorJpegMicroPython);
         await escribirAtomico(path.join(this.projectDir(name), 'st7735.py'), st7735MicroPython);
         await escribirAtomico(path.join(this.projectDir(name), 'main.py'), arducamTftMain);
+      }
+      if (templateId === 'sonometro-que-se-lee') {
+        await escribirAtomico(path.join(this.projectDir(name), 'st7735.py'), st7735MicroPython);
+        await escribirAtomico(path.join(this.projectDir(name), 'main.py'), sonometroTftMain);
       }
       return this.save({ ...base, name });
     });

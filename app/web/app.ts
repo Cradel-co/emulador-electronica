@@ -1,3 +1,4 @@
+import { ControladorMicrofono, desconectarMicrofono } from './microfono.js';
 import { observarMonitoreo, reiniciarMonitoreo } from './monitoreo-store.js';
 import { type InformePrototipo } from '@emu/shared';
 import { VersionesGuardado, ErrorRevision, type ConflictoGuardado } from './versiones-guardado.js';
@@ -208,6 +209,7 @@ window.addEventListener('storage', event => {
 // Lo que los componentes de React necesitan disparar (#9). Van por el puente y no importándose,
 // para no armar un ciclo entre app.ts y los componentes.
 registrarAcciones({
+  crearMicrofono: (proyecto, instancia) => new ControladorMicrofono(`/api/projects/${encodeURIComponent(proyecto)}/sound/${encodeURIComponent(instancia)}`),
   resolverConflicto,
   crearCamara: (project, instance, camera) => crearControladorCamara(project, instance, `/api/projects/${encodeURIComponent(project)}/cameras/${encodeURIComponent(instance)}`, {
     media: navigator.mediaDevices,
@@ -664,7 +666,7 @@ function conectarWS() {
   // y los `pin.watch` se registran por conexión. Sin resincronizar, lo que cambió mientras el
   // WebSocket estaba caído no se entera nunca (issue #8).
   ws.onopen = () => { if (state.proyecto) void resincronizar(); };
-  ws.onclose = () => { desconectarCamara(); setTimeout(conectarWS, 1500); };
+  ws.onclose = () => { desconectarCamara(); desconectarMicrofono(); setTimeout(conectarWS, 1500); };
 }
 
 /**

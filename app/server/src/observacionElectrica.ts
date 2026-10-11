@@ -1,3 +1,4 @@
+import { aplicarEntradaSonido } from './sonido/servicio.js';
 import { createHash } from 'node:crypto';
 import { firmaDiagramaElectrico, invalidarLecturaElectrica, type ObservacionElectrica, type Project, placasDelProyecto, sonidosDelCircuito } from '@emu/shared';
 import { conPlaca, gpioDe } from './diagramOps.js';
@@ -42,6 +43,7 @@ export interface DependenciasObservacion {
   leerProyecto(nombre: string): Promise<Project>;
   estados: Map<string, Map<string, Record<string, unknown>>>;
   resolver?: typeof analizarCircuito;
+  entradasSonido?: (proyecto: string) => Record<string, import('@emu/shared').EntradaSonido>;
 }
 
 export function crearServicioObservacion(deps: DependenciasObservacion): (project: Project) => Promise<ResultadoObservacion> {
@@ -62,6 +64,7 @@ export function crearServicioObservacion(deps: DependenciasObservacion): (projec
     const pwmSnapshot = (id: string): ReadonlyMap<number, PwmPin> => pwm.get(id) ?? new Map();
     const cerrados = new Set(deps.cerrados(project.name));
     const fuentesApagadas = !project.board && energizado !== project.name;
+    const entradasSonido = deps.entradasSonido?.(project.name) ?? {};
     const pins = await deps.pins(project);
     const catalogo = await deps.catalogo();
     const buscar = (t: string): ModuloCatalogo | undefined => catalogo.find((m) => m.type === t);
@@ -72,7 +75,7 @@ export function crearServicioObservacion(deps: DependenciasObservacion): (projec
     // Un pin con PWM activo se resuelve en alto: el registro GPIO_OUT que muestrea el puente no
     // refleja lo que maneja el LEDC. Ver nivelesConPwm en pwmEsp.ts.
     const niveles = nivelesConPwm(reportados, pwmSnapshot, placas);
-    const vivo = await resolver(conLaPlaca, buscar, { nivelesReales: true, nivelesPorPlaca: niveles, cerrados, fuentesApagadas, estados, direccionesPorPlaca });
+    const vivo = await resolver(aplicarEntradaSonido(conLaPlaca, entradasSonido), buscar, { nivelesReales: true, nivelesPorPlaca: niveles, cerrados, fuentesApagadas, estados, direccionesPorPlaca });
     // Lo que cada modelo quiere recordar vuelve en el próximo cálculo (solo del vivo: los otros son hipotéticos).
 
     const placa = project.board ? estadoAlimentacion(vivo.alimentacion, vivo.resuelto) : null;
@@ -81,7 +84,7 @@ export function crearServicioObservacion(deps: DependenciasObservacion): (projec
     const leds = vivo.leds;
     const { avisos: electricos, fuentes } = vivo;
     const electrico = await finalizarObservacion({
-        contexto: { proyecto: project.name, placas, corrida: generacion, revision, topologia: firmaDiagramaElectrico(conLaPlaca) },
+        contexto: { proyecto: project.name, placas, corrida: generacion, revision, topologia: firmaDiagramaElectrico(conLaPlaca), ...(deps.entradasSonido ? { entradasSonido } : {}) },
         estado: vivo.resuelto ? 'valida' : 'no-resuelta',
         nivelesPorPlaca: Object.fromEntries([...reportados].map(([id, valores]) => [id, Object.fromEntries(valores)])),
         resuelto: vivo.resuelto,

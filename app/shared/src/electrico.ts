@@ -92,6 +92,8 @@ export interface ContextoElectrico {
   revision: string;
   /** Firma de módulos/propiedades y cables; mover el dibujo no cambia la física. */
   topologia: string;
+  /** Estímulos temporales utilizados en este cálculo, sin audio ni tokens de sesión. */
+  entradasSonido?: Record<string, import('./entradaSonido.js').EntradaSonido>;
 }
 
 export function firmaDiagramaElectrico(diagrama: Pick<import('./project.js').Project, 'modules' | 'wires'>): string {
