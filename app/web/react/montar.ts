@@ -1,3 +1,4 @@
+import { AnalisisFisicosDialog } from './AnalisisFisicos.js';
 import { Monitoreo } from './Monitoreo.js';
 import { InformePrototipoDialog } from './InformePrototipo.js';
 import { ConflictosGuardado } from './ConflictosGuardado.js';
@@ -44,6 +45,7 @@ const ISLAS: [string, FunctionComponent, boolean][] = [
   ['avisos-dibujo', Avisos, false],
   ['tool-windows', ToolWindows, true],
   ['conflictos-guardado', ConflictosGuardado, true],
+  ['dlg-analisis-fisicos', AnalisisFisicosDialog, true],
   ['dlg-informe-prototipo', InformePrototipoDialog, true],
   ['dock-layout', DockWorkspace, true],
   ['tw-explorador', ExplorerIcon, false],

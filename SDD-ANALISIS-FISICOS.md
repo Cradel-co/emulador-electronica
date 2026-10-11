@@ -1,6 +1,6 @@
 # SDD — Análisis físicos desde la app
 
-Estado: diseño del bloque DC/transitorio; implementación y validación en curso. Continuación de etapa 6.
+Estado: bloque DC/transitorio implementado y validado en rama; pendiente de revisión e integración. Continuación de etapa 6.
 
 ## Alcance
 
@@ -22,4 +22,10 @@ La exportación JSON identifica proyecto, revisión, fecha, dominio, parámetros
 
 ## Pruebas y salida
 
-Pruebas de parámetros inválidos y presupuesto, series vacías/constantes y reducción con extremos; API rechaza revisión ajena o cambiada durante cálculo. E2E real de circuito RC: curva exponencial y estado DC, descarga y respuesta tardía tras edición. Revisar pantalla grande y angosta. Suite Vitest completa, tipos servidor/web y build antes de publicar PR. La entrega permanece en curso hasta completar estas verificaciones.
+Pruebas de parámetros inválidos y presupuesto, series vacías/constantes y reducción con extremos; API rechaza revisión ajena o cambiada durante cálculo. E2E real de circuito RC: curva exponencial y estado DC, descarga y respuesta tardía tras edición. Revisar pantalla grande y angosta. Suite Vitest completa, tipos servidor/web y build antes de publicar PR. La entrega se marca integrada únicamente después del merge del PR.
+
+## Evidencia de esta entrega
+
+Suite completa: 1681 pruebas aprobadas y una omisión existente. Build de producción y typechecks servidor/web pasan. Nueve E2E focalizados de análisis, informe, monitoreo y micrófono pasan; después del ajuste visual y la ampliación del caso de vigencia se repitieron los tres E2E de análisis y los quince tests de parámetros/rutas/gráfico.
+
+El RC real de catálogo y ngspice alcanza aproximadamente 5 × (1 − exp(−5)) V en 5 ms. Se verifican DC, tiempos adaptativos, descarga completa sin credenciales, parámetros inválidos sin solicitud, cierre durante cálculo, edición durante solicitud y bloqueo de exportación tras edición del circuito. Revisión visual a 1600 y 900 px. No se modifica física ni se agrega firmware o hardware nuevo. [Uso del panel](docs/analisis-fisicos.md).

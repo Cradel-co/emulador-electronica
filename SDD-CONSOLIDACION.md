@@ -338,3 +338,7 @@ No se agregan omisiones ni retries. No se ejecutó firmware nuevo en Docker ni h
 El informe (#78), la actualización de dependencias (#79), el monitoreo (#80), el micrófono (#81) y la TFT (#83) están integrados en `main`. La cadena #83 → #81 → #80 se validó con 1676 pruebas unitarias, una omisión existente, build y ocho E2E, incluido MicroPython real. #84/#85 separaron fixtures y capas del servidor. Estos números describen esa integración, no una validación de futuros cambios.
 
 El siguiente bloque se especifica en [SDD-ANALISIS-FISICOS.md](SDD-ANALISIS-FISICOS.md): punto DC y transitorio de diseño. AC y térmico quedan para entregas posteriores.
+
+### Etapa 6: interfaz DC y transitorio
+
+La siguiente entrega está implementada y validada en rama, pendiente de revisión e integración. El panel de [análisis físicos](docs/analisis-fisicos.md) reutiliza el informe DC y el transitorio de diseño; conserva tiempos y unidades, exporta las series completas y comprueba la revisión del proyecto antes y después del cálculo. Evidencia y alcance en [SDD-ANALISIS-FISICOS.md](SDD-ANALISIS-FISICOS.md). AC y térmico continúan pendientes.

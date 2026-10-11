@@ -1,3 +1,5 @@
+import { firmaVistaAnalisis } from './analisis-fisico.js';
+import { ParametrosVistaTransitorio, RespuestaVistaTransitorio, type ResultadoVistaAnalisis } from '@emu/shared';
 import { ControladorMicrofono, desconectarMicrofono } from './microfono.js';
 import { observarMonitoreo, reiniciarMonitoreo } from './monitoreo-store.js';
 import { type InformePrototipo } from '@emu/shared';
@@ -209,6 +211,7 @@ window.addEventListener('storage', event => {
 // Lo que los componentes de React necesitan disparar (#9). Van por el puente y no importándose,
 // para no armar un ciclo entre app.ts y los componentes.
 registrarAcciones({
+  analizarFisica,
   crearMicrofono: (proyecto, instancia) => new ControladorMicrofono(`/api/projects/${encodeURIComponent(proyecto)}/sound/${encodeURIComponent(instancia)}`),
   resolverConflicto,
   crearCamara: (project, instance, camera) => crearControladorCamara(project, instance, `/api/projects/${encodeURIComponent(project)}/cameras/${encodeURIComponent(instance)}`, {
@@ -471,6 +474,30 @@ async function abrirInformePrototipo(): Promise<void> {
     ($('dlg-informe-prototipo') as HTMLDialogElement).showModal();
   } catch (error) { nota(`No se pudo crear el informe: ${String((error as Error).message)}`); }
   finally { informeEnCurso = false; }
+}
+
+/** Captura una instantánea de diseño y rechaza respuestas de otro contexto. */
+async function analizarFisica(modo: 'dc' | 'transitorio', parametros: ParametrosVistaTransitorio, signal: AbortSignal): Promise<ResultadoVistaAnalisis> {
+  if (modo === 'transitorio') ParametrosVistaTransitorio.parse(parametros);
+  if (!state.proyecto || !await guardarAntesDeNavegar()) throw new Error('Guardá o resolvé los cambios antes de analizar.');
+  signal.throwIfAborted();
+  const proyecto = state.proyecto.name;
+  const revision = versionesGuardado.revision(recursoProyecto(proyecto));
+  if (!revision) throw new Error('Cargá la revisión del proyecto antes de analizar.');
+  const firmaVista = firmaVistaAnalisis(state.proyecto, state.diagrama);
+  const dibujo = guardadoDiagrama.revision, contenido = contenidoEditor();
+  const respuesta = await api(`${recursoProyecto(proyecto)}/${modo === 'dc' ? 'report' : 'analysis/transient'}`, {
+    signal, headers: { 'if-match': revision }, ...(modo === 'transitorio' ? { method: 'POST', body: JSON.stringify({ parametros }) } : {}),
+  });
+  signal.throwIfAborted();
+  if (state.proyecto?.name !== proyecto || firmaVistaAnalisis(state.proyecto, state.diagrama) !== firmaVista
+    || guardadoDiagrama.revision !== dibujo || state.editorSucio || contenidoEditor() !== contenido
+    || versionesGuardado.revision(recursoProyecto(proyecto)) !== revision || respuesta.revisionProyecto !== revision) {
+    throw new Error('El proyecto cambió durante el análisis. Volvé a calcular.');
+  }
+  const base = { schemaVersion: 1 as const, proyecto, revisionProyecto: revision, fechaUtc: respuesta.fechaUtc, firmaVista };
+  if (modo === 'dc') return { ...base, dominio: 'instantanea-dc', resultado: respuesta as InformePrototipo };
+  return { ...base, dominio: 'transitorio-diseno', resultado: RespuestaVistaTransitorio.parse(respuesta) };
 }
 
 // --- Consola ----------------------------------------------------------------
@@ -2749,6 +2776,7 @@ function buscarModulo() {
 const ACCIONES = [
   { id: 'nuevo', titulo: 'Nuevo proyecto…', menu: 'Archivo', hacer: abrirNuevoProyecto },
   { id: 'abrir', titulo: 'Abrir otro proyecto…', menu: 'Archivo', hacer: () => void irAInicio(), habilitada: hayProyecto },
+  { id: 'analisis-fisicos', titulo: 'Análisis físicos…', menu: 'Archivo', hacer: () => ($('dlg-analisis-fisicos') as HTMLDialogElement).showModal(), habilitada: hayProyecto },
   { id: 'informe-prototipo', titulo: 'Informe del prototipo…', menu: 'Archivo', hacer: () => void abrirInformePrototipo(), habilitada: hayProyecto },
   { id: 'guardar', titulo: 'Guardar', menu: 'Archivo', atajo: 'Ctrl+S', hacer: () => void guardar(false), habilitada: hayProyecto },
   { id: 'formatear-micropython', titulo: 'Formatear MicroPython', menu: 'Editar', atajo: 'Ctrl+Shift+I', hacer: () => void formatearMicroPython(), habilitada: () => microPythonActivo && !formateandoMicroPython },

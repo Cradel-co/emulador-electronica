@@ -2,6 +2,8 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Project } from '@emu/shared';
 import { analizarTransitorioCircuito, type BuscarDef, type OpcionesAnalisis } from './sim/analisis.js';
+import { comprobarRevision, revisionProyecto, ConflictoRevision } from './revisionGuardado.js';
+import { ProjectError } from './projectStore.js';
 import { calcularTermicaRc } from './sim/termica.js';
 import { analizarElectrotermicaCircuito } from './sim/electrotermicaCircuito.js';
 import { validarElectrotermica } from './sim/electrotermica.js';
@@ -46,9 +48,11 @@ interface ContextoAnalisisTemporal {
   proyecto: Project;
   buscar: BuscarDef;
   opciones: OpcionesAnalisis;
+  revision?: string;
 }
 
 export interface DependenciasAnalisisFisico {
+  revisionActual?(nombre: string): Promise<string>;
   cargar(nombre: string): Promise<ContextoAnalisisTemporal>;
   resolver?: typeof analizarTransitorioCircuito;
   resolverElectrotermico?: typeof analizarElectrotermicaCircuito;
@@ -78,7 +82,11 @@ export function registrarRutasAnalisisFisico(app: FastifyInstance, deps: Depende
       detalles: pedido.error.issues.map(i => `${i.path.join('.')}: ${i.message}`),
     });
     // Errores del proyecto conservan su status (p.ej. 404); no son fallos numéricos.
-    const { proyecto, buscar, opciones } = await deps.cargar((req.params as { name: string }).name);
+    const nombre = (req.params as { name: string }).name;
+    const { proyecto, buscar, opciones, revision } = await deps.cargar(nombre);
+    const capturada = revision ?? revisionProyecto(proyecto);
+    try { comprobarRevision(req.headers, capturada); }
+    catch (error) { if (error instanceof ProjectError) return reply.code(error.statusCode).send({ error: error.message }); throw error; }
     try {
       const transitorio = await (deps.resolver ?? analizarTransitorioCircuito)(proyecto, buscar, opciones, pedido.data.parametros);
       const termica = Object.fromEntries(Object.entries(pedido.data.termica ?? {}).map(([id, modelo]) => {
@@ -88,8 +96,13 @@ export function registrarRutasAnalisisFisico(app: FastifyInstance, deps: Depende
         }
         return [id, calcularTermicaRc(modelo, transitorio.t, e.p)];
       }));
-      return { resuelto: true, parametros: pedido.data.parametros, unidades: { t: 's', v: 'V', i: 'A', p: 'W' }, ...transitorio, termica };
+      if (deps.revisionActual) {
+        const actual = await deps.revisionActual(nombre);
+        if (actual !== capturada) throw new ConflictoRevision(actual);
+      }
+      return { resuelto: true, revisionProyecto: capturada, fechaUtc: new Date().toISOString(), parametros: pedido.data.parametros, unidades: { t: 's', v: 'V', i: 'A', p: 'W' }, ...transitorio, termica };
     } catch (error) {
+      if (error instanceof ProjectError) return reply.code(error.statusCode).send({ error: error.message });
       return reply.code(422).send({ resuelto: false, error: error instanceof Error ? error.message : 'Análisis físico no disponible.' });
     }
   });
