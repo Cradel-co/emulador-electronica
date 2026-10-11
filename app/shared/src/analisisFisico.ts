@@ -7,7 +7,8 @@ export const ParametrosVistaTransitorio = z.object({
 }).strict().refine(p => p.pasoS <= p.duracionS, 'El paso no puede superar la duración.')
   .refine(p => Math.ceil(p.duracionS / p.pasoS) + 1 <= 20000, 'Hasta 20000 muestras estimadas.');
 export type ParametrosVistaTransitorio = z.infer<typeof ParametrosVistaTransitorio>;
-const serie = z.array(z.number().finite()).max(20000);
+// El presupuesto estimado de entrada es 20000; la integración adaptativa admite 50000 muestras reales.
+const serie = z.array(z.number().finite()).max(50000);
 export const RespuestaVistaTransitorio = z.object({
   revisionProyecto: z.string().min(1), fechaUtc: z.string().datetime(),
   resuelto: z.literal(true), perfil: z.literal('transitorio-diseno-gpio-fijos'),

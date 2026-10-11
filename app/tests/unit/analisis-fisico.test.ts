@@ -32,3 +32,12 @@ it('reduce una serie grande conservando extremos breves y tiempo adaptativo', ()
   expect(r.path.match(/[ML]/g)?.length).toBeLessThan(450);
   expect(r.fin).toBe(t[t.length - 1]);
 });
+
+it('acepta muestras adaptativas por encima de la estimación y respeta el límite real del motor', () => {
+  const respuesta = (cantidad: number) => ({ revisionProyecto: 'x', fechaUtc: '2026-10-11T00:00:00.000Z',
+    resuelto: true, perfil: 'transitorio-diseno-gpio-fijos', t: Array.from({ length: cantidad }, (_, i) => i / cantidad),
+    pines: { a: Array.from({ length: cantidad }, () => 5) }, elementos: {}, advertencias: [],
+    parametros: { pasoS: 0.0001, duracionS: 1, inicializacion: 'equilibrio' }, unidades: { t: 's', v: 'V', i: 'A', p: 'W' } });
+  expect(RespuestaVistaTransitorio.safeParse(respuesta(50000)).success).toBe(true);
+  expect(RespuestaVistaTransitorio.safeParse(respuesta(50001)).success).toBe(false);
+});
