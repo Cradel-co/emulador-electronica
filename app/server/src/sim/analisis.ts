@@ -1,3 +1,5 @@
+import { correrAc } from './ac.js';
+import { ParametrosAcSchema, type ParametrosAc } from '@emu/shared';
 import { verificarConservacionDc } from './conservacion.js';
 import {
   BOARD_MODULE_ID,
@@ -428,6 +430,45 @@ export async function analizarTransitorioCircuito(project: Project, buscar: Busc
   if (sinReferencia.size) advertencias.push(`Sin referencia física de tierra verificable durante todo el transitorio para: ${[...sinReferencia].join(', ')}. Se omiten sus tensiones absolutas; v, i y p de los elementos conservan su sentido relativo a→b. Fuentes de corriente, semiconductores y controles no conceden referencia sin otro camino comprobado.`);
   if (sinModelo.length) advertencias.push(`Sin modelo eléctrico de tensión para: ${sinModelo.join(', ')}.`);
   return { perfil: 'transitorio-diseno-gpio-fijos', t: r.t, pines, elementos: r.elementos, advertencias };
+}
+
+/** Selección de pines con ecuación y referencia física; excluye fugas numéricas y módulos sin modelo. */
+function prepararAc(project: Project, buscar: BuscarDef, opciones: OpcionesAnalisis) {
+  const c = preparar(project, buscar, instantaneaOpcionesAnalisis(opciones));
+  const { n, avisosModelos } = armarPasada(c, c.hayPlaca, new Map());
+  const tierra = c.hayPlaca || c.instancias.some(ins => ins.def.source && ins.def.pins.some(pin => pin.kind === 'ground'));
+  const referenciados = nodosReferenciadosTransitorio(n.elementos, tierra ? ['0'] : []);
+  const nodos = new Set(n.elementos.flatMap(el => [el.a, el.b, ...(el.control ?? [])]));
+  const pines = new Map<string, string>();
+  for (const ins of c.instancias) for (const pin of ins.def.pins) {
+    const ref = `${ins.id}.${pin.name}`, nodo = c.nodo(ref);
+    if (nodos.has(nodo) && referenciados.has(nodo)) pines.set(ref, nodo);
+  }
+  for (const pin of referenciasPinesPlacas(c)) if (nodos.has(pin.nodo) && referenciados.has(pin.nodo)) pines.set(pin.ref, pin.nodo);
+  const fuentes = n.fuentesAc().filter(id => c.instancias.some(ins => n.elementos.find(el => el.id === id)?.dueno === ins.id && ins.def.source && !c.opciones.fuentesApagadas));
+  if (n.elementos.length > 256 || pines.size > 1024) throw new Error('El circuito excede el presupuesto AC');
+  return { n, pines, fuentes, avisosModelos };
+}
+
+export function opcionesAcCircuito(project: Project, buscar: BuscarDef, opciones: OpcionesAnalisis) {
+  const { pines, fuentes } = prepararAc(project, buscar, opciones);
+  return { fuentes, pines: [...pines.keys()] };
+}
+
+export async function analizarAcCircuito(project: Project, buscar: BuscarDef, opciones: OpcionesAnalisis, parametros: ParametrosAc) {
+  ParametrosAcSchema.parse(parametros);
+  const { n, pines, fuentes, avisosModelos } = prepararAc(project, buscar, opciones);
+  const entrada = pines.get(parametros.entrada), salida = pines.get(parametros.salida);
+  if (!fuentes.includes(parametros.fuente)) throw new Error('Fuente AC inexistente o apagada: identificá el circuito energizado');
+  if (entrada === undefined || salida === undefined) throw new Error('Entrada/salida AC sin modelo o referencia física verificable');
+  const r = await correrAc(n, parametros, entrada, salida);
+  return { perfil: 'ac-pequena-senal-gpio-fijos' as const, ...r, advertencias: [
+    'Pequeña señal linealizada alrededor del punto DC; no representa saturación, recorte ni distorsión.',
+    'GPIO y controles fijos: no ejecuta firmware ni reproduce el micrófono. Fase principal entre -180° y 180°.',
+    'Excitación normalizada AC 1 V sobre la fuente o su referencia; la ganancia usa la tensión real de entrada.',
+    ...avisosModelos.map(a => a.mensaje), ...r.advertencias,
+    ...(r.gananciaDb.some(v => v === null) ? ['Transferencia nula: ganancia en dB y fase indefinidas; se muestran huecos.'] : []),
+  ] };
 }
 
 export async function analizarCircuito(project: Project, buscar: BuscarDef, opciones: OpcionesAnalisis = {}): Promise<AnalisisCircuito> {

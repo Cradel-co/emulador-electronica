@@ -1,4 +1,4 @@
-import type { ResultadoVistaAnalisis, ParametrosVistaTransitorio, ConfiguracionTermicaVista } from '@emu/shared';
+import type { ParametrosAc, OpcionesAc, ResultadoVistaAnalisis, ParametrosVistaTransitorio, ConfiguracionTermicaVista } from '@emu/shared';
 import type { ControladorMicrofono } from '../microfono.js';
 import type { CameraDescriptor } from '@emu/shared';
 import type { ControladorCamara } from '../camera.js';
@@ -26,7 +26,8 @@ let alEntregar: ((l: Lienzo) => void) | null = null;
  * arrancar y los componentes las piden cuando el usuario hace algo.
  */
 export interface Acciones {
-  analizarFisica: (modo: 'dc' | 'transitorio' | 'termico', parametros: ParametrosVistaTransitorio, signal: AbortSignal, termica?: ConfiguracionTermicaVista) => Promise<ResultadoVistaAnalisis>;
+  analizarFisica: (modo: 'dc' | 'transitorio' | 'termico' | 'ac', parametros: ParametrosVistaTransitorio, signal: AbortSignal, termica?: ConfiguracionTermicaVista, ac?: ParametrosAc) => Promise<ResultadoVistaAnalisis>;
+  identificarAc: (signal: AbortSignal) => Promise<OpcionesAc & { firmaVista: string }>;
   crearMicrofono: (proyecto: string, instancia: string) => ControladorMicrofono;
   resolverConflicto: (opcion: 'descargar' | 'remoto' | 'local') => Promise<void>;
   crearCamara: (project: string, instance: string, camera: CameraDescriptor) => ControladorCamara;

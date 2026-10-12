@@ -1,6 +1,6 @@
 # SDD — Análisis físicos desde la app
 
-Estado: DC/transitorio integrado en #86. Panel térmico RC implementado y validado en rama, pendiente de revisión e integración. Continuación de etapa 6.
+Estado: DC/transitorio integrado en #86. Panel térmico RC integrado en #87. AC en implementación. Continuación de etapa 6.
 
 ## Alcance
 
@@ -47,3 +47,39 @@ La validación del resultado conserva temperaturas emparejadas con el reloj del 
 ### Evidencia de la segunda entrega
 
 1694 tests unitarios pasan, una omisión previa; tipos servidor/web y build de producción pasan. Cinco E2E de DC, transitorio y térmico pasan. La resistencia real de catálogo con fuente CV/CC se compara contra las cotas analíticas de temperatura para sus potencias mínima/máxima; la potencia resuelta varía levemente por tolerancias numéricas, por lo que no se la supone exactamente constante. Se verifican energía y unidades, modelo completo en JSON, proyecto conservado, formulario vacío, fallo al exceder el rango y respuesta tardía tras edición. Revisión visual a 1600 y 900 px. Los parámetros térmicos del test son sintéticos y se identifican como tales. No se agrega firmware ni se prueba hardware físico.
+
+## Tercera entrega: AC de pequeña señal
+
+La vista AC agrega un barrido logarítmico con una fuente de tensión explícita, entrada y salida
+referidas a tierra física verificable. Identificar circuito enumera fuentes V de módulos source
+activos y pines representados; editar el proyecto invalida la selección. La excitación AC normalizada
+es 1 V con fase 0 sobre la fuente o referencia de tensión existente, conservando su valor DC y
+las limitaciones CV/CC. La transferencia se calcula con la tensión real de entrada, no asumiendo
+que una fuente limitada entrega exactamente 1 V. Las restantes fuentes conservan DC sin excitación AC.
+
+Parámetros: inicio/fin positivos, fin mayor que inicio, 1..1000 puntos por década enteros, hasta
+10000 frecuencias y presupuesto de 1000000 valores reales del adaptador. El motor comparte el worker
+terminable con DC/transitorio. Ninguna solicitud admite SPICE arbitrario. El resultado conserva
+frecuencias efectivas (ngspice reparte pasos entre ambos extremos también en décadas fraccionarias), fasores entrada/salida y transferencia (real/imaginaria), ganancia
+20 log10(|Vout/Vin|) en dB y fase principal en grados (-180..180). Transferencia nula: ganancia
+y fase null, con hueco gráfico; entrada nula o insuficiente genera fallo sin medidas inventadas.
+No se calcula potencia instantánea ni dBA desde fasores.
+
+Dos gráficos de Bode con eje horizontal logarítmico Hz y unidades independientes dB/grados. Exportación
+JSON sin reducción con parámetros, advertencias, unidades, revisión y fecha. Se reutilizan guardado,
+If-Match antes/después, cancelación y bloqueo de exportación obsoleta. Configuración temporal del panel.
+No ejecuta firmware, no captura micrófono y no representa saturación, distorsión ni conmutación digital.
+Ngspice linealiza alrededor del punto DC; la validez depende de los modelos declarados.
+
+Salida: pruebas analíticas RC/RL, extracción compleja inválida/incompleta, presupuesto, fuente/pin
+ajenos o flotantes, revisiones cambiantes y cero de transferencia. E2E real RC con descarga y curvas,
+invalidación y cancelación; revisión visual escritorio/angosta. Suite completa, tipos server/web y
+build antes de publicar PR. Integración solo después del merge.
+
+Evidencia AC: 1704 tests unitarios aprobados, una omisión existente; ocho E2E de los cuatro
+modos pasan. Typechecks server/web y build de producción correctos. RC verifica -3,0103 dB y
+-45° en el corte y cada fasor contra la fórmula; RL valida la fuente limitada y la normalización
+real. El caso de décadas fraccionarias valida ambos extremos del ngspice usado. Se comprueban
+edición durante respuesta, selección invalidada, cierre/cancelación y exportación obsoleta.
+Revisión visual a 1600 y 900 px; fase en eje propio y etiquetas Hz sin recorte. Sin hardware ni
+firmware nuevo. Estado: implementado en rama, todavía sin merge.

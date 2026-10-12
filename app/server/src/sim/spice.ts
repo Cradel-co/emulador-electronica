@@ -1,3 +1,4 @@
+import type { ComplejoAc } from '@emu/shared';
 import { ColaWorker } from './colaWorker.js';
 import { ErrorSpice } from './validacionSpice.js';
 export { ErrorSpice } from './validacionSpice.js';
@@ -14,8 +15,9 @@ export interface ResultadoTransitorioSpice {
   errores: string[];
 }
 
-type PedidoSpice = { netlist?: string; duracionS?: number };
-type RespuestaSpice = { analisis: 'dc'; resultado: ResultadoSpice } | { analisis: 'transitorio'; resultado: ResultadoTransitorioSpice };
+export interface ResultadoAcSpice { frecuenciaHz: number[]; valores: Map<string, ComplejoAc[]>; errores: string[] }
+type PedidoSpice = { netlist?: string; duracionS?: number; frecuenciasAc?: number[] };
+type RespuestaSpice = { analisis: 'dc'; resultado: ResultadoSpice } | { analisis: 'transitorio'; resultado: ResultadoTransitorioSpice } | { analisis: 'ac'; resultado: ResultadoAcSpice };
 
 /**
  * ngspice corre fuera del hilo del servidor. Una sola tarea activa y hasta 32 pendientes.
@@ -51,5 +53,16 @@ export async function correrSpiceTransitorio(netlist: string, duracionS: number)
   } catch (err) {
     const mensaje = err instanceof Error ? err.message : String(err);
     throw new ErrorSpice(`ngspice no resolvió el transitorio (${mensaje})`, [mensaje], netlist);
+  }
+}
+
+export async function correrSpiceAc(netlist: string, frecuenciasAc: number[]): Promise<ResultadoAcSpice> {
+  try {
+    const respuesta = await motor.ejecutar({ netlist, frecuenciasAc });
+    if (respuesta.analisis !== 'ac') throw new Error('Tipo de análisis inesperado');
+    return respuesta.resultado;
+  } catch (err) {
+    const mensaje = err instanceof Error ? err.message : String(err);
+    throw new ErrorSpice(`ngspice no resolvió AC (${mensaje})`, [mensaje], netlist);
   }
 }

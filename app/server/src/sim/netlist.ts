@@ -1,3 +1,4 @@
+import { cantidadFrecuenciasAc, ParametrosAcSchema, type ParametrosAc } from '@emu/shared';
 import type { ModeloDiodo, Primitiva } from '@emu/shared';
 import type { ResultadoSpice } from './spice.js';
 import type { ParametrosTransitorio } from './transitorio.js';
@@ -248,6 +249,23 @@ export class Netlist {
     validarPrimitivaSpice({ tipo: 'R', nombre: el.local, a: el.a, b: el.b, ohms });
     this.lineas[indice] = linea.replace(/\S+$/, String(ohms));
     el.ohms = ohms;
+  }
+
+  /** Identificadores del producto; nunca se exponen nombres internos SPICE. */
+  fuentesAc(): string[] { return [...this.fuentes.keys()]; }
+
+  textoAc(parametros: ParametrosAc, entrada: string, salida: string): string {
+    ParametrosAcSchema.parse(parametros);
+    const fuente = this.fuentes.get(parametros.fuente);
+    if (!fuente) throw new ErrorSpice('Fuente AC desconocida', [], '');
+    const cantidad = cantidadFrecuenciasAc(parametros);
+    if (this.elementos.length > 256 || cantidad * 14 > 1000000) throw new ErrorSpice('AC excede el presupuesto', [], '');
+    const lineas = [...this.lineas];
+    const linea = lineas[fuente.linea];
+    if (!linea) throw new ErrorSpice('Fuente AC sin modelo', [], '');
+    lineas[fuente.linea] = `${linea} AC 1 0`;
+    const vectores = ['frequency', ...new Set([entrada, salida].filter(n => n !== '0').map(n => `v(${n})`))];
+    return this.renderizar(lineas, [`.save ${vectores.join(' ')}`, `.ac dec ${parametros.puntosPorDecada} ${parametros.inicioHz} ${parametros.finHz}`]);
   }
 
   /** IC y estímulos se aplican a una copia; el punto de operación conserva su netlist. */
