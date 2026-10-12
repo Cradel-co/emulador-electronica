@@ -12,7 +12,7 @@ Elegí una señal: tensiones de pines respecto a tierra o tensión, corriente o 
 
 **Descargar análisis JSON** conserva todas las muestras y sus tiempos, unidades, parámetros, proyecto, revisión y fecha. El dibujo reduce puntos preservando extremos para facilitar la lectura. Si cambia el circuito, la vista avisa y requiere recalcular para exportar. Cerrar el panel descarta solicitudes en curso.
 
-AC, electro térmico acoplado y edición de estímulos PWL y correlación automática con lecturas de firmware quedan para entregas posteriores. Diseño y criterios: [SDD](../SDD-ANALISIS-FISICOS.md).
+Electro térmico acoplado y edición de estímulos PWL y correlación automática con lecturas de firmware quedan para entregas posteriores. Diseño y criterios: [SDD](../SDD-ANALISIS-FISICOS.md).
 
 ## Temperatura y energía
 
@@ -43,3 +43,43 @@ Ejemplo exclusivamente ilustrativo: potencia constante de 0,25 W, resistencia t�
 En la tabla, **Disipada** es la energía eléctrica transformada en calor; **Almacenada (Δ)** es el cambio de energía térmica del cuerpo y **Evacuada** es la transferida al ambiente. Para este modelo se cumple **disipada = almacenada + evacuada**. Las energías están en joules, no en watts: la potencia es energía por unidad de tiempo.
 
 Para un componente real, los parámetros deben corresponder al componente y su montaje. En este modo la temperatura calculada no cambia automáticamente la resistencia eléctrica ni quema el componente del emulador.
+
+## AC: respuesta en frecuencia
+
+Elegí **AC · respuesta en frecuencia** y **Identificar circuito AC**. En proyectos sin placa,
+energizá con ▶ antes de identificar. Seleccioná una fuente de tensión activa, un pin de entrada
+y uno de salida; ambos se miden respecto a tierra. Los pines sin modelo o referencia física
+verificable no se ofrecen. Una edición exige identificar de nuevo.
+
+Configurá frecuencia inicial y final en Hz y puntos por década. El rango debe ser positivo y
+creciente, con 1..1000 puntos enteros por década y entre 2 y 10000 frecuencias. El barrido es
+logarítmico: distancias iguales representan la misma proporción de frecuencias. Se conservan las
+frecuencias efectivas de ngspice, que distribuye los pasos entre ambos extremos incluso cuando
+el rango contiene décadas fraccionarias.
+
+La excitación normalizada es AC 1 V y fase 0 sobre la fuente elegida o su referencia CV/CC,
+conservando su tensión DC y el resto del circuito. No equivale a una amplitud real de 1 V sobre
+la carga: la ganancia se obtiene de las tensiones efectivas **salida/entrada**. Si la entrada
+es nula o menor que 1e-12 V, el cálculo falla porque esa división no permite una medida válida.
+
+Las dos curvas muestran:
+
+- **Ganancia (dB):** `20 × log10(|salida/entrada|)`. 0 dB equivale a la misma amplitud;
+  −6,02 dB, aproximadamente la mitad; +6,02 dB, aproximadamente el doble.
+- **Fase (°):** ángulo de la salida respecto de la entrada. Se presenta la fase principal
+  entre −180° y 180°; el salto al cruzar ese límite no implica una discontinuidad física.
+  Una transferencia exactamente nula tiene ganancia y fase indefinidas y deja un hueco.
+
+Ejemplo: R de 1 kΩ en serie y C de 1 µF a tierra, salida sobre C. La frecuencia de corte es
+`1/(2πRC) ≈ 159,15 Hz`: en ella se espera −3,01 dB (70,7 % de amplitud) y −45°.
+Por debajo pasa casi toda la señal; por encima se atenúa progresivamente. Se trata de la
+respuesta del modelo eléctrico del proyecto, no de una medición del micrófono ni de dBA.
+
+Ngspice linealiza los componentes alrededor del punto DC. Este análisis de pequeña señal no
+representa saturación, recorte, distorsión ni conmutación; usá transitorio para estudiar la
+evolución temporal correspondiente. No avanza firmware. La configuración es temporal y no
+modifica el proyecto.
+
+**Descargar análisis JSON** conserva entrada, salida y transferencia como fasores real/imaginaria,
+frecuencias, ganancia, fase, parámetros, unidades, avisos, revisión y fecha. No se reducen las
+muestras exportadas. Editar el circuito bloquea la exportación hasta recalcular.

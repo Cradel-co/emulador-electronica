@@ -1,3 +1,4 @@
+import { ParametrosAcSchema, RespuestaAcSchema, OpcionesAcSchema, type ParametrosAc } from '@emu/shared';
 import { firmaVistaAnalisis } from './analisis-fisico.js';
 import { ParametrosVistaTransitorio, RespuestaVistaTransitorio, type ResultadoVistaAnalisis, type ConfiguracionTermicaVista, ModeloTermicoRcSchema } from '@emu/shared';
 import { ControladorMicrofono, desconectarMicrofono } from './microfono.js';
@@ -212,6 +213,7 @@ window.addEventListener('storage', event => {
 // para no armar un ciclo entre app.ts y los componentes.
 registrarAcciones({
   analizarFisica,
+  identificarAc,
   crearMicrofono: (proyecto, instancia) => new ControladorMicrofono(`/api/projects/${encodeURIComponent(proyecto)}/sound/${encodeURIComponent(instancia)}`),
   resolverConflicto,
   crearCamara: (project, instance, camera) => crearControladorCamara(project, instance, `/api/projects/${encodeURIComponent(project)}/cameras/${encodeURIComponent(instance)}`, {
@@ -476,13 +478,8 @@ async function abrirInformePrototipo(): Promise<void> {
   finally { informeEnCurso = false; }
 }
 
-/** Captura una instantánea de diseño y rechaza respuestas de otro contexto. */
-async function analizarFisica(modo: 'dc' | 'transitorio' | 'termico', parametros: ParametrosVistaTransitorio, signal: AbortSignal, termica?: ConfiguracionTermicaVista): Promise<ResultadoVistaAnalisis> {
-  if (modo !== 'dc') ParametrosVistaTransitorio.parse(parametros);
-  if (modo === 'termico') {
-    if (!termica?.elemento) throw new Error('Elegí un elemento disipativo identificado.');
-    ModeloTermicoRcSchema.parse(termica.modelo);
-  }
+/** Guardado y vigencia comunes a todos los análisis y a la selección AC. */
+async function capturarAnalisis(ruta: string, signal: AbortSignal, cuerpo?: unknown) {
   if (!state.proyecto || !await guardarAntesDeNavegar()) throw new Error('Guardá o resolvé los cambios antes de analizar.');
   signal.throwIfAborted();
   const proyecto = state.proyecto.name;
@@ -490,8 +487,8 @@ async function analizarFisica(modo: 'dc' | 'transitorio' | 'termico', parametros
   if (!revision) throw new Error('Cargá la revisión del proyecto antes de analizar.');
   const firmaVista = firmaVistaAnalisis(state.proyecto, state.diagrama);
   const dibujo = guardadoDiagrama.revision, contenido = contenidoEditor();
-  const respuesta = await api(`${recursoProyecto(proyecto)}/${modo === 'dc' ? 'report' : 'analysis/transient'}`, {
-    signal, headers: { 'if-match': revision }, ...(modo !== 'dc' ? { method: 'POST', body: JSON.stringify({ parametros, ...(modo === 'termico' && termica ? { termica: { [termica.elemento]: termica.modelo } } : {}) }) } : {}),
+  const respuesta = await api(`${recursoProyecto(proyecto)}/${ruta}`, {
+    signal, headers: { 'if-match': revision }, ...(cuerpo !== undefined ? { method: 'POST', body: JSON.stringify(cuerpo) } : {}),
   });
   signal.throwIfAborted();
   if (state.proyecto?.name !== proyecto || firmaVistaAnalisis(state.proyecto, state.diagrama) !== firmaVista
@@ -499,8 +496,29 @@ async function analizarFisica(modo: 'dc' | 'transitorio' | 'termico', parametros
     || versionesGuardado.revision(recursoProyecto(proyecto)) !== revision || respuesta.revisionProyecto !== revision) {
     throw new Error('El proyecto cambió durante el análisis. Volvé a calcular.');
   }
-  const base = { schemaVersion: 1 as const, proyecto, revisionProyecto: revision, fechaUtc: respuesta.fechaUtc, firmaVista };
+  return { respuesta, base: { schemaVersion: 1 as const, proyecto, revisionProyecto: revision, fechaUtc: respuesta.fechaUtc, firmaVista } };
+}
+
+async function identificarAc(signal: AbortSignal) {
+  const { respuesta, base } = await capturarAnalisis('analysis/ac-options', signal, {});
+  return { ...OpcionesAcSchema.parse(respuesta), firmaVista: base.firmaVista };
+}
+
+async function analizarFisica(modo: 'dc' | 'transitorio' | 'termico' | 'ac', parametros: ParametrosVistaTransitorio, signal: AbortSignal, termica?: ConfiguracionTermicaVista, ac?: ParametrosAc): Promise<ResultadoVistaAnalisis> {
+  if (modo !== 'dc' && modo !== 'ac') ParametrosVistaTransitorio.parse(parametros);
+  if (modo === 'termico') {
+    if (!termica?.elemento) throw new Error('Elegí un elemento disipativo identificado.');
+    ModeloTermicoRcSchema.parse(termica.modelo);
+  }
+  if (modo === 'ac') ParametrosAcSchema.parse(ac);
+  const { respuesta, base } = await capturarAnalisis(modo === 'dc' ? 'report' : modo === 'ac' ? 'analysis/ac' : 'analysis/transient', signal,
+    modo === 'dc' ? undefined : modo === 'ac' ? { parametros: ac } : { parametros, ...(modo === 'termico' && termica ? { termica: { [termica.elemento]: termica.modelo } } : {}) });
   if (modo === 'dc') return { ...base, dominio: 'instantanea-dc', resultado: respuesta as InformePrototipo };
+  if (modo === 'ac') {
+    const resultado = RespuestaAcSchema.parse(respuesta);
+    if (JSON.stringify(resultado.parametros) !== JSON.stringify(ParametrosAcSchema.parse(ac))) throw new Error('Parámetros AC de otro cálculo.');
+    return { ...base, dominio: 'ac-diseno', resultado };
+  }
   const resultado = RespuestaVistaTransitorio.parse(respuesta);
   if (modo === 'termico' && (!termica || !resultado.termica?.[termica.elemento] || resultado.unidades.temperaturaC !== '°C' || resultado.unidades.energia !== 'J')) throw new Error('Falta un resultado térmico válido.');
   return { ...base, dominio: modo === 'termico' ? 'termico-diseno' : 'transitorio-diseno', resultado };

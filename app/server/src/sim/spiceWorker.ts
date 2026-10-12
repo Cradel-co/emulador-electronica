@@ -1,8 +1,9 @@
+import { extraerAcSpice } from './validacionAc.js';
 import { parentPort } from 'node:worker_threads';
 import { Simulation } from 'eecircuit-engine';
 import { extraerSeriesSpice, extraerValoresSpice } from './validacionSpice.js';
 
-interface PedidoSpice { id: number; payload: { netlist?: string; duracionS?: number } }
+interface PedidoSpice { id: number; payload: { netlist?: string; duracionS?: number; frecuenciasAc?: number[] } }
 const motor = new Simulation();
 // El bootstrap sólo confirma listo cuando también terminó el arranque WASM.
 await motor.start();
@@ -16,7 +17,9 @@ parentPort?.on('message', async ({ id, payload }: PedidoSpice) => {
     motor.setNetList(payload.netlist);
     const raw = await motor.runSim();
     const errores = [...motor.getError()];
-    const resultado = payload.duracionS === undefined
+    const resultado = payload.frecuenciasAc !== undefined
+      ? { analisis: 'ac', resultado: { ...extraerAcSpice(raw, errores, payload.netlist, payload.frecuenciasAc), errores } }
+      : payload.duracionS === undefined
       ? { analisis: 'dc', resultado: { valores: extraerValoresSpice(raw, errores, payload.netlist), errores } }
       : { analisis: 'transitorio', resultado: { ...extraerSeriesSpice(raw, errores, payload.netlist, payload.duracionS), errores } };
     parentPort?.postMessage({ id, resultado });

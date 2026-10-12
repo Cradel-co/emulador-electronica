@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { ModeloTermicoRcSchema, type Project } from '@emu/shared';
-import { analizarTransitorioCircuito, type BuscarDef, type OpcionesAnalisis } from './sim/analisis.js';
+import { ParametrosAcSchema, RespuestaAcSchema, ModeloTermicoRcSchema, type Project } from '@emu/shared';
+import { analizarAcCircuito, opcionesAcCircuito, analizarTransitorioCircuito, type BuscarDef, type OpcionesAnalisis } from './sim/analisis.js';
 import { comprobarRevision, revisionProyecto, ConflictoRevision } from './revisionGuardado.js';
 import { ProjectError } from './projectStore.js';
 import { calcularTermicaRc } from './sim/termica.js';
@@ -48,11 +48,38 @@ export interface DependenciasAnalisisFisico {
   revisionActual?(nombre: string): Promise<string>;
   cargar(nombre: string): Promise<ContextoAnalisisTemporal>;
   resolver?: typeof analizarTransitorioCircuito;
+  resolverAc?: typeof analizarAcCircuito;
   resolverElectrotermico?: typeof analizarElectrotermicaCircuito;
 }
 
 /** Análisis de diseño acotado e independiente de la corrida del firmware. */
 export function registrarRutasAnalisisFisico(app: FastifyInstance, deps: DependenciasAnalisisFisico): void {
+  for (const seleccionar of [true, false]) {
+    app.post(`/api/projects/:name/analysis/${seleccionar ? 'ac-options' : 'ac'}`, { bodyLimit: 65536 }, async (req, reply) => {
+      reply.header('cache-control', 'no-store');
+      const pedido = seleccionar ? z.object({}).strict().safeParse(req.body) : z.object({ parametros: ParametrosAcSchema }).strict().safeParse(req.body);
+      if (!pedido.success) return reply.code(400).send({ resuelto: false, error: 'Solicitud AC inválida.', detalles: pedido.error.issues.map(i => `${i.path.join('.')}: ${i.message}`) });
+      const nombre = (req.params as { name: string }).name;
+      const { proyecto, buscar, opciones, revision } = await deps.cargar(nombre);
+      const capturada = revision ?? revisionProyecto(proyecto);
+      try {
+        comprobarRevision(req.headers, capturada);
+        const base = { revisionProyecto: capturada, fechaUtc: new Date().toISOString() };
+        const r = seleccionar ? { ...base, ...opcionesAcCircuito(proyecto, buscar, opciones) }
+          : RespuestaAcSchema.parse({ ...base, resuelto: true, parametros: ParametrosAcSchema.parse((pedido.data as { parametros: unknown }).parametros),
+            unidades: { frecuencia: 'Hz', tension: 'V', transferencia: 'V/V', ganancia: 'dB', fase: '°' },
+            ...await (deps.resolverAc ?? analizarAcCircuito)(proyecto, buscar, opciones, ParametrosAcSchema.parse((pedido.data as { parametros: unknown }).parametros)) });
+        if (deps.revisionActual) {
+          const actual = await deps.revisionActual(nombre);
+          if (actual !== capturada) throw new ConflictoRevision(actual);
+        }
+        return r;
+      } catch (error) {
+        if (error instanceof ProjectError) return reply.code(error.statusCode).send({ error: error.message });
+        return reply.code(422).send({ resuelto: false, error: error instanceof Error ? error.message : 'AC no disponible.' });
+      }
+    });
+  }
   app.post('/api/projects/:name/analysis/electrothermal', { bodyLimit: 65536 }, async (req, reply) => {
     reply.header('cache-control', 'no-store');
     const pedido = SolicitudAnalisisElectrotermico.safeParse(req.body);

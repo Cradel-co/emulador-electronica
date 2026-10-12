@@ -1,3 +1,4 @@
+import type { RespuestaAc } from './ac.js';
 import { ResultadoTermicoRcSchema, type ModeloTermicoRc } from './termica.js';
 import { z } from 'zod';
 import type { InformePrototipo } from './informe.js';
@@ -26,6 +27,6 @@ export type ResultadoVistaAnalisis = {
   schemaVersion: 1; proyecto: string; revisionProyecto: string; fechaUtc: string; firmaVista: string;
 } & ({ dominio: 'instantanea-dc'; resultado: InformePrototipo } | {
   dominio: 'transitorio-diseno' | 'termico-diseno'; resultado: RespuestaVistaTransitorio;
-});
+} | { dominio: 'ac-diseno'; resultado: RespuestaAc });
 
 export type ConfiguracionTermicaVista = { elemento: string; modelo: ModeloTermicoRc };

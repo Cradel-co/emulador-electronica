@@ -345,4 +345,17 @@ La entrega DC/transitorio está integrada en #86. El panel de [análisis físico
 
 El siguiente bloque es el panel térmico RC con modelos explícitos; ver segunda entrega de [SDD-ANALISIS-FISICOS.md](SDD-ANALISIS-FISICOS.md). AC continúa pendiente de integración con ngspice.
 
-El panel térmico RC está implementado y validado en rama: 1694 tests unitarios (una omisión previa), cinco E2E de análisis, tipos y build correctos. Pendiente de revisión e integración; no se declara terminado AC ni el modo electro térmico acoplado.
+El panel térmico RC está integrado en #87: 1694 tests unitarios (una omisión previa), cinco E2E de análisis, tipos y build correctos. #88 documenta la política de versionado y releases. El modo electro térmico acoplado conserva su backend y queda pendiente de interfaz.
+
+
+### Etapa 6: interfaz AC de pequeña señal
+
+AC está implementado y validado en rama, pendiente de revisión e integración. Selección explícita
+de fuente activa y pines referidos a tierra, barrido logarítmico con ngspice, Bode de ganancia/fase
+y exportación de fasores con revisión y unidades. No ejecuta firmware ni mide audio capturado.
+Alcance y límites en la tercera entrega de [SDD-ANALISIS-FISICOS.md](SDD-ANALISIS-FISICOS.md).
+
+Validación: 1704 tests unitarios y una omisión existente; ocho E2E de AC/DC/transitorio/térmico,
+tipos server/web y build correctos. Pruebas analíticas RC/RL, fuente CV/CC, décadas fraccionarias,
+entrada nula, transferencia cero, pines flotantes y revisiones cambiantes. Quedan fuera de esta
+entrega el panel electro térmico acoplado y la edición de estímulos temporales.
