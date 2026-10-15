@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "name": "melodia-con-buzzer-pasivo",
+  "board": "esp32-s3-devkitc-1",
+  "language": "micropython",
+  "sim": {
+    "wifiSsid": "sim-wifi",
+    "wifiPassword": "sim-password",
+    "autoReload": false
+  },
+  "modules": [
+    {
+      "id": "board",
+      "type": "esp32-s3-devkitc-1",
+      "x": 120,
+      "y": 40,
+      "props": { "usb": true }
+    },
+    {
+      "id": "bz1",
+      "type": "buzzer-pasivo",
+      "x": -200,
+      "y": 300,
+      "props": { "capacidadNf": 20 }
+    }
+  ],
+  "wires": [
+    { "from": "board.GPIO5", "to": "bz1.IN" },
+    { "from": "bz1.GND", "to": "board.GND" }
+  ]
+}

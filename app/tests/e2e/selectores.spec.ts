@@ -26,7 +26,7 @@ test('el selector de proyectos lista cada uno con su lenguaje y cambia de proyec
   await expect(s.locator('option[value=""]')).toHaveJSProperty('hidden', true);
 
   await s.selectOption(b);
-  await expect(page).toHaveURL(new RegExp(`#${b}$`));
+  await expect(page).toHaveURL(url => url.hash === `#/projects/${b}`);
 });
 
 test('"Nuevo proyecto": las placas, "sin placa", la de por defecto y las plantillas', async ({ page, request }) => {

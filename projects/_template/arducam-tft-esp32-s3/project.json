@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "name": "arducam-tft-esp32-s3",
+  "board": "esp32-s3-devkitc-1",
+  "language": "micropython",
+  "modules": [
+    {
+      "id": "board",
+      "type": "esp32-s3-devkitc-1",
+      "x": 100,
+      "y": 40,
+      "props": { "usb": true }
+    },
+    {
+      "id": "camara",
+      "type": "arducam-mini-2mp-plus",
+      "x": 450,
+      "y": 140,
+      "props": {}
+    },
+    {
+      "id": "tft",
+      "type": "tft-st7735-128x160",
+      "x": 720,
+      "y": 150,
+      "props": { "pestana": "negra" }
+    }
+  ],
+  "wires": [
+    { "from": "camara.VCC", "to": "board.3V3" },
+    { "from": "camara.GND", "to": "board.GND" },
+    { "from": "camara.SDA", "to": "board.GPIO8" },
+    { "from": "camara.SCL", "to": "board.GPIO9" },
+    { "from": "camara.SCLK", "to": "board.GPIO12" },
+    { "from": "camara.MOSI", "to": "board.GPIO11" },
+    { "from": "camara.MISO", "to": "board.GPIO13" },
+    { "from": "camara.CS", "to": "board.GPIO10" },
+    { "from": "tft.VCC", "to": "board.3V3" },
+    { "from": "tft.GND", "to": "board.GND" },
+    { "from": "tft.LED", "to": "board.3V3" },
+    { "from": "tft.SCK", "to": "board.GPIO12" },
+    { "from": "tft.SDA", "to": "board.GPIO11" },
+    { "from": "tft.CS", "to": "board.GPIO14" },
+    { "from": "tft.A0", "to": "board.GPIO15" },
+    { "from": "tft.RESET", "to": "board.GPIO16" }
+  ],
+  "sim": {
+    "wifiSsid": "sim-wifi",
+    "wifiPassword": "sim-password",
+    "autoReload": false
+  }
+}

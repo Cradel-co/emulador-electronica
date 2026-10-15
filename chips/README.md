@@ -14,7 +14,8 @@ En los **ESP32 con MicroPython** los mismos chips andan por cualquier par de pin
 esp-emu no acepta dispositivos I2C/SPI propios, así que el puente reemplaza `machine.I2C`, `SoftI2C`,
 `SPI` y `SoftSPI` y manda cada llamada a la app (`app/server/src/bus/puenteChips.ts`, protocolo en
 su cabecera). El reloj de los chips es el `ticks_us` del ESP32. Los pines del programa tienen que ser
-los del dibujo. Con Arduino o ESP-IDF en ESP32 los chips no se emulan (se avisa). 
+los del dibujo. Con ESPHome, Arduino o ESP-IDF en ESP32 los chips no se emulan (se avisa).
+
 | Chip | Qué emula | Probado con |
 |---|---|---|
 | [`bosch-bme280`](bosch-bme280/) | Temperatura, humedad y presión: modos, t_measure, filtro IIR, resolución, ruido, compensación de Bosch invertida; por I2C o por SPI (modos 0 y 3) | Adafruit_BME280 2.3.0 (I2C y SPI) |
@@ -170,11 +171,11 @@ de emulación).
 
 - **Con el maestro virtual** (`app/server/src/bus/maestroVirtual.ts`): `sondear`, `escribir`,
   `leer`, `leerRegistros` y `esperar(ms)` (corre los despertadores en orden). Ver los tests de
-  cada chip en `app/server/src/bus/*.test.ts`.
-- **Con firmware real**: el sketch va en `app/server/src/fixtures/chips/<nombre>/<nombre>.ino` y
-  se compila con `sh app/server/src/fixtures/chips/compilar.sh` (arduino-cli en Docker, librerías
+  cada chip en `app/tests/unit/server/bus/*.test.ts`.
+- **Con firmware real**: el sketch va en `app/tests/fixtures/server/chips/<nombre>/<nombre>.ino` y
+  se compila con `sh app/tests/fixtures/server/chips/compilar.sh` (arduino-cli en Docker, librerías
   con versión fija). Los `.hex` se versionan: los tests corren sin Docker.
-- `app/server/src/bus/catalogoChips.test.ts` exige que todos los chips de esta carpeta carguen.
+- `app/tests/unit/server/bus/catalogoChips.test.ts` exige que todos los chips de esta carpeta carguen.
 
 ## Chips de Wokwi
 

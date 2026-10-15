@@ -12,12 +12,23 @@ Guía para Claude Code (claude.ai/code) al trabajar en este repositorio.
    con `--base <esa-rama>`: GitHub rebasa la base sola cuando la otra se mergea.
 2. Commits chicos y temáticos, mensaje en español, imperativo, que diga **qué problema resuelve**
    (no "arreglos varios"). Un commit por idea.
-3. Antes de pushear: `npx vitest run` y `npx tsc -p server/tsconfig.json --noEmit` (desde `app/`) en verde.
-4. `gh pr create --base <rama-base> --fill` y describir en el body: qué cambia, por qué, y cómo se probó.
-5. Mergea el principal (Marcos), no el agente. El agente no mergea ni cierra PRs salvo pedido explícito.
+3. **Una entrada de changelog por rama**: un archivo `changelog.d/<tipo>-<descripcion-corta>.md`
+   con el mismo tipo que el prefijo de la rama. Primera línea = qué cambia para quien usa la app.
+   Es un archivo por cambio y no un `CHANGELOG.md` único **porque ese daría conflicto en cada
+   merge**; la suite valida todos los fragmentos. Formato y por qué:
+   [changelog.d/README.md](./changelog.d/README.md).
+4. Antes de pushear: `npx vitest run` y `npx tsc -p server/tsconfig.json --noEmit` (desde `app/`) en verde.
+5. `gh pr create --base <rama-base> --fill` y describir en el body: qué cambia, por qué, y cómo se probó.
+6. Mergea el principal (Marcos), no el agente. El agente no mergea ni cierra PRs salvo pedido explícito.
 
 Si hay un PR abierto que toca los mismos archivos, **revisarlo antes de escribir código**
 (`gh pr view <n> --json files`) para no duplicar trabajo ni generar conflictos.
+
+## Versionado y releases
+
+Seguir [docs/versionado-y-releases.md](./docs/versionado-y-releases.md): una versión común
+para los paquetes, criterios PATCH/MINOR/MAJOR y cierre mediante PR, etiqueta y GitHub Release.
+El merge de una funcionalidad no autoriza publicar una release.
 
 ## Comandos
 
@@ -61,6 +72,11 @@ curl -s localhost:5180/api/projects/<proyecto>/pins | python3 -m json.tool | gre
 
 - **Español** en comentarios, mensajes de commit, nombres de dominio (`conduce`, `voltajes`, `fuente`) y
   texto de UI. Los identificadores de la API pública y los campos de los `.json` quedan como están.
+- **Tests separados del código**: los unitarios van bajo `app/tests/unit/`; los de `server` y
+  `shared` conservan allí sus subcarpetas y estructura por área. Los e2e van en `app/tests/e2e/` y
+  los fixtures exclusivos de tests en `app/tests/fixtures/`. Al implementar o modificar una
+  funcionalidad, actualizar el test existente o agregar uno en esa estructura; no crear archivos de
+  test ni fixtures exclusivos de test dentro de `src/`. Ver [docs/pruebas.md](./docs/pruebas.md).
 - TypeScript estricto con `noUncheckedIndexedAccess`: indexar un array devuelve `T | undefined`.
   Resolverlo con un chequeo explícito o un `?? 0` justificado, no con `!`.
 - `projects/*` **no se versiona** (salvo `projects/_template/`): los proyectos de cada quien son locales.
@@ -77,16 +93,69 @@ curl -s localhost:5180/api/projects/<proyecto>/pins | python3 -m json.tool | gre
   umbrales VIL/VIH de la placa: `board.inputThresholds`).
 - Cambios en el solver o en la física: TDD. Primero el test que falla por la razón correcta.
 
+## Frontend (`app/web`)
+
+Reglas para la UI y para partir `app.ts`. El porqué de cada una, con los errores que las
+originaron: [docs/arquitectura-web.md](./docs/arquitectura-web.md).
+
+1. **Lógica pura → su propio módulo, con tests** (`geometria.ts`, `consultas.ts`, `paleta.ts`,
+   `formato.ts`). Sin DOM ni estado global: recibe los datos por parámetro. Tests en `app/tests/unit/`.
+2. **UI que genera HTML → componente de React**, montado con una isla (`react/montar.ts`) **sobre
+   el nodo que ya existe** en `index.html`, nunca en un `div` nuevo adentro: el CSS cuenta con la
+   jerarquía. Reproducir el comportamiento, no mejorarlo de paso.
+3. **Lo que se repinta muy seguido se queda imperativo** (dibujo del circuito, editor, consola):
+   React monta el contenedor y se corre. Medir antes de decir que algo es de alta frecuencia.
+4. **`app.ts` es para efectos**: server, WebSocket, guardar, conectar piezas. Ni cálculo ni HTML.
+5. **Los componentes no importan `app.ts`**: se hablan por `react/puente.ts`. El puente lleva
+   efectos (`acciones()`), no preguntas: un cálculo sobre el diagrama va a `consultas.ts`.
+6. **Estado** (`react/estado.ts`): escribir un campo avisa solo; mutar un `Map` o array por dentro
+   necesita `notificar()`, y el componente lee con `useVersion()`. Si después de cambiar el estado
+   hay que tocar el DOM que pinta React (p. ej. el `value` de un `<select>`), `ahora()`.
+7. **Antes de mover código, tests de caracterización contra el código viejo**, y que pasen. Al
+   extraer lógica, comparar la versión nueva con la vieja sobre casos al azar. Un test que pasa sin
+   el arreglo no prueba el arreglo.
+
+No hay límite de líneas por archivo: se separa por responsabilidad.
+
+**Criterio permanente del producto:** desarrollo custom y escalable. Los componentes y contratos
+son propios, reutilizables y configurables; las bibliotecas se integran mediante adaptadores.
+Su estado interno no debe convertirse en el modelo de dominio ni propagarse por toda la aplicación.
+Ver [arquitectura-web.md](./docs/arquitectura-web.md#componentes-propios-y-adaptadores).
+
+## Server (`app/server`)
+
+La arquitectura es un monolito modular. Las reglas para las capas, los límites de dependencias,
+las rutas y la migración gradual de `index.ts` están en
+[docs/arquitectura-server.md](./docs/arquitectura-server.md). Los registradores de rutas reciben
+dependencias explícitas y no importan el punto de entrada.
+
 ## Documentación
+
+- [docs/arquitectura-server.md](./docs/arquitectura-server.md) — capas del server, dirección de
+  dependencias y migración gradual de rutas y arranque.
 
 - [README.md](./README.md) — puesta en marcha paso a paso y requisitos.
 - [docs/](./docs/) — alcance, placas, módulos, fuentes de alimentación, troubleshooting.
 - [SDD-CIRCUITO-LIBRE.md](./SDD-CIRCUITO-LIBRE.md) — diseño del solver de circuito libre y su plan de tests.
+- [docs/agregar-un-modulo.md](./docs/agregar-un-modulo.md) — **el proceso para agregar un módulo**, con el
+  error que originó cada paso. Leerlo antes de crear un componente nuevo.
+- [docs/audio.md](./docs/audio.md) — módulos que suenan: el contrato `salidas.sonido`, de la tensión
+  a la amplitud, y qué falta para que el navegador reproduzca.
+- [docs/arquitectura-web.md](./docs/arquitectura-web.md) — capas de la UI, cómo se hablan `app.ts` y los
+  componentes de React, y las reglas de modularización con el error que originó cada una.
 - [SDD-MODULOS.md](./SDD-MODULOS.md) — diseño de módulos completos (esquemático exportable, reglas y tests
   propios, comportamiento digital, entorno y salidas); la sección 8 dice qué ya está hecho y qué se aprendió.
 - [modules/README.md](./modules/README.md) — **cómo tiene que ser un módulo**: formato, `parte`, `esquematico`, `reglas`,
-  `tests.json` y niveles. El código de cada módulo es TypeScript (`model.ts`). Los de fábrica tienen que ser "fabricables" (`sim/catalogoModulos.test.ts`); un símbolo o
-  huella de KiCad nuevo se verifica contra las librerías oficiales y se suma a `fixtures/kicad-verificados.txt`.
-- [chips/README.md](./chips/README.md) — chips con lógica (I2C y SPI en el Uno, ESP32 con MicroPython): cómo se escriben y se prueban.
-  Los sketches de prueba se compilan con `sh app/server/src/fixtures/chips/compilar.sh` (Docker) y los
-  `.hex` se versionan: los tests corren sin Docker.
+  `tests.json` y niveles. El código de cada módulo es TypeScript (`model.ts`). Los módulos de fábrica se
+  prueban y validan en `app/tests/unit/server/modulosFabricables.test.ts`; un símbolo o huella de KiCad
+  nuevo se verifica contra las librerías oficiales y se suma a `app/tests/fixtures/server/kicad-verificados.txt`.
+- [SDD-EDITOR.md](./SDD-EDITOR.md) — diseño y alcance del editor CodeMirror 6 para MicroPython,
+  con autocompletado, diagnóstico sintáctico local y pruebas de regresión.
+- [SDD-AUDIO.md](./SDD-AUDIO.md) — diseño de los módulos que suenan y del micrófono: un contrato
+  (`salidas.sonido`) con tres niveles de fidelidad (nivel de pin, PWM, I2S) y por qué el tono se
+  declara en vez de calcularse.
+- [SDD-ESP-CAMERA.md](./SDD-ESP-CAMERA.md) — diseño de la cámara OV2640 por DVP en ESP32-S3,
+  compatibilidad del driver físico y frontera de fidelidad de la emulación.
+- [chips/README.md](./chips/README.md) — chips con lógica (I2C/SPI en el Uno y puente MicroPython en ESP32): cómo se escriben y se prueban.
+  Los sketches de prueba se compilan con `sh app/tests/fixtures/server/chips/compilar.sh` (Docker) y
+  los `.hex` se versionan: los tests corren sin Docker.

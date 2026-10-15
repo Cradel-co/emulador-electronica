@@ -1,5 +1,6 @@
 import {
   BOARD_MODULE_ID,
+  lenguajesDe,
   resolverTexto,
   type ModuleInstance,
   type NivelModulo,
@@ -184,7 +185,8 @@ function banco(def: Def, t: PruebaModulo): { project: Project; dut: string } {
   return {
     dut,
     project: {
-      schemaVersion: 1, name: `prueba-${def.type}`, board: placa ? def.type : null, language: null,
+      schemaVersion: 1, name: `prueba-${def.type}`, board: placa ? def.type : null,
+      language: placa ? (def.board ? lenguajesDe(def.board)[0] ?? 'arduino' : 'arduino') : null,
       modules, wires, sim: { wifiSsid: 'x', wifiPassword: 'y', autoReload: false },
     },
   };

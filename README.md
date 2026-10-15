@@ -7,7 +7,7 @@ No es un emulador de Home Assistant ni está atado a ESPHome. La idea es: **ante
 - **Chips emulados de verdad:** ESP32-S3 / C3 / C6 (motor `esp-emu` de Espressif) y ATmega328P (motor `avr8js`). No hay intérprete: corre el firmware compilado de verdad.
 - **Lenguajes:** ESPHome (YAML), ESP-IDF (C y C++), Arduino y MicroPython.
 - **Las placas son datos:** cada placa es un `module.json` con su bloque `board`. Una placa nueva con un chip que ya tiene motor se agrega **sin tocar código**.
-- **Agente de IA:** expone un server **MCP** con 29 herramientas para controlar todo (crear proyectos, editar código, cablear, compilar, ejecutar, accionar módulos, debuggear). Lo que hace el agente se ve en vivo en la UI.
+- **Agente de IA:** expone un server **MCP** con herramientas para controlar todo (crear proyectos, editar código, cablear, compilar, ejecutar, accionar módulos, debuggear). Lo que hace el agente se ve en vivo en la UI.
 
 Alcance completo y límites honestos: [`docs/vision-y-alcance.md`](docs/vision-y-alcance.md).
 
@@ -17,7 +17,7 @@ Alcance completo y límites honestos: [`docs/vision-y-alcance.md`](docs/vision-y
 
 | Herramienta | Para qué | Obligatoria |
 |---|---|---|
-| **Node.js ≥ 20** | la app | ✅ sí |
+| **Node.js 24** | la app | ✅ sí |
 | **Docker** | compilar ESPHome, ESP-IDF y Arduino | ✅ sí (salvo que solo uses MicroPython) |
 | **[`esp-emu`](https://github.com/espressif/esp-emulator)** (Espressif, beta, gratis, no open source) | emular ESP32-S3/C3/C6 | para las placas ESP32 |
 | **[`wokwi-cli`](https://github.com/wokwi/wokwi-cli)** + cuenta Wokwi | alternativa en la nube, chips custom, diagrama visual | opcional |
@@ -29,7 +29,7 @@ Alcance completo y límites honestos: [`docs/vision-y-alcance.md`](docs/vision-y
 
 Son cinco pasos, en orden. El 1 y el 3 se saltean fácil y son la causa más común de que después no arranque nada.
 
-### 1. Node.js ≥ 20
+### 1. Node.js 24
 
 ```bash
 node -v && npm -v        # ambos tienen que imprimir un número
@@ -39,7 +39,7 @@ Si `node: orden no encontrada`, no tenés Node. Con [nvm](https://github.com/nvm
 
 ```bash
 curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.8/install.sh | bash
-nvm install 22 && nvm use 22
+nvm install 24 && nvm use 24
 ```
 
 > **Ojo con esto**: nvm es una función de shell, no un ejecutable. Si instalaste
@@ -95,7 +95,7 @@ cd app && npm run build:web && npx tsx server/src/index.ts
 
 Abrí **http://127.0.0.1:5180**. Listo.
 
-> **Un solo proceso.** No hay que levantar la UI por separado: el server sirve los estáticos. `npm run dev` corre `dev:server` y `dev:web` juntos. La UI es TypeScript y se compila a `web/dist/` con `tsc`, así que en el modo sin watch hay que compilar una vez con `npm run build:web`. Si se olvida, el server igual levanta y avisa por consola.
+> **Un solo proceso.** No hay que levantar la UI por separado: el server sirve los estáticos. `npm run dev` corre `dev:server` y `dev:web` juntos. La UI es TypeScript y se compila a `web/dist/` con Vite (React + TypeScript), así que en el modo sin watch hay que compilar una vez con `npm run build:web`. Si se olvida, el server igual levanta y avisa por consola.
 
 ### La primera compilación de Arduino tarda
 
@@ -143,17 +143,32 @@ En la UI: **Nuevo proyecto** → elegís **placa** y **lenguaje** → la app gen
 
 En el catálogo de la izquierda agregás módulos y los conectás con cables. Cada módulo viene con sus pines, y el editor te avisa si un cable no coincide con un pin, si un pin queda al aire o si el circuito **no puede** funcionar (cortocircuito, fuente sobre demandada — ver la Ley de Ohm real en [`modules/README.md`](modules/README.md)).
 
-Módulos disponibles de fábrica: `arduino-uno`, `esp32-s3-devkitc-1`, `esp32-c3-devkitm-1`, `esp32-c6-devkitc-1`, `button`, `switch`, `led`, `relay`, `resistor`, `fuente-regulable`, `rxb6`, `stx882`, `remote-433`, `door-sensor-433`, `siren-433`, y con chip (I2C, en el Uno): `bme280-adafruit`, `ds3231-zs042`, `oled-ssd1306-128x64`, `mpu6050-gy521`.
+Módulos disponibles de fábrica: `arduino-uno`, `esp32-s3-devkitc-1`, `esp32-c3-devkitm-1`, `esp32-c6-devkitc-1`, `button`, `switch`, `led`, `relay`, `resistor`, `fuente-regulable`, `rxb6`, `stx882`, `remote-433`, `door-sensor-433`, `siren-433`, y con chip (I2C/SPI): `bme280-adafruit`, `ds3231-zs042`, `oled-ssd1306-128x64`, `mpu6050-gy521`, `tft-st7735-128x160`.
 
-**Chips por I2C en el Arduino Uno**: el firmware real (Wire, las librerías de Adafruit, RTClib)
-habla ciclo a ciclo con chips emulados según su hoja de datos: sensor BME280, reloj DS3231 con
-EEPROM AT24C32, pantalla OLED SSD1306 (la imagen se ve en el circuito) y acelerómetro MPU-6050.
-Las librerías de cada módulo se instalan solas al compilar. Lo que mide cada sensor se mueve en
-vivo desde el panel del módulo. Ver [`chips/README.md`](chips/README.md). En los ESP32 todavía
-no: esp-emu no acepta dispositivos I2C propios. Otras pantallas (LCD, 7 segmentos, e-paper):
+**Chips por I2C y SPI en el Arduino Uno**: el firmware real (Wire, SPI, las librerías de
+Adafruit, RTClib) habla ciclo a ciclo con los chips emulados: BME280 (I2C o SPI), DS3231
+con EEPROM AT24C32, OLED SSD1306, MPU-6050 y TFT ST7735. Las imágenes de las pantallas se
+ven en el circuito y las librerías se instalan al compilar.
+
+**ESP32 con MicroPython**: los mismos chips se conectan por el puente que reemplaza
+`machine.I2C`, `SoftI2C`, `SPI` y `SoftSPI`. Los pines del programa deben coincidir con
+los del dibujo. Las transacciones pasan por UART y no reproducen los tiempos del bus
+real. ESPHome, ESP-IDF y Arduino en ESP32 todavía no tienen este soporte de chips.
+El entorno de los sensores se cambia en vivo desde el panel del módulo. Detalles y
+límites: [`chips/README.md`](chips/README.md). Pantallas disponibles y opciones pendientes:
 [`docs/pantallas.md`](docs/pantallas.md).
 
 ### 3. Escribir el código
+
+Los archivos **MicroPython (`.py`)** usan CodeMirror 6: resaltado Python, indentación de cuatro
+espacios, plegado y diagnósticos de sintaxis mientras escribís. **Ctrl+F** busca dentro del
+archivo, **Ctrl+H** abre buscar/reemplazar y **Ctrl+Espacio** muestra sugerencias de APIs
+MicroPython, incluidas importaciones con alias. **Ctrl+Shift+I** formatea Python localmente con
+Ruff en un worker, sin Docker; el resultado se puede deshacer con **Ctrl+Z**. El botón **Ajustes**
+permite elegir tema, fuente e indentación y recuerda las preferencias en el navegador.
+Los diagnósticos son sintácticos; no verifican
+tipos ni que todas las APIs estén disponibles en la placa emulada. Se conservan el autoguardado,
+**Ctrl+S**, las pestañas, los errores de compilación y los breakpoints del margen.
 
 Editor con pestañas en el panel central. Para ESPHome, la app **inyecta el componente `sim_bridge`** automáticamente: es el puente que le lleva al firmware los eventos de los pines (qué botón se apretó, qué pin se puso en 1).
 
@@ -190,14 +205,41 @@ del que venía corriendo.
 
 Pestaña **Debug** (Alt+5): breakpoints, paso a paso, variables, pila de llamadas, y un analizador de pines con los últimos 10 segundos. Habla GDB/RSP por debajo. Detalle por motor en [`docs/depuracion.md`](docs/depuracion.md).
 
+## Cámara virtual del computador
+
+Agregá **Cámara virtual** desde el catálogo y seleccioná el módulo. En localhost, pulsá
+**Activar** y aceptá el permiso del navegador; podés elegir otra webcam con la cámara detenida.
+**Capturar** envía una fotografía JPEG al backend y muestra la imagen recuperada del servidor,
+con número, dimensiones y hora. **Detener** libera la webcam. Funciona sin firmware ni energía.
+
+Solo se conserva la última foto en memoria; puede desaparecer al superar el presupuesto global,
+quitar el módulo/proyecto o reiniciar el servidor. No se graban video ni audio. Para usar cámaras
+fuera de localhost, el navegador requiere un contexto seguro (HTTPS); LAN queda para otra etapa.
+La Cámara virtual sigue siendo independiente del firmware y de las pantallas. Para captura por firmware, usá la ArduCAM descrita abajo.
+
+Diseño, contratos y prueba completa: [SDD-CAMARA.md](SDD-CAMARA.md).
+La siguiente alternativa, OV2640 por DVP en ESP32-S3, está en diseño: [SDD-ESP-CAMERA.md](SDD-ESP-CAMERA.md). Explica el pinout por placa y por qué la emulación no equivale a simular las señales DVP.
+
+## ArduCAM con ESP32-S3 y MicroPython
+
+En **Nuevo proyecto**, elegí la plantilla **ArduCAM con ESP32-S3 y MicroPython**. Incluye el circuito cableado y genera `arducam.py` y `main.py` desde una plantilla TypeScript. Seleccioná la cámara, pulsá **Activar webcam** la primera vez y aceptá el permiso del navegador. El navegador guarda esa autorización; al volver a seleccionar el módulo, la sesión activa se conserva y, si la sesión se cerró, se reanuda automáticamente cuando el navegador indica que el permiso sigue concedido.
+
+Cada cinco segundos MicroPython pide una fotografía nueva mediante I2C/SPI, lee el JPEG completo en bloques de 512 bytes e imprime longitud y SHA-256. El visor muestra la fotografía recuperada del backend y su huella: ambas deben coincidir, sin pulsar **Capturar**. Mostrá otro objeto para verificar una fotografía diferente. **Detener** libera la webcam; parar o reiniciar el programa cancela las solicitudes pendientes.
+
+La plantilla inicial **ArduCAM con ESP32-S3 y MicroPython** verifica la captura JPEG sin TFT. Para ver la cámara en el circuito, elegí **ArduCAM y TFT ST7735 con ESP32-S3**: comparte SCLK/MOSI y usa CS separados; MicroPython solicita una foto y, después de cada ciclo completo, espera un segundo antes de volver a solicitarla. Como la captura, la decodificación y el dibujo se suman a esa pausa, el intervalo entre imágenes es mayor a un segundo. Es una vista casi en vivo compuesta por capturas; no es un flujo de video continuo por SPI. Cambiar la selección del circuito no apaga la webcam; **Detener**, cambiar de proyecto o salir de la página sí la libera.
+
+La TFT recibe 128 × 96 RGB565 con bandas negras. Para mantener el tiempo de respuesta en esp-emu, esta primera versión representa los bloques JPEG por su color promedio (detalle efectivo aproximado de 40 × 30); la IDCT completa y la prueba en hardware físico quedan pendientes. El driver solo usa APIs normales de MicroPython. Diseño y alcance: [SDD-ARDUCAM-TFT.md](SDD-ARDUCAM-TFT.md).
+
+En localhost, el navegador y el backend simulan la salida JPEG de la cámara; el OV2640 de la ArduCAM física comprime la imagen dentro del propio sensor. El ESP32 no codifica en ninguno de esos recorridos: en localhost codifican navegador/backend y, físicamente, el OV2640. MicroPython sí decodifica el JPEG para que la TFT reciba píxeles RGB565. Los tiempos del emulador no estiman el rendimiento físico.
+
 ## Placas soportadas
 
-| Placa | Chip / motor | Qué anda de punta a ponta | Límites honestos |
+| Placa | Chip / motor | Qué anda de punta a punta | Límites honestos |
 |---|---|---|---|
-| **ESP32-S3 DevKitC-1** | ESP32-S3 (Xtensa LX7) / `esp-emu` | ESPHome y MicroPython: botón → LED en vivo. RF 433. Certificada "emula". | Las entradas llegan por el puente UART, no por el pad (límite de `esp-emu`). ESP-IDF/Arduino sin verificar en esta PC. |
+| **ESP32-S3 DevKitC-1** | ESP32-S3 (Xtensa LX7) / `esp-emu` | ESPHome y MicroPython: botón → LED en vivo. RF 433. Certificada "emula". | MicroPython tiene I2C/SPI por el puente. Las entradas llegan por UART, no por el pad (límite de `esp-emu`). ESP-IDF/Arduino sin verificar en esta PC. |
 | **ESP32-C3 DevKitM-1** | ESP32-C3 (RISC-V) / `esp-emu` | ídem S3 | Puente en UART1 = GPIO0/1 (reservados). Sin RF 433. |
 | **ESP32-C6 DevKitC-1** | ESP32-C6 (RISC-V) / `esp-emu` | ídem S3 | ídem C3, sin RF. |
-| **Arduino Uno R3** | ATmega328P 16 MHz / `avr8js` | Compila en ~3 s, corre ciclo a ciclo, D2 → D13 en vivo, entradas al **pad real** (pull-ups, interrupciones). Lógica de 5 V. | I2C hacia los chips del dibujo (BME280, DS3231, AT24C32, SSD1306, MPU-6050). Sin SPI hacia el dibujo, sin RF, ADC siempre en 0 V. |
+| **Arduino Uno R3** | ATmega328P 16 MHz / `avr8js` | Compila en ~3 s, corre ciclo a ciclo, D2 → D13 en vivo, entradas al **pad real** (pull-ups, interrupciones). Lógica de 5 V. | I2C y SPI hacia los chips del dibujo (incluida la TFT ST7735). Sin RF, ADC siempre en 0 V; una TFT redibujada entera puede correr más lento que el tiempo real. |
 
 El **ESP32 clásico (LX6)** no se puede emular: `esp-emu` no lo soporta. Para otras familias (RP2040, STM32, nRF52) hace falta un motor nuevo — la interfaz está preparada (`renode` + `platformio` están planificados pero sin implementar), así que esas placas se pueden cargar igual y quedan en "solo dibujo".
 
@@ -219,7 +261,11 @@ claude mcp add --transport http emulador-esp32 http://127.0.0.1:5180/mcp
 
 O abrí Claude Code en esta carpeta: toma [`.mcp.json`](.mcp.json) automáticamente. Solo acepta clientes locales — las páginas de otro origen reciben 403.
 
-29 herramientas: `estado`, `listar_proyectos`, `crear_proyecto`, `ver_proyecto`, `leer_archivo`, `escribir_archivo`, `placas`, `esquema_placa`, `validar_placa`, `certificar_placa`, `catalogo`, `importar_modulo`, `quitar_modulo_catalogo`, `agregar_modulo`, `quitar_modulo`, `mover_modulo`, `configurar_modulo`, `conectar`, `desconectar`, `compilar`, `ejecutar`, `parar`, `resetear`, `accionar_modulo`, `poner_pin`, `enviar_rf`, `leer_pines`, `leer_log`, `esperar_log`. Más las 7 de debug cuando el depurador está activo.
+Herramientas: `estado`, `listar_proyectos`, `crear_proyecto`, `ver_proyecto`, `leer_archivo`, `escribir_archivo`, `placas`, `esquema_placa`, `validar_placa`, `certificar_placa`, `catalogo`, `importar_modulo`, `quitar_modulo_catalogo`, `agregar_modulo`, `quitar_modulo`, `mover_modulo`, `configurar_modulo`, `conectar`, `desconectar`, `compilar`, `ejecutar`, `parar`, `resetear`, `accionar_modulo`, `poner_pin`, `enviar_rf`, `leer_pines`, `leer_log`, `esperar_log`, `chips`, `mover_entorno`. Más las 7 de debug cuando el depurador está activo.
+
+Las mediciones de `leer_pines` y `ver_proyecto` provienen del mismo contrato eléctrico que
+la interfaz. `leer_pines` acepta un proyecto explícito y distingue apagado de desconocido;
+ver [observación eléctrica compartida](docs/observacion-electrica.md).
 
 ## Tests
 
@@ -229,8 +275,8 @@ npm test               # unitarios (Vitest)
 npx playwright test    # e2e, con server y catálogo aislados
 E2E_EMU=1 npx playwright test simulacion   # e2e con Docker y emulador reales
 npx tsc --noEmit -p server      # typecheck del server (no hay script `typecheck` en package.json)
-npm run build:web               # compila la UI: web/*.ts -> web/dist/*.js
-npx tsc --noEmit -p web         # typecheck de la UI
+npm run build:web               # compila la UI: React + TypeScript -> web/dist/app.js (Vite)
+npm --workspace web run typecheck # typecheck de la UI y el adaptador de rutas
 ```
 
 Los e2e usan `EMU_PROJECTS_DIR` y `EMU_MODULES_DIR` para no tocar tus proyectos reales.
@@ -250,7 +296,7 @@ emulador-electronica/
 │   │   ├── debug/        # depurador GDB/RSP + DAP
 │   │   └── fixtures/     # binarios y fuentes de prueba
 │   ├── shared/src/       # tipos y schemas compartidos con la UI
-│   └── web/              # UI (TypeScript -> web/dist/ con tsc; index.html y style.css en la raíz)
+│   └── web/              # UI (React + TypeScript -> web/dist/ con Vite; index.html y style.css en la raíz)
 ├── modules/              # catálogo: <tipo>/module.json + module.svg
 ├── projects/             # un subdirectorio por simulación (no versionado) + _template/ (plantillas)
 ├── firmware/components/  # sim_bridge: el puente dentro del firmware
@@ -265,7 +311,9 @@ emulador-electronica/
 | Documento | Qué cubre |
 |---|---|
 | [`docs/vision-y-alcance.md`](docs/vision-y-alcance.md) | Qué es el proyecto, qué falta, límites reales |
+| [`SDD-APRENDIZAJE.md`](SDD-APRENDIZAJE.md) | Diseño de Aprender, TanStack Router, prácticas y plan de implementación por TDD |
 | [`GUIA-IMPLEMENTACION.md`](GUIA-IMPLEMENTACION.md) | Diseño técnico: arquitectura, protocolo del puente, pipeline por lenguaje, API |
+| [`docs/informe-prototipo.md`](docs/informe-prototipo.md) | Descargar circuito y medidas como informe JSON/HTML, unidades y validez |
 | [`docs/depuracion.md`](docs/depuracion.md) | Modo debug: qué se puede en cada motor, API REST, DAP |
 | [`docs/esp-emulator.md`](docs/esp-emulator.md) | Qué es y qué no es `esp-emu` |
 | [`docs/bridge-mode.md`](docs/bridge-mode.md) | Que el ESP32 simulado tenga IP real en tu LAN (Home Assistant lo detecta solo) |

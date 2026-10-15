@@ -1,13 +1,12 @@
 # Módulos: cómo tiene que ser uno
 
-Un **módulo** es una pieza real que se cablea en el circuito: una resistencia, un LED, un relé, un
-sensor en su placa, una pantalla, una placa programable. Cada uno vive en su carpeta
-`modules/<tipo>/` y dice de sí mismo todo lo que hace falta para **dibujarlo, simularlo, probarlo y
-fabricarlo**.
+> Para **agregar** un módulo, el proceso (y los errores que lo originaron) está en
+> [`../docs/agregar-un-modulo.md`](../docs/agregar-un-modulo.md). Acá está el formato.
 
-La regla de diseño: **lo único obligatorio es el `module.json` con sus pines.** Todo lo demás es
-opcional y tiene un valor por defecto que la app genera sola, así un módulo inventado ayer anda
-desde el primer día. Lo que se le agrega lo hace subir de nivel:
+Cada módulo es una carpeta `modules/<tipo>/`. Dice de sí mismo todo lo que hace falta para
+**dibujarlo, simularlo, probarlo y fabricarlo**: lo único obligatorio es el `module.json` con sus
+pines; lo demás es opcional y tiene un valor por defecto que la app genera sola, así un módulo
+inventado ayer anda desde el primer día. Lo que se le agrega lo hace subir de nivel:
 
 | Nivel | Qué tiene | Qué se puede hacer |
 |---|---|---|
@@ -16,12 +15,10 @@ desde el primer día. Lo que se le agrega lo hace subir de nivel:
 | `probado` | + `tests.json` con casos de su hoja de datos, que pasan | Confiar en lo que simula: lo verifica el motor real en cada cambio. |
 | `fabricable` | + `parte` (qué se compra) y `esquematico` con su huella | Exportarlo para fabricar: símbolo, huella, BOM. |
 
-Los módulos de fábrica tienen que llegar a **`fabricable`**: lo exige
-`app/server/src/sim/catalogoModulos.test.ts`. El nivel de cada módulo y lo que le falta se ven en su
-panel (sección **Pieza real**), en `GET /api/modules` (`nivel`) y en las herramientas MCP `catalogo`
-y `probar_modulo`.
-
-## La carpeta
+El nivel de cada módulo y lo que le falta se ven en su panel (sección **Pieza real**), en
+`GET /api/modules` (`nivel`) y en las herramientas MCP `catalogo` y `probar_modulo`. Los módulos de
+fábrica se prueban y validan con el motor real en
+`app/tests/unit/server/modulosFabricables.test.ts`:
 
 ```
 modules/relay/
@@ -72,7 +69,17 @@ pruebas**: si algo falla, no se instala y dice qué se midió.
 | `pins` | `name` (único, `[A-Za-z0-9_+-]`, **el mismo que está serigrafiado en la placa real**), posición `x`,`y` dentro del módulo (normalmente en el borde) y `kind`: `digital-in`, `digital-out`, `digital-io`, `power`, `ground`, `analog-in`, `other`. **En el orden físico del conector**: ese orden es el de la huella por defecto. |
 | `controls` | Qué se puede tocar: `momentary` (mientras se mantiene), `toggle` (alterna), `button`. |
 | `props` | Propiedades editables en el panel: `type` `string`/`number`/`boolean`, `default`, `label`, `enum`, `min`, `max`. |
-| `vars` | Valores para el SVG que dependen de una propiedad (ver [module.svg](#modulesvg)). |
+| `vars` | Valores para el SVG que dependen de una propiedad (ver abajo). |
+| `passthrough` | Componente de 2 pines "en línea" (como una resistencia): para la lógica digital (qué GPIO prende qué salida) la app lo salta, como si el cable siguiera derecho. Requiere `ohmsProp`. |
+| `ohmsProp` | Nombre de la prop (`type: "number"`) que tiene su resistencia en ohms — con ella el motor eléctrico le arma su resistencia si no tiene `model`. |
+| `diode` | Se comporta como un diodo (LED). Su Vf a 20 mA sale de `vars.vf` (ver abajo) o de `diodeVfDefault` (por defecto 2 V). |
+| `switch` | Contacto de 2 pines: une sus pines mientras su control está activo (pulsador, llave). |
+| `source` | Fuente regulable: `{ voltageProp, currentProp? }` (props con el voltaje y el límite en mA). |
+| `electrical` | Datos de hoja de datos: `maxCurrentMa` (recomendado) y `burnCurrentMa` (se quema), para los avisos de LEDs. |
+| `salidas` | Lo que el módulo produce y la app tiene que hacer sonar. Hoy solo `tipo: "sonido"`: `fuente` (`nivel` si trae su propio oscilador, `pwm` si la frecuencia la pone el micro, `i2s` para un flujo de muestras), `pins` (entre qué dos pines se mide su tensión, el `+` primero), `hz`, `umbralV`, `dbA` y `referencia` (la tensión y la distancia a las que la hoja de datos midió esos dB). La frecuencia se declara, no se calcula: el motor no resuelve señales en el tiempo. Ver [`../docs/audio.md`](../docs/audio.md). |
+| `model` | Punto de entrada a su código: un **`.ts`** de la carpeta del módulo (los módulos viejos todavía tienen `.js`; ver [`AGENTS.md`](../AGENTS.md) y el issue #41) (ver [Modelo eléctrico](#modelo-eléctrico)). Sin `model`, los flags `passthrough`/`diode`/`switch`/`source` arman uno básico. |
+| `chips` | Los chips con lógica que lleva la placa (`chips/<id>/`: sensor, reloj, pantalla). Cada uno: `id`, `pines` (pin del módulo → pin del chip), `porCableado` (props que salen de cómo está cableado un pin: `{ "sdo": { "pin": "SDO", "aTierra": "bajo", "aAlimentacion": "alto" } }`) y `pullUps` (pines del chip con pull-up en la placa). Ver [`../chips/README.md`](../chips/README.md). |
+| `drivers` | Librerías que usa el código para este módulo: `{ "arduino": { "librerias": ["RTClib@2.1.4"] } }`. Se instalan solas al compilar un proyecto que lo tenga (el proyecto puede sumar otras en `librerias.txt`). |
 
 ### Cómo se simula
 
@@ -150,7 +157,7 @@ Lo que se valida (y si no, no se instala):
   `"base"`), y cada `elemento` existe en el modelo: **el esquemático no puede mentir respecto de lo
   que se simula**;
 - en los de fábrica, cada símbolo y huella está en
-  [`../app/server/src/fixtures/kicad-verificados.txt`](../app/server/src/fixtures/kicad-verificados.txt),
+  [`../app/tests/fixtures/server/kicad-verificados.txt`](../app/tests/fixtures/server/kicad-verificados.txt),
   la lista verificada contra las librerías oficiales de KiCad
   ([símbolos](https://gitlab.com/kicad/libraries/kicad-symbols), [huellas](https://gitlab.com/kicad/libraries/kicad-footprints)).
   Para usar uno nuevo: buscarlo ahí, mirar la numeración de sus pines en el archivo del símbolo, y
@@ -226,7 +233,7 @@ export default {
   cd app && npm run typecheck:modulos
   ```
 
-  El test del catálogo (`sim/catalogoModulos.test.ts`) lo corre, así que un `model.ts` de fábrica que
+  El test del catálogo (`app/tests/unit/server/modulosFabricables.test.ts`) lo corre, así que un `model.ts` de fábrica que
   no compila rompe los tests. Con `strict`, `const avisos = []` falla (se ensancha a `any[]`): hay que
   escribir `const avisos: AvisoModelo[] = []`; y `l.estado` es `Record<string, unknown>`, por lo que un
   contador se lee `Number(l.estado.veces ?? 0)`.
@@ -311,7 +318,7 @@ maestro virtual y con firmware real en `app/server/src/bus/` (ver [`../chips/REA
 | Al importar | El importador valida el formato, carga el modelo, revisa que el esquemático, las reglas y las pruebas nombren pines y elementos que existen, y corre las pruebas. Si algo falla, no se instala: dice qué y con qué valor medido. **Solo validar** hace todo eso sin instalar. |
 | Por MCP | `probar_modulo { "tipo": "relay" }`: el informe caso por caso, su nivel, lo que le falta y cómo sale en el esquemático. |
 | Por la API | `POST /api/modules/<tipo>/probar` (el mismo informe). `GET /api/modules` trae el `nivel` de cada uno. |
-| En los tests | `npx vitest run server/src/sim/catalogoModulos.test.ts` (desde `app/`): todos los de fábrica, con todo lo anterior y en `fabricable`. |
+| En los tests | `npx vitest run tests/unit/server/modulosFabricables.test.ts` (desde `app/`): los de fábrica con `tests.json`, corridos con el motor real, más la verificación de KiCad y de tipos. |
 
 ## Crear un módulo real, paso a paso
 

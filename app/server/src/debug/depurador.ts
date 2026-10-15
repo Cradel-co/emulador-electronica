@@ -51,6 +51,8 @@ export interface DependenciasDepurador {
   leerProyecto: (nombre: string) => Promise<Project>;
   /** Cómo configura el programa cada pin (leído de su código), para el motor eléctrico. */
   direcciones?: (nombre: string) => Promise<Map<number, DireccionPin>>;
+  boardId?: string;
+  nivelesPorPlaca?: () => Map<string, Map<number, 0 | 1>>;
 }
 
 export interface CorridaDepuracion {
@@ -346,7 +348,7 @@ export class Depurador {
       for (const inst of pc.p.modules) {
         const def = pc.buscar(inst.type);
         if (def?.bridge?.role !== 'output') continue;
-        const g = gpioDe(pc.p, inst.id, def.bridge.pin, pc.buscar);
+        const g = gpioDe(pc.p, inst.id, def.bridge.pin, pc.buscar, this.deps.boardId ?? BOARD_MODULE_ID);
         if (g !== null && !niveles.has(g)) niveles.set(g, 0);
       }
     }
@@ -357,7 +359,7 @@ export class Depurador {
     const pc = this.proyectoCache;
     if (!pc || !this.corrida) return;
     try {
-      const { avisos, leds } = await analizarCircuito(pc.p, pc.buscar, { niveles: this.nivelesActuales(), direcciones: pc.direcciones });
+      const { avisos, leds } = await analizarCircuito(pc.p, pc.buscar, { niveles: this.nivelesActuales(), nivelesPorPlaca: this.deps.nivelesPorPlaca?.(), direcciones: pc.direcciones });
       for (const a of avisos) {
         if (this.avisosElectricos.has(a.mensaje)) continue;
         this.avisosElectricos.add(a.mensaje);
@@ -638,14 +640,14 @@ export class Depurador {
     }
     if (pc) {
       for (const inst of pc.p.modules) {
-        if (inst.id === BOARD_MODULE_ID) continue;
+        if (inst.id === (this.deps.boardId ?? BOARD_MODULE_ID)) continue;
         const def = pc.buscar(inst.type);
         const pinesMod = (def?.pins ?? []).map((pin) => {
           const ref = `${inst.id}.${pin.name}`;
           const cables = pc.p.wires.filter((w) => w.from === ref || w.to === ref).map((w) => (w.from === ref ? w.to : w.from));
           let g: number | null = null;
           try {
-            g = gpioDe(pc.p, inst.id, pin.name, pc.buscar);
+            g = gpioDe(pc.p, inst.id, pin.name, pc.buscar, this.deps.boardId ?? BOARD_MODULE_ID);
           } catch {
             g = null;
           }
@@ -672,7 +674,7 @@ export class Depurador {
     let electrico: Record<string, unknown> | null = null;
     if (pc) {
       try {
-        const r = await analizarCircuito(pc.p, pc.buscar, { niveles: this.nivelesActuales(), direcciones: pc.direcciones });
+        const r = await analizarCircuito(pc.p, pc.buscar, { niveles: this.nivelesActuales(), nivelesPorPlaca: this.deps.nivelesPorPlaca?.(), direcciones: pc.direcciones });
         // Lo que mediría un tester: tensión de cada pin, y corriente/potencia de cada elemento físico.
         const redondear = (x: number, d: number) => Math.round(x * 10 ** d) / 10 ** d;
         electrico = {

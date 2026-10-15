@@ -1,0 +1,194 @@
+# SDD: mostrar capturas ArduCAM periódicas en la TFT ST7735
+
+**Estado:** recorrido implementado y validado en localhost/esp-emu; medición y validación en hardware físico pendientes.
+**Base:** ArduCAM Mini 2MP Plus, ESP32-S3, MicroPython y webcam en localhost.  
+**Resultado buscado:** capturas periódicas solicitadas por el firmware, decodificadas y dibujadas en una TFT conectada al circuito.
+
+## 1. Objetivo y alcance
+
+Ampliar la plantilla ArduCAM existente para que, después de recibir una fotografía JPEG
+completa por I²C/SPI, el firmware la decodifique y la muestre en el módulo TFT ST7735
+128 × 160, también mediante el bus SPI del circuito.
+
+La plantilla de TFT espera un segundo después de procesar cada foto y refresca la pantalla sin
+intervención manual. El intervalo real incluye captura, decodificación, dibujo y esa pausa;
+no garantiza una foto por segundo. Es una vista formada por fotografías JPEG independientes,
+no un flujo de video continuo por SPI. El panel de cámara sigue mostrando la última captura
+confirmada por el backend y permite comparar su SHA-256 con el JPEG leído por el firmware.
+
+Quedan fuera: streaming de video, rotación y controles de imagen configurables, más resoluciones,
+otros controladores de pantalla, IDCT JPEG completa en MicroPython y validación en una placa física.
+
+## 2. Estado existente y brecha
+
+- La ArduCAM emulada entrega al firmware una captura JPEG 320 × 240 bajo demanda; el ejemplo
+  lee la FIFO en bloques y comprueba longitud y SHA-256.
+- El backend conserva y muestra el JPEG confirmado por la webcam.
+- La ST7735 ya interpreta comandos y píxeles RGB565 por SPI, y su imagen aparece en el
+  circuito.
+- La plantilla incluye el decodificador JPEG MicroPython y el ejemplo ArduCAM + TFT. El
+  decodificador produce una representación reducida usando el coeficiente DC de los bloques;
+  no reconstruye el detalle completo mediante IDCT.
+
+El JPEG no se enviará en crudo a la ST7735: la pantalla no entiende ese formato. La conversión
+ocurrirá en el firmware y el resultado se escribirá a la pantalla a través del controlador
+ST7735 y sus señales reales del circuito.
+
+### Diferencia entre localhost y hardware físico
+
+En localhost, la webcam del computador sustituye al sensor OV2640. Cuando MicroPython pide
+una captura, el backend solicita un fotograma al navegador. El navegador copia el fotograma
+a un canvas y lo codifica como JPEG con `canvas.toBlob()`. El backend valida y decodifica ese
+JPEG, lo redimensiona a 320 × 240 con bandas cuando hace falta y vuelve a codificarlo. Esos
+bytes llegan a la FIFO emulada y MicroPython los lee por SPI. Por tanto, el ESP32 emulado no
+ejecuta el codificador JPEG: lo ejecutan el navegador y el backend como parte de la simulación.
+
+En el módulo físico, el OV2640 integrado en la ArduCAM captura y comprime la imagen a JPEG
+dentro del sensor; la FIFO de ArduCAM la conserva. El ESP32 configura el sensor por I²C, ordena
+la captura y lee la imagen comprimida por SPI. Luego el firmware la decodifica a RGB565 y la
+envía a la ST7735. No intervienen navegador ni backend. La documentación del fabricante
+confirma que la compresión JPEG está implementada en el sensor
+([ArduCAM Mini 2MP Plus](https://docs.arducam.com/Arduino-SPI-camera/Legacy-SPI-camera/2MP-Plus/)).
+
+El ESP32-S3 sigue necesitando decodificar JPEG para una TFT ST7735, que recibe píxeles RGB565.
+El S3 no tiene decodificador JPEG por hardware; el firmware actual usa su decodificador
+MicroPython por software ([FAQ oficial de Espressif](https://docs.espressif.com/projects/esp-faq/en/latest/software-framework/peripherals/lcd.html)).
+La velocidad medida en esp-emu no predice la velocidad física: el firmware, el reloj y los
+controladores de la placa pueden cambiar el resultado.
+
+## 3. Decisión de decodificación
+
+La solución será una biblioteca pequeña, escrita para este proyecto y compatible con
+MicroPython estándar, incluida como fuente generada desde una plantilla TypeScript. No
+requerirá un firmware MicroPython modificado, una extensión C externa ni un módulo privado
+del emulador. El diseño busca portabilidad a una placa física, pero esa compatibilidad todavía
+no está verificada.
+
+La primera versión aceptará JPEG baseline secuencial de 8 bits generado por el servicio de
+cámara. Soportará las tablas Huffman y el submuestreo YCbCr que produce la normalización del
+backend. Rechazará de forma explícita JPEG progresivo, componentes o marcadores no soportados,
+dimensiones inesperadas y entradas truncadas. Las restricciones se comprobarán antes de
+reservar memoria o comenzar la escritura en la pantalla.
+
+La prueba actual usa JPEG normalizado por Sharp en el backend. No se ha confirmado que todos
+los JPEG emitidos por el OV2640 tengan exactamente los mismos marcadores, tablas y submuestreo;
+por eso el flujo con una ArduCAM física debe validarse antes de afirmar compatibilidad.
+
+El JPEG completo se valida y se decodifica dentro del firmware. En la salida reducida a 128 × 96,
+la primera versión usa el coeficiente DC de cada bloque 8 × 8 como color promedio; así conserva
+colores y formas amplias sin exceder el tiempo práctico de ejecución de MicroPython en esp-emu.
+La imagen se amplía a 128 × 96 y se centra en la TFT, con un detalle efectivo aproximado de
+40 × 30. La salida RGB565 ocupa 24 KiB, además del JPEG de entrada y los bloques de trabajo.
+La IDCT completa, necesaria para recuperar el detalle fino, queda como mejora posterior y debe
+medirse por separado en esp-emu y en ESP32-S3 físico.
+
+## 4. Encuadre y formato de pantalla
+
+La imagen de cámara es 320 × 240 y la TFT es 128 × 160. Se conservará la proporción y se
+mostrará completa, centrada, con bandas negras arriba y abajo. No se estirará ni se recortará
+la imagen. El área activa tendrá 128 × 96 píxeles.
+
+Los píxeles se convertirán a RGB565 big-endian, que es el orden que espera la ST7735 del
+proyecto. El programa fijará una ventana de escritura con CASET/RASET, enviará RAMWR y
+transmitirá filas o bloques sin liberar CS a mitad de la ráfaga. Las señales SCLK y MOSI se
+compartirán entre cámara y TFT; cada módulo tendrá su propio CS. D/C y RESET de la TFT usarán
+GPIO independientes.
+
+## 5. Circuito de ejemplo
+
+Se conservarán las conexiones actuales de la cámara y se agregará la TFT al mismo bus SPI:
+
+| Señal | ESP32-S3 | Módulo |
+|---|---:|---|
+| ArduCAM VCC / GND | 3V3 / GND | alimentación compartida |
+| ArduCAM SDA / SCL | GPIO8 / GPIO9 | I²C |
+| ArduCAM SCLK / MOSI / MISO | GPIO12 / GPIO11 / GPIO13 | SPI |
+| ArduCAM CS | GPIO10 | selección ArduCAM |
+| TFT VCC / GND / LED | 3V3 / GND / 3V3 | alimentación |
+| TFT SCK / SDA | GPIO12 / GPIO11 | SPI compartido |
+| TFT CS / A0 / RESET | GPIO14 / GPIO15 / GPIO16 | control TFT |
+
+Los GPIO son asignaciones de esta plantilla, no requisitos de los módulos. Cambiar un GPIO
+requiere cambiar el cable del diagrama y el argumento correspondiente del firmware. El
+ejemplo verificará alimentación y que ambos CS permanezcan altos cuando el otro periférico
+usa SPI.
+
+## 6. Flujo de captura y visualización
+
+1. El usuario activa la webcam desde el módulo ArduCAM.
+2. MicroPython configura OV2640 y ArduCAM como en el ejemplo existente.
+3. El firmware solicita una captura; el navegador obtiene un fotograma nuevo.
+4. El backend valida y normaliza el JPEG 320 × 240; la FIFO conserva esos bytes.
+5. MicroPython lee el JPEG completo, valida SOI/EOI y calcula longitud y SHA-256.
+6. El decodificador valida cabecera, tablas, dimensiones y formato antes de dibujar.
+7. Inicializa la ST7735, limpia la pantalla a negro y escribe la imagen centrada por SPI.
+8. El panel de cámara y la consola muestran que la captura fue solicitada por firmware; el
+   panel indica la huella y la TFT muestra la imagen reducida con detalle grueso.
+
+Una nueva captura reemplaza la imagen de pantalla después de recibirse y validarse completamente.
+El programa espera un segundo antes de solicitar el siguiente cuadro y sigue intentando después
+de informar un error. La imagen anterior puede permanecer visible si una captura falla.
+
+## 7. Arquitectura y archivos previstos
+
+- La plantilla del proyecto será TypeScript y generará el ejemplo `arducam.py`, el
+  decodificador MicroPython y `main.py`; no se añadirán fuentes ejecutables JavaScript.
+- Se mantendrá el driver de ArduCAM independiente de la TFT.
+- El driver ST7735 será pequeño y usará `machine.SPI` y `machine.Pin`, con la misma forma que
+  una aplicación MicroPython física.
+- Los buses, el sandbox y los chips existentes no recibirán una API de alto nivel para
+  transferir imágenes entre cámara y pantalla.
+- Una plantilla nueva de circuito contendrá ArduCAM, TFT, ESP32-S3 y todos los cables. La
+  plantilla actual de ArduCAM conservará su comportamiento y ejemplo de verificación.
+- La documentación de uso explicará que se trata de fotos periódicas solicitadas por firmware y
+  listará los límites del decodificador.
+
+## 8. TDD y verificación
+
+Primero se agregarán pruebas que fallen por la ausencia de las capacidades requeridas:
+
+- **Conversión JPEG:** fixture JPEG baseline determinista, SOF0, submuestreo soportado,
+  dimensiones y tablas; comparar píxeles seleccionados RGB565 contra una decodificación
+  independiente y comprobar colores promedio en la salida reducida.
+- **Fallos del decodificador:** JPEG truncado, marcador desconocido, progresivo, dimensiones
+  fuera del límite y tablas inválidas; debe fallar antes de escribir la TFT.
+- **Controlador TFT:** inicialización, limpieza, CASET/RASET/RAMWR, conversión RGB565,
+  encuadre centrado y CS sostenido durante los bloques.
+- **SPI compartido:** capturar por ArduCAM y luego dibujar por TFT en el mismo `machine.SPI`;
+  confirmar que cada chip responde solo cuando su CS está activo.
+- **Ejemplo MicroPython:** longitud/hash del JPEG coinciden con backend y bytes de FIFO; al
+  completar la decodificación, los píxeles publicados por ST7735 coinciden con los valores
+  esperados para el fixture.
+- **E2E localhost:** conectar webcam, ejecutar firmware sin botón Capturar, verificar la foto
+  del panel y la TFT del circuito; cambiar el objeto y repetir. Detener la simulación debe
+  cancelar cualquier captura pendiente.
+- **Regresión:** webcam virtual, ArduCAM, ST7735 existente, Vitest, typechecks de shared,
+  servidor y frontend, build web y e2e pertinentes.
+
+La prueba manual final aceptará permiso de webcam en localhost, observará el recorrido
+completo y comprobará dos imágenes diferentes. La prueba física del driver queda separada y
+se realizará cuando haya un conjunto real ESP32-S3 + ArduCAM + ST7735 disponible.
+
+## 9. Criterios de aceptación
+
+El hito se considerará terminado cuando:
+
+1. MicroPython solicite una fotografía nueva a la webcam mediante la ArduCAM emulada.
+2. El firmware reciba el JPEG completo y su SHA-256 coincida con el backend.
+3. El firmware decodifique el JPEG con el módulo MicroPython estándar y envíe píxeles RGB565
+   por SPI al ST7735 conectado al circuito.
+4. La TFT muestre una versión reducida sin deformación, con bandas negras y colores promedio
+   comprobados mediante fixture y prueba localhost, y se refresque automáticamente tras cada
+   nueva captura. La primera versión conserva formas amplias;
+   el detalle fino depende de implementar y validar una IDCT completa.
+5. Una segunda captura cambie la imagen; detener o reiniciar no deje webcam o solicitud
+   pendiente activa.
+
+## 10. Referencias
+
+- [Análisis y plan de optimización del decodificador JPEG](SDD-OPTIMIZACION-JPEG.md).
+- [SDD de webcam virtual](SDD-CAMARA.md).
+- [SDD de ArduCAM Mini 2MP Plus](SDD-ARDUCAM.md).
+- [Estado y arquitectura de pantallas](docs/pantallas.md).
+- [Módulo TFT ST7735](modules/tft-st7735-128x160/module.json).
+- [Controlador de chip ST7735](chips/sitronix-st7735/comportamiento.js).

@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { SalidaSonidoSchema } from './audio.js';
+import { CameraDescriptorSchema } from './camera.js';
 import { BoardDescriptorSchema } from './board.js';
 import { UsoChipSchema } from './chip.js';
 import { EsquematicoSchema, ParteSchema, ReglaSchema } from './fabricacion.js';
@@ -58,6 +60,8 @@ export const ModuleDefSchema = z.object({
   description: z.string().optional(),
   /** Tiene código propio (una placa: ESP32, Arduino...). Los demás módulos solo se cablean. */
   programmable: z.boolean().default(false),
+  /** Fuente virtual de imágenes del navegador, sin interfaz eléctrica. */
+  camera: CameraDescriptorSchema.optional(),
   /**
    * Descriptor de placa (board.ts): chip, motor de emulación, lenguajes, pines del MCU.
    * Lo llevan los módulos programables; es lo que permite sumar placas sin tocar código.
@@ -159,6 +163,13 @@ export const ModuleDefSchema = z.object({
    * dice qué pin del módulo es qué pin del chip (SDA del módulo → SDI del BME280). Las props de
    * la instancia le llegan al comportamiento de cada chip (dirección I2C, etc.).
    */
+  /**
+   * Lo que el módulo produce y la app tiene que mostrar o hacer sonar. Hoy solo `sonido`
+   * (ver SDD-AUDIO.md): la frecuencia no la calcula el motor, la declara el componente
+   * (oscilador interno) o el firmware (PWM). Las demás salidas previstas en SDD-MODULOS
+   * (pantalla, luz, movimiento, texto) todavía se resuelven por otros caminos.
+   */
+  salidas: z.array(SalidaSonidoSchema).max(4).default([]),
   chips: z.array(UsoChipSchema).max(8).default([]),
   /**
    * Librerías que usa el código para manejar este módulo, por lenguaje. Para Arduino: nombres del
@@ -182,6 +193,7 @@ export type PinDef = z.infer<typeof PinDefSchema>;
 export type PropDef = z.infer<typeof PropDefSchema>;
 export type ControlDef = z.infer<typeof ControlDefSchema>;
 export type BridgeDef = z.infer<typeof BridgeDefSchema>;
+export type SalidaModulo = z.infer<typeof SalidaSonidoSchema>;
 
 // ModuleInstanceSchema / WireSchema viven en diagram.ts (los usa también board.ts).
 export { ModuleInstanceSchema, WireSchema, type ModuleInstance, type Wire } from './diagram.js';

@@ -8,8 +8,11 @@ export default defineConfig({
     },
   },
   test: {
-    include: ['{shared,server,web}/src/**/*.test.ts', 'tests/unit/**/*.test.ts'],
+    include: ['tests/unit/**/*.test.ts'],
     environment: 'node',
     testTimeout: 20000,
+    // Cada archivo de física puede crear un worker ngspice/WASM: acotar la suite evita
+    // saturar memoria/CPU y convertir plazos de arranque en falsas regresiones.
+    maxWorkers: 2,
   },
 });

@@ -313,7 +313,7 @@ después el solver crece sobre esa base.
 ## 11. Próximos Pasos (tras aprobación)
 
 1. **Aprobar SDD** (este doc) → crear branch `feat/free-circuit`.
-2. **Test 1 (TDD)**: `solver: pin pasivo` en `server/src/solver.test.ts` (rojo).
+2. **Test 1 (TDD)**: `solver: pin pasivo` en `tests/unit/server/solver.test.ts` (rojo).
 3. **Implementar MNA core** (`server/src/solver.ts`) → verde.
 4. Tests 2–4.
 5. Migración loader + flag.
@@ -328,5 +328,5 @@ después el solver crece sobre esa base.
 - `server/src/emulator.ts` – ciclo actual de emulación (líneas 87–200).
 - `server/src/ports.ts` – reserva de puertos UART/TCP (bridge actual).
 - `modules/*/module.json` – catálogo actual (100+ módulos a migrar).
-- `app/server/src/emulator.test.ts` – tests de REPL/consola (patrón de mocks).
+- `app/tests/unit/server/emulator.test.ts` – tests de REPL/consola (patrón de mocks).
 - Libro: *"Modified Nodal Analysis"* (Ho, Ruehli, Brennan) – base teórica.

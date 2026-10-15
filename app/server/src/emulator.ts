@@ -6,9 +6,11 @@ import type { ChipEnBus } from './bus/proyectoChips.js';
 import { BridgeClient } from './bridgeClient.js';
 import { lineIterator, which } from './dockerRunner.js';
 import { detectState, extractIp, HANG_TIMEOUT_MS, HangWatchdog, stripAnsi } from './logParser.js';
-import { reservePorts, PORTS_PER_INSTANCE } from './ports.js';
+import { reservePorts, releasePorts, PORTS_PER_INSTANCE } from './ports.js';
 import type { BuildArtifacts } from './buildService.js';
 import type { Emulador, OpcionesArranque } from './emulatorBackend.js';
+import { PuenteAnalogicoEsp, type EstadoAnalogicoEsp } from './analogicoEsp.js';
+import { PuentePwm, type PwmPin } from './pwmEsp.js';
 
 export const ESP_EMU_BIN = process.env.ESP_EMU_BIN ?? 'esp-emu';
 export const ESP_EMU_VERSION = '0.44.0';
@@ -40,6 +42,8 @@ export interface EmulatorEvents {
   onState: (status: EmulatorStatus) => void;
   onBridgeMessage: (msg: FirmwareMessage) => void;
   onBridgeState: (connected: boolean) => void;
+  /** El firmware cambió el PWM de algún pin: hay que refrescar lo que depende de él (el sonido). */
+  onPwm?: () => void;
 }
 
 /**
@@ -48,6 +52,7 @@ export interface EmulatorEvents {
  */
 export class EmulatorManager implements Emulador {
   private child: ReturnType<typeof import('node:child_process').spawn> | null = null;
+  private heldPorts: number[] = [];
   private bridge: BridgeClient | null = null;
   private watchdog: HangWatchdog | null = null;
   private status: EmulatorStatus = EmulatorManager.emptyStatus();
@@ -59,6 +64,11 @@ export class EmulatorManager implements Emulador {
   private gdbPort: number | null = null;
   /** Chips del dibujo (MicroPython: machine.I2C/SPI por el puente). Ver bus/puenteChips.ts. */
   private chips: PuenteChips | null = null;
+  /** Exclusivo del shim MicroPython; no representa el periférico SAR de esp-emu. */
+  private analogico: PuenteAnalogicoEsp | null = null;
+  /** PWM que declaró el firmware, por GPIO. Ver pwmEsp.ts. */
+  private readonly pwm = new PuentePwm(() => this.events.onPwm?.());
+  private rfNativoHabilitado = false;
   private readonly salidasChips = new Map<string, SalidaChip>();
   private readonly entornos = new Map<string, Record<string, number>>();
   /** Lo que publica un chip (una pantalla) va a la UI. Lo conecta index.ts. */
@@ -89,12 +99,21 @@ export class EmulatorManager implements Emulador {
     return { ...this.status };
   }
 
+  capacidadRf(): { maxBits: number; protocolos: readonly number[] } | null {
+    return this.status.running && this.rfNativoHabilitado ? { maxBits: 24, protocolos: [1] } : null;
+  }
+
   async available(): Promise<boolean> {
     return which(ESP_EMU_BIN);
   }
 
   /** Arranca (o rearranca) el emulador con el firmware ya compilado. */
   async start(projectName: string, artifacts: BuildArtifacts, opts: OpcionesArranque = {}): Promise<EmulatorStatus> {
+    if (opts.perfilAnalogicoAvr !== undefined) throw new Error('El perfil ADC AVR no es compatible con el backend ESP.');
+    if (opts.perfilAnalogicoEsp !== undefined && !artifacts.needsRepl) throw new Error('El perfil ADC ESP sólo está implementado mediante machine.ADC de MicroPython.');
+    // Validar antes de parar la corrida anterior, reservar puertos o lanzar un proceso.
+    const analogico = artifacts.needsRepl ? new PuenteAnalogicoEsp(opts.chip ?? 'esp32s3', opts.perfilAnalogicoEsp, l => this.bridge?.enviarLinea(l)) : null;
+    if (opts.analogicoEsp) analogico?.actualizar(opts.analogicoEsp);
     if (this.status.running) await this.stop();
 
     const ports = await this.pickPorts(artifacts);
@@ -120,6 +139,7 @@ export class EmulatorManager implements Emulador {
     // esp-emu lo abre en 0.0.0.0 (solo acepta el número): el depurador se conecta enseguida y lo
     // deja ocupado (atiende un cliente a la vez). Base 30000 para no chocar con los de arriba.
     this.gdbPort = artifacts.elf && process.env.EMU_DEBUG_GDB !== '0' ? ((await reservePorts(1, 30000))[0] ?? null) : null;
+    if (this.gdbPort) this.heldPorts.push(this.gdbPort);
     if (this.gdbPort) args.push('--gdb', String(this.gdbPort));
 
     // Web/API del dispositivo emulado: solo si el proyecto las usa (9.1).
@@ -134,6 +154,7 @@ export class EmulatorManager implements Emulador {
     const child = spawn(ESP_EMU_BIN, args, { stdio: ['ignore', 'pipe', 'pipe'] });
     this.child = child;
     this.stdoutLines = [];
+    this.rfNativoHabilitado = !artifacts.needsRepl && (opts.rmtLoopback?.length ?? 0) > 0;
 
     this.status = {
       ...this.status,
@@ -176,6 +197,16 @@ export class EmulatorManager implements Emulador {
       onRawLine: (line) => this.events.onLog(`[bridge] ${line}`),
     });
     this.bridge.connect();
+    this.analogico = analogico;
+    // El PWM se declara, no se muestrea: un tono de kilohercios no se puede leer de los flancos.
+    this.pwm.limpiar();
+    this.bridge.escucharLineas(l => this.pwm.recibir(l));
+    if (analogico) {
+      this.bridge.escucharLineas(l => { if (this.analogico === analogico) analogico.recibir(l); });
+      this.events.onLog(opts.perfilAnalogicoEsp
+        ? `[adc] MicroPython ADC1: perfil ${opts.perfilAnalogicoEsp.id}; transferencia lineal declarada, sin calibración eFuse.`
+        : '[adc] MicroPython ADC1 sin perfil: las lecturas devolverán SIN_MODELO.');
+    }
     if (artifacts.needsRepl) this.armarChips(opts.chips ?? []);
 
     // MicroPython (y cualquier --uart-tcp): la consola del chip deja de salir por stdout y
@@ -212,6 +243,14 @@ export class EmulatorManager implements Emulador {
     bridge.escucharLineas((l) => { if (this.chips === puente) puente.recibir(l); });
   }
 
+  actualizarCamaras(chips: ChipEnBus[]): void { this.chips?.actualizarCamaras(chips); }
+
+  actualizarAnalogicoEsp(estado: EstadoAnalogicoEsp): void { this.analogico?.actualizar(estado); }
+  /** PWM declarado por el firmware, por GPIO de esta placa. */
+  estadoPwm(): ReadonlyMap<number, PwmPin> { return this.pwm.estado(); }
+
+  entradaCamara(instancia: string, datos: import('./bus/chipSandbox.js').EntradaChip): void { this.chips?.entradaCamara(instancia, datos); }
+
   chipsEnCorrida(): { id: string; instancia: string; chip: string; nombre: string; alimentado: boolean; entorno: Record<string, number>; salida?: SalidaChip }[] {
     return (this.chips?.chips ?? []).map((c) => ({
       id: c.id, instancia: c.instancia, chip: c.chip, nombre: c.nombre, alimentado: c.alimentado,
@@ -219,7 +258,12 @@ export class EmulatorManager implements Emulador {
     }));
   }
 
-  /** El usuario movió el entorno de una instancia: cada chip de esa placa toma lo que mide. */
+  /** Actualiza VCC de los módulos sin reiniciar el firmware. */
+  actualizarAlimentacionChips(porInstancia: Readonly<Record<string, boolean>>): void {
+    this.chips?.actualizarAlimentacion(porInstancia);
+  }
+
+  /** El usuario movió el entorno de una instancia: cada chip toma lo que mide. */
   ponerEntorno(instancia: string, valores: Record<string, number>): boolean {
     let alguno = false;
     for (const c of this.chips?.chips ?? []) {
@@ -418,12 +462,17 @@ export class EmulatorManager implements Emulador {
     const escrituras = files
       .map((f) => `_w(${JSON.stringify(f.path)}, b'${Buffer.from(f.content, 'utf8').toString('base64')}')`)
       .join('\n');
-    const code = `import ubinascii\ndef _w(p,b):\n f=open(p,'wb')\n f.write(ubinascii.a2b_base64(b))\n f.close()\n${escrituras}\n`;
+    const code = `import ubinascii\nimport uos\ndef _w(p,b):\n d=''\n for part in p.split('/')[:-1]:\n  d=(d+'/' if d else '')+part\n  try:\n   uos.mkdir(d)\n  except OSError:\n   pass\n f=open(p,'wb')\n f.write(ubinascii.a2b_base64(b))\n f.close()\n${escrituras}\n`;
     let resultado: { stdout: string; stderr: string };
     // Lo que va y viene durante la subida son bytes del protocolo (ventanas de raw-paste,
     // \x01, \x04): no es salida del programa, así que no se muestra en la consola.
     this.subiendoRepl = true;
     try {
+      // Ctrl-A sólo abre el REPL cuando no hay un programa ejecutándose. Interrumpir
+      // primero el main.py permite recargar bucles while True sin reiniciar QEMU.
+      socket.write('\x03\x03');
+      await new Promise(resolve => setTimeout(resolve, 150));
+      if (socket.destroyed || this.replSocket !== socket || !this.status.running) throw new Error('La ejecución se detuvo durante la subida.');
       resultado = await this.sendRawRepl(socket, code, 15000);
     } catch (err) {
       this.subiendoRepl = false;
@@ -438,6 +487,9 @@ export class EmulatorManager implements Emulador {
     socket.write('\x02');
     await new Promise((r) => setTimeout(r, 150));
     this.subiendoRepl = false;
+    const chips = this.chips?.chips ?? [];
+    this.chips?.apagar();
+    this.armarChips(chips);
     socket.write('\x04');
     return { ok: true, output: `${files.length} archivo(s) subido(s)` };
   }
@@ -445,6 +497,7 @@ export class EmulatorManager implements Emulador {
   private async pickPorts(artifacts: BuildArtifacts): Promise<EmuPorts> {
     // 4 puertos por instancia (9.3); el REPL de MicroPython reutiliza el de web.
     const reserved = await reservePorts(PORTS_PER_INSTANCE);
+    this.heldPorts = reserved;
     const [bridge = 0, control = 0, api = 0, web = 0] = reserved;
     return { bridge, control, api, web };
   }
@@ -526,6 +579,9 @@ export class EmulatorManager implements Emulador {
 
   async reset(): Promise<string> {
     if (!this.status.ports) throw new Error('El emulador no está corriendo');
+    const chips = this.chips?.chips ?? [];
+    this.chips?.apagar();
+    this.armarChips(chips);
     return this.control('reset', this.status.ports);
   }
 
@@ -563,8 +619,13 @@ export class EmulatorManager implements Emulador {
   }
 
   private teardown(exitInfo: string): void {
+    releasePorts(this.heldPorts); this.heldPorts = [];
+    this.gdbPort = null;
     this.chips?.apagar();
     this.chips = null;
+    this.analogico = null;
+    this.pwm.limpiar();
+    this.rfNativoHabilitado = false;
     this.bridge?.close();
     this.bridge = null;
     this.replSocket?.destroy();

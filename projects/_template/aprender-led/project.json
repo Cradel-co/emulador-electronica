@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "name": "aprender-led",
+  "board": null,
+  "language": null,
+  "sim": {
+    "wifiSsid": "sim-wifi",
+    "wifiPassword": "sim-password"
+  },
+  "modules": [
+    {
+      "id": "fuente1",
+      "type": "fuente-regulable",
+      "x": -310,
+      "y": 130,
+      "props": {
+        "voltage": 5,
+        "currentLimitMa": 100
+      }
+    },
+    {
+      "id": "r1",
+      "type": "resistor",
+      "x": -130,
+      "y": 130,
+      "props": {
+        "ohms": 330
+      }
+    },
+    {
+      "id": "led1",
+      "type": "led",
+      "x": 70,
+      "y": 105,
+      "props": {
+        "color": "red"
+      }
+    }
+  ],
+  "wires": [
+    { "from": "fuente1.V", "to": "r1.1" },
+    { "from": "r1.2", "to": "led1.IN" },
+    { "from": "led1.GND", "to": "fuente1.GND" }
+  ]
+}

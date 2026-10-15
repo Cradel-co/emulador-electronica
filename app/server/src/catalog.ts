@@ -1,6 +1,7 @@
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { ModuleDefSchema, PruebasModuloSchema, type ModuleDef, type PruebaModulo } from '@emu/shared';
+import { compilarFuente } from './fuenteSandbox.js';
 import { PATHS } from './paths.js';
 
 /** Módulo del catálogo tal como lo recibe la UI: con su SVG adentro. */
@@ -39,7 +40,7 @@ export async function loadCatalog(): Promise<ModuloCatalogo[]> {
           ...def,
           svgMarkup: existsSync(svgPath) ? readFileSync(svgPath, 'utf8') : undefined,
           modeloCodigo: def.model && existsSync(path.join(dir, entry.name, def.model))
-            ? readFileSync(path.join(dir, entry.name, def.model), 'utf8')
+            ? compilarFuente(readFileSync(path.join(dir, entry.name, def.model), 'utf8'), def.model)
             : undefined,
           builtin: !def.origin,
           pruebas: existsSync(path.join(dir, entry.name, 'tests.json'))

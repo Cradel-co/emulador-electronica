@@ -1,0 +1,27 @@
+{
+  "id": "arduchip",
+  "nombre": "arduchip",
+  "fabricante": "ArduCAM",
+  "pines": [
+    "VCC",
+    "GND",
+    "SCLK",
+    "MOSI",
+    "MISO",
+    "CS"
+  ],
+  "comportamiento": "comportamiento.ts",
+  "spi": {
+    "sck": "SCLK",
+    "mosi": "MOSI",
+    "miso": "MISO",
+    "cs": "CS",
+    "modos": [
+      0
+    ],
+    "maxHz": 8000000
+  },
+  "limitaciones": [
+    "Solo JPEG 320 \u00d7 240; no emula video ni el procesamiento \u00f3ptico del sensor."
+  ]
+}

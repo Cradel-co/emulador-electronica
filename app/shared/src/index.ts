@@ -7,3 +7,16 @@ export * from './protocol.js';
 export * from './modelo.js';
 export * from './chip.js';
 export * from './fabricacion.js';
+export * from './camera.js';
+export * from './audio.js';
+export * from './i2cFisico.js';
+export * from './analogico.js';
+export * from './analogicoEsp.js';
+export * from './electrico.js';
+export * from './informe.js';
+export * from './entradaSonido.js';
+
+export * from './analisisFisico.js';
+export * from './termica.js';
+
+export * from './ac.js';

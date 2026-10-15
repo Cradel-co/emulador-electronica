@@ -1,9 +1,19 @@
+import { AnalisisFisicosDialog } from './AnalisisFisicos.js';
+import { Monitoreo } from './Monitoreo.js';
+import { InformePrototipoDialog } from './InformePrototipo.js';
+import { ConflictosGuardado } from './ConflictosGuardado.js';
 import { createRoot } from 'react-dom/client';
 import { createElement, type FunctionComponent } from 'react';
 import { flushSync } from 'react-dom';
+import { NewFileDialog } from './NewFileDialog.js';
+import { ToolWindows } from './ToolWindows.js';
+import { DockWorkspace } from './DockWorkspace.js';
+import { LayoutSettings } from './LayoutSettings.js';
+import { Settings } from './Settings.js';
+import { ExplorerIcon } from './ExplorerIcon.js';
+import { EditorPreferences } from './EditorPreferences.js';
 import { Lienzo } from './Lienzo.js';
 import { Avisos } from './Avisos.js';
-import { Catalogo } from './Catalogo.js';
 import { Proyectos } from './Proyectos.js';
 import { PanelDerecho } from './PanelDerecho.js';
 import { Menu } from './Menu.js';
@@ -11,6 +21,7 @@ import { Paleta } from './Paleta.js';
 import { Miga, Notificaciones, Pestanas } from './Barra.js';
 import { DebugAlimentacion, ErroresCompilacion, Problemas, ResultadoImportacion } from './Problemas.js';
 import { OpcionesLenguajePlaca, OpcionesPlacaNueva, OpcionesPlacas, OpcionesPlantillas, OpcionesProyectos } from './Selectores.js';
+import { Aprendizaje } from './Aprendizaje.js';
 
 /**
  * Monta las islas de React sobre la UI de `app.ts` (#9).
@@ -32,17 +43,28 @@ const ISLAS: [string, FunctionComponent, boolean][] = [
   // scrollear (ver el comentario de este arreglo).
   ['react-lienzo', Lienzo, true],
   ['avisos-dibujo', Avisos, false],
-  ['lista-modulos', Catalogo, false],
+  ['tool-windows', ToolWindows, true],
+  ['conflictos-guardado', ConflictosGuardado, true],
+  ['dlg-analisis-fisicos', AnalisisFisicosDialog, true],
+  ['dlg-informe-prototipo', InformePrototipoDialog, true],
+  ['dock-layout', DockWorkspace, true],
+  ['tw-explorador', ExplorerIcon, false],
   ['lista-proyectos', Proyectos, false],
+  ['pantalla-aprender', Aprendizaje, false],
   ['panel-modulo', PanelDerecho, false],
   ['menu', Menu, false],
   ['dlg-buscar', Paleta, false],
+  ['dlg-editor-preferences', EditorPreferences, false],
+  ['dlg-ajustes', Settings, true],
+  ['dlg-layout-settings', LayoutSettings, true],
+  ['dlg-nuevo-archivo', NewFileDialog, false],
   ['tabs-archivos', Pestanas, false],
   ['miga', Miga, false],
   ['lista-notificaciones', Notificaciones, false],
   ['problemas', Problemas, false],
   ['avisos', ErroresCompilacion, false],
   ['dbg-alimentacion', DebugAlimentacion, false],
+  ['dbg-monitoreo', Monitoreo, true],
   ['imp-resultado', ResultadoImportacion, false],
   ['proyecto', OpcionesProyectos, false],
   ['nuevo-placa', OpcionesPlacaNueva, false],

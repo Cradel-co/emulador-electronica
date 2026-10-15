@@ -1,6 +1,7 @@
 import { useEffect, useState, type KeyboardEvent } from 'react';
 import { useVersion } from './estado.js';
 import { estado, menu } from './puente.js';
+import { ExplorerIcon } from './ExplorerIcon.js';
 
 /**
  * El menú principal (hamburguesa): un grupo por menú (Archivo, Editar, Ver…) y, adentro, las
@@ -79,6 +80,7 @@ export function Menu() {
                   a.hacer();
                 }}
               >
+                {a.id === 'ver-explorador' && <ExplorerIcon />}
                 <span>{a.titulo}</span>
                 {a.atajo && <span className="atajo">{a.atajo}</span>}
               </button>

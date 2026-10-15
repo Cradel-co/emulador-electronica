@@ -136,8 +136,13 @@ Los módulos de fábrica tienen todos su `model.ts`: son el mejor punto de parti
 
 ### Ejemplo 1: un potenciómetro (props y divisor)
 
+Este ejemplo dejó de ser hipotético: es el módulo `modules/potenciometro/` del catálogo. La
+versión que está en el repo sigue la convención de los pasivos del motor (`model.ts`, props
+validadas y potencia nominal declarada), así que no es idéntica a la de acá.
+
 ```ts
 import type { ModeloModulo } from '@emu/shared';
+
 
 // Potenciómetro: una resistencia con un cursor. Entre A y B siempre está el total; el cursor
 // (W) la divide en dos según la posición (0 = pegado a A, 100 = pegado a B).
@@ -161,6 +166,10 @@ Con 5 V entre A y B y la posición en 25, el cursor da 3,75 V (verificado con el
 Nadie escribió "V = 5 · 0,75": salió de la Ley de Ohm.
 
 ### Ejemplo 2: un buzzer activo (nodo interno, umbral, memoria)
+
+Este ejemplo dejó de ser hipotético: es el módulo `modules/buzzer-activo/` del catálogo.
+Su frecuencia no está en el modelo sino en `salidas` del `module.json` (ver
+[`audio.md`](./audio.md)), porque el motor no resuelve señales en el tiempo.
 
 ```ts
 import type { AvisoModelo, ModeloModulo } from '@emu/shared';
@@ -253,8 +262,9 @@ Sin `model` ni flags, el módulo se cablea pero eléctricamente no está (no con
    [`../modules/README.md`](../modules/README.md#testsjson-el-módulo-se-prueba-a-sí-mismo)):
    el caso típico de la hoja, cada límite, lo que hace la placa y cada prop eléctrica. Las
    corre el importador antes de instalarlo, la tool MCP `probar_modulo` y, para los de
-   fábrica, `sim/catalogoModulos.test.ts`. Para circuitos más grandes (Kirchhoff y energía
-   en todo el proyecto), `app/server/src/sim/motor.test.ts` tiene casos para copiar.
+   fábrica, `app/tests/unit/server/modulosFabricables.test.ts`. Para circuitos más grandes
+   (Kirchhoff y energía en todo el proyecto), `app/tests/unit/server/sim/motor.test.ts` tiene
+   casos para copiar.
 
 ### Importarlo (sin tocar la carpeta `modules/`)
 

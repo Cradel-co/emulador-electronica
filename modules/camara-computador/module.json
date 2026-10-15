@@ -1,0 +1,12 @@
+{
+  "type": "camara-computador",
+  "name": "Cámara virtual",
+  "category": "Entradas",
+  "description": "Captura fotografías de la webcam del computador donde abrís el navegador. Recurso virtual: no requiere cables ni firmware.",
+  "programmable": false,
+  "camera": { "maxWidth": 640, "maxHeight": 480, "maxBytes": 1048576, "quality": 0.8 },
+  "svg": "module.svg",
+  "width": 90,
+  "height": 64,
+  "pins": []
+}

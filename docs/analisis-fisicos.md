@@ -1,0 +1,85 @@
+# Analizar un prototipo
+
+Abrí un proyecto y elegí **Archivo → Análisis físicos**. **Calcular** guarda los cambios antes de solicitar una instantánea; un conflicto debe resolverse primero.
+
+**DC** muestra el punto de funcionamiento: tensión en V, corriente en mA y potencia en mW, con la validez de cada medida. Reutiliza la observación del informe del prototipo. Los resultados sin resolver no se presentan como ceros.
+
+**Transitorio** calcula un intervalo con GPIO y topología fijos. No ejecuta firmware ni usa la onda del micrófono. En proyectos sin placa, energizá el circuito con ▶ para que las fuentes entreguen tensión. Elegí duración y paso máximo en segundos. El paso es un límite de integración: ngspice devuelve tiempos adaptativos, no una frecuencia de muestreo uniforme.
+
+La inicialización **Equilibrio DC** comienza en el punto estable. **Condiciones C/L del proyecto** utiliza los valores iniciales declarados de capacitores e inductores. Para observar una carga RC, declará el capacitor inicialmente a 0 V y usá esta segunda opción.
+
+Elegí una señal: tensiones de pines respecto a tierra o tensión, corriente o potencia por elemento. Las corrientes transitorias se muestran en A y las potencias en W. No se dibujan pines flotantes como si tuvieran una lectura válida. Los avisos del motor explican las limitaciones de cada análisis.
+
+**Descargar análisis JSON** conserva todas las muestras y sus tiempos, unidades, parámetros, proyecto, revisión y fecha. El dibujo reduce puntos preservando extremos para facilitar la lectura. Si cambia el circuito, la vista avisa y requiere recalcular para exportar. Cerrar el panel descarta solicitudes en curso.
+
+Electro térmico acoplado y edición de estímulos PWL y correlación automática con lecturas de firmware quedan para entregas posteriores. Diseño y criterios: [SDD](../SDD-ANALISIS-FISICOS.md).
+
+## Temperatura y energía
+
+Elegí **Térmico · temperatura y energía** y **Identificar elementos**. Se guardan los cambios y se consulta el punto DC para listar resistencias y contactos con medidas válidas. Si el circuito no está alimentado o no tiene elementos disponibles, revisalo antes de continuar. Modificar el circuito requiere identificar de nuevo.
+
+Seleccioná un elemento y completá el identificador del modelo, la fuente de los parámetros y las condiciones de aplicación. Declarás resistencia térmica en K/W, capacidad térmica en J/K, temperatura ambiente e inicial en °C y el rango válido. Los campos empiezan vacíos; estos valores deben provenir del modelo que quieras estudiar. El catálogo no los inventa por vos.
+
+**Calcular** reutiliza el transitorio y aplica el modelo de un cuerpo a temperatura uniforme con ambiente constante. La señal inicial del resultado es su temperatura; también podés elegir tensión, corriente o potencia. La tabla presenta energía disipada, variación almacenada y energía evacuada, en J. Un valor evacuado negativo indica calor aportado por el ambiente. La temperatura inicial corresponde al primer tiempo devuelto por ngspice.
+
+Si la temperatura sale del rango declarado, el cálculo falla y retira las medidas. La descarga conserva el modelo explícito, temperaturas, energía, tiempos, parámetros y unidades. Cambiar un campo exige recalcular. La configuración del panel no modifica ni se guarda en el proyecto.
+
+Este modelo no realimenta la resistencia eléctrica según la temperatura ni simula varios cuerpos acoplados; tampoco acredita caracterización física del componente. Esta primera UI configura un elemento por solicitud. El backend conserva el análisis térmico de varios elementos y el modo electro térmico, cuya interfaz queda para otra entrega.
+
+### Cómo interpretar el modelo y la curva
+
+| Parámetro | Interpretación |
+|---|---|
+| Resistencia térmica (K/W) | Aumento de temperatura por watt en equilibrio. Mayor resistencia térmica significa menor facilidad para evacuar calor. |
+| Capacidad térmica (J/K) | Energía necesaria para aumentar un grado la temperatura del cuerpo. Mayor capacidad implica una respuesta más lenta para la misma potencia. |
+| Ambiente e inicial (°C) | Temperatura del entorno y del componente al comenzar la traza. |
+| Rango declarado (°C) | Intervalo de validez del modelo; no es un umbral automático de quemado. |
+| Fuente y condiciones | Procedencia de los parámetros y montaje/condiciones donde se aplican. |
+
+El eje horizontal muestra segundos de simulación y el vertical la unidad de la señal elegida; al seleccionar temperatura, muestra °C. Una curva ascendente que se aplana indica que el calor evacuado se acerca al generado y la temperatura tiende al equilibrio.
+
+Ejemplo exclusivamente ilustrativo: potencia constante de 0,25 W, resistencia térmica de 40 K/W, capacidad térmica de 0,01 J/K y ambiente e inicial de 25 °C. El aumento final sería **0,25 × 40 = 10 °C**: el cuerpo tendería a **35 °C**. La constante de tiempo es **40 × 0,01 = 0,4 s**; después de ese intervalo alcanza aproximadamente el 63 % del aumento, unos **31,32 °C**. Los valores no caracterizan una resistencia comercial.
+
+En la tabla, **Disipada** es la energía eléctrica transformada en calor; **Almacenada (Δ)** es el cambio de energía térmica del cuerpo y **Evacuada** es la transferida al ambiente. Para este modelo se cumple **disipada = almacenada + evacuada**. Las energías están en joules, no en watts: la potencia es energía por unidad de tiempo.
+
+Para un componente real, los parámetros deben corresponder al componente y su montaje. En este modo la temperatura calculada no cambia automáticamente la resistencia eléctrica ni quema el componente del emulador.
+
+## AC: respuesta en frecuencia
+
+Elegí **AC · respuesta en frecuencia** y **Identificar circuito AC**. En proyectos sin placa,
+energizá con ▶ antes de identificar. Seleccioná una fuente de tensión activa, un pin de entrada
+y uno de salida; ambos se miden respecto a tierra. Los pines sin modelo o referencia física
+verificable no se ofrecen. Una edición exige identificar de nuevo.
+
+Configurá frecuencia inicial y final en Hz y puntos por década. El rango debe ser positivo y
+creciente, con 1..1000 puntos enteros por década y entre 2 y 10000 frecuencias. El barrido es
+logarítmico: distancias iguales representan la misma proporción de frecuencias. Se conservan las
+frecuencias efectivas de ngspice, que distribuye los pasos entre ambos extremos incluso cuando
+el rango contiene décadas fraccionarias.
+
+La excitación normalizada es AC 1 V y fase 0 sobre la fuente elegida o su referencia CV/CC,
+conservando su tensión DC y el resto del circuito. No equivale a una amplitud real de 1 V sobre
+la carga: la ganancia se obtiene de las tensiones efectivas **salida/entrada**. Si la entrada
+es nula o menor que 1e-12 V, el cálculo falla porque esa división no permite una medida válida.
+
+Las dos curvas muestran:
+
+- **Ganancia (dB):** `20 × log10(|salida/entrada|)`. 0 dB equivale a la misma amplitud;
+  −6,02 dB, aproximadamente la mitad; +6,02 dB, aproximadamente el doble.
+- **Fase (°):** ángulo de la salida respecto de la entrada. Se presenta la fase principal
+  entre −180° y 180°; el salto al cruzar ese límite no implica una discontinuidad física.
+  Una transferencia exactamente nula tiene ganancia y fase indefinidas y deja un hueco.
+
+Ejemplo: R de 1 kΩ en serie y C de 1 µF a tierra, salida sobre C. La frecuencia de corte es
+`1/(2πRC) ≈ 159,15 Hz`: en ella se espera −3,01 dB (70,7 % de amplitud) y −45°.
+Por debajo pasa casi toda la señal; por encima se atenúa progresivamente. Se trata de la
+respuesta del modelo eléctrico del proyecto, no de una medición del micrófono ni de dBA.
+
+Ngspice linealiza los componentes alrededor del punto DC. Este análisis de pequeña señal no
+representa saturación, recorte, distorsión ni conmutación; usá transitorio para estudiar la
+evolución temporal correspondiente. No avanza firmware. La configuración es temporal y no
+modifica el proyecto.
+
+**Descargar análisis JSON** conserva entrada, salida y transferencia como fasores real/imaginaria,
+frecuencias, ganancia, fase, parámetros, unidades, avisos, revisión y fecha. No se reducen las
+muestras exportadas. Editar el circuito bloquea la exportación hasta recalcular.

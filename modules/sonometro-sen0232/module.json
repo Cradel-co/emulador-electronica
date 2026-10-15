@@ -1,0 +1,35 @@
+{
+  "controls": [],
+  "props": {
+    "dbA": {
+      "type": "number",
+      "default": 50,
+      "label": "Nivel de sonido del ambiente (dBA)",
+      "min": 30,
+      "max": 130
+    },
+    "consumoMa": {
+      "type": "number",
+      "default": 14,
+      "label": "Consumo declarado (mA): 14 a 5 V, 22 a 3,3 V",
+      "min": 1,
+      "max": 100
+    }
+  },
+  "type": "sonometro-sen0232",
+  "name": "Sonómetro SEN0232",
+  "category": "Entradas",
+  "description": "Mide el nivel de sonido del ambiente y lo entrega como tensión: 30 a 130 dBA en 0,6 a 2,6 V, lineal. Se lee con una entrada analógica (ADC).",
+  "width": 86,
+  "height": 62,
+  "pins": [
+    { "name": "VCC", "x": 16, "y": 62, "kind": "power" },
+    { "name": "GND", "x": 40, "y": 62, "kind": "ground" },
+    { "name": "OUT", "x": 64, "y": 62, "kind": "analog-in" }
+  ],
+  "electrical": {
+    "maxCurrentMa": 30
+  },
+  "svg": "module.svg",
+  "model": "model.ts"
+}

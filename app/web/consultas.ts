@@ -90,3 +90,59 @@ export function nombreRef(
   const def = inst && buscarDef(inst.type);
   return `${def?.name ?? partes.id} ${partes.id} · ${limpio}`;
 }
+
+/** La parte del descriptor de placa necesaria para nombrar y resolver sus GPIO. */
+export interface DescriptorGpio { pins?: Record<string, { gpio?: number }> }
+/** Un componente de dos pines que permite seguir una señal digital (por ejemplo, resistencia). */
+export interface DefPaso extends Def { passthrough?: boolean }
+
+/** GPIO de un pin del dibujo de la placa; sin descriptor conserva el fallback ESP32-S3. */
+export function gpioDeRef(ref: string, descriptor: DescriptorGpio | null): number | null {
+  if (!ref.startsWith(`${BOARD_ID}.`)) return null;
+  const pin = ref.slice(BOARD_ID.length + 1);
+  if (descriptor?.pins) {
+    const g = descriptor.pins[pin]?.gpio;
+    return typeof g === 'number' ? g : null;
+  }
+  const m = /^GPIO(\d{1,2})$/.exec(pin);
+  return m ? Number(m[1]) : null;
+}
+
+/** Primer nombre del descriptor para ese GPIO, o GPIO<n> si no tiene uno. */
+export function nombrePinGpio(g: number, descriptor: DescriptorGpio | null): string {
+  const nombre = descriptor?.pins && Object.keys(descriptor.pins).find((k) => descriptor.pins[k]?.gpio === g);
+  return nombre ?? `GPIO${g}`;
+}
+
+/**
+ * Sigue cables y componentes passthrough de dos pines hasta el primer GPIO alcanzable.
+ * Mantiene el orden de los cables y corta ciclos. Es una consulta de conectividad digital;
+ * las caídas de tensión y corrientes las calcula el motor eléctrico del servidor.
+ */
+export function gpioDe(
+  id: string, pin: string,
+  modules: readonly Instancia[], wires: readonly Cable[],
+  buscarDef: (type: string) => DefPaso | undefined,
+  descriptor: DescriptorGpio | null,
+  visitados = new Set<string>(),
+): number | null {
+  const ref = `${id}.${pin}`;
+  if (visitados.has(ref)) return null;
+  visitados.add(ref);
+  for (const w of cablesDe(ref, wires)) {
+    const otro = w.from === ref ? w.to : w.from;
+    const g = gpioDeRef(otro, descriptor);
+    if (g !== null) return g;
+    const punto = otro.indexOf('.');
+    const otroId = otro.slice(0, punto);
+    const otroInst = modules.find((m) => m.id === otroId);
+    const otroDef = otroInst && buscarDef(otroInst.type);
+    if (!otroDef?.passthrough || otroDef.pins.length !== 2) continue;
+    const siguientePin = otroDef.pins.find((p) => p.name !== otro.slice(punto + 1));
+    if (siguientePin) {
+      const g2 = gpioDe(otroId, siguientePin.name, modules, wires, buscarDef, descriptor, visitados);
+      if (g2 !== null) return g2;
+    }
+  }
+  return null;
+}

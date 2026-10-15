@@ -1,3 +1,7 @@
+import type { ParametrosAc, OpcionesAc, ResultadoVistaAnalisis, ParametrosVistaTransitorio, ConfiguracionTermicaVista } from '@emu/shared';
+import type { ControladorMicrofono } from '../microfono.js';
+import type { CameraDescriptor } from '@emu/shared';
+import type { ControladorCamara } from '../camera.js';
 /**
  * Punto de encuentro entre `app.ts` y el componente que monta el canvas, para que ninguno de los
  * dos tenga que importar al otro: así no hay ciclo de importación y `canvas.ts` sigue sin saber
@@ -7,6 +11,8 @@
  * creado; `Lienzo.tsx` toma el contexto, crea el lienzo contra su propio `<svg>` y lo entrega.
  */
 
+import type { DockLayout } from '../docking-layout.js';
+import type { EntryKind } from '../file-tree.js';
 type Ctx = Record<string, unknown>;
 type Lienzo = Record<string, unknown>;
 
@@ -20,10 +26,21 @@ let alEntregar: ((l: Lienzo) => void) | null = null;
  * arrancar y los componentes las piden cuando el usuario hace algo.
  */
 export interface Acciones {
+  analizarFisica: (modo: 'dc' | 'transitorio' | 'termico' | 'ac', parametros: ParametrosVistaTransitorio, signal: AbortSignal, termica?: ConfiguracionTermicaVista, ac?: ParametrosAc) => Promise<ResultadoVistaAnalisis>;
+  identificarAc: (signal: AbortSignal) => Promise<OpcionesAc & { firmaVista: string }>;
+  crearMicrofono: (proyecto: string, instancia: string) => ControladorMicrofono;
+  resolverConflicto: (opcion: 'descargar' | 'remoto' | 'local') => Promise<void>;
+  crearCamara: (project: string, instance: string, camera: CameraDescriptor) => ControladorCamara;
   agregarModulo: (type: string) => void;
   quitarDelCatalogo: (m: { type: string; name: string }) => void;
   filtrarModulos: (texto: string) => void;
   abrirProyecto: (nombre: string) => void;
+  navegarAprendizaje: (leccion?: string, paso?: string) => void;
+  completarAprendizaje: (leccion: string, revision: number, paso: string) => void;
+  crearPracticaAprendizaje: (plantillaId: string) => void;
+  continuarPracticaAprendizaje: (leccion: string) => void;
+  volverALeccionAprendizaje: () => void;
+  irAInicio: () => void;
   eliminarProyecto: (nombre: string) => void;
   // Panel derecho
   eliminarModulo: (id: string) => void;
@@ -36,8 +53,20 @@ export interface Acciones {
   reemplazarQuemado: (id: string) => void;
   moverEntorno: (id: string, valores: Record<string, number>) => void;
   abrirArchivo: (ruta: string) => void;
+  abrirArchivoDePlaca: (boardId: string, path: string) => Promise<void>;
+  cargarExplorador: () => Promise<void>;
   irALinea: (archivo: string | null, linea: number) => void;
   agregarPlaca: () => void;
+  nuevoArchivo: (parent?: string, boardId?: string) => void;
+  nuevaCarpeta: (parent?: string, boardId?: string) => void;
+  actualizarExplorador: () => Promise<void>;
+  crearEntrada: (name: string, kind: EntryKind) => Promise<void>;
+  importarModulos: () => void;
+  mostrarHerramienta: (id: 'explorador' | 'componentes', visible?: boolean) => void;
+  aplicarDistribucion: (layout: DockLayout) => void;
+  guardarDistribucionPredeterminada: () => void;
+  restaurarDistribucionProyecto: () => void;
+  restaurarDistribucionOriginal: () => void;
 }
 
 /**

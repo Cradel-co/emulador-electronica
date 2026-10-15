@@ -1,0 +1,39 @@
+{
+  "controls": [],
+  "props": {
+    "ohms": {
+      "type": "number",
+      "default": 10000,
+      "label": "Resistencia total (Ω)",
+      "min": 1,
+      "max": 10000000
+    },
+    "posicion": {
+      "type": "number",
+      "default": 50,
+      "label": "Posición del cursor (0 = en A, 100 = en B)",
+      "min": 0,
+      "max": 100
+    },
+    "powerRatedW": {
+      "type": "number",
+      "default": 0.25,
+      "label": "Potencia nominal declarada (W)",
+      "min": 0.001,
+      "max": 1000
+    }
+  },
+  "type": "potenciometro",
+  "name": "Potenciómetro",
+  "category": "Pasivos",
+  "description": "Resistencia con cursor. Entre A y B está el total; el cursor (W) la divide según su posición. Sirve de divisor de tensión y de entrada analógica.",
+  "width": 72,
+  "height": 74,
+  "pins": [
+    { "name": "A", "x": 12, "y": 74, "kind": "other" },
+    { "name": "W", "x": 36, "y": 74, "kind": "other" },
+    { "name": "B", "x": 60, "y": 74, "kind": "other" }
+  ],
+  "svg": "module.svg",
+  "model": "model.ts"
+}

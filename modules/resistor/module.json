@@ -2,7 +2,7 @@
   "type": "resistor",
   "name": "Resistencia",
   "category": "Pasivos",
-  "description": "Limita la corriente en serie (Ley de Ohm: I = V / R). Sin ella, un LED conectado directo se quema.",
+  "description": "Resistencia ideal de valor constante (I = V / R). Comprueba la potencia nominal declarada; no predice temperatura ni averías.",
   "width": 70,
   "height": 30,
   "pins": [
@@ -11,12 +11,11 @@
   ],
   "controls": [],
   "props": {
-    "ohms": { "type": "number", "default": 220, "label": "Resistencia (Ω)", "min": 1, "max": 10000000 }
+    "ohms": { "type": "number", "default": 220, "label": "Resistencia (Ω)", "min": 1, "max": 10000000 },
+    "powerRatedW": { "type": "number", "default": 0.25, "label": "Potencia nominal declarada (W)", "min": 0.001, "max": 1000 }
   },
   "passthrough": true,
   "ohmsProp": "ohms",
-  "svg": "module.svg",
-  "model": "model.ts",
   "parte": {
     "fabricante": "Yageo",
     "mpn": "CFR-25JB-52-{{props.ohms|codigoR}}",
@@ -27,23 +26,9 @@
     "valor": "{{props.ohms|ohms}}",
     "simbolo": "Device:R",
     "huella": "Resistor_THT:R_Axial_DIN0207_L6.3mm_D2.5mm_P10.16mm_Horizontal",
-    "pines": {"1": "1", "2": "2"},
+    "pines": { "1": "1", "2": "2" },
     "fabricacion": "discreto"
   },
-  "reglas": [
-    {
-      "tipo": "potenciaMax",
-      "elemento": "r",
-      "maxMw": 500,
-      "severidad": "peligro",
-      "mensaje": "Disipa {w} W: más del doble de su potencia nominal (1/4 W). Se quema."
-    },
-    {
-      "tipo": "potenciaMax",
-      "elemento": "r",
-      "maxMw": 250,
-      "severidad": "advertencia",
-      "mensaje": "Disipa {w} W: más de su potencia nominal (1/4 W), se calienta de más. Usá una de 1/2 W o más."
-    }
-  ]
+  "svg": "module.svg",
+  "model": "model.ts"
 }

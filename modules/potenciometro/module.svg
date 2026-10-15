@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 72 74">
+  <line x1="12" y1="54" x2="12" y2="74" stroke="#aab4be" stroke-width="2"/>
+  <line x1="36" y1="54" x2="36" y2="74" stroke="#aab4be" stroke-width="2"/>
+  <line x1="60" y1="54" x2="60" y2="74" stroke="#aab4be" stroke-width="2"/>
+  <rect x="8" y="40" width="56" height="14" rx="2" fill="#2b313a" stroke="#6b7785" stroke-width="1.2"/>
+  <circle cx="36" cy="24" r="18" fill="#3a424d" stroke="#6b7785" stroke-width="1.4"/>
+  <circle cx="36" cy="24" r="13" fill="#2b313a" stroke="#6b7785" stroke-width="0.8"/>
+  <line x1="36" y1="24" x2="36" y2="12" stroke="#ffd83d" stroke-width="2.5" stroke-linecap="round"
+        transform="rotate({{props.posicion}} 36 24)"/>
+  <text x="12" y="70" font-family="monospace" font-size="8" fill="#aab4be" text-anchor="middle">A</text>
+  <text x="36" y="70" font-family="monospace" font-size="8" fill="#aab4be" text-anchor="middle">W</text>
+  <text x="60" y="70" font-family="monospace" font-size="8" fill="#aab4be" text-anchor="middle">B</text>
+</svg>

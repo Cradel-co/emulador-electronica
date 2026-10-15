@@ -37,8 +37,8 @@ test.describe('menú principal', () => {
     await ver.hover();
     await expect(ver).toHaveClass(/abierto/);
     const items = ver.locator('.submenu .menu-item');
-    await expect(items.filter({ hasText: 'Catálogo' })).toBeVisible();
-    await expect(items.filter({ hasText: 'Catálogo' }).locator('.atajo')).toHaveText('Alt+1');
+    await expect(items.filter({ hasText: 'Componentes' })).toBeVisible();
+    await expect(items.filter({ hasText: 'Componentes' }).locator('.atajo')).toHaveText('Alt+1');
 
     // Abrir otro grupo cierra el anterior.
     const editar = page.locator('#menu > .menu-item.sub', { hasText: /^Editar/ });

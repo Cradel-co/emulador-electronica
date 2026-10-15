@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 
 export interface RunResult {
   code: number | null;
@@ -68,9 +69,12 @@ export function run(
   });
 }
 
-/** Nombre del contenedor de compilación: uno por proyecto, para poder limpiarlo. */
+/** Identidad estable por directorio completo: separa proyectos, placas y checkouts. */
 export function containerNameFor(buildDir: string): string {
-  return `emu-build-${path.basename(buildDir)}`;
+  const directorio = path.resolve(buildDir);
+  const etiqueta = path.basename(directorio).toLowerCase().replace(/[^a-z0-9_.-]/g, '-').slice(0, 40) || 'proyecto';
+  const identidad = createHash('sha256').update(directorio).digest('hex').slice(0, 24);
+  return `emu-build-${etiqueta}-${identidad}`;
 }
 
 /** Borra un contenedor por nombre; si no existe, no pasa nada. */

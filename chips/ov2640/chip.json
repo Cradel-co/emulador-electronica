@@ -1,0 +1,20 @@
+{
+  "id": "ov2640",
+  "nombre": "ov2640",
+  "fabricante": "ArduCAM",
+  "pines": [
+    "VCC",
+    "GND",
+    "SDA",
+    "SCL"
+  ],
+  "comportamiento": "comportamiento.ts",
+  "i2c": {
+    "sda": "SDA",
+    "scl": "SCL",
+    "maxHz": 400000
+  },
+  "limitaciones": [
+    "Solo JPEG 320 \u00d7 240; no emula video ni el procesamiento \u00f3ptico del sensor."
+  ]
+}

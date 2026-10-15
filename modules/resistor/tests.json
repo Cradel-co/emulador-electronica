@@ -6,15 +6,15 @@
     "espera": {"corrienteMa": {"r": [22.6, 22.8]}, "potenciaMw": {"r": [113, 114.5]}, "sinAvisos": true}
   },
   {
-    "nombre": "100 Ω con 6 V: 360 mW, más de 1/4 W (advertencia)",
+    "nombre": "100 Ω con 6 V: 360 mW, más de la potencia nominal (1/4 W): riesgo",
     "props": {"ohms": 100},
     "banco": {"1": {"fuente": 6}, "2": "tierra"},
-    "espera": {"potenciaMw": {"r": [355, 365]}, "avisos": [{"severidad": "advertencia", "contiene": "se calienta de más"}]}
+    "espera": {"potenciaMw": {"r": [355, 365]}, "avisos": [{"severidad": "advertencia", "contiene": "Riesgo de sobrecalentamiento"}]}
   },
   {
-    "nombre": "47 Ω con 6 V: 766 mW, más del doble: se quema (solo el aviso más grave)",
+    "nombre": "47 Ω con 6 V: 766 mW, más del doble de lo nominal: riesgo grave",
     "props": {"ohms": 47},
     "banco": {"1": {"fuente": 6}, "2": "tierra"},
-    "espera": {"potenciaMw": {"r": [760, 770]}, "avisos": [{"severidad": "peligro", "contiene": "Se quema"}]}
+    "espera": {"potenciaMw": {"r": [760, 770]}, "avisos": [{"severidad": "peligro", "contiene": "Riesgo de sobrecalentamiento"}]}
   }
 ]

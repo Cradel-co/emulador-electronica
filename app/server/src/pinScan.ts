@@ -32,7 +32,13 @@ const RE_BY_LANGUAGE: Record<Language, RegExp[]> = {
   // `simbridge.pin(6)` es como las plantillas leen las entradas del circuito: cuenta
   // igual que `Pin(6)` (direccionesDeCodigo ya lo tomaba, scanPins no: avisaba que el
   // pin del botón "no lo usa el código").
-  micropython: [/Pin\s*\(\s*(\d{1,2})/g, /Pin\s*\(\s*"GPIO(\d{1,2})"/g, /\bsimbridge\.pin\s*\(\s*(\d{1,2})/g],
+  // `PWM(5)` y `ADC(4)` también aceptan el GPIO sin envolverlo en un Pin.
+  micropython: [
+    /Pin\s*\(\s*(\d{1,2})/g,
+    /Pin\s*\(\s*"GPIO(\d{1,2})"/g,
+    /\bsimbridge\.pin\s*\(\s*(\d{1,2})/g,
+    /\b(?:PWM|ADC)\s*\(\s*(\d{1,2})\s*[,)]/g,
+  ],
 };
 
 /** Comentarios por lenguaje: lo que está comentado no es código y no usa ningún pin. */
@@ -94,6 +100,20 @@ export function scanPins(language: Language, content: string, desc?: BoardDescri
       if (m.index === rx.lastIndex) rx.lastIndex++; // evita loops en regex globales
     }
   }
+  if (language === 'micropython') {
+    // Constantes de Python (`GPIO_BUZZER = 5`) usadas después en Pin, PWM o ADC. Solo cuentan si
+    // se le pasan a uno de ellos: `duracion = 7` no es un pin, y resolver toda asignación
+    // inventaría pines. Es la misma disciplina que el camino de Arduino AVR.
+    const usadas = new Set<string>();
+    for (const m of texto.matchAll(/\b(?:Pin|PWM|ADC)\s*\(\s*([A-Za-z_]\w*)\s*[,)]/g)) usadas.add(m[1]!);
+    if (usadas.size > 0) {
+      const asignadas = new Map<string, string>();
+      for (const m of texto.matchAll(/^[ \t]*([A-Za-z_]\w*)[ \t]*=[ \t]*([A-Za-z_]\w*|\d{1,2})[ \t]*(?:#.*)?$/gm)) {
+        asignadas.set(m[1] ?? '', m[2] ?? '');
+      }
+      for (const nombre of usadas) agregar(resolverPin(nombre, asignadas));
+    }
+  }
   if (avr && language === 'arduino') {
     // Constantes con nombre que después se usan en pinMode/digitalWrite/digitalRead.
     const usadas = new Set<string>();
@@ -149,7 +169,7 @@ export function direccionesDeCodigo(language: Language, contenido: string): Map<
   // Mismo criterio que scanPins: un pin configurado en una línea comentada no se configura.
   const content = sinComentarios(language, contenido);
   const d = new Map<number, DireccionPin>();
-  const salida = (g: number | null) => { if (g !== null) d.set(g, { salida: true }); };
+  const salida = (g: number | null, openDrain = false, pull?: 'up' | 'down') => { if (g !== null) d.set(g, { salida: true, ...(openDrain ? { openDrain: true } : {}), ...(pull ? { pull } : {}) }); };
   const entrada = (g: number | null, pull?: 'up' | 'down') => { if (g !== null) d.set(g, pull ? { salida: false, pull } : { salida: false }); };
   const conPull = (g: number | null, pull: 'up' | 'down') => {
     if (g === null) return;
@@ -172,12 +192,12 @@ export function direccionesDeCodigo(language: Language, contenido: string): Map<
         const m = /^(?:GPIO)?(\d{1,2})$/i.exec(String(v ?? '').trim());
         return m ? Number(m[1]) : null;
       };
-      const modo = (pin: unknown): { salida: boolean; pull?: 'up' | 'down' } | null => {
+      const modo = (pin: unknown): DireccionPin | null => {
         const m = pin && typeof pin === 'object' ? (pin as Record<string, unknown>).mode : undefined;
-        if (typeof m === 'string') return { salida: /OUTPUT/i.test(m), pull: pullDe(m) };
+        if (typeof m === 'string') return { salida: /OUTPUT/i.test(m), openDrain: /OPEN_DRAIN/i.test(m), pull: pullDe(m) };
         if (m && typeof m === 'object') {
           const o = m as Record<string, unknown>;
-          return { salida: o.output === true, pull: o.pullup === true ? 'up' : o.pulldown === true ? 'down' : undefined };
+          return { salida: o.output === true, openDrain: o.open_drain === true, pull: o.pullup === true ? 'up' : o.pulldown === true ? 'down' : undefined };
         }
         return null;
       };
@@ -187,7 +207,10 @@ export function direccionesDeCodigo(language: Language, contenido: string): Map<
       };
       // Plataformas gpio que manejan el pin (salidas).
       for (const k of ['output', 'switch', 'light', 'fan']) {
-        for (const it of items(k)) if (it.platform === 'gpio' && it.pin !== undefined) salida(numero(it.pin));
+        for (const it of items(k)) if (it.platform === 'gpio' && it.pin !== undefined) {
+          const m = modo(it.pin);
+          salida(numero(it.pin), m?.openDrain, m?.pull);
+        }
       }
       for (const it of items('binary_sensor')) {
         if (it.platform !== 'gpio' || it.pin === undefined) continue;
@@ -197,12 +220,26 @@ export function direccionesDeCodigo(language: Language, contenido: string): Map<
       break;
     }
     case 'micropython': {
-      for (const m of content.matchAll(/\bsimbridge\.pin\s*\(\s*(\d{1,2})\s*\)/g)) entrada(Number(m[1]), 'up'); // reposa en 1
-      for (const m of content.matchAll(/\bPin\s*\(\s*(\d{1,2})\s*,([^)]*)\)/g)) {
-        const args = m[2] ?? '';
-        if (/\bOUT\b|OPEN_DRAIN/.test(args)) salida(Number(m[1]));
-        else if (/\bIN\b/.test(args)) entrada(Number(m[1]), pullDe(args));
+      // Constantes de Python (`GPIO_BUZZER = 5`), para resolver `PWM(Pin(GPIO_BUZZER))` y
+      // compañía. Igual que en scanPins: una asignación sola no es un pin, solo cuenta si el
+      // nombre termina en un periférico.
+      const asignadas = new Map<string, string>();
+      for (const m of content.matchAll(/^[ \t]*([A-Za-z_]\w*)[ \t]*=[ \t]*([A-Za-z_]\w*|\d{1,2})[ \t]*(?:#.*)?$/gm)) {
+        asignadas.set(m[1] ?? '', m[2] ?? '');
       }
+      const gpio = (txt: string | undefined): number | null => (txt === undefined ? null : resolverPin(txt.trim(), asignadas));
+
+      for (const m of content.matchAll(/\bsimbridge\.pin\s*\(\s*(\d{1,2})\s*\)/g)) entrada(Number(m[1]), 'up'); // reposa en 1
+      for (const m of content.matchAll(/\bPin\s*\(\s*([A-Za-z_]\w*|\d{1,2})\s*,([^)]*)\)/g)) {
+        const args = m[2] ?? '';
+        if (/\bOUT\b|OPEN_DRAIN/.test(args)) salida(gpio(m[1]), /OPEN_DRAIN/.test(args), pullDe(args));
+        else if (/\bIN\b/.test(args)) entrada(gpio(m[1]), pullDe(args));
+      }
+      // `PWM` maneja el pin: es una salida aunque nadie escriba Pin.OUT. Sin esto el motor lo
+      // deja sin manejar, el pin mide 0 V y un buzzer pasivo no suena.
+      for (const m of content.matchAll(/\bPWM\s*\(\s*(?:Pin\s*\(\s*)?([A-Za-z_]\w*|\d{1,2})\s*[,)]/g)) salida(gpio(m[1]));
+      // Un `ADC` lee: el pin es entrada, y no tiene que manejarlo contra el sensor que mide.
+      for (const m of content.matchAll(/\bADC\s*\(\s*(?:Pin\s*\(\s*)?([A-Za-z_]\w*|\d{1,2})\s*[,)]/g)) entrada(gpio(m[1]));
       break;
     }
     case 'arduino': {
@@ -211,7 +248,7 @@ export function direccionesDeCodigo(language: Language, contenido: string): Map<
       for (const m of content.matchAll(/\bpinMode\s*\(\s*([\w]+)\s*,\s*(\w+)\s*\)/g)) {
         const g = valor(m[1] ?? '');
         const modo = m[2] ?? '';
-        if (modo === 'OUTPUT' || modo === 'OUTPUT_OPEN_DRAIN') salida(g);
+        if (modo === 'OUTPUT' || modo === 'OUTPUT_OPEN_DRAIN') salida(g, modo === 'OUTPUT_OPEN_DRAIN');
         else if (modo.startsWith('INPUT')) entrada(g, pullDe(modo));
       }
       break;
@@ -234,12 +271,12 @@ export function direccionesDeCodigo(language: Language, contenido: string): Map<
         const up = /\.pull_up_en\s*=\s*GPIO_PULLUP_ENABLE|\.pull_up_en\s*=\s*1/.test(cuerpo);
         const down = /\.pull_down_en\s*=\s*GPIO_PULLDOWN_ENABLE|\.pull_down_en\s*=\s*1/.test(cuerpo);
         for (const g of pines) {
-          if (/OUTPUT/.test(modo)) salida(g);
+          if (/OUTPUT/.test(modo)) salida(g, /_OD$/.test(modo), up ? 'up' : down ? 'down' : undefined);
           else if (/INPUT/.test(modo)) entrada(g, up ? 'up' : down ? 'down' : undefined);
         }
       }
       for (const m of content.matchAll(/gpio_set_direction\s*\(\s*(\w+)\s*,\s*(\w+)\s*\)/g)) {
-        if (/OUTPUT/.test(m[2] ?? '')) salida(valor(m[1] ?? ''));
+        if (/OUTPUT/.test(m[2] ?? '')) salida(valor(m[1] ?? ''), /_OD$/.test(m[2] ?? ''));
         else entrada(valor(m[1] ?? ''), d.get(valor(m[1] ?? '') ?? -1)?.pull);
       }
       for (const m of content.matchAll(/gpio_set_pull_mode\s*\(\s*(\w+)\s*,\s*(\w+)\s*\)/g)) {

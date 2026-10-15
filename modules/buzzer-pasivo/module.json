@@ -1,0 +1,38 @@
+{
+  "controls": [],
+  "props": {
+    "capacidadNf": {
+      "type": "number",
+      "default": 20,
+      "label": "Capacidad del piezo (nF)",
+      "min": 1,
+      "max": 1000
+    }
+  },
+  "type": "buzzer-pasivo",
+  "name": "Buzzer pasivo (piezo)",
+  "category": "Salidas",
+  "description": "Disco piezoeléctrico sin oscilador: la frecuencia la pone el programa con PWM, así que puede tocar notas. Suena más fuerte cerca de sus 4 kHz de resonancia.",
+  "width": 56,
+  "height": 74,
+  "pins": [
+    { "name": "IN", "x": 18, "y": 74, "kind": "digital-in" },
+    { "name": "GND", "x": 38, "y": 74, "kind": "ground" }
+  ],
+  "bridge": {
+    "role": "output",
+    "pin": "IN"
+  },
+  "salidas": [
+    {
+      "tipo": "sonido",
+      "fuente": "pwm",
+      "pins": ["IN", "GND"],
+      "dbA": 70,
+      "referencia": { "v": 3, "cm": 10 },
+      "forma": "cuadrada"
+    }
+  ],
+  "svg": "module.svg",
+  "model": "model.ts"
+}

@@ -1,3 +1,4 @@
+import { descargarAcotado } from './descargaAcotada.js';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { unzipSync } from 'fflate';
@@ -5,6 +6,7 @@ import { MODULE_TYPE_RE, ModuleDefSchema, PruebasModuloSchema, type ModuleDef, t
 import { loadCatalog, type ModuloCatalogo } from './catalog.js';
 import { probarModulo } from './sim/pruebasModulo.js';
 import { validarPlaca } from './boardRegistry.js';
+import { compilarFuente } from './fuenteSandbox.js';
 import { SandboxModelo } from './sim/sandbox.js';
 
 /**
@@ -197,7 +199,7 @@ function problemasModelo(def: ModuleDef, codigo: string | undefined): string[] {
   const vars: Record<string, string> = {};
   for (const [k, v] of Object.entries(def.vars)) vars[k] = v.map[String(props[v.prop])] ?? v.default;
   try {
-    const sb = new SandboxModelo(def.type, codigo, def.model);
+    const sb = new SandboxModelo(def.type, compilarFuente(codigo, def.model ?? 'model.js'));
     for (const control of [false, true]) sb.circuito({ pines: def.pins.map((x) => x.name), props, control, estado: {}, vars });
     return [];
   } catch (err) {
@@ -312,7 +314,7 @@ ${rotulos.join('\n')}
 
 // --- Zip y archivos sueltos -------------------------------------------------------
 
-/** Textos .json/.svg/.js de un zip (con límites contra zip bombs). Ignora el resto. */
+/** Textos .json/.svg/.js/.ts de un zip (con límites contra zip bombs). Ignora el resto. */
 export function leerZip(datos: Uint8Array): Map<string, string> {
   let total = 0;
   let entradas = 0;
@@ -322,7 +324,7 @@ export function leerZip(datos: Uint8Array): Map<string, string> {
       filter: (f) => {
         entradas++;
         if (entradas > LIMITES.entradasZip) throw new ImportError('el zip tiene demasiados archivos');
-        if (f.name.includes('__MACOSX/') || !/\.(json|svg|js)$/i.test(f.name)) return false;
+        if (f.name.includes('__MACOSX/') || !/\.(json|svg|js|ts)$/i.test(f.name)) return false;
         if (f.originalSize > LIMITES.archivoZip) throw new ImportError(`${f.name} es demasiado grande (máx. 512 KB)`);
         total += f.originalSize;
         if (total > LIMITES.totalZip) throw new ImportError('el zip descomprimido es demasiado grande (máx. 8 MB)');
@@ -400,19 +402,8 @@ export async function descargar(url: string, fetcher: typeof fetch = fetch): Pro
     throw new ImportError(`URL inválida: ${url}`);
   }
   if (u.protocol !== 'https:') throw new ImportError('solo se aceptan URLs https://');
-  let res: Response;
-  try {
-    res = await fetcher(u, { signal: AbortSignal.timeout(LIMITES.timeoutMs), redirect: 'follow' });
-  } catch (err) {
-    throw new ImportError(`no se pudo descargar ${url}: ${(err as Error).message}`);
-  }
-  if (res.url && !res.url.startsWith('https:')) throw new ImportError('la descarga redirigió a una URL que no es https');
-  if (!res.ok) throw new ImportError(`no se pudo descargar ${url}: HTTP ${res.status}`);
-  const largo = Number(res.headers.get('content-length') ?? 0);
-  if (largo > LIMITES.descarga) throw new ImportError('el archivo es demasiado grande (máx. 15 MB)');
-  const datos = new Uint8Array(await res.arrayBuffer());
-  if (datos.length > LIMITES.descarga) throw new ImportError('el archivo es demasiado grande (máx. 15 MB)');
-  return datos;
+  try { return await descargarAcotado(u.href, LIMITES.descarga, LIMITES.timeoutMs, fetcher); }
+  catch (err) { throw new ImportError(`no se pudo descargar ${url}: ${(err as Error).message}`); }
 }
 
 /** Repos de GitHub: https://github.com/dueño/repo[/tree/rama/sub/carpeta] */
@@ -620,7 +611,8 @@ export async function importar(
  * qué falló, caso por caso, con lo que se midió.
  */
 async function fallasDelBanco(def: ModuleDef, p: Paquete, pruebas: PruebaModulo[] | undefined): Promise<string[]> {
-  const nuevo: ModuloCatalogo = { ...def, modeloCodigo: p.modelo, svgMarkup: p.svg, builtin: false, pruebas };
+  const modeloCodigo = p.modelo !== undefined ? compilarFuente(p.modelo, def.model ?? 'model.js') : undefined;
+  const nuevo: ModuloCatalogo = { ...def, modeloCodigo, svgMarkup: p.svg, builtin: false, pruebas };
   const catalogo = await loadCatalog().catch(() => [] as ModuloCatalogo[]);
   const buscar = (t: string) => (t === def.type ? nuevo : catalogo.find((m) => m.type === t));
   try {

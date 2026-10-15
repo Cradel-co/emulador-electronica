@@ -77,7 +77,7 @@ export const ChipDefSchema = z
     entradas: z.array(z.string().regex(NOMBRE_PIN_RE)).default([]),
     entorno: z.record(z.string().regex(NOMBRE_RE), MagnitudEntornoSchema).default({}),
     /** Archivo JS con el comportamiento (corre en un sandbox). */
-    comportamiento: z.string().regex(/^[\w.-]+\.js$/),
+    comportamiento: z.string().regex(/^[\w.-]+\.(?:js|ts)$/),
     /** Lo que NO se emula, dicho claro (se muestra en la UI y en el MCP). */
     limitaciones: z.array(z.string().max(300)).max(30).default([]),
   })
