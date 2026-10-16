@@ -62,7 +62,7 @@
     }
   },
   "svg": "module.svg",
-  "model": "model.js",
+  "model": "model.ts",
   "drivers": {
     "arduino": {
       "librerias": [
@@ -90,6 +90,47 @@
           "aAlimentacion": "alto"
         }
       }
+    }
+  ],
+  "parte": {
+    "fabricante": "Adafruit",
+    "mpn": "2652",
+    "descripcion": "Placa con BME280 (temperatura, humedad y presión), I2C/SPI, 3 a 5 V",
+    "datasheet": "https://www.bosch-sensortec.com/media/boschsensortec/downloads/datasheets/bst-bme280-ds002.pdf",
+    "proveedores": [{"nombre": "Adafruit", "sku": "2652", "url": "https://www.adafruit.com/product/2652"}]
+  },
+  "esquematico": {
+    "referencia": "A",
+    "valor": "BME280 (Adafruit 2652)",
+    "huella": "Connector_PinHeader_2.54mm:PinHeader_1x07_P2.54mm_Vertical",
+    "pines": {"VIN": "1", "3VO": "2", "GND": "3", "SCK": "4", "SDO": "5", "SDI": "6", "CS": "7"},
+    "fabricacion": "modulo",
+    "notas": [
+      "I2C: SDO a GND = 0x76; sin cablear (pull-up de la placa) = 0x77.",
+      "CS a un pin del micro = SPI; sin cablear = I2C.",
+      "3VO es una salida (3,3 V del regulador): no alimentar por ahí."
+    ]
+  },
+  "reglas": [
+    {
+      "tipo": "tensionMax",
+      "entre": ["VIN", "GND"],
+      "max": 6,
+      "severidad": "peligro",
+      "mensaje": "VIN en {v} V: la placa es para 3 a 5 V; el MIC5225 aguanta hasta 6 V en operación."
+    },
+    {
+      "tipo": "tensionMax",
+      "entre": ["3VO", "GND"],
+      "max": 3.6,
+      "severidad": "peligro",
+      "mensaje": "El BME280 recibe {v} V por 3VO: el máximo de la hoja es 3,6 V."
+    },
+    {
+      "tipo": "conectado",
+      "pines": ["GND"],
+      "severidad": "advertencia",
+      "mensaje": "GND sin conectar: el sensor no tiene referencia y no va a responder."
     }
   ]
 }

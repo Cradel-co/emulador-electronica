@@ -2,6 +2,7 @@ import { riesgoDesdeFisica } from '../estado-electrico.js';
 import { SeccionCamara } from './SeccionCamara.js';
 import { Miniatura } from './Miniatura.js';
 import { SeccionChip } from './SeccionChip.js';
+import { SeccionParte } from './SeccionParte.js';
 import { useEstado, useVersion } from './estado.js';
 import { acciones, estado, vistas } from './puente.js';
 import { cablesDe, NOMBRE_KIND, nombreRef, pinesSinAlimentar } from '../consultas.js';
@@ -81,6 +82,7 @@ export function PanelModulo({ inst, def }: { inst: any; def: any }) {
         <Rotacion inst={inst} />
 
         {Object.keys(def.props ?? {}).length > 0 && <Propiedades inst={inst} def={def} />}
+        <SeccionParte inst={inst} def={def} />
 
         <button className="peligro" id="insp-eliminar" onClick={() => acciones().eliminarModulo(inst.id)}>
           Eliminar módulo

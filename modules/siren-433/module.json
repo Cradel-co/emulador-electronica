@@ -25,5 +25,12 @@
     "role": "air",
     "pin": "-"
   },
-  "svg": "module.svg"
+  "svg": "module.svg",
+  "parte": {
+    "fabricante": "genérico",
+    "mpn": "Sirena inalámbrica 433 MHz con aprendizaje",
+    "generico": true,
+    "descripcion": "Sirena que aprende un código de 433 MHz"
+  },
+  "esquematico": {"fabricacion": "externo", "notas": ["Inalámbrico: no va en la placa, se compra aparte."]}
 }

@@ -3,6 +3,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { DEFAULT_BOARD, LANGUAGES, placaDelProyecto, type Language, type Project } from '@emu/shared';
 import type { ModuloCatalogo } from './catalog.js';
+import { esquematicoEfectivo, nivelModulo, probarModulo } from './sim/pruebasModulo.js';
 import type { ProjectStore } from './projectStore.js';
 import type { EmulatorStatus } from './emulator.js';
 import type { ResultadoImportacion, SolicitudImportacion, OpcionesImportacion } from './moduleImporter.js';
@@ -117,6 +118,8 @@ export function crearServidorMcp(ctx: McpContexto): McpServer {
         'accionar_modulo / leer_pines / esperar_log → parar. La placa ("board") es el único módulo con código; ' +
         'los demás se cablean a sus pines. Los pines reservados de cada placa están en `placas` (board.reservedPins). ' +
         'Placas nuevas: esquema_placa → armar el module.json con su bloque "board" → validar_placa → importar_modulo → certificar_placa. ' +
+        'Módulos nuevos (formato en modules/README.md): module.json (+ model.js, tests.json con casos de su hoja de datos, reglas, ' +
+        'parte, esquematico) → importar_modulo con solo_validar (corre sus pruebas) → importar_modulo → probar_modulo. ' +
         'Todo lo que hagas se ve en vivo en la UI (http://127.0.0.1:5180). ' +
         INSTRUCCIONES_DEBUG,
     },
@@ -330,7 +333,25 @@ export function crearServidorMcp(ctx: McpContexto): McpServer {
       pines: m.programmable ? '(placa: ver la herramienta placas)' : m.pins.map((p) => `${p.name} (${p.kind})`),
       props: Object.fromEntries(Object.entries(m.props).map(([k, p]) => [k, { tipo: p.type, defecto: p.default, opciones: p.enum }])),
       deFabrica: m.builtin,
+      // dibujo → simula → probado → fabricable, y qué le falta para subir.
+      nivel: nivelModulo(m),
     })));
+  }));
+
+  server.registerTool('probar_modulo', {
+    title: 'Probar un módulo del catálogo',
+    description:
+      'Corre el banco de pruebas de un módulo con el motor eléctrico real: valida lo declarado (pines, elementos del ' +
+      'model.js, esquemático, reglas), la prueba de humo y cada caso de su tests.json. Devuelve caso por caso qué pasó ' +
+      'con los valores medidos, su nivel (dibujo/simula/probado/fabricable), qué le falta y cómo sale en el esquemático.',
+    inputSchema: { tipo: z.string().describe('Tipo del módulo (ver catalogo)') },
+  }, seguro(async ({ tipo }) => {
+    const cat = await ctx.catalogo();
+    const def = cat.find((m) => m.type === tipo);
+    if (!def) return falla(`No hay un módulo "${tipo}" en el catálogo.`);
+    const informe = await probarModulo(def, (t) => cat.find((m) => m.type === t));
+    const res = json(informe.ok ? `${tipo}: todo bien (${informe.pruebas.length} prueba/s).` : `${tipo}: hay fallas.`, { ...informe, esquematico: esquematicoEfectivo(def) });
+    return informe.ok ? res : { ...res, isError: true };
   }));
 
   server.registerTool('importar_modulo', {

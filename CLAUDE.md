@@ -50,6 +50,9 @@ cd /home/marcos/marcos/emulador-electronica/app && npx playwright test
 #   npx playwright install chromium        # baja el Chromium de Playwright, sin sudo
 #   EMU_E2E_CHANNEL=chromium npx playwright test
 
+# Tipos del código de los módulos (modules/*/model.ts, modo estricto)
+cd /home/marcos/marcos/emulador-electronica/app && npm run typecheck:modulos
+
 # Typecheck por workspace (el CI no perdona un any implícito)
 cd /home/marcos/marcos/emulador-electronica/app/server && npx tsc -p tsconfig.json --noEmit
 
@@ -142,6 +145,10 @@ dependencias explícitas y no importan el punto de entrada.
   componentes de React, y las reglas de modularización con el error que originó cada una.
 - [SDD-MODULOS.md](./SDD-MODULOS.md) — diseño de módulos completos (esquemático exportable, reglas y tests
   propios, comportamiento digital, entorno y salidas); la sección 8 dice qué ya está hecho y qué se aprendió.
+- [modules/README.md](./modules/README.md) — **cómo tiene que ser un módulo**: formato, `parte`, `esquematico`, `reglas`,
+  `tests.json` y niveles. El código de cada módulo es TypeScript (`model.ts`). Los módulos de fábrica se
+  prueban y validan en `app/tests/unit/server/modulosFabricables.test.ts`; un símbolo o huella de KiCad
+  nuevo se verifica contra las librerías oficiales y se suma a `app/tests/fixtures/server/kicad-verificados.txt`.
 - [SDD-EDITOR.md](./SDD-EDITOR.md) — diseño y alcance del editor CodeMirror 6 para MicroPython,
   con autocompletado, diagnóstico sintáctico local y pruebas de regresión.
 - [SDD-AUDIO.md](./SDD-AUDIO.md) — diseño de los módulos que suenan y del micrófono: un contrato

@@ -1,0 +1,28 @@
+# Símbolos y huellas de KiCad que usan los módulos de fábrica, verificados uno por uno contra las
+# librerías oficiales (gitlab.com/kicad/libraries, rama master) el 2026-10-02. Al usar uno nuevo,
+# verificarlo y sumarlo acá (lo exige sim/catalogoModulos.test.ts).
+Button_Switch_THT:SW_PUSH_6mm
+Button_Switch_THT:SW_Slide_SPDT_Straight_CK_OS102011MS2Q
+Connector_PinHeader_2.54mm:PinHeader_1x03_P2.54mm_Vertical
+Connector_PinHeader_2.54mm:PinHeader_1x04_P2.54mm_Vertical
+Connector_PinHeader_2.54mm:PinHeader_1x06_P2.54mm_Vertical
+Connector_PinHeader_2.54mm:PinHeader_1x07_P2.54mm_Vertical
+Connector_PinHeader_2.54mm:PinHeader_1x08_P2.54mm_Vertical
+Connector_PinSocket_2.54mm:PinSocket_1x15_P2.54mm_Vertical
+Connector_PinSocket_2.54mm:PinSocket_1x22_P2.54mm_Vertical
+Device:D
+Device:LED
+Device:R
+Diode_THT:D_DO-35_SOD27_P7.62mm_Horizontal
+LED_THT:LED_D5.0mm
+MCU_Module:Arduino_UNO_R3
+Module:Arduino_UNO_R3
+Package_TO_SOT_THT:TO-92_Inline
+RF_Module:ESP32-C3-DevKitM-1
+Relay:SANYOU_SRD_Form_C
+Relay_THT:Relay_SPDT_SANYOU_SRD_Series_Form_C
+Resistor_THT:R_Axial_DIN0207_L6.3mm_D2.5mm_P10.16mm_Horizontal
+Switch:SW_Push
+Switch:SW_SPST
+TerminalBlock_Phoenix:TerminalBlock_Phoenix_MKDS-1,5-2_1x02_P5.00mm_Horizontal
+Transistor_BJT:S8050

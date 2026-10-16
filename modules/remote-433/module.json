@@ -57,5 +57,12 @@
     "role": "air",
     "pin": "-"
   },
-  "svg": "module.svg"
+  "svg": "module.svg",
+  "parte": {
+    "fabricante": "genérico",
+    "mpn": "Control remoto 4 botones 433 MHz (EV1527)",
+    "generico": true,
+    "descripcion": "Llavero de 4 botones, código fijo"
+  },
+  "esquematico": {"fabricacion": "externo", "notas": ["Inalámbrico: no va en la placa, se compra aparte."]}
 }

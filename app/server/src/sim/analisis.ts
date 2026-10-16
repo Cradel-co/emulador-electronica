@@ -21,6 +21,7 @@ import { gpioDe, gpioDeRef } from '../diagramOps.js';
 import { Netlist, type ElementoResuelto } from './netlist.js';
 import { armarPlaca, type PlacaArmada, type RielesPlaca } from './placa.js';
 import { modeloDe } from './modelos.js';
+import { evaluarReglas, reglasDeCableado } from './reglas.js';
 import { correrSpice, ErrorSpice, type ResultadoSpice } from './spice.js';
 import type { AlimentacionPlaca, AvisoElectrico, EstadoLed, FuenteElectrica, LedElectrico } from './tipos.js';
 
@@ -539,6 +540,10 @@ export async function analizarCircuito(project: Project, buscar: BuscarDef, opci
     }
     modulos[m.id] = { ui: obs.ui, estado: obs.estado };
     for (const a of obs.avisos ?? []) avisos.push({ severidad: a.severidad, pin: -1, mensaje: `${m.def.name} (${m.id}): ${a.mensaje}` });
+    // Las `reglas` del module.json (límites de la hoja de datos), con los mismos valores.
+    for (const a of [...evaluarReglas(m.def.reglas ?? [], { v, i, p: pot }), ...reglasDeCableado(m.def.reglas ?? [], project, m.id)]) {
+      avisos.push({ severidad: a.severidad, pin: -1, mensaje: `${m.def.name} (${m.id}): ${a.mensaje}` });
+    }
   }
 
   const leds = calcularLeds(p);

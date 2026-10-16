@@ -21,5 +21,35 @@
   ],
   "drivers": { "arduino": { "librerias": ["Adafruit SSD1306@2.5.17", "Adafruit GFX Library@1.12.6", "Adafruit BusIO@1.17.4"] } },
   "svg": "module.svg",
-  "model": "model.js"
+  "model": "model.ts",
+  "parte": {
+    "fabricante": "genérico (Solomon Systech SSD1306)",
+    "mpn": "OLED 0,96\" 128x64 I2C SSD1306",
+    "generico": true,
+    "descripcion": "Pantalla OLED de 0,96\" de 4 pines por I2C"
+  },
+  "esquematico": {
+    "referencia": "A",
+    "valor": "OLED 128×64 (SSD1306)",
+    "huella": "Connector_PinHeader_2.54mm:PinHeader_1x04_P2.54mm_Vertical",
+    "pines": {"GND": "1", "VCC": "2", "SCL": "3", "SDA": "4"},
+    "fabricacion": "modulo",
+    "notas": ["Ojo: hay placas con VCC y GND en el orden inverso. Verificar antes de soldar."]
+  },
+  "reglas": [
+    {
+      "tipo": "tensionMax",
+      "entre": ["VCC", "GND"],
+      "max": 6,
+      "severidad": "peligro",
+      "mensaje": "VCC en {v} V: el módulo es para 3,3 a 5 V (su regulador aguanta hasta 6 V)."
+    },
+    {
+      "tipo": "tensionMin",
+      "entre": ["VCC", "GND"],
+      "min": 3.0,
+      "severidad": "advertencia",
+      "mensaje": "VCC en {v} V: la bomba de carga del SSD1306 necesita al menos ~3,3 V en su entrada; la pantalla puede no prender."
+    }
+  ]
 }

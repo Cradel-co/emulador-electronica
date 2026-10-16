@@ -86,9 +86,7 @@ describe('catálogo de módulos: el modelo eléctrico carga y corre', () => {
  * nuevo en `.js` pone este test en rojo, y migrar uno pide sacarlo de acá.
  */
 const MODELOS_JS_PENDIENTES = [
-  'bme280-adafruit', 'button', 'buzzer-activo', 'ds3231-zs042', 'fuente-regulable', 'led',
-  'mpu6050-gy521', 'oled-ssd1306-128x64', 'relay', 'rxb6', 'stx882', 'switch',
-  'tft-st7735-128x160',
+  'buzzer-activo',
 ];
 
 describe('catálogo de módulos: el modelo se escribe en TypeScript', () => {

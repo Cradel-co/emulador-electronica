@@ -30,27 +30,35 @@ La lógica digital de un chip (un sensor que contesta por I2C, una pantalla) no 
 ```
 modules/
 └── buzzer/
-    ├── module.json   # qué es: nombre, pines, props, dibujo, y "model": "model.js"
+    ├── module.json   # qué es: nombre, pines, props, dibujo, y "model": "model.ts"
     ├── module.svg    # cómo se ve
-    └── model.js      # qué tiene adentro (eléctricamente) y qué hace con lo que le pasa
+    ├── model.ts      # qué tiene adentro (eléctricamente) y qué hace con lo que le pasa
+    └── tests.json    # sus pruebas: casos de su hoja de datos, resueltos con el motor real
 ```
 
 | Archivo | Para qué | Obligatorio |
 |---|---|---|
-| `module.json` | Identidad, pines, propiedades, rol en la simulación del firmware (`bridge`), y el punto de entrada al código (`model`). Formato completo en [`../modules/README.md`](../modules/README.md). | Sí |
+| `module.json` | Identidad, pines, propiedades, rol en la simulación del firmware (`bridge`), el punto de entrada al código (`model`), y lo que es en la vida real: `parte` (qué se compra), `esquematico` (símbolo, huella, despiece) y `reglas` (los límites de su hoja de datos). Formato completo y niveles (dibujo → simula → probado → fabricable) en [`../modules/README.md`](../modules/README.md). | Sí |
 | `module.svg` | El dibujo. Las partes con `data-si="on"` se ven cuando el módulo está "prendido". | No (sin él se ve una caja) |
-| `model.js` | El modelo eléctrico: una caja negra con dos funciones. | No (ver [sin código](#sin-código-los-flags)) |
+| `model.ts` | El modelo eléctrico: una caja negra con dos funciones. | No (ver [sin código](#sin-código-los-flags)) |
+| `tests.json` | Sus pruebas: un banco (fuentes, resistencias, una sonda) alrededor del módulo y lo que se espera medir. | No, pero sin él no pasa de "simula" |
 
 ## El modelo: una caja negra de dos funciones
 
-```js
-module.exports = {
+El modelo se escribe en **TypeScript** (`model.ts`) con los tipos de `@emu/shared`. Cómo se
+carga, qué verifica el compilador y qué puede (y no) importar:
+[`../modules/README.md`](../modules/README.md#código-del-módulo-en-typescript).
+
+```ts
+import type { ModeloModulo } from '@emu/shared';
+
+export default {
   // 1. Con qué está hecho. Se llama antes de cada cálculo.
   circuito(ctx) { /* declara elementos físicos */ },
 
   // 2. Qué hace con lo que le pasó. Se llama después de cada cálculo (opcional).
-  observar(lectura) { return { ui, avisos, estado }; },
-};
+  observar(lectura) { return { ui: { on: true }, avisos: [], estado: {} }; },
+} satisfies ModeloModulo;
 ```
 
 ```
@@ -110,21 +118,21 @@ Lo que puede devolver (todo opcional):
 |---|---|
 | `ui: { on: true }` | El módulo se ve "prendido": se muestran las partes del SVG con `data-si="on"`. Se aplica con el circuito vivo (simulación corriendo o energizado). |
 | `ui: { brillo: 0..1 }` | Intensidad (la API la expone; el dibujo todavía no la usa). |
-| `avisos: [{ severidad: 'peligro' \| 'advertencia', mensaje }]` | Aparecen en el panel de avisos y en el MCP, con el nombre del módulo adelante. Hasta 10, de hasta 300 caracteres. |
+| `avisos: [{ severidad: 'peligro' \| 'advertencia', mensaje }]` | Aparecen en el panel de avisos y en el MCP, con el nombre del módulo adelante. Hasta 10, de hasta 300 caracteres. Los límites fijos de la hoja de datos (máximo de VCC, potencia) no van acá: van en las `reglas` del module.json. |
 | `estado: { ... }` | Memoria: vuelve como `ctx.estado` / `lectura.estado` en el próximo cálculo. JSON, hasta 4000 caracteres. Se borra al energizar o apagar. |
 
 ## Ejemplos
 
-Los módulos de fábrica tienen todos su `model.js`: son el mejor punto de partida.
+Los módulos de fábrica tienen todos su `model.ts`: son el mejor punto de partida.
 
 | Módulo | Qué muestra |
 |---|---|
-| [`resistor`](../modules/resistor/model.js) | Lo mínimo: un elemento, y un aviso por potencia (1/4 W). |
-| [`led`](../modules/led/model.js) | Un diodo real calibrado por color (`vars.vf`), `ui.on`/`brillo` por corriente, aviso por tensión inversa. |
-| [`button`](../modules/button/model.js) / [`switch`](../modules/switch/model.js) | `ctx.control` → un contacto. |
-| [`fuente-regulable`](../modules/fuente-regulable/model.js) | Una fuente CV/CC con las props de tensión y límite; apagada, no declara nada. |
-| [`relay`](../modules/relay/model.js) | Nodos internos, un transistor (diodo base-emisor + interruptor controlado), la bobina, el diodo de rueda libre, y una regla propia: pega con el 75 % de la corriente nominal. |
-| [`rxb6`](../modules/rxb6/model.js) / [`stx882`](../modules/stx882/model.js) | Consumo de hoja de datos como resistencia equivalente; el transmisor consume solo mientras DATA está en alto. |
+| [`resistor`](../modules/resistor/model.ts) | Lo mínimo: un elemento, y un aviso por potencia (1/4 W). |
+| [`led`](../modules/led/model.ts) | Un diodo real calibrado por color (`vars.vf`), `ui.on`/`brillo` por corriente, aviso por tensión inversa. |
+| [`button`](../modules/button/model.ts) / [`switch`](../modules/switch/model.ts) | `ctx.control` → un contacto. |
+| [`fuente-regulable`](../modules/fuente-regulable/model.ts) | Una fuente CV/CC con las props de tensión y límite; apagada, no declara nada. |
+| [`relay`](../modules/relay/model.ts) | Nodos internos, un transistor (diodo base-emisor + interruptor controlado), la bobina, el diodo de rueda libre, y una regla propia: pega con el 75 % de la corriente nominal. |
+| [`rxb6`](../modules/rxb6/model.ts) / [`stx882`](../modules/stx882/model.ts) | Consumo de hoja de datos como resistencia equivalente; el transmisor consume solo mientras DATA está en alto. |
 
 ### Ejemplo 1: un potenciómetro (props y divisor)
 
@@ -132,10 +140,13 @@ Este ejemplo dejó de ser hipotético: es el módulo `modules/potenciometro/` de
 versión que está en el repo sigue la convención de los pasivos del motor (`model.ts`, props
 validadas y potencia nominal declarada), así que no es idéntica a la de acá.
 
-```js
+```ts
+import type { ModeloModulo } from '@emu/shared';
+
+
 // Potenciómetro: una resistencia con un cursor. Entre A y B siempre está el total; el cursor
 // (W) la divide en dos según la posición (0 = pegado a A, 100 = pegado a B).
-module.exports = {
+export default {
   circuito(ctx) {
     const total = Number(ctx.props.ohms);
     const x = Math.min(100, Math.max(0, Number(ctx.props.posicion))) / 100;
@@ -148,7 +159,7 @@ module.exports = {
     if (p > 0.1) return { avisos: [{ severidad: 'peligro', mensaje: `Uno de sus tramos disipa ${p.toFixed(2).replace('.', ',')} W: aguanta 0,1 W. Se quema la pista.` }] };
     return {};
   },
-};
+} satisfies ModeloModulo;
 ```
 
 Con 5 V entre A y B y la posición en 25, el cursor da 3,75 V (verificado con el motor).
@@ -160,10 +171,11 @@ Este ejemplo dejó de ser hipotético: es el módulo `modules/buzzer-activo/` de
 Su frecuencia no está en el modelo sino en `salidas` del `module.json` (ver
 [`audio.md`](./audio.md)), porque el motor no resuelve señales en el tiempo.
 
-```js
+```ts
+import type { AvisoModelo, ModeloModulo } from '@emu/shared';
 // Buzzer activo de 5 V (oscilador interno): suena entre ~3 y 5,5 V consumiendo ~30 mA a 5 V.
 // Por debajo de ~2,5 V el oscilador no arranca y casi no consume.
-module.exports = {
+export default {
   circuito(ctx) {
     // El oscilador: un interruptor que se cierra cuando VCC − GND supera 2,5 V...
     ctx.interruptorControlado(ctx.pin('VCC'), ctx.nodo('osc'), ctx.pin('VCC'), ctx.pin('GND'),
@@ -174,12 +186,12 @@ module.exports = {
   observar(l) {
     const mA = l.i('bobina') * 1000;
     const v = l.vEntre('VCC', 'GND');
-    const avisos = [];
+    const avisos: AvisoModelo[] = [];
     if (v > 6) avisos.push({ severidad: 'peligro', mensaje: `Tiene ${v.toFixed(1).replace('.', ',')} V: el máximo es 6 V, se daña.` });
     if (v < 0) avisos.push({ severidad: 'advertencia', mensaje: 'Está al revés: no suena.' });
-    return { ui: { on: mA > 5 }, avisos, estado: { vecesQueSono: (l.estado.vecesQueSono || 0) + (mA > 5 ? 1 : 0) } };
+    return { ui: { on: mA > 5 }, avisos, estado: { vecesQueSono: Number(l.estado.vecesQueSono ?? 0) + (mA > 5 ? 1 : 0) } };
   },
-};
+} satisfies ModeloModulo;
 ```
 
 Verificado con el motor: a 5 V consume 30,6 mA y `on: true`; a 2 V no arranca (`on:
@@ -191,11 +203,11 @@ si esa fuente no da abasto, la tensión que le llega baja: eso no lo programa el
 | Lo que dice la hoja de datos | Cómo se modela |
 |---|---|
 | "Consumo: 30 mA a 5 V" | Resistencia equivalente R = V / I (166 Ω). Si el consumo es constante en un rango, una fuente de corriente o un regulador interno. |
-| "Tensión de trabajo: 3–5,5 V" | Un `interruptorControlado` con umbral en la tensión mínima, y avisos en `observar` por encima de la máxima. |
+| "Tensión de trabajo: 3–5,5 V" | Lo que muestra (`ui.on`) depende del rango en `observar`; los avisos, `tensionMin` y `tensionMax` en las `reglas` del module.json. Si debajo del mínimo deja de consumir, un `interruptorControlado` con umbral. |
 | "Vf = 2 V a 20 mA" | Un diodo con `is = I / exp((Vf − I·rs) / (n · 0,025865))`, como el LED de fábrica. |
 | "Entrada de alta impedancia" | Una resistencia grande (100 kΩ – 1 MΩ) a GND. |
 | "Salida a transistor / open collector" | Diodo base-emisor + `interruptorControlado` (ver el relé). |
-| "Máximo absoluto" / "potencia máxima" | No es un elemento: es una regla en `observar` (aviso de peligro). |
+| "Máximo absoluto" / "potencia máxima" | No es un elemento: es una regla en `reglas` del module.json (`tensionMax`, `corrienteMax`, `potenciaMax`). |
 | "Regulador interno de 3,3 V" | `fuenteTension(..., { limiteA, soloEntrega: true })` desde un nodo interno. |
 
 Reglas que conviene respetar (si no, el motor igual lo resuelve, pero el resultado se
@@ -205,9 +217,11 @@ aleja de la realidad):
   corriente sin camino, no existen en la vida real. Usá `limiteA`, `rSerie`, `ron`.
 - **La energía la ponen las fuentes.** Si tu módulo "entrega" energía (una batería, un
   panel solar, un regulador), declarale una fuente; si solo consume, nunca.
-- **Las reglas propias van en `observar`.** "Se daña con más de 6 V" no cambia el
-  circuito: es un aviso. "Pega con el 75 % de la corriente" es lo que el módulo muestra
-  (`ui.on`), y si además cambia el circuito (cierra un contacto), es un elemento.
+- **Los límites fijos van en `reglas`; lo que depende de varias cosas, en `observar`.**
+  "Se daña con más de 6 V" no cambia el circuito: es una regla `tensionMax` del module.json.
+  "Pega con el 75 % de la corriente" es lo que el módulo muestra (`ui.on`) y su aviso ("no
+  alcanza") depende de dos cosas a la vez: va en `observar`. Si además cambia el circuito
+  (cierra un contacto), es un elemento. Nunca los dos para lo mismo.
 
 ## Sin código: los flags
 
@@ -228,11 +242,12 @@ Sin `model` ni flags, el módulo se cablea pero eléctricamente no está (no con
 1. **Copiá uno parecido** de `modules/` a una carpeta nueva con el nombre del tipo
    (`[a-z0-9-]`, p. ej. `modules/buzzer/`).
 2. **`module.json`**: cambiá `type`, `name`, `category`, `pins` (nombres y posiciones) y
-   `props`. Agregá `"model": "model.js"`. Si el firmware lo maneja (un LED, un relé), su
+   `props`. Agregá `"model": "model.ts"`. Si el firmware lo maneja (un LED, un relé), su
    `bridge` (`role: "output"` y el pin).
 3. **`module.svg`**: el dibujo, con las partes que se prenden marcadas `data-si="on"`.
-4. **`model.js`**: `circuito` con sus elementos (empezá por el consumo) y `observar` con
-   sus reglas y su `ui.on`.
+4. **`model.ts`**: `circuito` con sus elementos (empezá por el consumo) y `observar` con
+   su `ui.on` y los avisos que dependen de varias cosas. Los máximos y mínimos de la hoja,
+   en `reglas` del module.json.
 5. **Probalo**: reiniciá el server (o importalo, ver abajo), armá un circuito con una
    fuente regulable sin placa, energizá (▶) y mirá:
    - la píldora "Energizado · N mA" y la ventana Debug → Alimentación (consumo);
@@ -243,22 +258,27 @@ Sin `model` ni flags, el módulo se cablea pero eléctricamente no está (no con
      tensión de cada pin y la corriente de cada uno de tus elementos (`<id>.<nombre>`).
 6. **Variá las condiciones**: tensión baja, alta, al revés, fuente con poco límite. Tiene
    que pasar lo que pasaría en la mesa.
-7. Si es de fábrica, sumalo a los tests: `app/tests/unit/server/sim/motor.test.ts` tiene casos
-   de módulos activos para copiar (comparan con la hoja de datos y exigen Kirchhoff y la
-   energía en todo el circuito).
+7. **Escribí sus pruebas en `tests.json`** (formato en
+   [`../modules/README.md`](../modules/README.md#testsjson-el-módulo-se-prueba-a-sí-mismo)):
+   el caso típico de la hoja, cada límite, lo que hace la placa y cada prop eléctrica. Las
+   corre el importador antes de instalarlo, la tool MCP `probar_modulo` y, para los de
+   fábrica, `app/tests/unit/server/modulosFabricables.test.ts`. Para circuitos más grandes
+   (Kirchhoff y energía en todo el proyecto), `app/tests/unit/server/sim/motor.test.ts` tiene
+   casos para copiar.
 
 ### Importarlo (sin tocar la carpeta `modules/`)
 
 **+ Importar** en el catálogo, `POST /api/modules/import` o la tool MCP `importar_modulo`
 aceptan el módulo con su código desde una carpeta, un zip, una URL a su `module.json`
-(el `model.js` se busca al lado) o un repo de GitHub. Antes de instalarlo, el importador
+(el `model.ts` se busca al lado) o un repo de GitHub. Antes de instalarlo, el importador
 **carga el modelo en el sandbox y arma su circuito** (suelto y accionado, con las props
 por defecto): si no carga, se cuelga, usa un pin que no tiene o devuelve algo inválido,
-se rechaza con el motivo. Máximo 128 KB de código.
+se rechaza con el motivo. Máximo 128 KB de código. Después **corre su banco de pruebas**
+(el `tests.json` y una prueba de humo) con el motor real: si falla, tampoco se instala.
 
 ## Seguridad: por qué se puede importar código de otros
 
-El `model.js` de un módulo importado es código de terceros. No corre en el server: corre
+El `model.ts` de un módulo importado es código de terceros. No corre en el server: corre
 en un sandbox (`app/server/src/sim/sandbox.ts`, contexto `node:vm`) con estas reglas:
 
 - **Sin nada del server adentro**: ni `process`, ni `require`, ni `import()`, ni red, ni

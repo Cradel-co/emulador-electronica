@@ -1,0 +1,17 @@
+[
+  {
+    "nombre": "DATA en alto: transmite y consume ~34 mA a 5 V",
+    "banco": {"VCC": {"fuente": 5}, "GND": "tierra", "DATA": {"fuente": 5}},
+    "espera": {"corrienteMa": {"tx": [32, 35]}, "ui": {"on": true}, "sinAvisos": true}
+  },
+  {
+    "nombre": "DATA en bajo: en reposo casi no consume",
+    "banco": {"VCC": {"fuente": 5}, "GND": "tierra", "DATA": "tierra"},
+    "espera": {"corrienteMa": {"tx": [0, 0.1]}, "ui": {"on": false}}
+  },
+  {
+    "nombre": "con 7 V se daña",
+    "banco": {"VCC": {"fuente": 7}, "GND": "tierra", "DATA": "tierra"},
+    "espera": {"avisos": [{"severidad": "peligro", "contiene": "se daña"}]}
+  }
+]

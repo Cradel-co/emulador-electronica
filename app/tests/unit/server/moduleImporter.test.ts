@@ -351,6 +351,121 @@ module.exports = { circuito(ctx) { ctx.interruptor(ctx.pin('SIG'), ctx.pin('GND'
   });
 });
 
+describe('módulos con sus propias pruebas (tests.json)', () => {
+  // Un zumbador inventado: 5 V, 30 mA (≈167 Ω), con el máximo de su hoja de datos como regla.
+  const MODELO = `module.exports = { circuito(ctx) { ctx.resistencia(ctx.pin('VCC'), ctx.pin('GND'), 167, 'bobina'); } };`;
+  const zumbador = (pruebas: unknown[], extra: Record<string, unknown> = {}) => ({
+    'z/module.json': JSON.stringify({
+      type: 'zumbador-inventado', name: 'Zumbador', category: 'Salidas', width: 40, height: 40, model: 'model.js',
+      pins: [{ name: 'VCC', x: 10, y: 40, kind: 'power' }, { name: 'GND', x: 30, y: 40, kind: 'ground' }],
+      reglas: [{ tipo: 'tensionMax', entre: ['VCC', 'GND'], max: 6, mensaje: 'VCC en {v} V: es de 5 V.' }],
+      ...extra,
+    }),
+    'z/module.svg': SVG_OK,
+    'z/model.js': MODELO,
+    'z/tests.json': JSON.stringify(pruebas),
+  });
+  const caso = (ma: [number, number]) => ({
+    nombre: 'con 5 V toma ~30 mA', banco: { VCC: { fuente: 5 }, GND: 'tierra' }, espera: { corrienteMa: { bobina: ma }, sinAvisos: true },
+  });
+
+  it('si sus pruebas pasan, se instala con su tests.json', async () => {
+    const dir = dirTemporal();
+    const r = await importar({ fuente: 'archivos', archivos: zumbador([caso([29, 31])]) }, new ModuleInstaller(dir));
+    expect(r.errores).toEqual([]);
+    expect(JSON.parse(readFileSync(path.join(dir, 'zumbador-inventado', 'tests.json'), 'utf8'))[0].nombre).toBe('con 5 V toma ~30 mA');
+  });
+
+  it('si una prueba falla, no se instala y dice qué se midió', async () => {
+    const dir = dirTemporal();
+    const r = await importar({ fuente: 'archivos', archivos: zumbador([caso([50, 60])]) }, new ModuleInstaller(dir));
+    expect(r.importados).toEqual([]);
+    expect(r.errores[0]!.mensajes.join(' ')).toMatch(/con 5 V toma ~30 mA" falló: corriente de bobina = 29,9\d* mA, se esperaba entre 50 y 60 mA/);
+    expect(readdirSync(dir)).toEqual([]);
+  });
+
+  it('una regla que nombra un pin que no existe, o un esquemático incompleto, no se instala', async () => {
+    const dir = dirTemporal();
+    const r = await importar({
+      fuente: 'archivos',
+      archivos: zumbador([caso([29, 31])], {
+        reglas: [{ tipo: 'tensionMax', entre: ['VDD', 'GND'], max: 6 }],
+        esquematico: { simbolo: 'Device:Buzzer', pines: { VCC: '1' } },
+      }),
+    }, new ModuleInstaller(dir));
+    expect(r.importados).toEqual([]);
+    const msj = r.errores[0]!.mensajes.join(' ');
+    expect(msj).toMatch(/no tiene el pin "VDD"/);
+    expect(msj).toMatch(/falta el pin "GND"/);
+  });
+
+  it('un tests.json que no cumple el formato se rechaza con el campo', async () => {
+    const r = await importar({ fuente: 'archivos', archivos: zumbador([{ nombre: 'x', banco: { VCC: { fuente: 'cinco' } }, espera: {} }]) }, new ModuleInstaller(dirTemporal()), { soloValidar: true });
+    expect(r.errores[0]!.mensajes.join(' ')).toMatch(/tests\.json: 0\.banco\.VCC/);
+  });
+});
+
+describe('módulos escritos en TypeScript (model.ts)', () => {
+  const MODELO_TS = `import type { ModeloModulo, AvisoModelo } from '@emu/shared';
+const R_CARGA = 167;
+export default {
+  circuito(ctx) {
+    ctx.resistencia(ctx.pin('VCC'), ctx.pin('GND'), R_CARGA as number, 'bobina');
+  },
+  observar(l) {
+    const avisos: AvisoModelo[] = [];
+    const v: number = l.vEntre('VCC', 'GND');
+    if (v > 6) avisos.push({ severidad: 'peligro', mensaje: \`VCC en \${v} V\` });
+    return { ui: { on: v >= 3 }, avisos };
+  },
+} satisfies ModeloModulo;
+`;
+  const modulo = (codigo: string, nombre = 'model.ts') => ({
+    't/module.json': JSON.stringify({
+      type: 'zumbador-ts', name: 'Zumbador TS', category: 'Salidas', width: 40, height: 40, model: nombre,
+      pins: [{ name: 'VCC', x: 10, y: 40, kind: 'power' }, { name: 'GND', x: 30, y: 40, kind: 'ground' }],
+    }),
+    't/module.svg': SVG_OK,
+    [`t/${nombre}`]: codigo,
+  });
+
+  it('instala el model.ts tal cual (sin transpilar) y lo prueba antes', async () => {
+    const dir = dirTemporal();
+    const r = await importar({ fuente: 'archivos', archivos: modulo(MODELO_TS) }, new ModuleInstaller(dir));
+    expect(r.errores).toEqual([]);
+    expect(readFileSync(path.join(dir, 'zumbador-ts', 'model.ts'), 'utf8')).toBe(MODELO_TS);
+    expect(JSON.parse(readFileSync(path.join(dir, 'zumbador-ts', 'module.json'), 'utf8')).model).toBe('model.ts');
+  });
+
+  it('también se importa por URL: el model.ts se busca al lado del module.json', async () => {
+    const f = fetchFalso({
+      'https://x.com/t/module.json': modulo(MODELO_TS)['t/module.json'],
+      'https://x.com/t/module.svg': SVG_OK,
+      'https://x.com/t/model.ts': MODELO_TS,
+    });
+    const { paquetes } = await paquetesDeUrl('https://x.com/t/module.json', {}, f);
+    expect(paquetes[0]!.modelo).toBe(MODELO_TS);
+  });
+
+  it('un model.js de antes sigue andando (los importados viejos)', async () => {
+    const js = `module.exports = { circuito(ctx) { ctx.resistencia(ctx.pin('VCC'), ctx.pin('GND'), 100); } };`;
+    const r = await importar({ fuente: 'archivos', archivos: modulo(js, 'model.js') }, new ModuleInstaller(dirTemporal()), { soloValidar: true });
+    expect(r.errores).toEqual([]);
+  });
+
+  it.each([
+    ['un error de sintaxis, con su línea', 'export default {\n  circuito(ctx) {\n    ctx.resistencia(;\n  },\n};', /model\.ts \(línea 3\)/],
+    ['un import en tiempo de ejecución', `import { algo } from 'fs';\nexport default { circuito() { algo(); } };`, /no puede importar nada en tiempo de ejecución/],
+    ['no exporta circuito', 'export default {};', /no exporta circuito/],
+    ['usa un pin que no tiene', `export default { circuito(ctx: any) { ctx.resistencia(ctx.pin('X'), ctx.pin('GND'), 100); } };`, /no tiene el pin "X"/],
+  ])('rechaza un model.ts con %s, sin instalar nada', async (_, codigo, error) => {
+    const dir = dirTemporal();
+    const r = await importar({ fuente: 'archivos', archivos: modulo(codigo as string) }, new ModuleInstaller(dir));
+    expect(r.importados).toEqual([]);
+    expect(r.errores[0]!.mensajes.join(' ')).toMatch(error as RegExp);
+    expect(readdirSync(dir)).toEqual([]);
+  });
+});
 
 it('cancela una descarga chunked al superar el presupuesto durante la lectura', async () => {
   let cancelado = false;

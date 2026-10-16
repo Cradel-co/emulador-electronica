@@ -7,19 +7,24 @@
 > la idea es que **si se crea o se inventa un módulo nuevo, se pueda implementar acá**, aunque no
 > exista en ningún catálogo ni librería. Tiene que ser robusto pero fácil de implementar.
 >
-> Estado: **parcialmente implementado (2026-10-01)**: chips con lógica en el I2C del Uno, cinco
-> chips reales y cuatro módulos, `ctx.regulador` y `ctx.bateria`, librerías de Arduino. Qué se
-> hizo, en qué se apartó del diseño y qué se aprendió: sección 8. El resto sigue siendo diseño.
+> Estado: **implementado en lo principal (2026-10-02)**: chips con lógica en I2C y SPI del Uno y en
+> ESP32 con MicroPython, seis chips reales, memoria no volátil, `ctx.regulador` y `ctx.bateria`,
+> librerías de Arduino, y las secciones 1 a 4 (`parte`, `esquematico`, `reglas`, `tests.json`) en los
+> 20 módulos de fábrica, con el código de cada módulo en **TypeScript**. **La estructura que quedó de
+> un módulo está al principio de la sección 8.** Qué se hizo, en qué se apartó del diseño y qué se
+> aprendió: sección 8. Lo que sigue pendiente está al final de esa sección.
 
 ## Qué falta hoy
 
-Un módulo (`modules/<tipo>/`) tiene `module.json` (identidad, pines, props), `module.svg`
-(dibujo) y `model.js` (circuito interno con elementos físicos, más `observar()` con los avisos;
-ver [`docs/modulos-y-su-codigo.md`](docs/modulos-y-su-codigo.md)). Le faltan cuatro cosas:
+*(Esto describe el punto de partida. Hoy las cuatro cosas de abajo están hechas: ver la sección 8.)*
+
+Un módulo (`modules/<tipo>/`) tenía `module.json` (identidad, pines, props), `module.svg`
+(dibujo) y un modelo eléctrico (circuito interno con elementos físicos, más `observar()` con los
+avisos; ver [`docs/modulos-y-su-codigo.md`](docs/modulos-y-su-codigo.md)). Le faltaban cuatro cosas:
 
 1. **Esquemático propio**, para que la función "exportar esquemático del proyecto" saque todo
    listo para fabricar (KiCad → PCB → Gerber + BOM). Secciones 1 y 2.
-2. **Reglas declarativas**. Hoy las reglas están mezcladas en `observar()` en JS. Sección 3.
+2. **Reglas declarativas**. Estaban mezcladas en `observar()`. Sección 3.
 3. **Tests propios**, para que el módulo pruebe que se comporta como su hoja de datos. Sección 4.
 4. **Comportamiento más allá de lo eléctrico**: hablar I2C/SPI/UART, medir el entorno, mostrar una
    pantalla o mover un motor, con sus tiempos, consumos y ruido. Sin esto, un sensor o una
@@ -50,7 +55,7 @@ Por eso (ver también la sección 7):
 
   | Eje | Niveles |
   |---|---|
-  | Emulación | `dibujo` → `electrico` (tiene `model.js`) → `funcional` (tiene comportamiento, entorno y salidas si los necesita) → `certificado` (su ejemplo compila, se emula y da lo esperado) |
+  | Emulación | `dibujo` → `electrico` (tiene `model.ts`) → `funcional` (tiene comportamiento, entorno y salidas si los necesita) → `certificado` (su ejemplo compila, se emula y da lo esperado) |
   | Fabricación | `generico` (caja y tira de pines) → `identificado` (tiene `parte`) → `fabricable` (símbolo, huella y BOM reales) |
 
   Aparte, `probado` es una marca: tiene tests propios y pasan. Un módulo puede ser `certificado`
@@ -58,7 +63,7 @@ Por eso (ver también la sección 7):
 
   Se exporta siempre, pero el exportador avisa qué partes son genéricas.
 - **Nada de lenguaje nuevo**: los tests y las reglas usan los nombres que ya existen (pines del
-  module.json, nodos internos y elementos de `model.js`, `severidad`).
+  module.json, nodos internos y elementos de `model.ts`, `severidad`).
 - **La IA lo arma desde la hoja de datos**: `crear_modulo` (MCP) recibe nombre, pines y valores de
   la hoja de datos, y genera la carpeta completa, con tests y reglas sacados de esos mismos valores.
 
@@ -77,7 +82,7 @@ se comporta, pueda crearlo". Son dos formas de describir un módulo, y las dos t
 
 ### Puerta A: el esquemático **es** el modelo
 
-Hoy el diseño tiene el circuito interno dos veces: en `model.js` (para simular) y en
+Hoy el diseño tiene el circuito interno dos veces: en `model.ts` (para simular) y en
 `esquematico.discreto` / `hoja` (para fabricar), con una "validación cruzada" para que no se
 contradigan. Con la puerta A eso desaparece: **una sola fuente de verdad**.
 
@@ -97,7 +102,7 @@ contradigan. Con la puerta A eso desaparece: **una sola fuente de verdad**.
 3. Lo que no reconoce lo dice con nombre y referencia ("U3 'XYZ123': chip desconocido, sin
    comportamiento"; "D5: diodo genérico, faltan parámetros"). El módulo se importa igual, con el
    nivel de soporte que corresponda.
-4. `model.js` queda **solo para agregar** lo que el esquemático no dice: reglas complejas,
+4. `model.ts` queda **solo para agregar** lo que el esquemático no dice: reglas complejas,
    `observar()`, el estado visible. Puede leer los elementos generados por su referencia (`R1`, `U1`).
 
 Detalles a resolver, dichos claro:
@@ -114,7 +119,7 @@ Detalles a resolver, dichos claro:
 
 ### Puerta B: describir el comportamiento sin código, y código solo si hace falta
 
-Quien sabe cómo se comporta un módulo puede no saber escribir un `model.js` con diodos y
+Quien sabe cómo se comporta un módulo puede no saber escribir un `model.ts` con diodos y
 fuentes. Para eso, el lado eléctrico se arma desde **cómo se ven los pines desde afuera**
 (lo que dicen las hojas de datos en "características eléctricas"):
 
@@ -130,7 +135,7 @@ fuentes. Para eso, el lado eléctrico se arma desde **cómo se ven los pines des
 
 La app genera las primitivas: una carga entre VCC y GND según el modo, una salida con su
 resistencia interna, un pull-up, una fuente controlada para la salida analógica. **Un módulo
-común no necesita `model.js`.**
+común no necesita `model.ts`.**
 
 El comportamiento, en tres escalones, del más fácil al más potente:
 
@@ -159,7 +164,7 @@ El comportamiento, en tres escalones, del más fácil al más potente:
 ### Lo que esto cambia en el resto del diseño
 
 - `esquematico.discreto` y la "validación cruzada" (sección 2) se reemplazan por la puerta A.
-- `model.js` deja de ser el centro: es el último recurso, para agregar.
+- `model.ts` deja de ser el centro: es el último recurso, para agregar.
 - Las primitivas `transistor`, `regulador` y `fuenteControlada` (sección 7) dejan de ser opcionales:
   las necesita la traducción del esquemático.
 - El SDK (sección 6) suma el conversor de esquemático y el validador de la tabla de reglas.
@@ -175,7 +180,7 @@ Consecuencias:
 
 | Hoy | Con este diseño | Por qué |
 |---|---|---|
-| Dos formas de dar el modelo eléctrico: flags (`passthrough` + `ohmsProp`, `diode` + `diodeVfDefault`, `switch`, `source`, `electrical`) o `model.js` | **Solo `model.js`** (o ningún modelo). Los flags se borran. De los 11 módulos de fábrica que no son placas, 8 ya tienen `model.js`; `door-sensor-433`, `siren-433` y `remote-433` (inalámbricos) quedan sin modelo eléctrico o con uno nuevo. | Los flags están repartidos en `sim/modelos.ts`, `sim/analisis.ts`, `circuitNetwork.ts`, `circuitEngine.ts`, `diagramOps.ts`, `pinScan.ts`, `web/app.ts` y el depurador. Una sola vía es menos código y un solo lugar para las reglas. |
+| Dos formas de dar el modelo eléctrico: flags (`passthrough` + `ohmsProp`, `diode` + `diodeVfDefault`, `switch`, `source`, `electrical`) o `model.ts` | **Solo `model.ts`** (o ningún modelo). Los flags se borran. De los 11 módulos de fábrica que no son placas, 8 ya tienen `model.ts`; `door-sensor-433`, `siren-433` y `remote-433` (inalámbricos) quedan sin modelo eléctrico o con uno nuevo. | Los flags están repartidos en `sim/modelos.ts`, `sim/analisis.ts`, `circuitNetwork.ts`, `circuitEngine.ts`, `diagramOps.ts`, `pinScan.ts`, `web/app.ts` y el depurador. Una sola vía es menos código y un solo lugar para las reglas. |
 | `bridge` con 5 roles fijos y un solo pin | **Se reemplaza** por el `comportamiento` (sección 5.1) y, para lo simple, por un comportamiento de fábrica reusable (`"comportamiento": "salida-digital"`, `"entrada-digital"`, `"rf-433"`) | El rol y el pin único son la lista cerrada que más frena (sección 7). Lo usan `diagramOps.ts`, `emulator.ts`, `mcp.ts`, `sim/analisis.ts`, el depurador y la web: hay que migrarlos juntos. |
 | `ui` con `on`/`brillo` y `data-si` con 8 estados fijos | `ui` libre y el SVG lee cualquier campo | Sección 7. |
 | Esquema que borra lo que no conoce | Esquema **estricto** con `formato: 2`, y `x-…` para experimentos | Sección 6, corrección 1. |
@@ -199,7 +204,7 @@ Lo único que sí hay que cuidar al romper el formato:
 modules/bme280/
 ├── module.json            # obligatorio; bloques nuevos opcionales (ver abajo)
 ├── module.svg             # dibujo de la simulación (igual que hoy)
-├── model.js               # modelo eléctrico (igual que hoy)
+├── model.ts               # modelo eléctrico (igual que hoy)
 ├── tests.json             # NUEVO: casos de prueba declarativos            (sección 4)
 ├── tests.js               # NUEVO: casos que no entran en el JSON          (sección 4)
 ├── esquematico.kicad_sch  # NUEVO: circuito interno, p. ej. el del fabricante (sección 2)
@@ -290,10 +295,10 @@ proyecto o por instancia al exportar.
 | `fabricacion` | `modulo` o `discreto` (ver arriba). |
 | `hoja` | Un `.kicad_sch` de la carpeta con el circuito interno completo del módulo. |
 | `notas` | Texto que aparece en el esquemático exportado, junto al bloque. |
-| `discreto` | El despiece en componentes reales. `nodos` usa los mismos nombres que `ctx.pin()` y `ctx.nodo()` de `model.js`. |
+| `discreto` | El despiece en componentes reales. `nodos` usa los mismos nombres que `ctx.pin()` y `ctx.nodo()` de `model.ts`. |
 
 **Validación cruzada**: un test automático compara el despiece `discreto` con lo que declara
-`model.js`, para que el esquemático no diga algo distinto de lo que se simula.
+`model.ts`, para que el esquemático no diga algo distinto de lo que se simula.
 
 ### `hoja`: copiar el de referencia en vez de dibujar
 
@@ -355,12 +360,12 @@ la hoja de datos.
 |---|---|
 | `banco` | Qué se conecta a cada pin: `{ "fuente": V, "limiteMa": mA }`, `"tierra"`, `{ "resistencia": Ω }` a tierra, o `"abierto"`. |
 | `props`, `control` | Las props de la instancia y si su control está activo. |
-| `espera.tension` / `espera.corriente` | Rangos `[min, max]` de un pin o de un elemento de `model.js`. Siempre con rango: las piezas reales tienen tolerancia. |
+| `espera.tension` / `espera.corriente` | Rangos `[min, max]` de un pin o de un elemento de `model.ts`. Siempre con rango: las piezas reales tienen tolerancia. |
 | `espera.ui` | Lo que tiene que devolver `observar()` (`on`, `brillo`). |
 | `espera.aviso` / `espera.sinAvisos` | El aviso que tiene que salir (por severidad y texto), o que no salga ninguno. |
 
 Para lo que no entra en el JSON, `tests.js` exporta
-`[{ nombre, async correr(banco) { … } }]` y corre en el mismo sandbox que `model.js`.
+`[{ nombre, async correr(banco) { … } }]` y corre en el mismo sandbox que `model.ts`.
 
 **Dónde corren:**
 - **Al importar**: si un test falla, el módulo no se instala y se dice qué caso falló y con qué valor.
@@ -411,7 +416,7 @@ module.exports = {
   `comportamiento.js` con el helper `invertirMonotona` del SDK.
 - `comportamiento.js` queda para lo que no entra: protocolos con tiempos (WS2812, DHT22, HC-SR04),
   máquinas de estados (GSM con comandos AT, DFPlayer), compresión o cálculos internos.
-- Corre en el mismo sandbox que `model.js`.
+- Corre en el mismo sandbox que `model.ts`.
 - **Dependencia del motor**: hace falta que el emulador del chip exponga sus buses hacia los
   módulos. En el Uno se puede (avr8js tiene `AVRTWI` y `AVRSPI`, sin conectar). En ESP32 con
   esp-emu **no**: no admite dispositivos I2C/SPI propios. Con MicroPython se puede reemplazando el
@@ -487,7 +492,7 @@ para que el exportador las anote en el esquemático ("JP1 cerrado: dirección 0x
 También declara lo que el módulo **trae en la placa** y cambia el circuito del proyecto:
 **pull-ups de I2C** (dos módulos con pull-ups de 4,7 kΩ en paralelo quedan en 2,35 kΩ),
 **adaptadores de nivel**, **regulador propio** (acepta 5 V aunque el chip sea de 3,3 V). Todo
-eso va en `model.js`, y las `reglas` lo controlan.
+eso va en `model.ts`, y las `reglas` lo controlan.
 
 ### 5.7 Código de uso: `ejemplos/` y `drivers`
 
@@ -551,7 +556,7 @@ junta casi todo lo difícil en una placa barata y muy usada:
 | Tres magnitudes | Temperatura, humedad y presión | Un `entorno` con varias magnitudes que dependen entre sí: la presión y la humedad se compensan con la temperatura (`t_fine`). |
 | Dos buses en los mismos pines | I2C o SPI (4 o 3 hilos). Se elige por el nivel de CS al arrancar: si CS se pone en bajo una vez, queda en SPI hasta el próximo reset. | Pines con varias funciones; comportamiento que depende del arranque. |
 | Dirección configurable | 0x77 por defecto, 0x76 con el puente ADDR o SDO a GND | `configuracion` física que cambia el protocolo. |
-| Electrónica en la placa | Regulador a 3,3 V (VIN de 3 a 5 V, salida 3VO de hasta 100 mA), adaptador de nivel en todos los pines, pull-ups de I2C | El `model.js` tiene que conservar la energía y modelar un regulador real. |
+| Electrónica en la placa | Regulador a 3,3 V (VIN de 3 a 5 V, salida 3VO de hasta 100 mA), adaptador de nivel en todos los pines, pull-ups de I2C | El `model.ts` tiene que conservar la energía y modelar un regulador real. |
 | Mapa de registros | ID 0x60 en 0xD0; reset con 0xB6 en 0xE0; ctrl_hum 0xF2, que **solo se aplica después de escribir ctrl_meas 0xF4**; status 0xF3 (`measuring`, `im_update`); config 0xF5; datos 0xF7–0xFE; calibración 0x88–0xA1 y 0xE1–0xE7 | Registros con efectos laterales y reglas de orden. |
 | Escritura I2C por pares | Al escribir, se manda registro + dato, registro + dato (sin autoincremento); al leer sí autoincrementa | Un mapa de registros "genérico" con autoincremento en las dos direcciones lo emula mal. |
 | Lectura en ráfaga con sombra | Los datos 0xF7–0xFE se congelan durante la lectura en ráfaga para que no se mezclen mediciones | Hace falta saber dónde empieza y dónde termina una transacción. |
@@ -564,13 +569,13 @@ junta casi todo lo difícil en una placa barata y muy usada:
 ### Pruebas que se corrieron y qué dieron
 
 **A. Importar un módulo con los bloques y archivos nuevos.** Se armó la carpeta con
-`module.json` (con `parte`, `reglas` y `entorno`), `module.svg`, `model.js`, `tests.json`,
+`module.json` (con `parte`, `reglas` y `entorno`), `module.svg`, `model.ts`, `tests.json`,
 `comportamiento.js` y `ejemplos/esphome.yaml`, y se pasó por `importar()` contra una carpeta
 de destino temporal.
 
 ```
 importados: bme280-adafruit, errores: [], avisos: []
-archivos instalados: model.js, module.json, module.svg
+archivos instalados: model.ts, module.json, module.svg
 bloques nuevos que sobrevivieron: parte=false reglas=false entorno=false
 ```
 
@@ -657,7 +662,7 @@ verificación con ESPHome que pedía la sección "Cómo se verifica" **no es rea
 modules/bme280-adafruit/
 ├── module.json          # pines, props (addr), parte, esquematico, reglas, entorno, tiempos, modos, precision, drivers
 ├── module.svg
-├── model.js             # regulador (ctx.regulador), pull-ups 10 kΩ, adaptador de nivel, consumo según el modo
+├── model.ts             # regulador (ctx.regulador), pull-ups 10 kΩ, adaptador de nivel, consumo según el modo
 ├── chip: "bosch-bme280" # el comportamiento NO va acá: se reusa del chip (ver abajo)
 ├── tests.json
 └── ejemplos/  arduino.ino  micropython.py  esphome.yaml
@@ -680,7 +685,7 @@ Campo por campo, contra el diseño de las secciones 1 a 5:
 | ctrl_hum se aplica al escribir ctrl_meas; reset con 0xB6 | No en JSON | Efectos laterales: `comportamiento.js`. |
 | Valores crudos que dan la magnitud del entorno | No en JSON | Helper `invertirMonotona(f, objetivo)` en el SDK; la fórmula de la hoja va en `comportamiento.js`. |
 | Tiempo de medición según el sobremuestreo | Parcial | `tiempos` tiene que admitir fórmulas o calcularse en `comportamiento.js`; hace falta un reloj de la emulación (no de la PC). |
-| Consumo por modo | Parcial | `modos` tiene que llegar al `model.js` (`ctx.modo`), y el motor tiene que recalcular cuando cambia el modo. |
+| Consumo por modo | Parcial | `modos` tiene que llegar al `model.ts` (`ctx.modo`), y el motor tiene que recalcular cuando cambia el modo. |
 | Temperatura, humedad y presión movibles | Sí (`entorno`) | Hoy `controls` solo tiene `momentary`, `toggle` y `button`: falta un control deslizante. |
 | Precisión y ruido | Sí (`precision`) | El ruido lo aplica la app (con semilla) antes de llamar al comportamiento, no cada módulo a su manera. |
 | Librerías (Adafruit BME280 + Adafruit Unified Sensor + Adafruit BusIO) | Parcial | Sin gestor de librerías de Arduino no compila el ejemplo. `drivers` tiene que listar dependencias, no solo una librería. |
@@ -803,7 +808,7 @@ Lo que tiene que escribir quien inventó el módulo, en orden, sin depender de n
 
 1. **`module.json` con sus pines.** Ya se dibuja (caja generada), se cablea y se exporta
    (caja + tira de pines + "MPN a completar").
-2. **`model.js`**: cuánto consume y cómo se ven sus pines desde afuera (pull-ups, una carga, un
+2. **`model.ts`**: cuánto consume y cómo se ven sus pines desde afuera (pull-ups, una carga, un
    regulador). Ya entra en el cálculo eléctrico y en los avisos.
 3. **`chips/<su-chip>/` desde cero** si tiene lógica: `chip.json` con su `entorno` y sus pines,
    y `comportamiento.js` con eventos de pin (o de un bus conocido, si usa uno). Si el chip lo
@@ -841,7 +846,40 @@ un protocolo propio de un solo cable (pulso de inicio + 8 bits por ancho de puls
 barra de 5 LEDs dibujada con `ui` libre, un `entorno` "nivel" en litros y un consumo que cambia al
 medir. Si eso se puede hacer sin tocar el código de la app, el formato es abierto.
 
-## 8. Implementado y aprendido (2026-10-01)
+## 8. Implementado y aprendido (2026-10-01 y 2026-10-02)
+
+### La estructura de un módulo hoy
+
+```
+modules/<tipo>/
+├── module.json   # obligatorio: identidad, pines, props, simulación, parte, esquematico, reglas
+├── module.svg    # el dibujo (sin él: una caja con su nombre)
+├── model.ts      # su circuito interno, en TypeScript (export default { circuito, observar } satisfies ModeloModulo)
+└── tests.json    # sus pruebas: casos de su hoja de datos, resueltos con el motor eléctrico real
+modules/tsconfig.json   # verifica los tipos de todos los model.ts (strict): npm run typecheck:modulos
+chips/<id>/             # la lógica digital de un chip (comportamiento.js): aparte, la comparten varias placas
+```
+
+| Pieza | Qué es | Obligatoria |
+|---|---|---|
+| `module.json` → pines, props, `bridge`, `chips`, `drivers`… | Qué es y cómo se conecta | Sí (los pines) |
+| `module.json` → `parte` | Qué se compra: fabricante, número de parte (puede depender de las props), hoja de datos, proveedores | No (`generico: true` si no hay número único) |
+| `module.json` → `esquematico` | Símbolo y huella de KiCad, numeración de pines, `conectores`, despiece `discreto` contra los nodos del modelo, `fabricacion` (`modulo` / `discreto` / `externo`), notas | No (la app genera una caja con los pines y una tira de 2,54 mm) |
+| `module.json` → `reglas` | Límites de la hoja de datos: `tensionMax`, `tensionMin`, `corrienteMax`, `potenciaMax`, `conectado` | No |
+| `model.ts` | El circuito interno y lo que muestra: `circuito(ctx)` declara elementos físicos, `observar(l)` lee lo que resolvió el motor | No (sin él, los flags o nada) |
+| `tests.json` | Un banco (fuentes, resistencias, sonda) alrededor del módulo y lo que se espera medir | No, pero sin él no pasa de "simula" |
+
+Nivel de cada módulo (lo calcula el server): `dibujo` → `simula` → `probado` → `fabricable`. Los 20 de
+fábrica tienen que ser `fabricable`.
+
+**Por qué TypeScript.** El código de un módulo es lo que más se copia y se modifica: con tipos, un
+nombre de función mal escrito, un argumento fuera de orden o una lectura sin tipo se ven al escribir.
+Se usan los tipos que ya existían en `@emu/shared` (`ModeloModulo`, `CtxCircuito`, `Lectura`,
+`AvisoModelo`), sin duplicar nada. El server transpila al cargar (`typescript`, solo se quitan los
+tipos: no ejecuta ni resuelve imports) y el sandbox sigue corriendo JavaScript con las mismas
+barreras. Los tipos se verifican con `modules/tsconfig.json`, en el test del catálogo. Los módulos
+importados de antes, con `model.js`, siguen cargando. Los chips siguen en JavaScript.
+
 
 Se tomó la parte de módulos complejos (secciones 5 y 6) y se la llevó a código con chips reales,
 probados contra su hoja de datos y con el firmware que usa la gente. Guía para escribir un chip:
@@ -865,6 +903,10 @@ probados contra su hoja de datos y con el firmware que usa la gente. Guía para 
 | Bus SPI del Uno (`AVRSPI`): CS, DC, modos, orden de bits, `entradas` (RESX); el BME280 también por SPI | `bus/busChips.ts`, `avrSim.ts` |
 | Chip ST7735 y módulo `tft-st7735-128x160` (pantalla a color, imagen RGB565 en el circuito) | `chips/sitronix-st7735/`, `modules/` |
 | Chips en ESP32 con MicroPython: el puente reemplaza `machine.I2C`/`SoftI2C`/`SPI`/`SoftSPI`; cualquier par de pines (`board.buses.matriz`) | `templates/micropythonBridge.ts`, `bus/puenteChips.ts`, `emulator.ts` |
+| Secciones 1 a 4 (2026-10-02): `parte`, `esquematico` (símbolo, huella, `pines`, `conectores`, `discreto`, `notas`), `reglas` declarativas y `tests.json` por módulo, con nivel dibujo → simula → probado → fabricable | `shared/src/fabricacion.ts`, `sim/reglas.ts`, `sim/pruebasModulo.ts` |
+| El código de los módulos en TypeScript: `model.ts` con `export default {...} satisfies ModeloModulo`, transpilado al cargar; tipos verificados en modo estricto | `sim/transpilar.ts`, `sim/sandbox.ts`, `modules/tsconfig.json` (`npm run typecheck:modulos`), `modules/*/model.ts` |
+| Los 20 módulos de fábrica en `fabricable`: número de parte verificado, símbolos y huellas verificados contra las librerías oficiales de KiCad, y su banco de pruebas | `modules/*`, `fixtures/kicad-verificados.txt`, `sim/catalogoModulos.test.ts` |
+| El importador corre el banco de pruebas antes de instalar; MCP `probar_modulo`, `POST /api/modules/:tipo/probar`; el nivel en el panel ("Pieza real") | `moduleImporter.ts`, `mcp.ts`, `web/app.ts` |
 
 Pruebas: de 418 a 610 tests unitarios (los de chips: maestro virtual + firmware real compilado con
 las librerías de verdad), y e2e con Playwright para el panel, la compilación con librerías y la
@@ -917,10 +959,47 @@ pantalla en el circuito.
     avisaba "módulo cableado a un pin que el código no usa". Ahora cuenta el bus SPI y los pines del
     constructor.
 
+### Secciones 1 a 4: en qué se apartó y qué se aprendió (2026-10-02)
+
+- **`simbolo` y `huella` son textos `Biblioteca:Nombre`**, no `{ kicad: ... }`: no hay otra fuente de
+  símbolos que valga la pena, y el formato de KiCad ya dice la librería.
+- **`conectores`** (no estaba en el diseño): un DevKit tiene dos tiras de pines y no hay una huella
+  única en KiCad para el ESP32-S3-DevKitC-1 ni el C6.
+- **`fabricacion: "externo"`** (no estaba): una fuente de laboratorio o un control remoto no van en la
+  placa; van en la BOM, y con un conector si tienen cables.
+- **Banco de pruebas en vez de `{ fuente, tierra }` libres**: los casos solo conectan cosas a los pines
+  del módulo (fuente con límite, resistencia, sonda, tierra). Alcanzó para los 20 módulos: un pull-up
+  es una fuente de 3,3 V con 0,33 mA de límite; un LED a 10 mA es una fuente limitada a 10 mA.
+- **La regla más grave gana**: dos umbrales sobre lo mismo (0,25 W y 0,5 W) no avisan dos veces.
+- **`model.ts` en vez de `model.js`** (pedido del usuario el 2026-10-02): el diseño original hablaba de
+  "código JS opcional". El `module.json` acepta `.ts` (y `.js` solo para los importados de antes).
+
+Lo que se aprendió:
+
+1. **Verificar contra la fuente atrapa errores reales.** La huella del interruptor deslizante que
+   "todo el mundo usa" (`SW_Slide_1P2T_CK_OS102011MS2Q`) ya no existe en KiCad: se llama
+   `SW_Slide_SPDT_Straight_CK_OS102011MS2Q`. Por eso hay una lista verificada y un test.
+2. **La numeración de pines sale del símbolo.** La bobina del relé SRD es 2-5 (no 1-2), el S8050 es
+   E-B-C, el cátodo del LED es el 1. Las dos tiras del ESP32-C3-DevKitM-1 numeran en sentidos
+   opuestos (J3 va de abajo hacia arriba): GPIO20/21 caen en RX/TX del símbolo, como en la placa.
+3. **Los módulos genéricos no tienen MPN.** ZS-042, GY-521, el relé de un canal: `generico: true` es
+   lo honesto. Un MPN inventado es peor que ninguno.
+4. **Tipar el código de los módulos encontró errores de verdad.** Al pasar los 13 `model.js` a
+   TypeScript estricto, `const avisos = []` falló en cinco módulos (se ensancha y no es un
+   `AvisoModelo`), y al verificar los ejemplos de la documentación con el mismo compilador, dos no
+   compilaban (un esqueleto que devolvía variables sin declarar, y un contador que sumaba un
+   `unknown`). Los ejemplos de la guía se verifican igual que el código.
+5. **Las pruebas con valores físicos explican el módulo.** "A 5 V le entran 6,2 mA a la CR2032" o
+   "los pull-ups del GY-521 van a 3,3 V aunque VCC sea 5 V" son lo que una persona necesita saber
+   del módulo, y ahora están escritos y verificados en su carpeta.
+
 ### Lo que sigue pendiente de este documento
 
-- Secciones 1 a 4: `parte`, `esquematico` (exportar), `reglas` declarativas y `tests.json` por
-  módulo. Los chips de esta sección tienen sus tests en `app/server/src/bus/`, no en su carpeta.
+- El exportador del proyecto (KiCad + BOM, después SVG/PDF y SPICE): los módulos ya tienen todo lo
+  que necesita (`esquematicoEfectivo` en `sim/pruebasModulo.ts` dice cómo sale cada uno).
+- Reglas estáticas de ERC entre módulos (`nivelLogico`, salida contra salida): hoy solo `conectado`.
+- Las pruebas de la lógica de un chip siguen en `app/server/src/bus/`, no en el `tests.json` del módulo
+  (que es eléctrico). Un `tests.json` con secuencias del maestro virtual sería el paso siguiente.
 - Importar chips (hoy los chips solo vienen de fábrica, en `chips/`) y la corrección 1 del importador.
 - Chips en ESP32 con Arduino o ESP-IDF (esp-emu no los acepta; ESPHome se va a quitar del proyecto).
   En MicroPython ya andan; falta que el tiempo de cada transacción sea el del bus real.
@@ -936,11 +1015,11 @@ Cada paso es opcional y sube un nivel; se puede parar en cualquiera.
    Si el chip ya existe en `chips/` (por ejemplo `bosch-bme280`), el módulo solo dice `"chip"` y
    mapea sus pines: el comportamiento viene hecho.
    Con solo esto ya se dibuja, se cablea y se exporta como caja genérica.
-2. **Eléctrico**: `model.js` con el consumo y el circuito de entrada de la hoja de datos, y sus `reglas`.
+2. **Eléctrico**: `model.ts` con el consumo y el circuito de entrada de la hoja de datos, y sus `reglas`.
 3. **Funcional** (si el módulo habla o mide algo): `entorno` y `salidas`; después `registros.json`,
    o `comportamiento.js` si no alcanza; `tiempos`, `modos` y `precision` de la hoja de datos.
 4. **Probado**: `tests.json` con los valores de la hoja de datos; `probar_modulo` en verde. También
-   comprueba que el despiece coincida con `model.js` y que el símbolo tenga todos los pines.
+   comprueba que el despiece coincida con `model.ts` y que el símbolo tenga todos los pines.
 5. **Certificado**: `drivers` y `ejemplos/`; `certificar_modulo` compila el ejemplo, lo emula y
    compara lo que imprime con el `entorno`.
 6. **Fabricable**: `parte` y `esquematico` (o la `hoja` de referencia del fabricante), `mecanica`.
@@ -972,7 +1051,7 @@ como una dibujada a mano. Las hojas de cada módulo sí quedan iguales al origin
 | BOM `.csv` (formato JLCPCB/PCBWay) | Comprar o mandar a ensamblar. Sale de `parte` y `discreto[].mpn`. |
 | `.json` | Que lo lea una IA: lo mismo, más las tensiones y corrientes calculadas por el motor. |
 | `.svg` / `.pdf` | Imprimir o adjuntar, con los símbolos `base`. |
-| `.cir` (SPICE) | Correrlo en LTspice o ngspice. Sale de los `model.js`. |
+| `.cir` (SPICE) | Correrlo en LTspice o ngspice. Sale de los `model.ts`. |
 
 ## Archivos a tocar
 
@@ -984,7 +1063,7 @@ Secciones 1 a 4 (esquemático, reglas, tests):
   `sim/sandbox.ts`; los helpers de `sim/comparacion.test.ts` muestran cómo armar un proyecto sin placa).
 - `app/server/src/moduleImporter.ts`: aceptar los archivos nuevos y correr los tests al importar.
 - `app/server/src/mcp.ts`: `probar_modulo`, `crear_modulo`.
-- `modules/*`: sumar los bloques a los 15 módulos de fábrica y migrar las reglas simples de `model.js`.
+- `modules/*`: sumar los bloques a los 15 módulos de fábrica y migrar las reglas simples de `model.ts`.
 - Docs: `modules/README.md` y `docs/modulos-y-su-codigo.md`.
 
 Correcciones de la prueba del BME280 (sección 6):
@@ -1020,7 +1099,7 @@ Sección 5 (módulos complejos):
 1. **Tests declarativos** + `probar_modulo`. Da valor enseguida y protege todo lo que viene.
 2. **Reglas declarativas**: primero las dinámicas, después las de ERC.
 3. **`parte` + símbolo y huella** en los 15 módulos de fábrica. El circuito interno llega con la
-   puerta A (paso 5), que reemplaza la validación cruzada contra `model.js`.
+   puerta A (paso 5), que reemplaza la validación cruzada contra `model.ts`.
 4. **Exportador**: KiCad + BOM primero, después JSON, SVG/PDF y SPICE.
 5. **Las dos puertas**: puerta B primero (`pines` con su lado eléctrico + `comportamiento.json`),
    porque no depende de KiCad y cubre la mayoría de los módulos simples; después puerta A
@@ -1035,7 +1114,7 @@ Sección 5 (módulos complejos):
 ## Cómo se verifica
 
 - `npx vitest run`: los `tests.json` de los 15 módulos pasan.
-- Romper a propósito un `model.js` (bobina de 7 Ω en vez de 70 Ω): su test falla y muestra el valor medido.
+- Romper a propósito un `model.ts` (bobina de 7 Ω en vez de 70 Ω): su test falla y muestra el valor medido.
 - Importar un módulo con un test que falla: el importador lo rechaza y dice qué caso falló.
 - `probar_modulo relay` por MCP: informe caso por caso.
 - Exportador: el `.kicad_sch` abre en KiCad 8+ con símbolos y huellas resueltos, el ERC de KiCad
@@ -1055,6 +1134,6 @@ Sección 5 (módulos complejos):
   cable, `ui` libre, `entorno` propio) se implementa e importa **sin cambiar código de la app**, y
   un sketch del Uno lo lee con el driver de su carpeta `ejemplos/`.
 - Puerta A: el `.kicad_sch` del relé de fábrica (R, transistor, diodo, bobina) importado sin
-  `model.js` da las mismas corrientes que el `model.js` de hoy dentro del 5 %.
+  `model.ts` da las mismas corrientes que el `model.ts` de hoy dentro del 5 %.
 - Puerta B: un PIR descrito solo con `pines` + `comportamiento.json` (sin código) prende su
   salida al mover el control de movimiento, la mantiene `retardo_ms` y consume lo declarado.

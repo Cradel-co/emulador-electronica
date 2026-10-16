@@ -1,0 +1,22 @@
+[
+  {
+    "nombre": "con 5 V e IN en 3,3 V: la bobina (70 Ω) toma ~70 mA y pega",
+    "banco": {"VCC": {"fuente": 5}, "GND": "tierra", "IN": {"fuente": 3.3}},
+    "espera": {"corrienteMa": {"bobina": [65, 72]}, "ui": {"on": true}, "sinAvisos": true}
+  },
+  {
+    "nombre": "IN en 0: el transistor no conduce y no pega",
+    "banco": {"VCC": {"fuente": 5}, "GND": "tierra", "IN": "tierra"},
+    "espera": {"corrienteMa": {"bobina": [0, 0.1]}, "ui": {"on": false}, "sinAvisos": true}
+  },
+  {
+    "nombre": "con 3 V en VCC no alcanza para cerrar el contacto",
+    "banco": {"VCC": {"fuente": 3}, "GND": "tierra", "IN": {"fuente": 3.3}},
+    "espera": {"ui": {"on": false}, "avisos": [{"severidad": "advertencia", "contiene": "no alcanza"}]}
+  },
+  {
+    "nombre": "con 9 V la bobina se recalienta",
+    "banco": {"VCC": {"fuente": 9}, "GND": "tierra", "IN": {"fuente": 3.3}},
+    "espera": {"avisos": [{"severidad": "peligro", "contiene": "se recalienta"}]}
+  }
+]

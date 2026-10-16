@@ -1,0 +1,23 @@
+[
+  {
+    "nombre": "rojo a 10 mA (fuente limitada): cae ~1,9 V y prende a media intensidad",
+    "props": {"color": "red"},
+    "banco": {"IN": {"fuente": 5, "limiteMa": 10}, "GND": "tierra"},
+    "espera": {
+      "corrienteMa": {"led": [9.9, 10.1]},
+      "tension": {"IN:GND": [1.8, 2.0]},
+      "ui": {"on": true, "brillo": [0.45, 0.55]}
+    }
+  },
+  {
+    "nombre": "azul a 20 mA: cae ~3 V (su Vf de hoja de datos)",
+    "props": {"color": "blue"},
+    "banco": {"IN": {"fuente": 5, "limiteMa": 20}, "GND": "tierra"},
+    "espera": {"tension": {"IN:GND": [2.9, 3.1]}, "ui": {"on": true}}
+  },
+  {
+    "nombre": "al revés con 4,8 V: no prende y avisa que está al límite",
+    "banco": {"IN": "tierra", "GND": {"fuente": 4.8}},
+    "espera": {"ui": {"on": false}, "avisos": [{"severidad": "advertencia", "contiene": "al límite"}]}
+  }
+]

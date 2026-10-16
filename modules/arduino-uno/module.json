@@ -501,5 +501,53 @@
       "Periféricos emulados: GPIO, Serial (USART0), timers 0/1/2 (millis, delay, PWM), ADC ideal de 10 bits con tensiones DC del circuito y EEPROM. El ADC rechaza entradas o referencias desconocidas; no modela ruido ni adquisición analógica.",
       "I2C/SPI funcionales hacia chips del catálogo: no equivalen a un bus eléctrico completo por flancos. El reloj de CPU y el circuito externo aún no comparten co-simulación analógica temporal."
     ]
+  },
+  "parte": {
+    "fabricante": "Arduino",
+    "mpn": "A000066",
+    "descripcion": "Arduino Uno Rev3 (ATmega328P)",
+    "datasheet": "https://docs.arduino.cc/resources/datasheets/A000066-datasheet.pdf",
+    "proveedores": [{"nombre": "Arduino Store", "sku": "A000066", "url": "https://store.arduino.cc/products/arduino-uno-rev3"}]
+  },
+  "esquematico": {
+    "referencia": "A",
+    "valor": "Arduino Uno R3",
+    "simbolo": "MCU_Module:Arduino_UNO_R3",
+    "huella": "Module:Arduino_UNO_R3",
+    "pines": {
+      "IOREF": "2",
+      "RESET": "3",
+      "3V3": "4",
+      "5V": "5",
+      "GND_2": "6",
+      "GND_3": "7",
+      "VIN": "8",
+      "A0": "9",
+      "A1": "10",
+      "A2": "11",
+      "A3": "12",
+      "A4": "13",
+      "A5": "14",
+      "D0": "15",
+      "D1": "16",
+      "D2": "17",
+      "D3": "18",
+      "D4": "19",
+      "D5": "20",
+      "D6": "21",
+      "D7": "22",
+      "D8": "23",
+      "D9": "24",
+      "D10": "25",
+      "D11": "26",
+      "D12": "27",
+      "D13": "28",
+      "GND": "29",
+      "AREF": "30",
+      "SDA": "31",
+      "SCL": "32"
+    },
+    "fabricacion": "modulo",
+    "notas": ["Se exporta como un shield: la placa propia va encima del Uno."]
   }
 }

@@ -40,5 +40,15 @@
     "pull": "up"
   },
   "svg": "module.svg",
-  "model": "model.js"
+  "model": "model.ts",
+  "parte": {"fabricante": "C&K", "mpn": "OS102011MS2QN1", "descripcion": "Llave deslizante de un polo, dos posiciones"},
+  "esquematico": {
+    "referencia": "SW",
+    "valor": "{{props.label}}",
+    "simbolo": "Switch:SW_SPST",
+    "huella": "Button_Switch_THT:SW_Slide_SPDT_Straight_CK_OS102011MS2Q",
+    "pines": {"OUT": "2", "GND": "1"},
+    "fabricacion": "discreto",
+    "notas": ["Se usa una sola de las dos posiciones: el común (2) y una de las puntas (1)."]
+  }
 }

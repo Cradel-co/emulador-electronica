@@ -6,7 +6,9 @@
 //    LIR2032 recargable, pero viene con una CR2032 que NO lo es);
 //  - consumo: DS3231 ~200 µA con el I2C activo (hoja: I_CCA, 200 µA a 3,63 V; 300 µA a 5,5 V)
 //    + AT24C32 en reposo (unos µA).
-module.exports = {
+import type { AvisoModelo, ModeloModulo } from '@emu/shared';
+
+export default {
   circuito(ctx) {
     const vcc = ctx.pin('VCC'), gnd = ctx.pin('GND');
     ctx.resistencia(vcc, gnd, 5 / 0.0003, 'chips');
@@ -22,9 +24,8 @@ module.exports = {
   },
   observar(l) {
     const vcc = l.vEntre('VCC', 'GND');
-    const avisos = [];
-    if (vcc > 5.5) avisos.push({ severidad: 'peligro', mensaje: `VCC en ${vcc.toFixed(1).replace('.', ',')} V: el DS3231 aguanta hasta 5,5 V.` });
-    else if (vcc > 0.5 && vcc < 2.3) avisos.push({ severidad: 'advertencia', mensaje: `VCC en ${vcc.toFixed(2).replace('.', ',')} V: el DS3231 necesita al menos 2,3 V; queda andando con la pila.` });
+    const avisos: AvisoModelo[] = [];
+    // Los límites de VCC (2,3 a 5,5 V) están en las `reglas` del module.json.
     if (l.props.pila !== 'ninguna') {
       const carga = l.i('pila'); // positiva: entra por el + y la atraviesa (la está cargando)
       if (l.props.pila === 'CR2032' && carga > 10e-6) {
@@ -33,4 +34,4 @@ module.exports = {
     }
     return { ui: { on: vcc >= 2.3 && vcc <= 5.5 }, avisos };
   },
-};
+} satisfies ModeloModulo;

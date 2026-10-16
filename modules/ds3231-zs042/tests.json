@@ -1,0 +1,26 @@
+[
+  {
+    "nombre": "a 5 V con CR2032: el circuito de carga le mete ~6 mA a una pila que no es recargable (peligro)",
+    "props": {"pila": "CR2032"},
+    "banco": {"VCC": {"fuente": 5}, "GND": "tierra"},
+    "espera": {"corrienteMa": {"pila": [5, 7.5]}, "avisos": [{"severidad": "peligro", "contiene": "no es recargable"}]}
+  },
+  {
+    "nombre": "a 3,3 V con CR2032: el diodo no deja pasar casi nada, sin avisos",
+    "props": {"pila": "CR2032"},
+    "banco": {"VCC": {"fuente": 3.3}, "GND": "tierra"},
+    "espera": {"corrienteMa": {"pila": [0, 0.01]}, "ui": {"on": true}, "sinAvisos": true}
+  },
+  {
+    "nombre": "a 5 V con LIR2032 (recargable): la carga es lo esperado",
+    "props": {"pila": "LIR2032"},
+    "banco": {"VCC": {"fuente": 5}, "GND": "tierra"},
+    "espera": {"corrienteMa": {"pila": [2.5, 5]}, "sinAvisos": true}
+  },
+  {
+    "nombre": "los pull-ups de 4,7 kΩ van a VCC: SDA a GND toma ~1,06 mA a 5 V",
+    "props": {"pila": "ninguna"},
+    "banco": {"VCC": {"fuente": 5}, "GND": "tierra", "SDA": "tierra"},
+    "espera": {"corrienteMa": {"pullupSDA": [1.04, 1.08]}}
+  }
+]

@@ -1,0 +1,27 @@
+[
+  {
+    "nombre": "con 5 V en VIN: 3VO en 3,3 V y el sensor toma ~0,7 mA",
+    "banco": {"VIN": {"fuente": 5}, "GND": "tierra"},
+    "espera": {
+      "tension": {"3VO:GND": [3.28, 3.32]},
+      "corrienteMa": {"bme280": [0.65, 0.75]},
+      "ui": {"on": true},
+      "sinAvisos": true
+    }
+  },
+  {
+    "nombre": "con 3,3 V en VIN el regulador queda en caída pero el sensor anda",
+    "banco": {"VIN": {"fuente": 3.3}, "GND": "tierra"},
+    "espera": {"ui": {"on": true}, "avisos": [{"severidad": "advertencia", "contiene": "en caída"}]}
+  },
+  {
+    "nombre": "los pull-ups de afuera (R7/R8, 10 kΩ) van a VIN: SCK a GND toma 0,5 mA de 5 V",
+    "banco": {"VIN": {"fuente": 5}, "GND": "tierra", "SCK": "tierra"},
+    "espera": {"corrienteMa": {"r7": [0.49, 0.51]}}
+  },
+  {
+    "nombre": "con 7 V en VIN: peligro",
+    "banco": {"VIN": {"fuente": 7}, "GND": "tierra"},
+    "espera": {"avisos": [{"severidad": "peligro", "contiene": "MIC5225"}]}
+  }
+]

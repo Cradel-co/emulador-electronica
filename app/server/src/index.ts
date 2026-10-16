@@ -48,6 +48,7 @@ import { buscarPlaca, listarPlacas, nivelDeclarado, validarPlaca, type Placa } f
 import { esquemaJsonPlaca } from './boardSchema.js';
 import { certificar, leerCertificacion, type ReporteCertificacion } from './certificacion.js';
 import { invalidarCatalogo, loadCatalog, type ModuloCatalogo } from './catalog.js';
+import { esquematicoEfectivo, nivelModulo, probarModulo } from './sim/pruebasModulo.js';
 import { ImportError, ModuleInstaller, importar, type OpcionesImportacion, type SolicitudImportacion } from './moduleImporter.js';
 import { crearServidorMcp, type McpContexto } from './mcp.js';
 import { scanPins, direccionesDeCodigo } from './pinScan.js';
@@ -401,6 +402,42 @@ async function registerRoutes(app: FastifyInstance, fastifyStatic: typeof import
     certificarEnFondo,
     certificando,
     fallar: fail,
+  });
+
+  // Certificación: compila y emula la plantilla de la placa, y prueba botón → LED.
+  app.post('/api/boards/:id/certify', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const body = (req.body ?? {}) as { language?: string };
+    try {
+      const placa = await buscarPlaca(id);
+      if (!placa) {
+        reply.code(404).send({ error: `No hay una placa "${id}" en el catálogo` });
+        return;
+      }
+      const lenguaje = body.language ? (LanguageSchema.parse(body.language) as Language) : undefined;
+      const job = certificarEnFondo(placa, lenguaje);
+      reply.code(202).send({ started: true, estado: job });
+    } catch (err) {
+      fail(reply, err);
+    }
+  });
+
+  app.get('/api/boards/:id/certification', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const enCurso = certificando.get(id);
+    reply.send({ enCurso: Boolean(enCurso), ultimo: await leerCertificacion(id) });
+  });
+
+  app.get('/api/modules', async () => ({ modules: (await loadCatalog()).map((m) => ({ ...m, nivel: nivelModulo(m) })) }));
+
+  // El banco de pruebas de un módulo (su tests.json, sus reglas y su esquemático), con el motor real.
+  app.post('/api/modules/:type/probar', async (req, reply) => {
+    const { type } = req.params as { type: string };
+    const cat = await loadCatalog();
+    const def = cat.find((m) => m.type === type);
+    if (!def) return reply.code(404).send({ error: `No hay un módulo "${type}" en el catálogo.` });
+    const informe = await probarModulo(def, (t) => cat.find((m) => m.type === t));
+    reply.send({ ...informe, esquematico: esquematicoEfectivo(def) });
   });
 
   registrarRutasChips(app, depsChips, fail);
