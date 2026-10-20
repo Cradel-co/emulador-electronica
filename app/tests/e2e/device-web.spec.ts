@@ -48,10 +48,19 @@ test('el planeta abre solo el circuito compilado y permite compartir sus control
   const before = await module.getAttribute('transform');
   await module.dragTo(preview.locator('.modulo[data-id="led1"]'));
   expect(await module.getAttribute('transform')).toBe(before);
+  // La ejecución puede detenerse mientras el mouse sigue abajo (p. ej. al cortar VCC).
+  // El polling del visor debe liberar el pulsador antes de recibir mouseup.
+  await button.hover();
+  await preview.mouse.down();
+  await expect.poll(() => changes.length).toBe(6);
   active = false;
   await expect(preview.getByRole('status')).toContainText('terminó o cambió');
+  await expect.poll(() => changes.length).toBe(7);
+  expect(changes[6]).toEqual({ id: 'btn1', cerrado: false });
+  expect(closed).toBe(false);
+  await preview.mouse.up();
   await button.click();
-  expect(changes).toHaveLength(5);
+  expect(changes).toHaveLength(7);
   await preview.close();
 });
 

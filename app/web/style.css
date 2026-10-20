@@ -818,6 +818,11 @@ body.depuracion-parada .punto-estado { background: var(--azul); box-shadow: 0 0 
 /* Proyecto sin placa: quitar/agregar la placa y la fuente apagada en Debug. */
 .modo-fuente.apagada { background: rgba(134, 138, 145, .18); color: var(--tenue); }
 
+.insp-nivel { display: flex; gap: 8px; align-items: baseline; font-size: 12.5px; margin: 0; }
+.insp-nivel .nivel-tag { text-transform: uppercase; font-size: 10.5px; letter-spacing: .04em; padding: 1px 6px; border-radius: 4px; background: rgba(140, 140, 160, .18); }
+.insp-nivel[data-nivel="fabricable"] .nivel-tag { background: rgba(77, 200, 122, .18); color: #7ee2a2; }
+.insp-nivel[data-nivel="probado"] .nivel-tag { background: rgba(53, 116, 240, .18); color: #9cbcff; }
+.insp-nivel[data-nivel="simula"] .nivel-tag { background: rgba(242, 197, 92, .14); color: var(--amarillo); }
 /* Capturas de la webcam y fotografía confirmada por el servidor. */
 .camara-panel { display: grid; gap: 10px; }
 .camara-panel video, .camara-panel img { width: 100%; max-height: 240px; object-fit: contain; background: #152231; border-radius: 6px; }
@@ -913,3 +918,63 @@ body.preview-page { display: block; overflow: hidden; margin: 0; }
 
 body.aprendiendo #pantalla-aprender { display: block; min-width: 0; flex: 1; padding: 24px; overflow: auto; background: var(--isla); border-radius: 12px; }
 body:not(.aprendiendo) #aprendizaje-nav { display: none; }
+.conflicto-guardado {
+  position: fixed; bottom: 2rem; left: 50%; transform: translateX(-50%);
+  z-index: 1000; width: min(48rem, calc(100vw - 2rem)); max-height: 60vh; overflow: auto;
+  background: var(--panel, #20242b); color: var(--text, #eee); border: 2px solid #d69c35;
+  border-radius: .5rem; padding: 1rem; box-shadow: 0 .5rem 2rem #0008;
+}
+.conflicto-guardado h2 { font-size: 1rem; margin: 0 0 .5rem; }
+.conflicto-guardado menu { display: flex; flex-wrap: wrap; gap: .5rem; padding: 0; }
+.conflicto-versiones { display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); gap: 1rem; }
+.conflicto-versiones pre { max-height: 15rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+#dlg-informe-prototipo { width: min(64rem, calc(100vw - 3rem)); max-height: 85vh; overflow: auto; }
+.informe-prototipo { display: flex; flex-direction: column; gap: .6rem; }
+.informe-prototipo h2, .informe-prototipo p { margin: 0; }
+.informe-tabla { overflow-x: auto; }
+.informe-tabla table { border-collapse: collapse; width: 100%; }
+.informe-tabla th, .informe-tabla td { padding: .45rem; border: 1px solid var(--borde); text-align: left; white-space: nowrap; }
+.informe-prototipo pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 30vh; overflow: auto; }
+.informe-acciones { display: flex; flex-wrap: wrap; gap: .5rem; justify-content: flex-end; }
+
+/* Historial de instantáneas separado de los canales digitales de Debug. */
+#debug { grid-template-rows: auto minmax(0, 1fr) auto; overflow-y: auto; }
+#monitor-detalles > summary { padding: 8px 12px; cursor: pointer; }
+.monitor-panel { max-height: 310px; overflow: auto; padding: 6px 10px; border-bottom: 1px solid var(--borde); }
+.monitor-panel header { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.monitor-panel h4, .monitor-serie { margin: 0; }
+.monitor-panel p, .monitor-panel small { font-size: 11px; opacity: .8; }
+.monitor-panel p { margin: 5px 0; }
+.monitor-serie { display: inline-block; vertical-align: top; width: min(100%, 550px); padding: 8px 10px 8px 0; }
+.monitor-serie figcaption { font-size: 12px; }
+.monitor-serie svg { display: block; width: 100%; max-height: 80px; }
+.monitor-serie text { fill: currentColor; font-size: 10px; }
+/* Al desplegar Monitoreo usa el espacio de Debug; al cerrarlo vuelve la vista del depurador. */
+#debug:has(#monitor-detalles[open]) { grid-template-rows: auto minmax(0, 1fr); }
+#debug:has(#monitor-detalles[open]) .dbg-cuerpo { display: none; }
+#dbg-monitoreo { min-height: 0; overflow: auto; }
+.monitor-panel > small { display: block; }
+.microfono-entrada { margin: 8px 0; padding: 8px 0; border-bottom: 1px solid var(--borde); }
+.microfono-controles { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 6px 0; }
+.microfono-controles input { width: 85px; }
+.microfono-panel figure { margin: 8px 0; max-width: 550px; }
+.microfono-panel figcaption, .microfono-panel small { font-size: 11px; }
+.microfono-panel canvas { display: block; width: 100%; height: 100px; background: var(--fondo, #17191b); }
+.microfono-panel [role="alert"] { color: var(--rojo, #ff8c8c); }
+
+#dlg-analisis-fisicos { width: min(900px, calc(100vw - 32px)); max-height: 90vh; overflow: auto; }
+.analisis-fisicos { padding: 16px; }
+.analisis-controles { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; margin-bottom: 16px; }
+.analisis-controles label { display: flex; flex-direction: column; gap: 4px; }
+.analisis-controles input { width: 150px; }
+.analisis-fisicos svg { display: block; width: 100%; max-height: 350px; margin: 12px 0; }
+.analisis-fisicos svg text { fill: currentColor; font-size: 12px; }
+.analisis-fisicos > button { margin: 8px 8px 0 0; }
+
+.modelo-termico { margin: 12px 0; padding: 12px; border: 1px solid var(--borde); }
+.termica-campos { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-top: 12px; }
+.termica-campos input { width: 100%; box-sizing: border-box; }
+
+.bode-ac figure { margin: 1rem 0; }
+.bode-ac figcaption { font-weight: 600; }

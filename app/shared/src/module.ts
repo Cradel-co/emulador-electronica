@@ -3,6 +3,7 @@ import { SalidaSonidoSchema } from './audio.js';
 import { CameraDescriptorSchema } from './camera.js';
 import { BoardDescriptorSchema } from './board.js';
 import { UsoChipSchema } from './chip.js';
+import { EsquematicoSchema, ParteSchema, ReglaSchema } from './fabricacion.js';
 
 export const BRIDGE_ROLES = ['input', 'output', 'rf-rx', 'rf-tx', 'air'] as const;
 export type BridgeRole = (typeof BRIDGE_ROLES)[number];
@@ -150,12 +151,12 @@ export const ModuleDefSchema = z.object({
     })
     .optional(),
   /**
-   * Punto de entrada al código del módulo: un archivo JS de la carpeta del módulo que exporta
-   * `{ circuito(ctx), observar(lectura) }` (ver modelo.ts y docs/motor-electrico.md). Describe
+   * Punto de entrada al código del módulo: un archivo TypeScript (`model.ts`) de la carpeta del módulo que exporta
+   * `{ circuito(ctx), observar(lectura) }` (tipo `ModeloModulo`) (ver modelo.ts y docs/motor-electrico.md). Describe
    * el módulo con elementos físicos que resuelve el motor (ngspice). Sin `model`, el motor arma
    * uno a partir de los flags (`passthrough`, `diode`, `switch`, `source`).
    */
-  model: z.string().regex(/^[\w.-]+\.(?:js|ts)$/, 'un archivo .js de la carpeta del módulo').optional(),
+  model: z.string().regex(/^[\w.-]+\.(ts|js)$/, 'un archivo .ts de la carpeta del módulo (.js solo para los importados de antes)').optional(),
   /**
    * Chips con lógica digital que lleva la placa (`chips/<id>/`): sensor, reloj, pantalla, EEPROM...
    * Una placa puede tener varios en el mismo bus (la ZS-042: un DS3231 y una AT24C32). `pines`
@@ -179,6 +180,12 @@ export const ModuleDefSchema = z.object({
     .object({ arduino: z.object({ librerias: z.array(z.string().regex(LIBRERIA_ARDUINO_RE, 'nombre@versión del gestor de librerías')).max(20) }).strict().optional() })
     .strict()
     .optional(),
+  /** Qué es en la vida real (fabricante, número de parte, hoja de datos, dónde comprarlo): para la BOM. */
+  parte: ParteSchema.optional(),
+  /** Símbolo, huella, numeración de pines y despiece: para exportar el esquemático y fabricar. */
+  esquematico: EsquematicoSchema.optional(),
+  /** Límites de la hoja de datos (tensión, corriente, potencia, pines que tienen que ir cableados). */
+  reglas: z.array(ReglaSchema).max(30).default([]),
 });
 
 export type ModuleDef = z.infer<typeof ModuleDefSchema>;

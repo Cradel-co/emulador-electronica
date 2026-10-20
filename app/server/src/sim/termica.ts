@@ -5,29 +5,8 @@
  * no propiedades inferidas del nombre del componente ni de theta-JA genérica.
  * Referencias y dominio: docs/ANALISIS-TEMPORAL-Y-EVIDENCIA.md.
  */
-export interface ModeloTermicoRc {
-  id: string;
-  fuente: string;
-  condiciones: string;
-  resistenciaKPorW: number;
-  capacidadJPorK: number;
-  ambienteC: number;
-  /** Temperatura en el instante de la primera muestra, no antes. */
-  inicialC: number;
-  rangoDeclaradoC: [number, number];
-}
-
-export interface ResultadoTermicoRc {
-  perfil: 'termico-rc-unidireccional';
-  caracterizadoEnLaboratorio: false;
-  modelo: ModeloTermicoRc;
-  inicioS: number;
-  temperaturaC: number[];
-  energiaDisipadaJ: number;
-  energiaAlmacenadaDeltaJ: number;
-  /** Integral del flujo (T−Ta)/R; negativa si el ambiente aporta calor. */
-  energiaEvacuadaJ: number;
-}
+import type { ModeloTermicoRc, ResultadoTermicoRc } from '@emu/shared';
+export type { ModeloTermicoRc, ResultadoTermicoRc } from '@emu/shared';
 
 export function calcularTermicaRc(
   modelo: ModeloTermicoRc, tiempoS: readonly number[], potenciaDisipadaW: readonly number[],

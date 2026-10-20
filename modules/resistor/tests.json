@@ -1,0 +1,20 @@
+[
+  {
+    "nombre": "220 Ω con 5 V: 22,7 mA y 114 mW (Ley de Ohm), sin avisos",
+    "props": {"ohms": 220},
+    "banco": {"1": {"fuente": 5}, "2": "tierra"},
+    "espera": {"corrienteMa": {"r": [22.6, 22.8]}, "potenciaMw": {"r": [113, 114.5]}, "sinAvisos": true}
+  },
+  {
+    "nombre": "100 Ω con 6 V: 360 mW, más de la potencia nominal (1/4 W): riesgo",
+    "props": {"ohms": 100},
+    "banco": {"1": {"fuente": 6}, "2": "tierra"},
+    "espera": {"potenciaMw": {"r": [355, 365]}, "avisos": [{"severidad": "advertencia", "contiene": "Riesgo de sobrecalentamiento"}]}
+  },
+  {
+    "nombre": "47 Ω con 6 V: 766 mW, más del doble de lo nominal: riesgo grave",
+    "props": {"ohms": 47},
+    "banco": {"1": {"fuente": 6}, "2": "tierra"},
+    "espera": {"potenciaMw": {"r": [760, 770]}, "avisos": [{"severidad": "peligro", "contiene": "Riesgo de sobrecalentamiento"}]}
+  }
+]

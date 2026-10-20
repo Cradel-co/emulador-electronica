@@ -495,5 +495,57 @@
       "Las entradas llegan al código por el puente de simulación (UART1 en GPIO0/GPIO1), no por el pad del GPIO (límite de esp-emu).",
       "RF 433 MHz todavía no se simula en esta placa."
     ]
+  },
+  "parte": {
+    "fabricante": "Espressif",
+    "mpn": "ESP32-C6-DevKitC-1-N8",
+    "descripcion": "Placa de desarrollo con ESP32-C6-WROOM-1 (8 MB de flash)"
+  },
+  "esquematico": {
+    "referencia": "A",
+    "valor": "ESP32-C6-DevKitC-1-N8",
+    "fabricacion": "modulo",
+    "conectores": [
+      {
+        "huella": "Connector_PinSocket_2.54mm:PinSocket_1x15_P2.54mm_Vertical",
+        "pines": [
+          "3V3",
+          "RST",
+          "GPIO4",
+          "GPIO5",
+          "GPIO6",
+          "GPIO7",
+          "GPIO0",
+          "GPIO1",
+          "GPIO8",
+          "GPIO10",
+          "GPIO11",
+          "GPIO2",
+          "GPIO3",
+          "5V",
+          "GND"
+        ]
+      },
+      {
+        "huella": "Connector_PinSocket_2.54mm:PinSocket_1x15_P2.54mm_Vertical",
+        "pines": [
+          "GND_2",
+          "GPIO16",
+          "GPIO17",
+          "GPIO15",
+          "GPIO23",
+          "GPIO22",
+          "GPIO21",
+          "GPIO20",
+          "GPIO19",
+          "GPIO18",
+          "GPIO9",
+          "GND_3",
+          "GPIO13",
+          "GPIO12",
+          "GND_4"
+        ]
+      }
+    ]
   }
 }

@@ -1,6 +1,11 @@
 import { registerPreviews, localAddresses, loopback, previewResource } from './preview.js';
-import { finalizarObservacion, revisionElectrica } from './observacionElectrica.js';
-import { firmaDiagramaElectrico, type ObservacionElectrica } from '@emu/shared';
+import { ServicioEntradaSonido, aplicarEntradaSonido } from './sonido/servicio.js';
+import { registrarRutasEntradaSonido } from './sonido/rutas.js';
+import { crearInforme } from '@emu/shared';
+import { revisionContenido, revisionProyecto, revisionDiagrama, comprobarRevision, ConflictoRevision } from './revisionGuardado.js';
+import { crearTransporteEventos } from './transporteEventos.js';
+import { crearServicioObservacion } from './observacionElectrica.js';
+import { ColaCorridas } from './colaCorridas.js';
 import { crearActualizadorElectrico } from './actualizadorElectrico.js';
 import { VigenciaElectrica } from './vigenciaElectrica.js';
 import { transmitirPorCanalRf } from './rf/canalRf.js';
@@ -11,7 +16,7 @@ import { estadoAlimentacion, motivoSinArranque, type EstadoAlimentacion as Estad
 import { leerFuentesMicroPython } from './micropythonSources.js';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import Fastify from 'fastify';
+import type { FastifyInstance } from 'fastify';
 import { WebSocketServer, type WebSocket } from 'ws';
 import {
   DEFAULT_BOARD,
@@ -20,8 +25,6 @@ import {
   lenguajesDe,
   ClientEventSchema,
   LanguageSchema,
-  ServerEventSchema,
-  sonidosDelCircuito,
   tienePlaca,
   type EventoSonido,
   type Language,
@@ -46,37 +49,55 @@ import { buscarPlaca, listarPlacas, nivelDeclarado, validarPlaca, type Placa } f
 import { esquemaJsonPlaca } from './boardSchema.js';
 import { certificar, leerCertificacion, type ReporteCertificacion } from './certificacion.js';
 import { invalidarCatalogo, loadCatalog, type ModuloCatalogo } from './catalog.js';
+import { esquematicoEfectivo, nivelModulo, probarModulo } from './sim/pruebasModulo.js';
 import { ImportError, ModuleInstaller, importar, type OpcionesImportacion, type SolicitudImportacion } from './moduleImporter.js';
 import { crearServidorMcp, type McpContexto } from './mcp.js';
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import { scanPins, diffDiagramVsCode, direccionesDeCodigo, type DiagramWarning } from './pinScan.js';
-import { conPlaca, gpioDe, ponerPlaca, sacarPlaca } from './diagramOps.js';
+import { scanPins, direccionesDeCodigo } from './pinScan.js';
+import { conPlaca, ponerPlaca, sacarPlaca } from './diagramOps.js';
 import { analizarCircuito, type AnalisisCircuito, type DireccionPin, type OpcionesAnalisis } from './sim/analisis.js';
 import { precalentar } from './sim/spice.js';
-import type { AlimentacionPlaca, FuenteElectrica, LedElectrico } from './sim/tipos.js';
 import { Depurador } from './debug/depurador.js';
 import { registrarRutasDepuracion } from './debug/rutas.js';
 import { chipsDelProyecto } from './bus/proyectoChips.js';
 import { chipPublico, chipsDe, moverEntorno, registrarRutasChips, type CorridaChips, type DepsChips } from './bus/rutasChips.js';
 import { cargarChips } from './bus/catalogoChips.js';
 import { guardarMemoria, leerMemoria } from './bus/memoriaChips.js';
+import { registrarRutasPlacas } from './routes/boards.js';
+import { registrarRutasModulos } from './routes/modules.js';
+import { registrarRutasMcp } from './routes/mcp.js';
+import { crearAppServer, iniciarServidor } from './bootstrap.js';
+import { crearServicioProyectos } from './application/proyectos.js';
 
 const PORT = Number(process.env.PORT ?? 5180);
 const HOST = process.env.HOST ?? '0.0.0.0'; // LAN: el editor y sus API siguen restringidos a loopback.
 
-export interface ServerDeps {
-  store: ProjectStore;
-  builder: BuildService;
-  emulator: Emulador;
-}
-
-const logger = Fastify({ logger: false });
+const app = crearAppServer();
 
 const store = new ProjectStore();
 const builder = new BuildService();
+const servicioProyectos = crearServicioProyectos({
+  store,
+  catalogo: loadCatalog,
+  buscarPlaca,
+  listarPlacas,
+  plantillaToolchain: (lenguaje, placa) => {
+    const destino = placa.desc.languages[lenguaje]!;
+    return TOOLCHAINS[destino.toolchain]?.plantilla(lenguaje, placa, destino.options) ?? {};
+  },
+  estaEnergizado: nombre => proyectoEnergizado === nombre,
+  apagarCircuito: nombre => energizar(nombre, false),
+});
 const camaras = new ServicioCamara(broadcast);
+const entradasSonido = new ServicioEntradaSonido(nombre => {
+  vigenciaElectrica.invalidar();
+  broadcast({ type: 'project.changed', project: nombre, what: 'electrico', origin: 'server' });
+  void refrescarEntradasDelCircuito(nombre);
+});
+const circuitoVivo = (p: Project): Project => aplicarEntradaSonido(conPlaca(p), entradasSonido.leer(p.name));
 const capturasFirmware = new CoordinadorCapturas(camaras, mensaje => logBuild(mensaje));
 store.alCambiar = async (name, modules) => {
+  previewRevisions.set(name, (previewRevisions.get(name) ?? 0) + 1);
+  entradasSonido.reconciliar(name, modules);
   const catalogo = await loadCatalog();
   camaras.reconciliar(name, modules.filter(m => catalogo.some(d => d.type === m.type && d.camera)).map(m => m.id));
   if (runningProject === name) await actualizarCamarasDelCircuito(name);
@@ -98,9 +119,9 @@ const corridas = new Map<string, Emulador>();
 let primaryBoardId = 'board';
 let runGeneration = 0;
 const previewRevisions = new Map<string, number>();
+const revisionVistaPrevia = (name: string) => `${runGeneration}:${previewRevisions.get(name) ?? 0}`;
 const vigenciaElectrica = new VigenciaElectrica();
-let runQueue: Promise<unknown> = Promise.resolve();
-let executingProject: string | null = null;
+const colaCorridas = new ColaCorridas();
 const nivelesDePlaca = (id: string) => {
   let levels = nivelesPorPlaca.get(id);
   if (!levels) { levels = new Map(); nivelesPorPlaca.set(id, levels); }
@@ -143,25 +164,8 @@ function eventErrors(errors: BuildErrorLike[]): { line?: number; file?: string; 
   }));
 }
 
-/** Log del servidor que además va a la consola del cliente. */
-function broadcastLog(line: string): void {
-  console.log(line);
-  const data = JSON.stringify({ type: 'emu.log', line } satisfies ServerEvent);
-  for (const ws of clients) if (ws.readyState === 1) ws.send(data);
-}
-
-function broadcast(msg: ServerEvent): void {
-  const parsed = ServerEventSchema.safeParse(msg);
-  if (!parsed.success) {
-    // Un evento mal formado no debe caer al cliente ni romper la sesión.
-    broadcastLog(`evento inválido: ${parsed.error.message}`);
-    return;
-  }
-  const data = JSON.stringify(parsed.data);
-  for (const ws of clients) {
-    if (ws.readyState === 1) ws.send(data);
-  }
-}
+const transporteEventos = crearTransporteEventos(clients, linea => console.log(linea));
+function broadcast(msg: ServerEvent): void { transporteEventos.publicar(msg); }
 
 // Un motor por familia de chip (registro de placas): esp-emu para los ESP32, avr8js
 // para el Arduino Uno. `emulator` es el que está en uso; runProject lo cambia según
@@ -281,6 +285,7 @@ export { store, builder, emulator };
 const depsChips: DepsChips = {
   leer: (n) => store.read(n),
   guardar: (p) => store.save(p),
+  transaccion: (nombre, tarea) => store.transaccion(nombre, tarea),
   catalogo: loadCatalog,
   corrida: (n) => {
     if (runningProject !== n) return null;
@@ -325,82 +330,20 @@ function certificarEnFondo(placa: Placa, lenguaje?: Language): 'iniciada' | 'ya-
   return ya ? 'ya-en-curso' : 'iniciada';
 }
 
-/**
- * La placa del catálogo y los archivos de código con que arranca en un lenguaje (la plantilla
- * de la placa o la de su toolchain). Valida placa ↔ lenguaje.
- */
-async function placaConArchivos(board: string, lenguaje: Language) {
-  const placa = await buscarPlaca(board);
-  if (!placa) {
-    const ids = (await listarPlacas()).map((p) => p.id).join(', ');
-    throw new ProjectError(`Placa desconocida: "${board}". Placas: ${ids}`, 400);
-  }
-  const destino = placa.desc.languages[lenguaje];
-  if (!destino) {
-    throw new ProjectError(
-      `${placa.nombre} no se puede programar en ${lenguaje}. Lenguajes de esta placa: ${lenguajesDe(placa.desc).join(', ')}.`,
-      400,
-    );
-  }
-  const propia = placa.desc.templates[lenguaje]?.files;
-  const archivos =
-    propia && Object.keys(propia).length > 0
-      ? propia
-      : (TOOLCHAINS[destino.toolchain]?.plantilla(lenguaje, placa, destino.options) ?? {});
-  return { placa, archivos };
-}
-
-/**
- * Crea un proyecto: con placa (valida placa ↔ lenguaje y escribe su plantilla de código), sin
- * placa (`board: null`: solo un circuito con una fuente regulable), o desde una plantilla.
- */
-async function crearProyecto(nombre: string, lenguaje: Language | null, board: string | null = DEFAULT_BOARD, plantilla?: string): Promise<Project> {
-  // Desde una plantilla (projects/_template/<id>/): placa, lenguaje, circuito y código salen de ella.
-  if (plantilla) {
-    const datos = (await store.listTemplates()).find((t) => t.id === plantilla);
-    if (!datos) throw new ProjectError(`No hay una plantilla "${plantilla}" en projects/_template/`, 404);
-    if (datos.board && !(await buscarPlaca(datos.board))) {
-      throw new ProjectError(`La plantilla "${plantilla}" usa la placa "${datos.board}", que no está en el catálogo.`, 400);
-    }
-    return store.createFromTemplate(nombre, plantilla);
-  }
-  if (board === null) return store.crearSinPlaca(nombre);
-  if (!lenguaje) throw new ProjectError('Falta el lenguaje de la placa', 400);
-  const { placa, archivos } = await placaConArchivos(board, lenguaje);
-  return store.create(nombre, lenguaje, { id: placa.id, desc: placa.desc }, archivos);
-}
-
-/**
- * Agrega una placa a un proyecto sin placa (la placa es un módulo que se agrega y se quita):
- * la pone en el dibujo y escribe su código inicial sin pisar el que ya hubiera de antes.
- */
-async function agregarPlaca(nombre: string, board: string, lenguaje: Language, pos: { x?: number; y?: number } = {}): Promise<Project> {
-  const { placa, archivos } = await placaConArchivos(board, lenguaje);
-  const def = (await loadCatalog()).find((m) => m.type === placa.id);
-  if (!def) throw new ProjectError(`La placa "${board}" no está en el catálogo`, 400);
-  const actual = await store.read(nombre);
-  const puesta = ponerPlaca(actual, def, lenguaje, pos);
-  // Al incorporar el procesador queda activa la recarga al guardar: es la razón de ser
-  // del campo, y un proyecto recién armado es justo donde se edita el código a cada rato.
-  const nuevo = { ...puesta, sim: { ...puesta.sim, autoReload: true } };
-  // Con placa, ▶ vuelve a significar "correr el firmware": el circuito deja de estar energizado aparte.
-  if (proyectoEnergizado === nombre) energizar(nombre, false);
-  const agregada = placasDelProyecto(nuevo).find((p) => !placasDelProyecto(actual).some((a) => a.id === p.id));
-  await store.escribirSiFalta(nombre, lenguaje, archivos, agregada?.id);
-  const guardado = await store.save(nuevo);
-  return guardado;
-}
+const { crearProyecto, agregarPlaca } = servicioProyectos;
 
 /** Quita la placa (y sus cables). El código queda en disco: si se vuelve a poner la placa, sigue ahí. */
 async function quitarPlaca(nombre: string, boardId?: string): Promise<Project> {
-  const actual = await store.read(nombre);
-  if (runningProject === nombre && emulator.getStatus().running) {
-    eventosEmulador.onLog('[placa] Se quitó la placa: se detuvo la simulación.');
-    await pararCorridas();
-    runningProject = null;
-    controlesCerrados.clear();
-  }
-  return store.save(sacarPlaca(actual, boardId));
+  return store.transaccion(nombre, async () => {
+    const actual = await store.read(nombre);
+    if (runningProject === nombre && emulator.getStatus().running) {
+      eventosEmulador.onLog('[placa] Se quitó la placa: se detuvo la simulación.');
+      await pararCorridas();
+      runningProject = null;
+      controlesCerrados.clear();
+    }
+    return store.save(sacarPlaca(actual, boardId));
+  });
 }
 
 // --- Utilidades -------------------------------------------------------------
@@ -410,7 +353,7 @@ function fail(reply: { code: (n: number) => { send: (b: unknown) => void } }, er
   const codigo = (err as { statusCode?: unknown })?.statusCode;
   const status = err instanceof ProjectError ? err.statusCode : typeof codigo === 'number' ? codigo : 500;
   const message = err instanceof Error ? err.message : String(err);
-  reply.code(status).send({ error: message });
+  reply.code(status).send({ error: message, ...(err instanceof ConflictoRevision ? { code: err.code, revisionActual: err.revisionActual } : {}) });
 }
 
 async function requireProject(name: string) {
@@ -436,9 +379,7 @@ async function validarModulosPlacas(project: Project, modules: unknown[]): Promi
 
 // --- Rutas ------------------------------------------------------------------
 
-async function registerRoutes(): Promise<void> {
-  const app = logger;
-
+async function registerRoutes(app: FastifyInstance, fastifyStatic: typeof import('@fastify/static').default): Promise<void> {
   app.addHook('onRequest', async (req, reply) => {
     if (!loopback(req.ip) && !process.env.HOST && !previewResource(req.url.split('?')[0] ?? '')) {
       return reply.code(403).send({ error: 'En la red local solo está disponible la vista compartida.' });
@@ -452,7 +393,8 @@ async function registerRoutes(): Promise<void> {
   registerPreviews(app, {
     port: PORT,
     revision: name => runningProject === name && [...corridas.values()].some(e => e.getStatus().running)
-      ? `${runGeneration}:${previewRevisions.get(name) ?? 0}` : null,
+      ? revisionVistaPrevia(name) : null,
+    revisionActual: revisionVistaPrevia,
     async snapshot(name) {
       const project = await requireProject(name);
       const types = new Set(project.modules.map(m => m.type));
@@ -466,51 +408,26 @@ async function registerRoutes(): Promise<void> {
     },
     control: fijarControl,
   });
+  registrarRutasEntradaSonido(app, entradasSonido, async (nombre, instancia) => {
+    const p = await store.read(nombre).catch(() => null);
+    return p?.modules.some(m => m.id === instancia && m.type === 'sonometro-sen0232') ?? false;
+  }, refrescarEntradasDelCircuito);
 
   app.get('/api/health', async () => ({ ok: true, port: PORT }));
 
-  // Registro de placas: sale del catálogo (módulos programables con bloque `board`).
-  app.get('/api/boards', async () => ({
-    porDefecto: DEFAULT_BOARD,
-    motores: Object.values(ENGINES).map((m) => ({ nombre: m.nombre, descripcion: m.descripcion, disponible: m.disponible })),
-    toolchains: Object.values(TOOLCHAINS).map((t) => ({ nombre: t.nombre, descripcion: t.descripcion, disponible: t.disponible, lenguajes: t.lenguajes })),
-    boards: await Promise.all((await listarPlacas()).map(placaParaUi)),
-  }));
-
-  app.get('/api/boards/schema', async () => esquemaJsonPlaca());
-
-  // Valida un module.json de placa sin instalarlo (el importador instala; esto solo revisa).
-  app.post('/api/boards/validate', { bodyLimit: 5 * 1024 * 1024 }, async (req, reply) => {
-    const body = (req.body ?? {}) as { module?: unknown };
-    const r = validarPlaca(body.module ?? req.body);
-    reply.code(r.ok ? 200 : 400).send(r);
+  registrarRutasPlacas(app, {
+    motores: Object.values(ENGINES).map(({ nombre, descripcion, disponible }) => ({ nombre, descripcion, disponible })),
+    toolchains: Object.values(TOOLCHAINS).map(({ nombre, descripcion, disponible, lenguajes }) => ({ nombre, descripcion, disponible, lenguajes })),
+    listarPlacas,
+    buscarPlaca,
+    esquemaJsonPlaca: () => esquemaJsonPlaca(),
+    validarPlaca,
+    leerCertificacion,
+    placaParaUi,
+    certificarEnFondo,
+    certificando,
+    fallar: fail,
   });
-
-  // Certificación: compila y emula la plantilla de la placa, y prueba botón → LED.
-  app.post('/api/boards/:id/certify', async (req, reply) => {
-    const { id } = req.params as { id: string };
-    const body = (req.body ?? {}) as { language?: string };
-    try {
-      const placa = await buscarPlaca(id);
-      if (!placa) {
-        reply.code(404).send({ error: `No hay una placa "${id}" en el catálogo` });
-        return;
-      }
-      const lenguaje = body.language ? (LanguageSchema.parse(body.language) as Language) : undefined;
-      const job = certificarEnFondo(placa, lenguaje);
-      reply.code(202).send({ started: true, estado: job });
-    } catch (err) {
-      fail(reply, err);
-    }
-  });
-
-  app.get('/api/boards/:id/certification', async (req, reply) => {
-    const { id } = req.params as { id: string };
-    const enCurso = certificando.get(id);
-    reply.send({ enCurso: Boolean(enCurso), ultimo: await leerCertificacion(id) });
-  });
-
-  app.get('/api/modules', async () => ({ modules: await loadCatalog() }));
 
   registrarRutasChips(app, depsChips, fail);
   registrarRutasCamara(app, camaras, async (name, id) => {
@@ -521,53 +438,11 @@ async function registerRoutes(): Promise<void> {
     return (await loadCatalog()).find(m => m.type === inst.type)?.camera ?? null;
   });
 
-  // Importador de módulos (carpeta, zip, chip de Wokwi, URL / GitHub).
-  app.post('/api/modules/import', { bodyLimit: 25 * 1024 * 1024 }, async (req, reply) => {
-    const body = (req.body ?? {}) as Record<string, unknown> & OpcionesImportacion;
-    try {
-      const solicitud = solicitudDe(body);
-      const resultado = await importarModulos(solicitud, body);
-      reply.code(resultado.importados.length === 0 && resultado.errores.length > 0 ? 400 : 200).send(resultado);
-    } catch (err) {
-      fail(reply, err);
-    }
+  registrarRutasModulos(app, {
+    loadCatalog, nivelModulo, probarModulo, esquematicoEfectivo,
+    solicitudDe, importarModulos, quitarDelCatalogo, fallar: fail,
   });
-
-  app.delete('/api/modules/:type', async (req, reply) => {
-    const { type } = req.params as { type: string };
-    try {
-      await quitarDelCatalogo(type);
-      reply.send({ ok: true });
-    } catch (err) {
-      fail(reply, err);
-    }
-  });
-
-  // MCP (Streamable HTTP, sin sesión): control completo de la app para agentes.
-  app.post('/mcp', { bodyLimit: 25 * 1024 * 1024 }, async (req, reply) => {
-    const server = crearServidorMcp(contextoMcp);
-    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
-    reply.hijack();
-    reply.raw.on('close', () => {
-      void transport.close();
-      void server.close();
-    });
-    try {
-      await server.connect(transport);
-      await transport.handleRequest(req.raw, reply.raw, req.body);
-    } catch (err) {
-      if (!reply.raw.headersSent) {
-        reply.raw.writeHead(500, { 'content-type': 'application/json' });
-        reply.raw.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32603, message: (err as Error).message }, id: null }));
-      }
-    }
-  });
-  // Sin sesiones no hay stream de notificaciones (GET) ni cierre de sesión (DELETE).
-  const sinSesion = async (_req: unknown, reply: { code: (n: number) => { send: (b: unknown) => void } }): Promise<void> => {
-    reply.code(405).send({ jsonrpc: '2.0', error: { code: -32000, message: 'Método no permitido (MCP sin sesión: usar POST)' }, id: null });
-  };
-  app.get('/mcp', sinSesion);
-  app.delete('/mcp', sinSesion);
+  registrarRutasMcp(app, contextoMcp);
 
   app.get('/api/projects', async () => ({ projects: await store.list() }));
 
@@ -614,7 +489,7 @@ async function registerRoutes(): Promise<void> {
         store.listDirectories(name, elegida?.language ?? null, elegida?.id),
       ]);
       const placa = elegida ? await buscarPlaca(elegida.board) : undefined;
-      reply.send({ project, files, directories, placa: placa ? await placaParaUi(placa) : null });
+      reply.header('etag', revisionProyecto(project)).send({ project, revision: revisionProyecto(project), revisionDiagrama: revisionDiagrama(project), files, directories, placa: placa ? await placaParaUi(placa) : null });
     } catch (err) {
       fail(reply, err);
     }
@@ -654,23 +529,26 @@ async function registerRoutes(): Promise<void> {
   app.put('/api/projects/:name', async (req, reply) => {
     const { name } = req.params as { name: string };
     try {
-      const project = await requireProject(name);
-      const body = (req.body ?? {}) as Partial<Project>;
-      // La placa y el lenguaje se eligen al crear el proyecto: sus archivos (sdkconfig,
-      // CMake, plantilla) dependen de eso, y cambiarlos a mano dejaría un proyecto que no compila.
-      if (body.board !== undefined && body.board !== project.board) {
-        reply.code(400).send({ error: 'La placa se elige al crear el proyecto: creá uno nuevo para otra placa.' });
-        return;
-      }
-      if (body.language !== undefined && body.language !== project.language) {
-        reply.code(400).send({ error: 'El lenguaje se elige al crear el proyecto.' });
-        return;
-      }
-      if (body.boards !== undefined && JSON.stringify(body.boards) !== JSON.stringify(project.boards)) throw new ProjectError('Las placas se administran desde las rutas de placas del proyecto.', 400);
-      if (body.name !== undefined && body.name !== name) throw new ProjectError('No se puede cambiar el nombre por esta ruta.', 400);
-      if (body.modules !== undefined) await validarModulosPlacas(project, body.modules);
-      const updated = await store.save({ ...project, ...body, name });
-      reply.send({ project: updated });
+      await store.transaccion(name, async () => {
+        const project = await requireProject(name);
+        comprobarRevision(req.headers, revisionProyecto(project));
+        const body = (req.body ?? {}) as Partial<Project>;
+        // La placa y el lenguaje se eligen al crear el proyecto: sus archivos (sdkconfig,
+        // CMake, plantilla) dependen de eso, y cambiarlos a mano dejaría un proyecto que no compila.
+        if (body.board !== undefined && body.board !== project.board) {
+          reply.code(400).send({ error: 'La placa se elige al crear el proyecto: creá uno nuevo para otra placa.' });
+          return;
+        }
+        if (body.language !== undefined && body.language !== project.language) {
+          reply.code(400).send({ error: 'El lenguaje se elige al crear el proyecto.' });
+          return;
+        }
+        if (body.boards !== undefined && JSON.stringify(body.boards) !== JSON.stringify(project.boards)) throw new ProjectError('Las placas se administran desde las rutas de placas del proyecto.', 400);
+        if (body.name !== undefined && body.name !== name) throw new ProjectError('No se puede cambiar el nombre por esta ruta.', 400);
+        if (body.modules !== undefined) await validarModulosPlacas(project, body.modules);
+        const updated = await store.save({ ...project, ...body, name });
+        reply.header('etag', revisionProyecto(updated)).send({ project: updated, revision: revisionProyecto(updated), revisionDiagrama: revisionDiagrama(updated) });
+      });
     } catch (err) {
       fail(reply, err);
     }
@@ -683,7 +561,8 @@ async function registerRoutes(): Promise<void> {
       const project = await requireProject(name);
       const elegida = placaParaArchivo(project, (req.query as { boardId?: string }).boardId);
       const content = await store.readFile(name, file, elegida.language, elegida.id);
-      reply.send({ path: file, content });
+      const revision = revisionContenido(`archivo:${name}/${elegida.id}/${file}`, content);
+      reply.header('etag', revision).send({ path: file, content, revision });
     } catch (err) {
       fail(reply, err);
     }
@@ -693,12 +572,14 @@ async function registerRoutes(): Promise<void> {
     const { name } = req.params as { name: string };
     const body = (req.body ?? {}) as { path?: unknown };
     try {
-      if (typeof body.path !== 'string') throw new ProjectError('Indicá la ruta de la carpeta.', 400);
-      const project = await requireProject(name);
-      const elegida = placaParaArchivo(project, (req.query as { boardId?: string }).boardId);
-      const directory = await store.createDirectory(name, body.path, elegida.language, elegida.id);
-      broadcast({ type: 'project.changed', project: name, what: 'file', file: directory, boardId: elegida.id, origin: clienteDe(req) });
-      reply.code(201).send({ ok: true, path: directory });
+      await store.transaccion(name, async () => {
+        if (typeof body.path !== 'string') throw new ProjectError('Indicá la ruta de la carpeta.', 400);
+        const project = await requireProject(name);
+        const elegida = placaParaArchivo(project, (req.query as { boardId?: string }).boardId);
+        const directory = await store.createDirectory(name, body.path, elegida.language, elegida.id);
+        broadcast({ type: 'project.changed', project: name, what: 'file', file: directory, boardId: elegida.id, origin: clienteDe(req) });
+        reply.code(201).send({ ok: true, path: directory });
+      });
     } catch (err) {
       fail(reply, err);
     }
@@ -709,13 +590,15 @@ async function registerRoutes(): Promise<void> {
     const file = (req.params as Record<string, string>)['*'] ?? '';
     const body = (req.body ?? {}) as { content?: unknown };
     try {
-      if (body.content !== undefined && typeof body.content !== 'string') throw new ProjectError('El contenido debe ser texto.', 400);
-      const project = await requireProject(name);
-      const elegida = placaParaArchivo(project, (req.query as { boardId?: string }).boardId);
-      const created = await store.createFile(name, file, elegida.language, body.content ?? '', elegida.id);
-      broadcast({ type: 'project.changed', project: name, what: 'file', file: created, boardId: elegida.id, origin: clienteDe(req) });
-      agendarAutoReload(project, elegida.id);
-      reply.code(201).send({ ok: true, path: created });
+      await store.transaccion(name, async () => {
+        if (body.content !== undefined && typeof body.content !== 'string') throw new ProjectError('El contenido debe ser texto.', 400);
+        const project = await requireProject(name);
+        const elegida = placaParaArchivo(project, (req.query as { boardId?: string }).boardId);
+        const created = await store.createFile(name, file, elegida.language, body.content ?? '', elegida.id);
+        broadcast({ type: 'project.changed', project: name, what: 'file', file: created, boardId: elegida.id, origin: clienteDe(req) });
+        agendarAutoReload(project, elegida.id);
+        reply.code(201).send({ ok: true, path: created });
+      });
     } catch (err) {
       fail(reply, err);
     }
@@ -726,13 +609,21 @@ async function registerRoutes(): Promise<void> {
     const file = (req.params as Record<string, string>)['*'] ?? '';
     const body = (req.body ?? {}) as { content?: string };
     try {
-      const project = await requireProject(name);
-      const elegida = placaParaArchivo(project, (req.query as { boardId?: string }).boardId);
-      await store.writeFile(name, file, elegida.language, String(body.content ?? ''), elegida.id);
-      broadcast({ type: 'project.changed', project: name, what: 'file', file, boardId: elegida.id, origin: clienteDe(req) });
-      // No se espera: guardar tiene que contestar al toque, la recarga va por la consola.
-      agendarAutoReload(project, elegida.id);
-      reply.send({ ok: true, path: file });
+      await store.transaccion(name, async () => {
+        const project = await requireProject(name);
+        const elegida = placaParaArchivo(project, (req.query as { boardId?: string }).boardId);
+        const anterior = await store.readFile(name, file, elegida.language, elegida.id).catch((error: NodeJS.ErrnoException) => {
+          if (error.code === 'ENOENT') return null;
+          throw error;
+        });
+        comprobarRevision(req.headers, revisionContenido(`archivo:${name}/${elegida.id}/${file}`, anterior));
+        await store.writeFile(name, file, elegida.language, String(body.content ?? ''), elegida.id);
+        broadcast({ type: 'project.changed', project: name, what: 'file', file, boardId: elegida.id, origin: clienteDe(req) });
+        // No se espera: guardar tiene que contestar al toque, la recarga va por la consola.
+        agendarAutoReload(project, elegida.id);
+        const revision = revisionContenido(`archivo:${name}/${elegida.id}/${file}`, String(body.content ?? ''));
+        reply.header('etag', revision).send({ ok: true, path: file, revision });
+      });
     } catch (err) {
       fail(reply, err);
     }
@@ -742,10 +633,12 @@ async function registerRoutes(): Promise<void> {
     const { name } = req.params as { name: string };
     const file = (req.params as Record<string, string>)['*'] ?? '';
     try {
-      const project = await requireProject(name);
-      const elegida = placaParaArchivo(project, (req.query as { boardId?: string }).boardId);
-      await store.deleteFile(name, file, elegida.language, elegida.id);
-      reply.send({ ok: true });
+      await store.transaccion(name, async () => {
+        const project = await requireProject(name);
+        const elegida = placaParaArchivo(project, (req.query as { boardId?: string }).boardId);
+        await store.deleteFile(name, file, elegida.language, elegida.id);
+        reply.send({ ok: true });
+      });
     } catch (err) {
       fail(reply, err);
     }
@@ -754,24 +647,26 @@ async function registerRoutes(): Promise<void> {
   app.put('/api/projects/:name/diagram', async (req, reply) => {
     const { name } = req.params as { name: string };
     try {
-      const project = await requireProject(name);
-      const body = (req.body ?? {}) as { modules?: unknown[]; wires?: unknown[] };
-      if (body.modules !== undefined) await validarModulosPlacas(project, body.modules);
-      const updated = await store.save({
-        ...project,
-        modules: (body.modules ?? project.modules) as never,
-        wires: (body.wires ?? project.wires) as never,
+      await store.transaccion(name, async () => {
+        const project = await requireProject(name);
+        comprobarRevision(req.headers, revisionDiagrama(project));
+        const body = (req.body ?? {}) as { modules?: unknown[]; wires?: unknown[] };
+        if (body.modules !== undefined) await validarModulosPlacas(project, body.modules);
+        const updated = await store.save({
+          ...project,
+          modules: (body.modules ?? project.modules) as never,
+          wires: (body.wires ?? project.wires) as never,
+        });
+        await revisarAlimentacion(name);
+        // Cambiar una prop cambia la física: hay que empujarle al firmware la instantánea nueva.
+        // Sin esto, el ADC y los niveles de entrada se quedan con los del arranque — un sonómetro
+        // seguía informando 50 dBA aunque la escena pasara a 110. Se autoprotege si el proyecto no
+        // corre, y viene debounceado (actualizadorElectrico), así que arrastrar un control no lo
+        // satura. Es lo mismo que hace fijarControl al apretar un interruptor.
+        void refrescarEntradasDelCircuito(name);
+        broadcast({ type: 'project.changed', project: name, what: 'diagram', origin: clienteDe(req) });
+        reply.header('etag', revisionDiagrama(updated)).send({ project: updated, revision: revisionProyecto(updated), revisionDiagrama: revisionDiagrama(updated) });
       });
-      await revisarAlimentacion(name);
-      previewRevisions.set(name, (previewRevisions.get(name) ?? 0) + 1);
-      // Cambiar una prop cambia la física: hay que empujarle al firmware la instantánea nueva.
-      // Sin esto, el ADC y los niveles de entrada se quedan con los del arranque — un sonómetro
-      // seguía informando 50 dBA aunque la escena pasara a 110. Se autoprotege si el proyecto no
-      // corre, y viene debounceado (actualizadorElectrico), así que arrastrar un control no lo
-      // satura. Es lo mismo que hace fijarControl al apretar un interruptor.
-      void refrescarEntradasDelCircuito(name);
-      broadcast({ type: 'project.changed', project: name, what: 'diagram', origin: clienteDe(req) });
-      reply.send({ project: updated });
     } catch (err) {
       fail(reply, err);
     }
@@ -929,6 +824,23 @@ async function registerRoutes(): Promise<void> {
     }
   });
 
+  app.get('/api/projects/:name/report', async (req, reply) => {
+    const { name } = req.params as { name: string };
+    try {
+      await store.transaccion(name, async () => {
+        const project = await requireProject(name);
+        const revision = revisionProyecto(project);
+        comprobarRevision(req.headers, revision);
+        const resultado = await avisosDelProyecto(project);
+        const catalogo = await loadCatalog();
+        if (revisionProyecto(await requireProject(name)) !== revision) throw new ConflictoRevision(revisionProyecto(await requireProject(name)));
+        const informe = crearInforme(conPlaca(project), resultado.electrico, revision, catalogo, new Date().toISOString());
+        informe.avisos.push(...resultado.warnings.map(w => w.message));
+        reply.header('cache-control', 'no-store').send(informe);
+      });
+    } catch (err) { fail(reply, err); }
+  });
+
   app.get('/api/projects/:name/pins', async (req, reply) => {
     const { name } = req.params as { name: string };
     try {
@@ -940,16 +852,17 @@ async function registerRoutes(): Promise<void> {
   });
 
   registrarRutasAnalisisFisico(app, {
+    revisionActual: async nombre => revisionProyecto(await requireProject(nombre)),
     cargar: async nombre => {
       const proyecto = await requireProject(nombre);
       const catalogo = await loadCatalog();
       const opciones: OpcionesAnalisis = {
         nivelesReales: true,
-        nivelesPorPlaca: nombre === runningProject ? nivelesPorPlaca : new Map(),
+        nivelesPorPlaca: nombre === runningProject ? new Map([...nivelesPorPlaca].map(([id, niveles]) => [id, new Map(niveles)])) : new Map(),
         direccionesPorPlaca: await direccionesTodas(proyecto),
-        cerrados: cerradosDe(nombre), fuentesApagadas: fuentesApagadasDe(proyecto),
+        cerrados: new Set(cerradosDe(nombre)), fuentesApagadas: fuentesApagadasDe(proyecto),
       };
-      return { proyecto: conPlaca(proyecto), buscar: tipo => catalogo.find(m => m.type === tipo), opciones };
+      return { proyecto: conPlaca(proyecto), revision: revisionProyecto(proyecto), buscar: tipo => catalogo.find(m => m.type === tipo), opciones };
     },
   });
 
@@ -1085,7 +998,7 @@ async function recargarCodigo(nombre: string, boardId?: string): Promise<Recarga
           if (generation !== runGeneration || runningProject !== nombre) return { ok: false, motivo: 'se detuvo la ejecución durante la recarga' };
           nivelesPorPlaca.get(b.id)?.clear();
           sensadosPorPlaca.delete(b.id);
-          const electrico = await analizarCircuito(conPlaca(full), t => catalog.find(m => m.type === t), {
+          const electrico = await analizarCircuito(circuitoVivo(full), t => catalog.find(m => m.type === t), {
             nivelesReales: true, nivelesPorPlaca, direccionesPorPlaca: await direccionesTodas(full),
             cerrados: cerradosDe(nombre), fuentesApagadas: fuentesApagadasDe(full),
           });
@@ -1151,14 +1064,14 @@ function agendarAutoReload(project: Project, boardId?: string): void {
 }
 
 async function pararCorridas(invalidar = true): Promise<void> {
-  if (invalidar) { runGeneration++; if (executingProject) builder.cancel(executingProject); }
+  if (invalidar) { runGeneration++; if (colaCorridas.enCurso) builder.cancel(colaCorridas.enCurso); }
   const targets = new Set([...corridas.values(), emulator]);
   await Promise.all([...targets].map(e => e.stop()));
   corridas.clear();
   nivelesPorPlaca.clear();
   niveles.clear();
   sensadosPorPlaca.clear();
-  if (invalidar) { await runQueue.catch(() => {}); await pararCorridas(false); }
+  if (invalidar) { await colaCorridas.esperar(); await pararCorridas(false); }
 }
 
 async function resetearCorridas(boardId?: string): Promise<string> {
@@ -1169,13 +1082,7 @@ async function resetearCorridas(boardId?: string): Promise<string> {
 
 function runProject(project: { name: string }, forceBuild: boolean) {
   const generation = ++runGeneration;
-  const job = runQueue.catch(() => {}).then(async () => {
-    executingProject = project.name;
-    try { return await ejecutarProyecto(project, forceBuild, generation); }
-    finally { executingProject = null; }
-  });
-  runQueue = job;
-  return job;
+  return colaCorridas.ejecutar(project.name, () => ejecutarProyecto(project, forceBuild, generation));
 }
 
 async function ejecutarProyecto(
@@ -1198,7 +1105,7 @@ async function ejecutarProyecto(
   const catalogo = await loadCatalog();
   const buscarDef = (t: string): ModuloCatalogo | undefined => catalogo.find(m => m.type === t);
   const directions = await direccionesTodas(full);
-  const electrico = await analizarCircuito(conPlaca(full), buscarDef, {
+  const electrico = await analizarCircuito(circuitoVivo(full), buscarDef, {
     nivelesReales: true,
     direccionesPorPlaca: directions, nivelesPorPlaca: runningProject === full.name ? nivelesPorPlaca : new Map(), cerrados: cerradosDe(full.name), fuentesApagadas: fuentesApagadasDe(full),
   });
@@ -1233,7 +1140,7 @@ async function ejecutarProyecto(
   controlesCerrados.clear();
   // La compilación puede tardar y el reset retiró los GPIO de la corrida anterior.
   // El primer analogRead recibe el circuito del arranque, no aquel preflight previo.
-  const electricoArranque = await analizarCircuito(conPlaca(full), buscarDef, {
+  const electricoArranque = await analizarCircuito(circuitoVivo(full), buscarDef, {
     nivelesReales: true, nivelesPorPlaca, direccionesPorPlaca: directions,
     cerrados: cerradosDe(full.name), fuentesApagadas: fuentesApagadasDe(full),
   });
@@ -1381,7 +1288,7 @@ async function actualizarCamarasDelCircuito(nombre: string): Promise<void> {
     const original = await store.read(nombre), catalogo = await loadCatalog();
     const buscar = (t: string) => catalogo.find(m => m.type === t);
     const placa = original.board ? await buscarPlaca(original.board) : undefined;
-    const r = await analizarCircuito(conPlaca(original), buscar, { nivelesReales: true, niveles, cerrados: cerradosDe(nombre), direcciones: await direccionesDe(original), fuentesApagadas: fuentesApagadasDe(original) });
+    const r = await analizarCircuito(circuitoVivo(original), buscar, { nivelesReales: true, niveles, cerrados: cerradosDe(nombre), direcciones: await direccionesDe(original), fuentesApagadas: fuentesApagadasDe(original) });
     return chipsDelProyecto(original, buscar, placa?.desc, undefined, id => r.resuelto && r.modulos[id]?.ui?.on === true).chips;
   }, chips => target.actualizarCamaras(chips),
   () => runningProject === nombre && generacion === runGeneration && emulator === target);
@@ -1411,7 +1318,7 @@ async function actualizarEntradasDelCircuito(nombre: string): Promise<void> {
       const catalogo = await loadCatalog();
       const buscar = (t: string): ModuloCatalogo | undefined => catalogo.find(m => m.type === t);
       const original = await store.read(nombre);
-      const r = await analizarCircuito(conPlaca(original), buscar, {
+      const r = await analizarCircuito(circuitoVivo(original), buscar, {
         nivelesReales: true, nivelesPorPlaca, cerrados: cerradosDe(nombre), direccionesPorPlaca: await direccionesTodas(original),
       });
       return { original, buscar, r };
@@ -1454,7 +1361,7 @@ async function actualizarEntradasDelCircuito(nombre: string): Promise<void> {
 async function alimentacionDe(project: Project): Promise<EstadoPlaca> {
   const catalogo = await loadCatalog();
   const buscar = (t: string): ModuloCatalogo | undefined => catalogo.find((m) => m.type === t);
-  const { alimentacion, resuelto } = await analizarCircuito(conPlaca(project), buscar, {
+  const { alimentacion, resuelto } = await analizarCircuito(circuitoVivo(project), buscar, {
     nivelesReales: true,
     direccionesPorPlaca: await direccionesTodas(project),
     nivelesPorPlaca, cerrados: cerradosDe(project.name), fuentesApagadas: fuentesApagadasDe(project),
@@ -1488,7 +1395,7 @@ async function revisarAlimentacion(nombre: string): Promise<void> {
     const p = await store.read(nombre);
     if (!p.board) return null; // sin placa no hay nada que se quede sin energía
     const catalogo = await loadCatalog();
-    const r = await analizarCircuito(conPlaca(p), t => catalogo.find(m => m.type === t), {
+    const r = await analizarCircuito(circuitoVivo(p), t => catalogo.find(m => m.type === t), {
       nivelesReales: true,
       nivelesPorPlaca: runningProject === nombre ? nivelesPorPlaca : undefined, direccionesPorPlaca: await direccionesTodas(p),
       cerrados: cerradosDe(nombre), fuentesApagadas: fuentesApagadasDe(p),
@@ -1516,110 +1423,14 @@ function pwmDePlaca(boardId: string): ReadonlyMap<number, PwmPin> {
   return typeof con.estadoPwm === 'function' ? con.estadoPwm() : new Map();
 }
 
-async function avisosDelProyecto(
-  project: Project,
-): Promise<{
-  pins: number[];
-  warnings: DiagramWarning[];
-  /**
-   * placa: null = proyecto sin placa. energizado: el circuito sin placa está prendido (▶).
-   * tensiones: lo que mediría un tester en cada pin cableado.
-   */
-  electrico: ObservacionElectrica;
-}> {
-  const generacion = runGeneration;
-  const corriendo = runningProject;
-  const energizado = proyectoEnergizado;
-  const revision = revisionElectrica(project);
-  const vigente = vigenciaElectrica.capturar(() => generacion === runGeneration
-    && corriendo === runningProject && energizado === proyectoEnergizado);
-  const placas = placasDelProyecto(project).map(b => b.id);
-  const reportados = project.name === corriendo
-    ? new Map([...nivelesPorPlaca].filter(([id]) => placas.includes(id)).map(([id, niveles]) => [id, new Map(niveles)])) : new Map<string, Map<number, 0 | 1>>();
-  const pwm = new Map(placas.map(id => [id, project.name === corriendo ? new Map(pwmDePlaca(id)) : new Map<number, PwmPin>()]));
-  const pwmSnapshot = (id: string): ReadonlyMap<number, PwmPin> => pwm.get(id) ?? new Map();
-  const cerrados = new Set(cerradosDe(project.name));
-  const fuentesApagadas = !project.board && energizado !== project.name;
-  const pins = await pinsDeCodigo(project);
-  const catalogo = await loadCatalog();
-  const buscar = (t: string): ModuloCatalogo | undefined => catalogo.find((m) => m.type === t);
-  const conLaPlaca = conPlaca(project);
-  // Con los niveles reales de la simulación: avisos, lo que entrega cada fuente, si la placa tiene energía.
-  const estados = estadosModulos.get(project.name) ?? new Map<string, Record<string, unknown>>();
-  const direccionesPorPlaca = await direccionesTodas(project);
-  const direcciones = direccionesPorPlaca.get(placasDelProyecto(project)[0]?.id ?? 'board') ?? new Map<number, DireccionPin>();
-  // Un pin con PWM activo se resuelve en alto: el registro GPIO_OUT que muestrea el puente no
-  // refleja lo que maneja el LEDC. Ver nivelesConPwm en pwmEsp.ts.
-  const niveles = nivelesConPwm(reportados, pwmSnapshot, placas);
-  const vivo = await analizarCircuito(conLaPlaca, buscar, { nivelesReales: true, nivelesPorPlaca: niveles, cerrados, fuentesApagadas, estados, direccionesPorPlaca });
-  // Lo que cada modelo quiere recordar vuelve en el próximo cálculo (solo del vivo: los otros son hipotéticos).
-
-  const placa = project.board ? estadoAlimentacion(vivo.alimentacion, vivo.resuelto) : null;
-  // Misma instantánea para UI, medidas y diagnóstico: LED activo bajo o entre dos
-  // GPIO depende de niveles reales. Todos-altos/todos-bajos no son un peor caso general.
-  const leds = vivo.leds;
-  const { avisos: electricos, fuentes } = vivo;
-  const electrico = await finalizarObservacion({
-      contexto: { proyecto: project.name, placas, corrida: generacion, revision, topologia: firmaDiagramaElectrico(conLaPlaca) },
-      estado: vivo.resuelto ? 'valida' : 'no-resuelta',
-      nivelesPorPlaca: Object.fromEntries([...reportados].map(([id, valores]) => [id, Object.fromEntries(valores)])),
-      resuelto: vivo.resuelto,
-      leds, fuentes, placa, energizado: energizado === project.name, tensiones: vivo.tensiones,
-      placas: Object.fromEntries(Object.entries(vivo.alimentacionesPorPlaca ?? {}).map(([id, a]) => [id, estadoAlimentacion(a, vivo.resuelto)])),
-      mediciones: vivo.elementos.map((e) => {
-        const inst = project.modules.find((m) => m.id === e.dueno);
-        const def = inst ? buscar(inst.type) : undefined;
-        return {
-          modulo: e.dueno,
-          moduloNombre: e.dueno === 'board' ? 'Placa' : def?.name ?? e.dueno,
-          elemento: e.local,
-          tipo: e.tipo,
-          tensionV: e.va - e.vb,
-          corrienteMa: e.i * 1000,
-          potenciaMw: e.p * 1000,
-          resistenciaOhm: e.ohms ?? null,
-        };
-      }),
-      modulos: Object.fromEntries(Object.entries(vivo.modulos).map(([id, m]) => [id, m.ui ?? {}])),
-      sonidos: sonidosDelCircuito(
-        project.modules, (t) => buscar(t)?.salidas, vivo.tensiones,
-        (id) => vivo.modulos[id]?.ui,
-        // El PWM está indexado por GPIO de la placa; gpioDe sigue el cableado (y los passthrough).
-        (id, pin) => {
-          if (project.name !== corriendo) return undefined;
-          for (const placa of placasDelProyecto(project)) {
-            const gpio = gpioDe(project, id, pin, buscar, placa.id);
-            if (gpio === null) continue;
-            const pwm = pwmSnapshot(placa.id).get(gpio);
-            if (pwm) return pwm;
-          }
-          return undefined;
-        },
-      ),
-    }, async () => {
-      if (!vigente()) return false;
-      const actual = await store.read(project.name).catch(() => null);
-      return vigente() && actual !== null && revisionElectrica(actual) === revision;
-    });
-  if (electrico.estado === 'valida') {
-    for (const [id, m] of Object.entries(vivo.modulos)) if (m.estado) estados.set(id, m.estado);
-    estadosModulos.set(project.name, estados);
-  }
-  return {
-    pins, electrico,
-    warnings: [
-      ...(electrico.estado === 'obsoleta' ? [{ kind: 'advertencia-electrica' as const, pin: -1,
-        message: 'La observación eléctrica quedó obsoleta durante el cálculo; solicitá una lectura nueva.' }] : []),
-      ...diffDiagramVsCode(project, pins, project.board ? buscar(project.board)?.board : undefined),
-      ...(electrico.estado !== 'obsoleta' ? electricos : []).map((a) => ({
-        kind: a.severidad === 'peligro' ? ('peligro-electrico' as const) : ('advertencia-electrica' as const),
-        pin: a.pin,
-        message: a.mensaje,
-        refs: a.refs,
-      })),
-    ],
-  };
-}
+const avisosDelProyecto = crearServicioObservacion({
+  entradasSonido: nombre => entradasSonido.leer(nombre),
+  contexto: () => ({ generacion: runGeneration, corriendo: runningProject, energizado: proyectoEnergizado }),
+  capturar: sigue => vigenciaElectrica.capturar(sigue),
+  niveles: () => nivelesPorPlaca, pwm: pwmDePlaca, cerrados: cerradosDe,
+  pins: pinsDeCodigo, catalogo: loadCatalog, direcciones: direccionesTodas,
+  leerProyecto: nombre => store.read(nombre), estados: estadosModulos,
+});
 
 // --- Cambios que la UI tiene que ver en vivo -----------------------------------
 
@@ -1631,8 +1442,7 @@ function clienteDe(req: { headers: Record<string, string | string[] | undefined>
 
 /** Lee el proyecto, aplica el cambio, lo guarda y avisa a la UI (origen: mcp). */
 async function cambiarDiagrama(nombre: string, cambio: (p: Project) => Project): Promise<Project> {
-  const actual = await store.read(nombre);
-  const guardado = await store.save(cambio(actual));
+  const guardado = await store.actualizar(nombre, cambio);
   await revisarAlimentacion(nombre);
   broadcast({ type: 'project.changed', project: nombre, what: 'diagram', origin: 'mcp' });
   return guardado;
@@ -1698,9 +1508,11 @@ const contextoMcp: McpContexto = {
   catalogo: loadCatalog,
   cambiarDiagrama,
   async escribirArchivo(nombre, ruta, contenido) {
-    const p = await store.read(nombre);
-    await store.writeFile(nombre, ruta, p.language, contenido);
-    broadcast({ type: 'project.changed', project: nombre, what: 'file', file: ruta, origin: 'mcp' });
+    return store.transaccion(nombre, async () => {
+      const p = await store.read(nombre);
+      await store.writeFile(nombre, ruta, p.language, contenido);
+      broadcast({ type: 'project.changed', project: nombre, what: 'file', file: ruta, origin: 'mcp' });
+    });
   },
   pinesYAvisos: (nombre) => store.read(nombre).then(avisosDelProyecto),
   fijarControl,
@@ -1866,35 +1678,22 @@ async function entregarRf(bits: string, protocolo: number, canalRf?: unknown, bo
 
 // --- Arranque ---------------------------------------------------------------
 
-// Import diferido para no cargar el plugin estático en las pruebas.
-let fastifyStatic: typeof import('@fastify/static').default;
-
 export async function startServer(): Promise<{ close: () => Promise<void>; port: number }> {
-  fastifyStatic = (await import('@fastify/static')).default;
-  await store.init();
-  await registerRoutes();
-
-  await logger.listen({ port: PORT, host: HOST });
-  attachWebSocket(logger.server);
-  console.log(`Emulador listo en http://${HOST}:${PORT}`);
-  // El motor eléctrico (ngspice) tarda ~0,7 s en arrancar: mejor ahora que en el primer cálculo.
-  void precalentar().catch((err) => console.error(`[motor eléctrico] no arrancó: ${(err as Error).message}`));
-
-  const close = async (): Promise<void> => {
-    await pararCorridas();
-    await Promise.all([...new Set(instancias.values())].map(e => e.shutdown()));
-    // Sin esto, close() espera a que el navegador suelte el WebSocket: nunca termina.
-    for (const ws of clients) ws.terminate();
-    await logger.close();
-  };
-  const shutdown = async (): Promise<void> => {
-    await close();
-    process.exit(0);
-  };
-  process.on('SIGINT', () => void shutdown());
-  process.on('SIGTERM', () => void shutdown());
-
-  return { close, port: PORT };
+  return iniciarServidor({
+    app,
+    host: HOST,
+    port: PORT,
+    inicializar: () => store.init(),
+    registrarRutas: registerRoutes,
+    conectarWebSocket: attachWebSocket,
+    precalentar,
+    cerrarRecursos: async () => {
+      await pararCorridas();
+      await Promise.all([...new Set(instancias.values())].map(e => e.shutdown()));
+      // Sin esto, close() espera a que el navegador suelte el WebSocket: nunca termina.
+      for (const ws of clients) ws.terminate();
+    },
+  });
 }
 
 if (process.argv[1]?.endsWith('index.ts') || process.argv[1]?.endsWith('index.js')) {

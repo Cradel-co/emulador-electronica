@@ -40,5 +40,15 @@
     "pull": "up"
   },
   "svg": "module.svg",
-  "model": "model.js"
+  "model": "model.ts",
+  "parte": {"fabricante": "Omron", "mpn": "B3F-1000", "descripcion": "Pulsador táctil 6 × 6 mm, de agujero pasante"},
+  "esquematico": {
+    "referencia": "SW",
+    "valor": "{{props.label}}",
+    "simbolo": "Switch:SW_Push",
+    "huella": "Button_Switch_THT:SW_PUSH_6mm",
+    "pines": {"OUT": "1", "GND": "2"},
+    "fabricacion": "discreto",
+    "notas": ["Las cuatro patas van de a pares: 1-2 es un lado, 3-4 el otro (la huella ya lo une)."]
+  }
 }

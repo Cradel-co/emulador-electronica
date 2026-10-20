@@ -80,5 +80,39 @@
       "default": "#5a1f1a"
     }
   },
-  "model": "model.js"
+  "model": "model.ts",
+  "parte": {
+    "fabricante": "Kingbright",
+    "mpn": {
+      "prop": "color",
+      "map": {"red": "WP7113ID", "green": "WP7113GD", "yellow": "WP7113YD", "blue": "WP7113QBC/D", "white": "WP7113QWC/D"},
+      "default": "WP7113ID"
+    },
+    "descripcion": "LED de 5 mm (T-1 3/4), 20 mA"
+  },
+  "esquematico": {
+    "referencia": "D",
+    "valor": "LED {{props.color}}",
+    "simbolo": "Device:LED",
+    "huella": "LED_THT:LED_D5.0mm",
+    "pines": {"IN": "2", "GND": "1"},
+    "fabricacion": "discreto",
+    "notas": ["IN es el ánodo (pata larga); GND el cátodo (lado plano)."]
+  },
+  "reglas": [
+    {
+      "tipo": "tensionMax",
+      "entre": ["GND", "IN"],
+      "max": 5.2,
+      "severidad": "peligro",
+      "mensaje": "Polarizado al revés con {v} V: más de los 5 V que aguanta un LED en inversa, se daña."
+    },
+    {
+      "tipo": "tensionMax",
+      "entre": ["GND", "IN"],
+      "max": 4.5,
+      "severidad": "advertencia",
+      "mensaje": "Polarizado al revés con {v} V: no prende y está al límite de los 5 V que aguanta en inversa."
+    }
+  ]
 }

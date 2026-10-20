@@ -46,15 +46,25 @@ Los controles USB pertenecen a cada instancia de placa y los tests usan esos con
 La resolución conserva la actualización incremental del lienzo y la invalidación inmediata
 al modificar el circuito, incorporadas por los PR #72 y #73.
 
-Validación de la integración (Node 24.21.0): `npm ci`, build general y typechecks de
-servidor/frontend correctos; Vitest completo: 1602 pruebas aprobadas y una omisión
-existente. Los siete E2E focalizados de MDX y vista compartida pasaron.
-La primera corrida amplia detectó siete fallos de helpers/aislamiento; se corrigieron
-sin retirar comprobaciones. La segunda completó 156 de 158 casos sin fallos (143
-aprobados y 13 omisiones condicionales existentes), antes de terminar externamente
-con código 143. El archivo final de ventanas se verifica por separado para completar
-la cobertura; esto no equivale a una corrida completa finalizada en un solo proceso.
-El archivo `tool-window.spec.ts` pasó sus cuatro casos en un servidor nuevo. La unión
-de ambas corridas cubre los 145 casos aprobados y las 13 omisiones del listado final,
-sin nuevos skips. El circuito de 100 LEDs mantuvo cero nodos creados/destruidos en
-40 cambios eléctricos.
+La identidad de la sesión compartida se conserva si la ejecución se detiene por pérdida de
+alimentación. En ese caso solo se permite liberar un pulsador momentáneo iniciado por esa
+misma sesión. Cambiar la ejecución, recargar el código o guardar el proyecto invalida la
+identidad anterior: el enlace viejo no puede alterar los controles del contexto nuevo.
+El visor libera las pulsaciones pendientes al recibir un estado inactivo, perder foco o cerrarse.
+
+La integración incorpora `main` hasta `9e50897`, incluido el PR #90. Conserva sus transacciones,
+escrituras atómicas, registro único de rutas y reglas para rechazar simulaciones sin resolver.
+El lockfile conserva las versiones de las dependencias de `main` y añade las necesarias para MDX.
+Las pruebas del visor y de la biblioteca educativa están bajo `app/tests/unit/server/`, donde
+las descubre la suite actual. La creación concurrente de prácticas con el mismo nombre se serializa.
+
+Validación de esta integración con Node 24.21.0:
+
+- `npm ci`, `npm run build`, typechecks de servidor/frontend y `npm run typecheck:modulos`: correctos.
+- `npx vitest run`: 1742 pruebas aprobadas y una omitida; 165 archivos aprobados y uno omitido.
+- `EMU_E2E_CHANNEL=chromium npx playwright test`: corrida completa finalizada, 167 casos aprobados
+  y 14 omisiones condicionales del entorno, sin fallos. Incluye la liberación del pulsador mientras
+  el mouse sigue abajo, el aislamiento LAN, los flujos de Aprender y los módulos del PR #90.
+- Regresiones del servidor: libera la pulsación tras detenerse; rechaza nuevas pulsaciones con
+  la sesión inactiva y rechaza liberaciones desde enlaces de otra ejecución o diagrama.
+- Circuito de 100 LEDs: 5255 nodos, 40 cambios eléctricos y cero nodos creados o destruidos.

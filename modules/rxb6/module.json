@@ -32,5 +32,35 @@
     "pin": "DATA"
   },
   "svg": "module.svg",
-  "model": "model.js"
+  "model": "model.ts",
+  "parte": {
+    "fabricante": "genérico",
+    "mpn": "RXB6 433 MHz",
+    "generico": true,
+    "descripcion": "Receptor superheterodino de 433 MHz (ASK/OOK)"
+  },
+  "esquematico": {
+    "referencia": "A",
+    "valor": "RXB6",
+    "huella": "Connector_PinHeader_2.54mm:PinHeader_1x03_P2.54mm_Vertical",
+    "pines": {"DATA": "1", "VCC": "2", "GND": "3"},
+    "fabricacion": "modulo",
+    "notas": ["Antena: 17,3 cm de cable (cuarto de onda a 433 MHz)."]
+  },
+  "reglas": [
+    {
+      "tipo": "tensionMax",
+      "entre": ["VCC", "GND"],
+      "max": 6,
+      "severidad": "peligro",
+      "mensaje": "VCC del RXB6 en {v} V: el máximo es 5,5 V, se daña."
+    },
+    {
+      "tipo": "tensionMin",
+      "entre": ["VCC", "GND"],
+      "min": 3.3,
+      "severidad": "advertencia",
+      "mensaje": "VCC del RXB6 en {v} V: necesita entre 3,3 y 5,5 V para recibir bien."
+    }
+  ]
 }

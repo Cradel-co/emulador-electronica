@@ -1,0 +1,8 @@
+[
+  {
+    "nombre": "con USB: 5 V y 3,3 V en sus pines",
+    "props": {"usb": true},
+    "banco": {},
+    "espera": {"tension": {"5V:GND": [4.7, 5.1], "3V3:GND": [3.2, 3.4]}}
+  }
+]

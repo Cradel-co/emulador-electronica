@@ -15,5 +15,10 @@
       "@emu/shared": ["../shared/src/index.ts"]
     }
   },
-  "include": ["src/**/*.ts", "../../chips/*/*.ts", "../../modules/*/model.ts"]
+  "include": [
+    "src/**/*.ts",
+    "../tests/unit/server/**/*.ts",
+    "../../chips/*/*.ts",
+    "../../modules/*/model.ts"
+  ]
 }

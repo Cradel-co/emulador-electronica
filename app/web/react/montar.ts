@@ -1,3 +1,7 @@
+import { AnalisisFisicosDialog } from './AnalisisFisicos.js';
+import { Monitoreo } from './Monitoreo.js';
+import { InformePrototipoDialog } from './InformePrototipo.js';
+import { ConflictosGuardado } from './ConflictosGuardado.js';
 import { createRoot } from 'react-dom/client';
 import { createElement, type FunctionComponent } from 'react';
 import { flushSync } from 'react-dom';
@@ -41,6 +45,9 @@ const ISLAS: [string, FunctionComponent, boolean][] = [
   ['react-lienzo', Lienzo, true],
   ['avisos-dibujo', Avisos, false],
   ['tool-windows', ToolWindows, true],
+  ['conflictos-guardado', ConflictosGuardado, true],
+  ['dlg-analisis-fisicos', AnalisisFisicosDialog, true],
+  ['dlg-informe-prototipo', InformePrototipoDialog, true],
   ['dock-layout', DockWorkspace, true],
   ['tw-explorador', ExplorerIcon, false],
   ['lista-proyectos', Proyectos, false],
@@ -59,6 +66,7 @@ const ISLAS: [string, FunctionComponent, boolean][] = [
   ['problemas', Problemas, false],
   ['avisos', ErroresCompilacion, false],
   ['dbg-alimentacion', DebugAlimentacion, false],
+  ['dbg-monitoreo', Monitoreo, true],
   ['imp-resultado', ResultadoImportacion, false],
   ['proyecto', OpcionesProyectos, false],
   ['nuevo-placa', OpcionesPlacaNueva, false],

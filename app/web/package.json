@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "vite build",
-    "typecheck": "tsc -b tsconfig.navigation.json && tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -b tsconfig.navigation.json tsconfig.coordinacion.json && tsc -p tsconfig.json --noEmit",
     "dev": "vite build --watch"
   },
   "dependencies": {

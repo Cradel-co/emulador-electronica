@@ -39,6 +39,7 @@ function Preview() {
         const result = await request();
         if (disposed) return;
         current.current = result;
+        if (!result.active) release();
         setSnapshot(result);
         setError('');
         if (!canvas.current && svg.current) {
@@ -61,7 +62,8 @@ function Preview() {
             seleccionar: noop, moverModulo: noop, rotarModulo: noop, conectar: noop, soltarModulo: noop,
             alternarUsb: noop, puedeEmpezarCable: () => false,
             control(inst, control, _index, event) {
-              if (!current.current?.active || !current.current.catalog.find(def => def.type === inst.type)?.switch) return;
+              const liberaPendiente = control === 'momentary' && event === 'up' && pressed.current.has(inst.id);
+              if ((!current.current?.active && !liberaPendiente) || !current.current?.catalog.find(def => def.type === inst.type)?.switch) return;
               if (control !== 'momentary' && event !== 'down') return;
               const closed = control === 'momentary' ? event === 'down' : !current.current.live?.cerrados.includes(inst.id);
               if (control === 'momentary') {

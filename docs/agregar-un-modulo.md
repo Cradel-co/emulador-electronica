@@ -8,7 +8,7 @@ El formato del `module.json` está en [`../modules/README.md`](../modules/README
 modelo en [`modulos-y-su-codigo.md`](modulos-y-su-codigo.md). Esto es el **proceso**, no el
 formato.
 
-Buena parte de estas reglas las verifica solo `app/server/src/catalogoModulos.test.ts`: un módulo
+Buena parte de estas reglas las verifica solo `app/tests/unit/server/catalogoModulos.test.ts`: un módulo
 nuevo que se olvide de una pone un test en rojo. Lo que ese test **no** puede comprobar es el
 paso 7, que es justo el que más bugs encontró.
 

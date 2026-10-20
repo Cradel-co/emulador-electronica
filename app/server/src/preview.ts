@@ -6,11 +6,13 @@ import type { FastifyInstance } from 'fastify';
 export interface PreviewSnapshot {
   name: string;
   diagram: { modules: Array<{ id: string; type: string; [key: string]: unknown }>; wires: unknown[] };
-  catalog: Array<{ type: string; switch?: unknown; [key: string]: unknown }>;
+  catalog: Array<{ type: string; switch?: unknown; controls?: Array<{ kind: string }>; [key: string]: unknown }>;
 }
 export interface PreviewDependencies {
   snapshot(name: string): Promise<PreviewSnapshot>;
   revision(name: string): string | null;
+  /** Identidad de la ejecución/diagrama, conservada al detenerse por pérdida de alimentación. */
+  revisionActual(name: string): string;
   state(name: string): Promise<unknown>;
   control(name: string, id: string, closed: boolean): Promise<void>;
   port: number;
@@ -29,7 +31,7 @@ export function previewResource(path: string): boolean {
 }
 
 export function registerPreviews(app: FastifyInstance, deps: PreviewDependencies): void {
-  const sessions = new Map<string, { snapshot: PreviewSnapshot; revision: string; created: number }>();
+  const sessions = new Map<string, { snapshot: PreviewSnapshot; revision: string; created: number; pressed: Set<string> }>();
   const cached = new Map<string, { at: number; pending: Promise<unknown> }>();
   const liveState = (name: string) => {
     const previous = cached.get(name);
@@ -50,7 +52,7 @@ export function registerPreviews(app: FastifyInstance, deps: PreviewDependencies
     for (const [id, session] of sessions) if (Date.now() - session.created > lifetime) sessions.delete(id);
     if (sessions.size >= 100) sessions.delete(sessions.keys().next().value as string);
     const token = randomUUID();
-    sessions.set(token, { snapshot, revision, created: Date.now() });
+    sessions.set(token, { snapshot, revision, created: Date.now(), pressed: new Set() });
     const path = `/preview.html#${token}`;
     return { path, links: localAddresses().map(address => `http://${address}:${deps.port}${path}`) };
   });
@@ -69,13 +71,20 @@ export function registerPreviews(app: FastifyInstance, deps: PreviewDependencies
   app.post('/api/previews/:token/controls', async (req, reply) => {
     const session = resolve((req.params as { token: string }).token);
     if (!session) return reply.code(404).send({ error: 'El enlace no existe o venció.' });
-    if (deps.revision(session.snapshot.name) !== session.revision) return reply.code(409).send({ error: 'La ejecución compartida terminó o cambió.' });
     const { id, cerrado } = (req.body ?? {}) as { id?: unknown; cerrado?: unknown };
     const inst = session.snapshot.diagram.modules.find(module => module.id === id);
     const def = inst && session.snapshot.catalog.find(module => module.type === inst.type);
     if (typeof id !== 'string' || typeof cerrado !== 'boolean' || !def?.switch)
       return reply.code(400).send({ error: 'Solo se aceptan controles del circuito compartido.' });
+    // Una pulsación puede cortar la alimentación. Su liberación sigue perteneciendo a esa
+    // ejecución: se acepta solo si esta sesión la inició y no cambiaron ejecución ni diagrama.
+    const liberaPendiente = !cerrado && session.pressed.has(id)
+      && deps.revisionActual(session.snapshot.name) === session.revision;
+    if (deps.revision(session.snapshot.name) !== session.revision && !liberaPendiente)
+      return reply.code(409).send({ error: 'La ejecución compartida terminó o cambió.' });
+    if (cerrado && def.controls?.some(control => control.kind === 'momentary')) session.pressed.add(id);
     await deps.control(session.snapshot.name, id, cerrado);
+    if (!cerrado) session.pressed.delete(id);
     cached.delete(session.snapshot.name);
     return { ok: true };
   });

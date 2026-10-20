@@ -24,6 +24,12 @@ Guía para Claude Code (claude.ai/code) al trabajar en este repositorio.
 Si hay un PR abierto que toca los mismos archivos, **revisarlo antes de escribir código**
 (`gh pr view <n> --json files`) para no duplicar trabajo ni generar conflictos.
 
+## Versionado y releases
+
+Seguir [docs/versionado-y-releases.md](./docs/versionado-y-releases.md): una versión común
+para los paquetes, criterios PATCH/MINOR/MAJOR y cierre mediante PR, etiqueta y GitHub Release.
+El merge de una funcionalidad no autoriza publicar una release.
+
 ## Comandos
 
 ```bash
@@ -44,6 +50,9 @@ cd /home/marcos/marcos/emulador-electronica/app && npx playwright test
 #   npx playwright install chromium        # baja el Chromium de Playwright, sin sudo
 #   EMU_E2E_CHANNEL=chromium npx playwright test
 
+# Tipos del código de los módulos (modules/*/model.ts, modo estricto)
+cd /home/marcos/marcos/emulador-electronica/app && npm run typecheck:modulos
+
 # Typecheck por workspace (el CI no perdona un any implícito)
 cd /home/marcos/marcos/emulador-electronica/app/server && npx tsc -p tsconfig.json --noEmit
 
@@ -63,6 +72,11 @@ curl -s localhost:5180/api/projects/<proyecto>/pins | python3 -m json.tool | gre
 
 - **Español** en comentarios, mensajes de commit, nombres de dominio (`conduce`, `voltajes`, `fuente`) y
   texto de UI. Los identificadores de la API pública y los campos de los `.json` quedan como están.
+- **Tests separados del código**: los unitarios van bajo `app/tests/unit/`; los de `server` y
+  `shared` conservan allí sus subcarpetas y estructura por área. Los e2e van en `app/tests/e2e/` y
+  los fixtures exclusivos de tests en `app/tests/fixtures/`. Al implementar o modificar una
+  funcionalidad, actualizar el test existente o agregar uno en esa estructura; no crear archivos de
+  test ni fixtures exclusivos de test dentro de `src/`. Ver [docs/pruebas.md](./docs/pruebas.md).
 - TypeScript estricto con `noUncheckedIndexedAccess`: indexar un array devuelve `T | undefined`.
   Resolverlo con un chequeo explícito o un `?? 0` justificado, no con `!`.
 - `projects/*` **no se versiona** (salvo `projects/_template/`): los proyectos de cada quien son locales.
@@ -108,7 +122,27 @@ son propios, reutilizables y configurables; las bibliotecas se integran mediante
 Su estado interno no debe convertirse en el modelo de dominio ni propagarse por toda la aplicación.
 Ver [arquitectura-web.md](./docs/arquitectura-web.md#componentes-propios-y-adaptadores).
 
+## Server (`app/server`)
+
+La arquitectura es un monolito modular. Las reglas para las capas, los límites de dependencias,
+las rutas y la migración gradual de `index.ts` están en
+[docs/arquitectura-server.md](./docs/arquitectura-server.md). Los registradores de rutas reciben
+dependencias explícitas y no importan el punto de entrada.
+
+- **Un único registro por método y ruta.** Antes de agregar un endpoint, buscar si ya está
+  registrado y extender su registrador existente en `app/server/src/routes/` o en la capacidad
+  correspondiente, con dependencias explícitas. No volver a declararlo en `index.ts`: Fastify
+  aborta el arranque ante rutas duplicadas. Comprobar el arranque del servidor real además del build.
+- **Una simulación sin resolver es una prueba fallida.** Si el motor devuelve `resuelto: false`,
+  el banco debe devolver `ok: false` y conservar el diagnóstico, aunque no haya excepción ni
+  mediciones esperadas. Esto también aplica a la prueba de humo y debe impedir la importación,
+  incluido `soloValidar`. Cubrirlo con una regresión: un resultado vacío del motor no puede
+  aprobarse por falta de aserciones.
+
 ## Documentación
+
+- [docs/arquitectura-server.md](./docs/arquitectura-server.md) — capas del server, dirección de
+  dependencias y migración gradual de rutas y arranque.
 
 - [README.md](./README.md) — puesta en marcha paso a paso y requisitos.
 - [docs/](./docs/) — alcance, placas, módulos, fuentes de alimentación, troubleshooting.
@@ -121,6 +155,10 @@ Ver [arquitectura-web.md](./docs/arquitectura-web.md#componentes-propios-y-adapt
   componentes de React, y las reglas de modularización con el error que originó cada una.
 - [SDD-MODULOS.md](./SDD-MODULOS.md) — diseño de módulos completos (esquemático exportable, reglas y tests
   propios, comportamiento digital, entorno y salidas); la sección 8 dice qué ya está hecho y qué se aprendió.
+- [modules/README.md](./modules/README.md) — **cómo tiene que ser un módulo**: formato, `parte`, `esquematico`, `reglas`,
+  `tests.json` y niveles. El código de cada módulo es TypeScript (`model.ts`). Los módulos de fábrica se
+  prueban y validan en `app/tests/unit/server/modulosFabricables.test.ts`; un símbolo o huella de KiCad
+  nuevo se verifica contra las librerías oficiales y se suma a `app/tests/fixtures/server/kicad-verificados.txt`.
 - [SDD-EDITOR.md](./SDD-EDITOR.md) — diseño y alcance del editor CodeMirror 6 para MicroPython,
   con autocompletado, diagnóstico sintáctico local y pruebas de regresión.
 - [SDD-AUDIO.md](./SDD-AUDIO.md) — diseño de los módulos que suenan y del micrófono: un contrato
@@ -129,5 +167,5 @@ Ver [arquitectura-web.md](./docs/arquitectura-web.md#componentes-propios-y-adapt
 - [SDD-ESP-CAMERA.md](./SDD-ESP-CAMERA.md) — diseño de la cámara OV2640 por DVP en ESP32-S3,
   compatibilidad del driver físico y frontera de fidelidad de la emulación.
 - [chips/README.md](./chips/README.md) — chips con lógica (I2C/SPI en el Uno y puente MicroPython en ESP32): cómo se escriben y se prueban.
-  Los sketches de prueba se compilan con `sh app/server/src/fixtures/chips/compilar.sh` (Docker) y los
-  `.hex` se versionan: los tests corren sin Docker.
+  Los sketches de prueba se compilan con `sh app/tests/fixtures/server/chips/compilar.sh` (Docker) y
+  los `.hex` se versionan: los tests corren sin Docker.

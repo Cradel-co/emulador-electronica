@@ -106,7 +106,7 @@ de la serie Murata PKB.
 
 **Hecho:** `salidas` en el esquema (`app/shared/src/module.ts`), la lógica pura de amplitud
 (`app/shared/src/audio.ts`), el módulo `modules/buzzer-activo/` y sus tests contra ngspice
-(`app/server/src/sim/buzzerActivo.test.ts`). **Falta** publicar el `EventoSonido` desde el
+(`app/tests/unit/server/sim/buzzerActivo.test.ts`). **Falta** publicar el `EventoSonido` desde el
 server y el adaptador del navegador (sección 8).
 
 ## 5. Caso B — PWM (buzzer pasivo, melodías)
@@ -218,7 +218,7 @@ Se sigue el patrón ya probado de `camera.ts`: un controlador con sus dependenci
 inyectadas, que se testea con dobles sin tocar el navegador.
 
 - `app/web/audio.ts` — `ControladorAudio` con `Dependencias` inyectables (la fábrica del
-  `AudioContext`). Es **el único archivo que toca la Web Audio API**.
+  `AudioContext`). Es el adaptador de salida Web Audio; la entrada del micrófono usa un adaptador separado.
 - La lógica pura —tensión → ganancia, duty → ganancia RMS, nota → Hz— va aparte y con
   tests en `app/tests/unit/`, sin DOM ni estado global.
 - El `AudioContext` solo se puede crear tras un gesto del usuario (política de autoplay de
@@ -285,3 +285,23 @@ Primero el test que falla por la razón correcta, como pide
   ejemplo del buzzer activo ya verificado.
 - [GUIA-IMPLEMENTACION.md](./GUIA-IMPLEMENTACION.md) — sección 7, protocolo del puente.
 - [docs/arquitectura-web.md](./docs/arquitectura-web.md) — componentes propios y adaptadores.
+
+## Entrada nativa de micrófono para el SEN0232
+
+`microfono-captura.ts` encapsula getUserMedia, AudioContext y AnalyserNode (2048 muestras).
+`microfono-senal.ts` calcula RMS, dBFS, saturación y una envolvente de hasta 128 pares mín/máx.
+`microfono.ts` administra permiso, dispositivos, cancelación por generación y transporte limitado
+(10 Hz de lectura local, 4 Hz de métricas, una petición en vuelo). React dibuja la ventana local
+y expone una referencia explícita, sin atribuir dBA físicos al micrófono del computador.
+
+El contrato compartido valida secuencia, dBFS y referencia; nunca recibe muestras de audio.
+El servidor asigna una sesión con propietario y caducidad de seis segundos. La entrada vive en
+memoria y se superpone sobre una copia del proyecto al resolver circuitos y alimentar el ADC;
+no modifica propiedades persistidas. El modelo SEN0232 sigue imponiendo sus límites físicos.
+Las observaciones llevan la referencia y el nivel estimado de la misma resolución. Un cambio
+invalida cálculos en vuelo. El cierre, vencimiento o eliminación del destino retira la entrada.
+
+La gráfica local representa audio digital relativo; Debug conserva por separado la historia de
+instantáneas eléctricas con unidades y procedencia. Los cambios entre manual y micrófono limpian
+esa historia. No se implementan ponderación A, medición SPL, respuesta temporal del sensor ni
+transporte o grabación de audio. Ver instrucciones y límites en [docs/sonometro.md](docs/sonometro.md).

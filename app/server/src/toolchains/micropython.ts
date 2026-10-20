@@ -1,10 +1,7 @@
-import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { createHash } from 'node:crypto';
 import { PATHS } from '../paths.js';
-import { run } from '../dockerRunner.js';
 import type { BuildCallbacks, BuildResult } from '../buildService.js';
-import { exists } from '../filesystem.js';
+import { obtenerFirmware } from '../cacheFirmware.js';
 import { ProjectError } from '../projectStore.js';
 import { micropythonMainPara } from '../templates/languages.js';
 import { microPythonBoot, microPythonSimbridgePara } from '../templates/micropythonBridge.js';
@@ -32,29 +29,10 @@ export function ensureMicropythonFirmware(cb: BuildCallbacks, file = MICROPYTHON
   return job;
 }
 async function downloadFirmware(cb: BuildCallbacks, file: string, url: string): Promise<string> {
-  const target = firmwarePath(file);
-  const hashFile = target + '.sha256';
-  await fs.mkdir(path.dirname(target), { recursive: true });
-  if (await exists(target)) return target;
-
-  cb.onLine(`Descargando el firmware de MicroPython ${MICROPYTHON_VERSION} (${file}, ~2 MB)...`);
-  const temporary = target + '.download';
-  const res = await run('curl', ['-fsSL', '-o', temporary, url], (line) => cb.onLine(line), { timeoutMs: 120_000 });
-  if (res.code !== 0) {
-    throw new ProjectError(
-      `No se pudo descargar el firmware de MicroPython desde ${url}. ` +
-        'Para MicroPython hace falta internet una vez; los demás lenguajes no.',
-      502,
-    );
+  try { return await obtenerFirmware(firmwarePath(file), url, line => cb.onLine(line)); }
+  catch (error) {
+    throw new ProjectError(`No se pudo preparar el firmware de MicroPython: ${error instanceof Error ? error.message : String(error)}`, 502);
   }
-  await fs.rename(temporary, target);
-  // TOFU: se guarda el hash del primer download para detectar que cambie.
-  if (!(await exists(hashFile))) {
-    const hash = createHash('sha256').update(await fs.readFile(target)).digest('hex');
-    await fs.writeFile(hashFile, `${hash}  ${file}\n`, 'utf8');
-    cb.onLine(`SHA-256 del firmware: ${hash}`);
-  }
-  return target;
 }
 
 /**

@@ -68,7 +68,7 @@ El dibujo del circuito, el editor y la consola **no** pasan por el ciclo de rend
 |---|---|---|
 | Niveles de pin en el circuito | hasta 60 por segundo | `pedirRender()` toca atributos de nodos que ya existen (#18) |
 | Consola | ráfagas de miles de líneas | append incremental al `<pre>`, con cache |
-| Editor | cada tecla | resaltado por `innerHTML`, gutter y marcas a mano |
+| Editor | cada tecla | adaptador CodeMirror 6 para MicroPython; resaltado/gutter heredados para otros lenguajes |
 
 React monta el contenedor y se corre del camino (`react/Lienzo.tsx`). Medido en #18: 0 nodos creados
 por pulso de `pin.out` y 16,6 ms por pulso con 201 módulos, el techo de `requestAnimationFrame`.
@@ -210,7 +210,18 @@ Mover, Proyectos y Código se retiraron para evitar accesos duplicados.
 zoom y encuadre. El servidor entrega una instantánea del diagrama y catálogo sin
 fuentes; una capacidad aleatoria identifica la sesión y limita los controles a sus
 módulos. La sesión pertenece a una ejecución y caduca si cambia su revisión.
+Una pulsación momentánea iniciada por la sesión puede soltarse tras perder alimentación,
+si conserva la identidad de ejecución y diagrama. El visor libera sus pulsaciones pendientes
+al observar una ejecución inactiva, perder foco o cerrarse. Un enlace anterior no puede liberar
+un control de una ejecución nueva ni de un diagrama modificado.
 Los clientes LAN solo tienen acceso al visor, bundles y endpoints de esa capacidad;
 el editor y el WebSocket de depuración mantienen acceso local por defecto.
 El estado eléctrico se consulta sin solapar pedidos, comparte un caché breve por
 proyecto y reduce su frecuencia cuando la pestaña está oculta.
+
+## Coordinación del guardado
+
+`guardado-diagrama.ts` posee el debounce, la cola de envíos y la revisión del circuito mediante
+puertos propios sin DOM. `app.ts` conecta API, notificación y efectos visuales. Tiene un proyecto
+TypeScript estricto independiente; la web heredada mantiene su migración gradual. El contrato,
+la caracterización y los límites de sincronización están en [coordinacion.md](coordinacion.md).

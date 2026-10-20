@@ -293,11 +293,11 @@ posteriores, que requerirán sus propios objetivos y mediciones.
 ## 9. Referencias locales
 
 - [Decodificador y generación MicroPython](app/server/src/templates/jpegDecoder.ts).
-- [Pruebas actuales del decodificador](app/server/src/templates/jpegDecoder.test.ts).
+- [Pruebas actuales del decodificador](app/tests/unit/server/templates/jpegDecoder.test.ts).
 - [Programa TFT y tiempos por etapa](app/server/src/templates/arducamTft.ts).
 - [Generación de proyectos](app/server/src/projectStore.ts).
 - [Integración ArduCAM/TFT](app/tests/e2e/arducam.spec.ts).
-- [Ejemplo de ejecución MicroPython real](app/server/src/micropythonImports.integration.test.ts).
+- [Ejemplo de ejecución MicroPython real](app/tests/unit/server/micropythonImports.integration.test.ts).
 - [Flujo de ramas y PR](CLAUDE.md).
 
 ## 10. Avance y verificación

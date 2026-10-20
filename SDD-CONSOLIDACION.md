@@ -1,7 +1,7 @@
 # SDD — Consolidación del emulador de electrónica
 
 Fecha: 2026-10-08. Base analizada: `4744351` de `origin/main`.
-Estado: etapas 1 y 2 integradas; etapa 3 implementada y verificada en rama; etapas 4–6 pendientes.
+Estado: etapas 1–3 y 5 integradas; primera entrega de etapa 4 integrada en #75; segunda entrega integrada en #76; tercera entrega integrada en #77; informe de etapa 6 integrado en #78; monitoreo, micrófono y TFT integrados en #80, #81 y #83. Próximo bloque: interfaz DC y transitorio.
 
 ## 1. Problema y resultado esperado
 
@@ -104,7 +104,7 @@ Las descargas se cortan durante lectura al superar el presupuesto, aunque no hay
 | 2. Pruebas de recorrido | Reconciliar seis E2E, aislar intermitencia de recarga | E2E estándar completos en verde sin omitir escenarios ni relajar assertions | Coordinar con PR #55 |
 | 3. Observación eléctrica | Unificar `leer_pines`, ampliar `ver_proyecto`, contexto multiplaca | REST/UI/MCP coinciden en fixtures activos bajo, entre GPIO, sin energía y solver fallido | Contrato compartido y etapa 2 |
 | 4. Datos y descargas | Escritura atómica, mutaciones serializadas, conflicto entre clientes, integridad firmware, descarga acotada | Pruebas de interrupción/concurrencia y límites pasan; política de caché documentada | Revisar cambios de ProjectStore en #55 |
-| 5. Arquitectura y documentación | Extraer coordinación, migrar tipos por responsabilidad, reconciliar alcance | Caracterización sin cambios funcionales; módulos extraídos estrictos; docs trazables al código | Etapas 2–4 y SDD existentes |
+| 5. Arquitectura y documentación | Extraer coordinación, migrar tipos por responsabilidad, reconciliar alcance | Caracterización sin cambios funcionales; módulos extraídos estrictos; docs trazables al código | Etapas 2–3; conservar persistencia actual hasta etapa 4 |
 | 6. Resultado del prototipado | Exportar circuito y medidas; UI para análisis físicos | Exportación completa legible, dominio/unidades/validez explícitos y pruebas visuales | Observación etapa 3; SDD específico de exportación |
 
 No se prometen fechas sin medir las primeras entregas. El tamaño de un PR se decide por
@@ -159,7 +159,12 @@ Habilitar strictness por módulo migrado; no convertir todo `app.ts` en un únic
 
 ## 8. PR concurrentes y compatibilidad
 
-Revisados el 2026-10-08:
+Situación revisada al comenzar etapa 5, el 2026-10-09:
+
+#69 y #70 están integrados en `main`, junto con #71, #72 y #73. #55 sigue abierto y
+en borrador: sus conflictos fueron resueltos sin integrarlo y queda a cargo de Brian.
+La etapa 5 parte de `ca9171a` y revisó los archivos compartidos con #55 antes de escribir.
+Los siguientes puntos conservan el contexto de la revisión inicial del 2026-10-08:
 
 - #69 (`chore/changelog-por-rama`): agrega CLI y regla de fragmentos; modifica la última entrada
   de scripts en app/package.json. Etapa 1 agrega scripts en shared/package.json, por lo que no
@@ -191,8 +196,10 @@ Una mejora de fidelidad debe declarar dominio y procedencia de parámetros, adem
 | Regresiones iniciales | En rojo antes del arreglo | 6 fallan y 66 pasan en pruebas focalizadas |
 | Etapa 1 | Integrada en PR #71 | 72 pruebas focalizadas; 1552 pasan y 1 omitida en `npx vitest run`; build general y typechecks server/web pasan |
 | Etapa 2 | Integrada en PR #72 | E2E: 133 pasan, 13 omisiones existentes; recarga Aprender 3/3; Vitest: 1552 pasan, 1 omitida; build/typechecks pasan |
-| Etapa 3 | Implementada; pendiente de revisión/merge | Vitest: 1572 pasan, 1 omitida; E2E: 135 pasan, 13 omisiones existentes; build/typechecks pasan |
-| Etapas 4–6 | Pendientes | No declarar realizadas por completar este documento |
+| Etapa 3 | Integrada en PR #73 | Vitest: 1572 pasan, 1 omitida; E2E: 135 pasan, 13 omisiones existentes; build/typechecks pasan |
+| Etapa 4 | Primera y segunda entregas integradas en #75 y #76; tercera integrada en #77 | Vitest: 1618 pasan, 1 omitida; E2E: 135 pasan, 13 omisiones existentes; build/tipos pasan. Conflictos integrados; firmware y descarga integrados |
+| Etapa 5 | Integrada en PR #74 | Vitest: 1608 pasan, 1 omitida; E2E: 135 pasan, 13 omisiones existentes; build/typechecks pasan; [contratos y límites](docs/coordinacion.md) |
+| Etapa 6 | Informe integrado en #78; monitoreo/micrófono/TFT integrados en #80/#81/#83 | Informe JSON/HTML e historial disponibles; próxima entrega: controles DC/transitorio |
 
 La suite final se ejecutó sin flags de concurrencia, con la configuración nueva de dos procesos.
 Las seis regresiones nuevas pasaron después de fallar en la base. Las pruebas TCP se ejecutaron
@@ -248,7 +255,107 @@ Validación final: 1572 pruebas unitarias aprobadas y 1 omitida; 135 E2E aprobad
 introdujeron skips, retries ni cambios de ecuaciones para lograr esos resultados. Las pruebas
 TCP y Chrome usaron permisos locales y carpetas temporales aisladas.
 
+### Quinta etapa: separación por responsabilidad
+
+Se ejecuta antes de la etapa 4 por pedido del usuario. La extracción conserva la persistencia
+actual y documenta sus riesgos; no depende de prometer atomicidad o resolver conflictos.
+Se separan la cola de corridas, el servicio de observación, la publicación de eventos y
+el guardado de diagrama web. Las políticas, puertos, tipos y caracterización se trazan
+a los archivos en [coordinacion.md](docs/coordinacion.md). Los puntos de entrada siguen
+conectando HTTP, WebSocket, motores y DOM; no se declara migrado todo el frontend.
+
+
+Validación final: 19 pruebas de caracterización, ejecutadas contra las implementaciones
+originales antes de conectar las extracciones. La suite general terminó con 1608 aprobadas y
+1 omisión existente. E2E estándar completos en dos tandas disjuntas: 86 y 49 aprobadas,
+8 y 5 omisiones condicionales existentes (total: 135/13). Build y typechecks server/web pasan.
+No se agregaron skips, retries ni relajaciones de assertions. Proyectos y catálogo de E2E
+usan directorios temporales; no se ensayó firmware Docker opcional ni hardware físico.
+
 
 Referencias: [CLAUDE.md](CLAUDE.md), [arquitectura web](docs/arquitectura-web.md),
 [perfiles físicos](docs/PERFILES-FISICOS.md), [análisis temporal](docs/ANALISIS-TEMPORAL-Y-EVIDENCIA.md),
 [plan de fidelidad](docs/PLAN-FIDELIDAD-FISICA.md), [módulos](SDD-MODULOS.md).
+
+### Cuarta etapa: persistencia del servidor
+
+Primera entrega sobre `d953935`, con #74 integrado. Se revisó #55 antes de modificar
+ProjectStore e index.ts; sus cambios de Aprender no se incorporan. Esta entrega cubre
+escritura atómica y serialización desde la lectura inicial; el [contrato de persistencia](docs/persistencia.md)
+explica límites y uso. Conflictos entre clientes, firmware y descargas siguen pendientes.
+
+Validación: cuatro regresiones en rojo antes del cambio; nueve pruebas finales de persistencia
+y una nueva integración REST. Suite general: 1618 aprobadas y una omisión existente.
+E2E estándar completos en dos tandas: 86 + 49 aprobados y 8 + 5 omisiones condicionales
+existentes. Build general y typechecks server/web pasan; no se agregaron skips ni retries.
+
+### Cuarta etapa, segunda entrega: conflictos
+
+Se implementa sobre `06d3ba1`, con PR #75 integrado y revisión del solapamiento con #55.
+El [contrato de revisiones](docs/conflictos-guardado.md) define recursos, cabeceras, errores,
+compatibilidad REST/MCP y resolución explícita en UI. La edición local se conserva ante
+cambios externos; una respuesta tardía no pisa ediciones nuevas. Firmware y descargas
+siguen pendientes. No se declara obligatoriedad universal para clientes históricos.
+
+Validación de la segunda entrega: 1627 pruebas unitarias aprobadas y una omisión existente;
+E2E completos en dos grupos, 90 + 49 aprobados y 8 + 5 omisiones condicionales existentes.
+Incluye cuatro E2E nuevos; no se agregaron skips ni retries. Typechecks server/web, build de
+producción y validación del fragmento de changelog pasan. No se ensayó cierre real del navegador,
+firmware nuevo en Docker ni hardware físico.
+
+### Cuarta etapa, tercera entrega: firmware y descargas
+
+Base `b58ca62`, con PR #76 integrado. El [contrato de integridad y descargas](docs/integridad-firmware-descargas.md)
+define la referencia TOFU, el rechazo explícito de caché histórica sin huella, recuperación y
+publicación atómica de binario y referencia por separado. Las descargas de módulos y firmware
+cuentan bytes durante lectura y cancelan al superar presupuesto o plazo del cuerpo.
+Tres regresiones fallaron antes del cambio; no se incorpora código de #55 ni autenticidad
+inexistente del primer download. La recuperación conjunta ante borrado externo de una placa
+continúa como límite específico de conflictos, documentado en su contrato.
+
+Validación de la tercera entrega: 1642 pruebas unitarias aprobadas y una omisión existente;
+5 E2E del importador aprobados. Typecheck del servidor, build de producción y fragmento de
+changelog pasan. Sin nuevas omisiones. La suite E2E completa anterior corresponde a #76;
+esta entrega ejecuta el recorrido afectado de importación.
+
+### Sexta etapa, primera entrega: informe de prototipado
+
+Base `2dc7b41`, con PR #77 validado y mergeado. [SDD-EXPORTACION.md](SDD-EXPORTACION.md)
+define JSON versionado y HTML autónomo para circuito completo y medidas de una observación
+nueva. [El manual](docs/informe-prototipo.md) explica dominio, signos, unidades, validez y
+límites. La UI guarda pendientes, comprueba contexto y no aplica una respuesta tardía tras
+editar. El informe abierto es una instantánea, no un monitor vivo. No incluye credenciales Wi-Fi
+ni código ejecutable. Los controles UI para AC/transitorio/térmico quedan en una entrega posterior.
+
+Validación de la primera entrega de etapa 6: 1650 pruebas unitarias aprobadas y una omisión
+existente; E2E estándar completos en dos tandas: 90 + 52 aprobados, 8 + 5 omisiones condicionales
+existentes. Incluye tres recorridos nuevos de descarga/captura/vigencia. Build de producción,
+typechecks server/web y fragmento de changelog pasan; vista previa y HTML descargado inspeccionados.
+No se agregan omisiones ni retries. No se ejecutó firmware nuevo en Docker ni hardware físico.
+
+### Etapa 6: estado reconciliado al 2026-10-11
+
+El informe (#78), la actualización de dependencias (#79), el monitoreo (#80), el micrófono (#81) y la TFT (#83) están integrados en `main`. La cadena #83 → #81 → #80 se validó con 1676 pruebas unitarias, una omisión existente, build y ocho E2E, incluido MicroPython real. #84/#85 separaron fixtures y capas del servidor. Estos números describen esa integración, no una validación de futuros cambios.
+
+El siguiente bloque se especifica en [SDD-ANALISIS-FISICOS.md](SDD-ANALISIS-FISICOS.md): punto DC y transitorio de diseño. AC y térmico quedan para entregas posteriores.
+
+### Etapa 6: interfaz DC y transitorio
+
+La entrega DC/transitorio está integrada en #86. El panel de [análisis físicos](docs/analisis-fisicos.md) reutiliza el informe DC y el transitorio de diseño; conserva tiempos y unidades, exporta las series completas y comprueba la revisión del proyecto antes y después del cálculo. Evidencia y alcance en [SDD-ANALISIS-FISICOS.md](SDD-ANALISIS-FISICOS.md). AC y térmico continúan pendientes.
+
+El siguiente bloque es el panel térmico RC con modelos explícitos; ver segunda entrega de [SDD-ANALISIS-FISICOS.md](SDD-ANALISIS-FISICOS.md). AC continúa pendiente de integración con ngspice.
+
+El panel térmico RC está integrado en #87: 1694 tests unitarios (una omisión previa), cinco E2E de análisis, tipos y build correctos. #88 documenta la política de versionado y releases. El modo electro térmico acoplado conserva su backend y queda pendiente de interfaz.
+
+
+### Etapa 6: interfaz AC de pequeña señal
+
+AC está implementado y validado en rama, pendiente de revisión e integración. Selección explícita
+de fuente activa y pines referidos a tierra, barrido logarítmico con ngspice, Bode de ganancia/fase
+y exportación de fasores con revisión y unidades. No ejecuta firmware ni mide audio capturado.
+Alcance y límites en la tercera entrega de [SDD-ANALISIS-FISICOS.md](SDD-ANALISIS-FISICOS.md).
+
+Validación: 1704 tests unitarios y una omisión existente; ocho E2E de AC/DC/transitorio/térmico,
+tipos server/web y build correctos. Pruebas analíticas RC/RL, fuente CV/CC, décadas fraccionarias,
+entrada nula, transferencia cero, pines flotantes y revisiones cambiantes. Quedan fuera de esta
+entrega el panel electro térmico acoplado y la edición de estímulos temporales.
