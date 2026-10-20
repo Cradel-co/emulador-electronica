@@ -68,6 +68,86 @@ describe('grafo jerárquico conectado al motor eléctrico real', () => {
     expect(corrientes.find(e => JSON.stringify(e.ruta) === JSON.stringify([...prefijo, 'derecha', 'r2']))?.i).toBeCloseTo(vin / 3000, 10);
     expect(r.grafo.redes).toHaveLength(4);
   });
+  it('un único modelo de divisor sustituye sus dos hojas internas sin duplicar efectos', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'divisor-equivalente-')); temporales.push(dir);
+    for (const id of ['resistor', 'fuente-regulable']) await fs.cp(path.join(ROOT, 'modules', id), path.join(dir, id), { recursive: true });
+    const destino = path.join(dir, 'divisor-equivalente'); await fs.mkdir(destino);
+    await fs.writeFile(path.join(destino, 'module.json'), JSON.stringify({
+      type: 'divisor-equivalente', name: 'Equivalente del divisor', category: 'Pruebas', width: 80, height: 40,
+      pins: ['VIN', 'OUT', 'GND'].map((name, x) => ({ name, x: x * 20, y: 0, kind: 'other' })),
+      controls: [], props: { inferior: { type: 'number', default: 1000, min: 1, max: 10_000_000, label: 'Inferior' } },
+      svg: 'module.svg', model: 'model.ts',
+    }));
+    await fs.writeFile(path.join(destino, 'module.svg'), '<svg xmlns="http://www.w3.org/2000/svg"/>');
+    await fs.writeFile(path.join(destino, 'model.ts'), `
+      import type { ModeloModulo } from '@emu/shared';
+      export default { circuito(ctx) {
+        ctx.resistencia(ctx.pin('VIN'), ctx.pin('OUT'), 1000, 'superior');
+        ctx.resistencia(ctx.pin('OUT'), ctx.pin('GND'), Number(ctx.props.inferior), 'inferior');
+      } } satisfies ModeloModulo;
+    `);
+    const paquetes = new PaquetesComponentes({ modulos: dir, chips: path.join(ROOT, 'chips') });
+    const c = await divisoresAlimentados(paquetes);
+    const d = c.definiciones.find(d => d.id === 'divisor');
+    if (!d || d.tipo !== 'compuesto' || c.raiz.tipo !== 'compuesto') throw new Error('fixture');
+    const equivalente = { schemaVersion: 1 as const, id: 'divisor-equivalente', version: '1.0.0', nombre: 'Equivalente',
+      tipo: 'hoja-legada' as const, puertos: d.puertos, parametros: d.parametros,
+      modulo: { id: 'divisor-equivalente', sha256: (await paquetes.inspeccionar('divisor-equivalente')).sha256 } };
+    d.representaciones = { equivalente: referencia(equivalente), predeterminada: 'interno' };
+    c.raiz.instancias.filter(i => i.id !== 'fuente').forEach(i => { i.definicion = referencia(d); });
+    const catalogo = new CatalogoComponentes([...c.definiciones, equivalente]);
+    const base = await analizarGrafoDc(catalogo, referencia(c.raiz), paquetes);
+    expect(base.resuelto).toBe(true); if (!base.resuelto) throw new Error('no resuelto');
+    for (const rutas of [[['izquierda']], [['izquierda'], ['derecha']]]) {
+      const resultado = await analizarGrafoDc(catalogo, referencia(c.raiz), paquetes, {
+        representaciones: rutas.map(ruta => ({ ruta, seleccion: 'equivalente' })),
+      });
+      expect(resultado.resuelto).toBe(true); if (!resultado.resuelto) throw new Error('no resuelto');
+      expect(resultado.elementos).toHaveLength(base.elementos.length);
+      expect(resultado.elementos.filter(e => e.tipo === 'R')).toHaveLength(4);
+      expect(resultado.elementos.filter(e => e.ruta[0] === 'fuente')).toEqual(base.elementos.filter(e => e.ruta[0] === 'fuente'));
+      expect(resultado.elementos.reduce((s, e) => s + e.p, 0)).toBeCloseTo(base.elementos.reduce((s, e) => s + e.p, 0), 10);
+      expect(resultado.tensiones.filter(t => t.puerto === 'OUT')).toEqual(base.tensiones.filter(t => t.puerto === 'OUT'));
+      for (const ruta of rutas) expect(resultado.grafo.instancias.some(i => i.ruta.length > 1 && i.ruta[0] === ruta[0])).toBe(false);
+    }
+    // La alternativa elegida no puede degradarse silenciosamente al esquema interno.
+    await fs.appendFile(path.join(destino, 'model.ts'), '\n// modificación del paquete');
+    await expect(analizarGrafoDc(catalogo, referencia(c.raiz), paquetes, {
+      representaciones: [{ ruta: ['izquierda'], seleccion: 'equivalente' }],
+    })).rejects.toMatchObject({ codigo: 'HASH_DISTINTO', ruta: ['izquierda'] });
+  });
+  it('elige hojas equivalentes por instancia sin duplicar carga, corriente ni potencia', async () => {
+    const c = await divisoresAlimentados();
+    const r = c.definiciones.find(d => d.id === 'resistor');
+    const d = c.definiciones.find(d => d.id === 'divisor');
+    if (!r || !d || d.tipo !== 'compuesto' || c.raiz.tipo !== 'compuesto') throw new Error('fixture');
+    const envoltura = {
+      schemaVersion: 1 as const, id: 'resistor-seleccionable', version: '1.0.0', nombre: 'Resistor con esquema interno',
+      tipo: 'compuesto' as const, puertos: r.puertos, parametros: r.parametros,
+      representaciones: { equivalente: referencia(r), predeterminada: 'interno' as const },
+      instancias: [{ id: 'fisico', definicion: referencia(r), parametros: { ohms: { parametro: 'ohms' } } }],
+      conexiones: r.puertos.map((p, i) => ({ id: `red-${i}`, terminales: [
+        { tipo: 'externo' as const, puerto: p.id }, { tipo: 'hijo' as const, instancia: 'fisico', puerto: p.id },
+      ] })),
+    };
+    d.instancias.forEach(i => { i.definicion = referencia(envoltura); });
+    c.raiz.instancias.filter(i => i.id !== 'fuente').forEach(i => { i.definicion = referencia(d); });
+    const catalogo = new CatalogoComponentes([...c.definiciones, envoltura]);
+    const interno = await analizarGrafoDc(catalogo, referencia(c.raiz), c.paquetes);
+    const mixto = await analizarGrafoDc(catalogo, referencia(c.raiz), c.paquetes, { representaciones: [
+      { ruta: ['izquierda', 'r1'], seleccion: 'equivalente' },
+      { ruta: ['derecha', 'r2'], seleccion: 'equivalente' },
+    ] });
+    expect(interno.resuelto).toBe(true); expect(mixto.resuelto).toBe(true);
+    if (!interno.resuelto || !mixto.resuelto) throw new Error('no resuelto');
+    expect(mixto.elementos).toHaveLength(interno.elementos.length);
+    expect(mixto.elementos.filter(e => e.tipo === 'R')).toHaveLength(4);
+    // Comparar también la alimentación: duplicar ambos resistores conservaría VOUT.
+    const medidas = (resultado: typeof interno) => resultado.elementos.map(e => [e.tipo, e.local, e.va, e.vb, e.i, e.p]);
+    expect(medidas(mixto)).toEqual(medidas(interno));
+    expect(mixto.tensiones.filter(t => t.puerto === 'OUT')).toEqual(interno.tensiones.filter(t => t.puerto === 'OUT'));
+    expect(mixto.grafo.instancias.some(i => JSON.stringify(i.ruta) === JSON.stringify(['izquierda', 'r1', 'fisico']))).toBe(false);
+  });
   it('sin resolver: retira todas las medidas y conserva el diagnóstico aunque el motor devuelva datos', async () => {
     const c = await divisoresAlimentados();
     const cat = await loadCatalog();

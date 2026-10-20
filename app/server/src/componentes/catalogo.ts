@@ -31,6 +31,9 @@ export function huellaContenido(contenido: unknown): string {
 
 const identidad = (r: Pick<ReferenciaComponente, 'id' | 'version'>): string => JSON.stringify([r.id, r.version]);
 
+const referencias = (def: DefinicionComponente): ReferenciaComponente[] => def.tipo === 'compuesto'
+  ? [...def.instancias.map(i => i.definicion), ...(def.representaciones ? [def.representaciones.equivalente] : [])] : [];
+
 /** Catálogo en memoria. Valida todo el cierre de dependencias; nunca consulta un catálogo mutable. */
 export class CatalogoComponentes {
   private readonly definiciones = new Map<string, { def: DefinicionComponente; sha256: string }>();
@@ -44,7 +47,7 @@ export class CatalogoComponentes {
       if (anterior && anterior.sha256 !== sha256) throw new ErrorComponente('VERSION_CONFLICTIVA', `Contenido distinto para la misma versión: ${clave}`);
       if (anterior) continue;
       puertos += def.puertos.length;
-      if (def.tipo === 'compuesto') { conexiones += def.conexiones.length; dependencias += def.instancias.length; }
+      if (def.tipo === 'compuesto') { conexiones += def.conexiones.length; dependencias += referencias(def).length; }
       if (puertos > 20_000 || conexiones > 10_000 || dependencias > 10_000) {
         throw new ErrorComponente('LIMITE', 'Límite de tamaño del catálogo excedido');
       }
@@ -59,16 +62,22 @@ export class CatalogoComponentes {
       if (pila.length > 16) throw new ErrorComponente('LIMITE', 'Límite de profundidad de definiciones excedido');
       const actual = this.definiciones.get(clave);
       if (!actual) throw new ErrorComponente('DEFINICION_AUSENTE', `Definición ausente: ${clave}`);
-      if (actual.def.tipo === 'compuesto') {
-        for (const hijo of actual.def.instancias) visitar(identidad(hijo.definicion), [...pila, clave]);
-      }
+      for (const ref of referencias(actual.def)) visitar(identidad(ref), [...pila, clave]);
       completos.add(clave);
     };
     for (const clave of [...this.definiciones.keys()].sort()) visitar(clave, []);
     for (const { def } of this.definiciones.values()) {
-      if (def.tipo === 'compuesto') for (const hijo of def.instancias) {
-        const contenido = this.definiciones.get(identidad(hijo.definicion));
-        if (contenido?.sha256 !== hijo.definicion.sha256) throw new ErrorComponente('HASH_DISTINTO', `Hash distinto para ${identidad(hijo.definicion)}`, [hijo.id]);
+      for (const ref of referencias(def)) {
+        const contenido = this.definiciones.get(identidad(ref));
+        if (contenido?.sha256 !== ref.sha256) throw new ErrorComponente('HASH_DISTINTO', `Hash distinto para ${identidad(ref)}`);
+      }
+      if (def.tipo === 'compuesto' && def.representaciones) {
+        const equivalente = this.resolver(def.representaciones.equivalente);
+        const interfaz = (d: DefinicionComponente): string => huellaContenido({
+          puertos: [...d.puertos].sort((a, b) => a.id.localeCompare(b.id)), parametros: d.parametros,
+        });
+        if (interfaz(def) !== interfaz(equivalente)) throw new ErrorComponente('PUERTO_INCOMPATIBLE', `Interfaz de representación incompatible: ${def.id}`);
+        if (equivalente.tipo === 'compuesto' && equivalente.representaciones) throw new ErrorComponente('FORMATO', 'Un equivalente no puede volver a seleccionar una representación en la misma ruta');
       }
     }
   }

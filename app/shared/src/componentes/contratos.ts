@@ -83,6 +83,11 @@ const Hoja = Cabecera.extend({
 /** Una red es explícita; no hay etiquetas globales ni GND compartido por nombre. */
 const Compuesto = Cabecera.extend({
   tipo: z.literal('compuesto'),
+  // Alternativas completas: todos los efectos pertenecen exclusivamente a la elegida.
+  representaciones: z.object({
+    equivalente: ReferenciaComponenteSchema,
+    predeterminada: z.enum(['interno', 'equivalente']),
+  }).strict().optional(),
   instancias: z.array(InstanciaComponenteSchema).max(LIMITES_COMPONENTES.instanciasPorDefinicion),
   conexiones: z.array(ConexionComponenteSchema).max(LIMITES_COMPONENTES.conexionesPorDefinicion),
 }).strict();

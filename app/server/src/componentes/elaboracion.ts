@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import type { DefinicionComponente, PuertoComponente, ReferenciaComponente, ValorParametroComponente } from '@emu/shared';
 import { CatalogoComponentes } from './catalogo.js';
 import { ErrorComponente } from './errores.js';
@@ -10,6 +11,7 @@ export interface InstanciaElaborada {
   definicion: ReferenciaComponente;
   tipo: DefinicionComponente['tipo'];
   parametros: Valores;
+  representacion?: { seleccion: 'interno' | 'equivalente'; componente: ReferenciaComponente };
 }
 export interface TerminalElaborado extends PuertoComponente { clave: string; ruta: string[]; puerto: string }
 export interface OrigenRed { ruta: string[]; conexion: string }
@@ -21,7 +23,14 @@ export interface RedElaborada {
   origenes: OrigenRed[];
 }
 export interface GrafoComponentes { instancias: InstanciaElaborada[]; redes: RedElaborada[] }
-export interface OpcionesElaboracion { parametros?: Valores; limites?: Partial<Limites> }
+const Selecciones = z.array(z.object({
+  ruta: z.array(z.string().regex(/^[a-z][a-z0-9-]{0,39}$/)).max(16),
+  seleccion: z.enum(['interno', 'equivalente']),
+}).strict()).max(2000);
+export interface OpcionesElaboracion {
+  parametros?: Valores; limites?: Partial<Limites>;
+  representaciones?: z.infer<typeof Selecciones>;
+}
 
 const claveTerminal = (ruta: readonly string[], puerto: string): string => JSON.stringify([ruta, puerto]);
 const ordenar = (a: string, b: string): number => a < b ? -1 : a > b ? 1 : 0;
@@ -50,6 +59,14 @@ export function elaborarComponente(catalogo: CatalogoComponentes, raiz: Referenc
     const valor = limites[nombre as keyof Limites];
     if (!Number.isSafeInteger(valor) || valor < 1 || valor > max) throw new ErrorComponente('LIMITE', `Límite inválido: ${nombre}`);
   }
+  const validacion = Selecciones.safeParse(opciones.representaciones ?? []);
+  if (!validacion.success) throw new ErrorComponente('FORMATO', 'Selección de representaciones inválida');
+  const pendientes = new Map<string, 'interno' | 'equivalente'>();
+  for (const s of validacion.data) {
+    const clave = JSON.stringify(s.ruta);
+    if (pendientes.has(clave)) throw new ErrorComponente('FORMATO', 'Selección duplicada', s.ruta);
+    pendientes.set(clave, s.seleccion);
+  }
   const instancias: InstanciaElaborada[] = [];
   const terminales = new Map<string, TerminalElaborado>();
   const padres = new Map<string, string>();
@@ -68,9 +85,21 @@ export function elaborarComponente(catalogo: CatalogoComponentes, raiz: Referenc
   const visitar = (ref: ReferenciaComponente, ruta: string[], valores: Valores): void => {
     limite(ruta.length > limites.profundidad, 'profundidad', ruta);
     limite(instancias.length >= limites.instancias, 'instancias', ruta);
-    const def = catalogo.resolver(ref);
+    let def = catalogo.resolver(ref);
+    const componente = { ...ref };
+    const claveSeleccion = JSON.stringify(ruta), solicitada = pendientes.get(claveSeleccion);
+    let representacion: InstanciaElaborada['representacion'];
+    if (def.tipo === 'compuesto' && def.representaciones) {
+      const seleccion = solicitada ?? def.representaciones.predeterminada;
+      pendientes.delete(claveSeleccion);
+      representacion = { seleccion, componente };
+      if (seleccion === 'equivalente') {
+        ref = def.representaciones.equivalente;
+        def = catalogo.resolver(ref);
+      }
+    } else if (solicitada !== undefined) throw new ErrorComponente('FORMATO', 'La instancia no ofrece representaciones', ruta);
     const resueltos = parametros(def, valores, ruta);
-    instancias.push({ ruta: [...ruta], definicion: { ...ref }, tipo: def.tipo, parametros: resueltos });
+    instancias.push({ ruta: [...ruta], definicion: { ...ref }, tipo: def.tipo, parametros: resueltos, ...(representacion ? { representacion } : {}) });
     for (const puerto of [...def.puertos].sort((a, b) => ordenar(a.id, b.id))) {
       limite(terminales.size >= limites.terminales, 'terminales', ruta);
       const clave = claveTerminal(ruta, puerto.id);
@@ -114,6 +143,7 @@ export function elaborarComponente(catalogo: CatalogoComponentes, raiz: Referenc
     }
   };
   visitar(raiz, [], opciones.parametros ?? {});
+  if (pendientes.size) throw new ErrorComponente('FORMATO', 'Selección para una ruta inexistente o inactiva');
   const grupos = new Map<string, TerminalElaborado[]>();
   for (const terminal of terminales.values()) {
     const clave = buscar(terminal.clave);

@@ -98,8 +98,8 @@ y detectaron el contrato de parámetros pendiente y los módulos inexistentes.
 
 Los tests de elaboración comprueban J01–J04 en conectividad y parámetros. El adaptador DC ahora
 agrega mediciones reales de divisores repetidos/anidados y comparación con un plano independiente;
-ver [electrico.md](electrico.md). J05–J08 completos, elección de representaciones, editor y fabricación
-siguen pendientes. La integración mantiene `resuelto:false` como fallo, sin medidas exitosas.
+ver [electrico.md](electrico.md). J05–J08 completos, editor y fabricación siguen pendientes; la elección exclusiva de
+representaciones para DC está descrita al final de este documento. La integración mantiene `resuelto:false` como fallo, sin medidas exitosas.
 
 Resultados estructurales comprobados para el fixture de dos divisores:
 
@@ -119,3 +119,9 @@ Resultados estructurales comprobados para el fixture de dos divisores:
 - E2E y hardware no ejecutados; no hay UI nueva, arranque de firmware ni integración eléctrica.
 - Los resultados validan esta etapa de conectividad; no convierten el caso omitido en evidencia
   física ni cierran los hitos posteriores del SDD.
+
+## Selección de representaciones
+
+El piloto permite elegir interior o equivalente completo por instancia, con propiedad exclusiva
+de efectos y trazabilidad. Ver [contrato y evidencia](representaciones.md). La selección es por
+consulta DC; los modelos complementarios por dominio y la agenda temporal siguen pendientes.

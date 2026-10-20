@@ -89,3 +89,9 @@ que 2.000 instancias pueden simularse en tiempo real por haber podido validar su
 - Pendientes P2/P3: representaciones, agenda común, editor, importación y fabricación.
 - No se acredita H0–H3, compatibilidad ESP32 ni rendimiento. Las decisiones se revisan si la
   implementación o las mediciones contradicen el inventario.
+
+## Selección de representaciones
+
+El piloto permite elegir interior o equivalente completo por instancia, con propiedad exclusiva
+de efectos y trazabilidad. Ver [contrato y evidencia](representaciones.md). La selección es por
+consulta DC; los modelos complementarios por dominio y la agenda temporal siguen pendientes.

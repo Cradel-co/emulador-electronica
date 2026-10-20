@@ -1,6 +1,6 @@
 # ADR-001: identidad y fuente de verdad de componentes jerárquicos
 
-Estado: contratos P1 y primera integración DC implementados bajo pruebas; representaciones/editor pendientes.
+Estado: contratos P1 y primera integración DC implementados bajo pruebas; selección exclusiva implementada; editor pendiente.
 Fecha: 20 de octubre de 2026. Alcance: plataforma común, independiente de ESP32.
 
 ## Decisión
@@ -52,7 +52,8 @@ datos de fabricación actuales. No trata `discreto` como una composición ejecut
 Los archivos actuales del catálogo permanecen como fuente para hojas legadas. Para un nuevo
 compuesto, su definición es la fuente de conexiones internas. No se ejecutan simultáneamente el
 modelo eléctrico legado completo y las piezas internas que lo sustituyen; la selección de
-representación se diseña en P2. El contrato inicial no promete múltiples representaciones activables.
+representación inicia P2. El contrato fue ampliado con alternativas completas y exclusivas;
+ver [selección de representaciones](representaciones.md).
 
 No se añade todavía ningún campo a `ProjectSchema`: Zod puede eliminar campos desconocidos y un
 cliente antiguo podría perder la composición al guardar. P3 debe definir formato nuevo/migración y
@@ -87,5 +88,5 @@ J01–J08 en sus etapas correspondientes; typecheck solo valida consistencia de 
 La elaboración en memoria resuelve dos copias del divisor J02 con identidad independiente,
 errores de referencia y mapa de origen. La [integración DC](electrico.md) verifica paquetes legados
 y compara las medidas con el circuito plano usando el motor existente. No cambia proyectos guardados.
-Almacén persistente de versiones, estado dinámico y representaciones siguen pendientes. API,
+Almacén persistente de versiones, estado dinámico y cobertura parcial por dominio siguen pendientes. API,
 normalización de hashes y límites se describen en [elaboracion.md](elaboracion.md) y [electrico.md](electrico.md).

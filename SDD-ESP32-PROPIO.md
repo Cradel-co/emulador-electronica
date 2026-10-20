@@ -1,6 +1,6 @@
 # SDD: plataforma propia de componentes y esquemáticos jerárquicos
 
-**Estado:** diseño con implementación P0/P1 y primera integración DC; representaciones, editor y ESP32 pendientes.
+**Estado:** diseño con implementación P0/P1 y integración DC y selección exclusiva de representaciones; editor y ESP32 pendientes.
 
 **Fecha:** 20 de octubre de 2026.
 
@@ -26,8 +26,8 @@ El contrato está en `app/shared/src/componentes/contratos.ts`. El [elaborador P
 resuelve definiciones por versión/hash y produce instancias/redes con origen en memoria, validando
 parámetros y dependencias sin modificar proyectos existentes. La [integración DC](docs/componentes/electrico.md)
 verifica paquetes legados y calcula tensiones/corrientes de divisores anidados, comparándolas con
-un plano independiente mediante el motor eléctrico actual. Representaciones, agenda común y editor
-siguen pendientes; no se acreditan H0–H3 completos ni compatibilidad ESP32.
+un plano independiente mediante el motor eléctrico actual. La selección exclusiva de interior o
+equivalente ya está implementada para consultas DC; agenda común y editor siguen pendientes; no se acreditan H0–H3 completos ni compatibilidad ESP32.
 
 ## 1. Resultado buscado y decisiones de alcance
 
@@ -221,6 +221,12 @@ Cada representación declara qué dominios y efectos implementa. Un plan de ejec
 Un equivalente y su esquema interno son alternativas para los mismos efectos; complementos en
 dominios diferentes pueden coexistir mediante un contrato explícito. Un validador rechaza cobertura
 solapada y evidencia faltante. Ninguna pieza interna aparece dos veces en la netlist del solver.
+
+**Avance del piloto DC:** [selección exclusiva](docs/componentes/representaciones.md) entre el
+interior y un equivalente completo, con interfaces idénticas y elección por ruta de instancia.
+El árbol inactivo no se elabora ni se ejecuta. Se comparan tensiones, carga y potencia de divisores
+anidados. La cobertura parcial por dominio y los complementos funcionales siguen pendientes;
+la exclusión actual asigna todos los efectos del componente a una única alternativa.
 
 **Expandir visualmente una hoja no cambia el modelo activo.** Seleccionar más detalle requiere
 una acción/configuración explícita, validación de capacidades y presupuesto. Inicialmente se hace
