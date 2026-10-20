@@ -3,17 +3,7 @@ import { useEstado, useVersion } from './estado.js';
 import { acciones, estado, vistas } from './puente.js';
 import { nombreRef } from '../consultas.js';
 
-/**
- * El panel de la derecha (`#panel-modulo`): según lo que esté seleccionado, muestra el módulo, el
- * cable, o qué es un proyecto sin placa.
- *
- * Migrado a React (#9). Eran 190 líneas de `innerHTML` con handlers enganchados a mano después de
- * cada repintado. Las preguntas sobre el dibujo salen de `consultas.ts` (puro, probado) y los
- * efectos van por el puente.
- *
- * El panel de código (el editor) sigue siendo imperativo: se repinta en cada tecla, con resaltado
- * de sintaxis. Quién de los dos se ve lo decide `app.ts`, que es el que sabe del editor.
- */
+/** Contenido de la ventana Detalle: componente, cable o explicación del circuito sin placa. */
 export function PanelDerecho() {
   useVersion();
   const seleccion = useEstado(() => estado().seleccion);
@@ -23,9 +13,9 @@ export function PanelDerecho() {
   const inst = seleccion?.tipo === 'modulo' ? diagrama.modules.find((m: any) => m.id === seleccion.id) : null;
   const def = inst ? catalogo.get(inst.type) : null;
 
-  // Sin placa no hay código: en su lugar, qué es este proyecto y cómo sumarle una placa.
-  const muestraCodigo = !seleccion || (seleccion.tipo === 'modulo' && (!inst || def?.programmable));
-  if (muestraCodigo) return vistas().sinPlaca() ? <SinPlaca /> : null;
+  if (!seleccion || (seleccion.tipo === 'modulo' && !inst)) {
+    return vistas().sinPlaca() ? <SinPlaca /> : <p className="insp">Seleccioná un componente o un cable del circuito para ver sus propiedades.</p>;
+  }
 
   if (seleccion.tipo === 'cable') return <PanelCable indice={seleccion.indice} />;
   if (!def) return <Desconocido inst={inst} />;

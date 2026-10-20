@@ -117,21 +117,25 @@ curl -s http://127.0.0.1:5180/api/health   # si responde JSON, el server está b
 
 ## Exponer en la LAN o en una tailnet
 
-Por defecto el server escucha solo en `127.0.0.1` — nunca en `0.0.0.0` — y
-valida `Host`/`Origin` contra una allowlist, para protegerse de DNS rebinding.
-El puerto se cambia con `PORT=xxxx`.
+Por defecto el servidor escucha en la red local para la **vista compartida**. El editor,
+sus API y su WebSocket solo aceptan conexiones desde esta computadora. Se valida
+`Host`/`Origin` contra localhost y las direcciones IPv4 de las interfaces de red.
+El puerto se cambia con `PORT=xxxx`; `HOST=127.0.0.1` deshabilita el acceso LAN.
 
-Para acceder desde otra máquina de la red hay que cambiar las dos cosas:
+Con el proyecto ejecutándose, pulsá el planeta para abrir una vista del circuito,
+sin editor ni paneles. **Compartir en red local** muestra los enlaces para otro equipo.
+Los visitantes interactúan con los pulsadores e interruptores de la misma ejecución;
+no inician otra compilación ni pueden editar el proyecto. El enlace vence a las 24 horas
+y deja de aceptar controles cuando termina la ejecución, se recarga el código o cambia
+el circuito. Después de reiniciar el servidor hay que generar otro enlace.
+La computadora anfitriona debe permanecer encendida y el firewall debe permitir el puerto.
+
+Para habilitar deliberadamente el editor completo desde otra máquina, conservamos
+la configuración explícita (también se puede agregar un nombre DNS):
 
 ```bash
-HOST=0.0.0.0 \
-EMU_ALLOWED_HOSTS=192.168.1.50:5180,emulador.tail.midominio.com:5180 \
-npm run dev
+HOST=0.0.0.0 EMU_ALLOWED_HOSTS=192.168.1.50:5180 pnpm dev
 ```
-
-`EMU_ALLOWED_HOSTS` es una lista separada porque con `HOST=0.0.0.0` no hay un host
-concreto de escucha contra el cual validar. Detalle en
-[`docs/troubleshooting.md`](docs/troubleshooting.md).
 
 ## Cómo se usa
 

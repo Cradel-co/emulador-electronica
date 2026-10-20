@@ -34,7 +34,7 @@ test('agrupa ventanas como pestañas, las cierra individualmente y mueve Explora
   await expect(page.locator('#ventana-componentes')).toBeHidden();
   await expect(page.locator('#ventana-circuito')).toBeVisible();
   await expect(page.locator('#ventana-codigo')).toBeVisible();
-  await page.locator('#tw-explorador').click();
+  await page.keyboard.press('Control+Shift+E');
   await arrastrar(page, 'Explorador', 'circuito', 'bottom');
   await expect(page.locator('#explorador-archivos')).toContainText('main.py');
   await arrastrar(page, 'Consola', 'codigo', 'bottom');
@@ -182,4 +182,52 @@ test('Escape o soltar fuera cancela el movimiento sin cambiar la selección ni l
   await expect(page.locator('[data-dock-dragging]')).toHaveCount(0);
   await expect(previewDock(page)).toHaveCount(0);
   await expect(grupo(page, 'componentes')).toHaveAttribute('data-dock-group', original!);
+});
+
+test('Detalle es independiente de Código, se abre al seleccionar y conserva su posición', async ({ page, request }) => {
+  const name = await crearProyecto(request);
+  await abrir(page, name);
+  const content = page.locator('.cm-content');
+  await content.click();
+  await page.keyboard.press('Control+End');
+  await page.keyboard.insertText('sin_guardar = 2');
+  await grupo(page, 'detalle').getByRole('button', { name: 'Ocultar Detalle', exact: true }).click();
+  await expect(page.locator('#ventana-detalle')).toBeHidden();
+  await page.locator('#lienzo .modulo[data-id="led1"] .etiqueta-modulo').click();
+  await expect(page.locator('#panel-modulo')).toBeVisible();
+  await expect(page.locator('#panel-modulo .panel-header')).toContainText('LED');
+  await expect(content).toBeVisible();
+  await expect(page.locator('#editor')).toHaveValue('valor = 1\nsin_guardar = 2');
+  await arrastrar(page, 'Detalle', 'componentes', 'center');
+  await grupo(page, 'detalle').getByRole('button', { name: 'Ocultar Detalle', exact: true }).click();
+  await expect(page.locator('#ventana-detalle')).toBeHidden();
+  await page.locator('#lienzo .modulo[data-id="btn1"] .etiqueta-modulo').click();
+  await expect(page.locator('#panel-modulo')).toBeVisible();
+  await expect(page.locator('#panel-modulo .panel-header')).toContainText('Pulsador');
+  await expect(content).toBeVisible();
+  await expect(grupo(page, 'detalle').getByRole('tab', { name: 'Componentes', exact: true })).toBeVisible();
+  await page.keyboard.press('Control+s');
+  await page.reload();
+  await expect(grupo(page, 'detalle').getByRole('tab', { name: 'Componentes', exact: true })).toBeVisible();
+  await expect(page.locator('#ventana-codigo')).toBeVisible();
+  await page.locator('#lienzo .modulo[data-id="btn1"] .etiqueta-modulo').click();
+  await expect(page.locator('#panel-modulo .panel-header')).toContainText('Pulsador');
+  await expect(content).toBeVisible();
+  await page.screenshot({ path: '/tmp/emulador-detalle-independiente.png' });
+});
+
+test('las pestañas agrupadas no desplazan la barra superior fuera de pantalla', async ({ page, request }) => {
+  await page.setViewportSize({ width: 1045, height: 819 });
+  await abrir(page, await crearProyecto(request));
+  await arrastrar(page, 'Código', 'circuito', 'center');
+  await arrastrar(page, 'Detalle', 'circuito', 'center');
+  await arrastrar(page, 'Componentes', 'explorador', 'center');
+  await grupo(page, 'explorador').getByRole('tab', { name: 'Explorador', exact: true }).click();
+  await page.reload();
+  await expect(page.locator('#ventana-detalle')).toBeVisible();
+  await page.evaluate(() => window.scrollTo(0, 100));
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+  await expect.poll(() => page.locator('.titlebar').evaluate(el => el.getBoundingClientRect().top)).toBe(0);
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollHeight)).toBeLessThanOrEqual(819);
+  await page.screenshot({ path: '/tmp/emulador-barra-sin-desplazamiento.png' });
 });

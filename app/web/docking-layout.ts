@@ -1,19 +1,19 @@
-export type WindowId = 'explorador' | 'componentes' | 'circuito' | 'codigo' | 'consola';
+export type WindowId = 'explorador' | 'componentes' | 'circuito' | 'codigo' | 'detalle' | 'consola';
 export type DockZone = 'left' | 'right' | 'top' | 'bottom' | 'center';
 export type DockGroup = { kind: 'group'; id: string; views: WindowId[]; active: WindowId };
 export type DockSplit = { kind: 'split'; id: string; axis: 'horizontal' | 'vertical'; children: DockNode[]; sizes: number[] };
 export type DockNode = DockGroup | DockSplit;
 export interface DockLayout { version: 1; root: DockNode; open: Record<WindowId, boolean> }
-export const DOCK_WINDOWS: readonly WindowId[] = ['explorador', 'componentes', 'circuito', 'codigo', 'consola'];
+export const DOCK_WINDOWS: readonly WindowId[] = ['explorador', 'componentes', 'circuito', 'codigo', 'detalle', 'consola'];
 const isWindow = (value: unknown): value is WindowId => typeof value === 'string' && DOCK_WINDOWS.includes(value as WindowId);
 const group = (view: WindowId): DockGroup => ({ kind: 'group', id: `grupo-${view}`, views: [view], active: view });
 
 export function defaultDockLayout(): DockLayout {
-  return { version: 1, open: { explorador: false, componentes: true, circuito: true, codigo: true, consola: true }, root: {
+  return { version: 1, open: { explorador: true, componentes: true, circuito: true, codigo: true, detalle: true, consola: true }, root: {
     kind: 'split', id: 'split-workspace', axis: 'vertical', sizes: [72, 28], children: [
       { kind: 'split', id: 'split-superior', axis: 'horizontal', sizes: [28, 44, 28], children: [
         { kind: 'split', id: 'split-izquierdo', axis: 'vertical', sizes: [50, 50], children: [group('explorador'), group('componentes')] },
-        group('circuito'), group('codigo'),
+        group('circuito'), { kind: 'split', id: 'split-derecho', axis: 'vertical', sizes: [65, 35], children: [group('codigo'), group('detalle')] },
       ] }, group('consola'),
     ],
   } };
@@ -33,14 +33,14 @@ export function normalizeDockLayout(value: unknown): DockLayout {
     if (typeof node.id !== 'string' || !/^[a-zA-Z0-9_-]{1,80}$/.test(node.id) || ids.has(node.id)) throw new Error('id inválido');
     ids.add(node.id);
     if (node.kind === 'group') {
-      if (!Array.isArray(node.views) || node.views.length < 1 || node.views.length > 5 || !isWindow(node.active) || !node.views.includes(node.active)) throw new Error('grupo inválido');
+      if (!Array.isArray(node.views) || node.views.length < 1 || node.views.length > DOCK_WINDOWS.length || !isWindow(node.active) || !node.views.includes(node.active)) throw new Error('grupo inválido');
       const items = node.views.map(item => {
         if (!isWindow(item) || views.has(item)) throw new Error('ventana duplicada');
         views.add(item); return item;
       });
       return { kind: 'group', id: node.id, views: items, active: node.active };
     }
-    if (node.kind !== 'split' || (node.axis !== 'horizontal' && node.axis !== 'vertical') || !Array.isArray(node.children) || node.children.length < 2 || node.children.length > 5 || !Array.isArray(node.sizes) || node.sizes.length !== node.children.length) throw new Error('división inválida');
+    if (node.kind !== 'split' || (node.axis !== 'horizontal' && node.axis !== 'vertical') || !Array.isArray(node.children) || node.children.length < 2 || node.children.length > DOCK_WINDOWS.length || !Array.isArray(node.sizes) || node.sizes.length !== node.children.length) throw new Error('división inválida');
     const sizes = node.sizes.map(n => {
       if (typeof n !== 'number' || !Number.isFinite(n) || n < 1e-6 || n > 1e6) throw new Error('tamaño inválido');
       return n;
@@ -52,10 +52,20 @@ export function normalizeDockLayout(value: unknown): DockLayout {
     const candidate = value as Record<string, unknown>;
     if (candidate.version !== 1 || !candidate.open || typeof candidate.open !== 'object' || Array.isArray(candidate.open)) throw new Error('versión inválida');
     const rawOpen = candidate.open as Record<string, unknown>;
-    if (DOCK_WINDOWS.some(id => typeof rawOpen[id] !== 'boolean')) throw new Error('apertura inválida');
-    const root = parseNode(candidate.root, 0);
+    const legacy = rawOpen.detalle === undefined;
+    if (DOCK_WINDOWS.some(id => !(legacy && id === 'detalle') && typeof rawOpen[id] !== 'boolean')) throw new Error('apertura inválida');
+    let root = parseNode(candidate.root, 0);
+    // Los diseños guardados antes de separar Detalle conservan grupos, tamaños y pestañas.
+    if (legacy && !views.has('detalle') && views.size === DOCK_WINDOWS.length - 1) {
+      const codigo = findGroup(root, node => node.views.includes('codigo'));
+      if (!codigo) throw new Error('falta Código');
+      const detalleId = uniqueId(root, 'grupo-detalle');
+      const splitId = uniqueId(root, 'split-detalle');
+      root = updateNode(root, codigo.id, node => ({ kind: 'split', id: splitId, axis: 'vertical', sizes: [65, 35], children: [node, { kind: 'group', id: detalleId, views: ['detalle'], active: 'detalle' }] }));
+      views.add('detalle');
+    }
     if (views.size !== DOCK_WINDOWS.length) throw new Error('layout incompleto');
-    return { version: 1, root, open: { explorador: rawOpen.explorador as boolean, componentes: rawOpen.componentes as boolean, circuito: rawOpen.circuito as boolean, codigo: rawOpen.codigo as boolean, consola: rawOpen.consola as boolean } };
+    return { version: 1, root, open: { explorador: rawOpen.explorador as boolean, componentes: rawOpen.componentes as boolean, circuito: rawOpen.circuito as boolean, codigo: rawOpen.codigo as boolean, detalle: legacy ? false : rawOpen.detalle as boolean, consola: rawOpen.consola as boolean } };
   } catch { return defaultDockLayout(); }
 }
 function findGroup(node: DockNode, predicate: (group: DockGroup) => boolean): DockGroup | null {

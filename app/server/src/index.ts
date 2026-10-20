@@ -1,3 +1,4 @@
+import { registerPreviews, localAddresses, loopback, previewResource } from './preview.js';
 import { ServicioEntradaSonido, aplicarEntradaSonido } from './sonido/servicio.js';
 import { registrarRutasEntradaSonido } from './sonido/rutas.js';
 import { crearInforme } from '@emu/shared';
@@ -68,7 +69,7 @@ import { crearAppServer, iniciarServidor } from './bootstrap.js';
 import { crearServicioProyectos } from './application/proyectos.js';
 
 const PORT = Number(process.env.PORT ?? 5180);
-const HOST = process.env.HOST ?? '127.0.0.1'; // por defecto nunca 0.0.0.0 (sección 13)
+const HOST = process.env.HOST ?? '0.0.0.0'; // LAN: el editor y sus API siguen restringidos a loopback.
 
 const app = crearAppServer();
 
@@ -95,6 +96,7 @@ const entradasSonido = new ServicioEntradaSonido(nombre => {
 const circuitoVivo = (p: Project): Project => aplicarEntradaSonido(conPlaca(p), entradasSonido.leer(p.name));
 const capturasFirmware = new CoordinadorCapturas(camaras, mensaje => logBuild(mensaje));
 store.alCambiar = async (name, modules) => {
+  previewRevisions.set(name, (previewRevisions.get(name) ?? 0) + 1);
   entradasSonido.reconciliar(name, modules);
   const catalogo = await loadCatalog();
   camaras.reconciliar(name, modules.filter(m => catalogo.some(d => d.type === m.type && d.camera)).map(m => m.id));
@@ -116,6 +118,8 @@ const nivelesPorPlaca = new Map<string, Map<number, 0 | 1>>([['board', niveles]]
 const corridas = new Map<string, Emulador>();
 let primaryBoardId = 'board';
 let runGeneration = 0;
+const previewRevisions = new Map<string, number>();
+const revisionVistaPrevia = (name: string) => `${runGeneration}:${previewRevisions.get(name) ?? 0}`;
 const vigenciaElectrica = new VigenciaElectrica();
 const colaCorridas = new ColaCorridas();
 const nivelesDePlaca = (id: string) => {
@@ -377,12 +381,33 @@ async function validarModulosPlacas(project: Project, modules: unknown[]): Promi
 
 async function registerRoutes(app: FastifyInstance, fastifyStatic: typeof import('@fastify/static').default): Promise<void> {
   app.addHook('onRequest', async (req, reply) => {
+    if (!loopback(req.ip) && !process.env.HOST && !previewResource(req.url.split('?')[0] ?? '')) {
+      return reply.code(403).send({ error: 'En la red local solo está disponible la vista compartida.' });
+    }
     const origin = typeof req.headers.origin === 'string' ? req.headers.origin : undefined;
     if (!origenPermitido(origin, req.headers.host)) {
       return reply.code(403).send({ error: 'Origen no permitido' });
     }
   });
 
+  registerPreviews(app, {
+    port: PORT,
+    revision: name => runningProject === name && [...corridas.values()].some(e => e.getStatus().running)
+      ? revisionVistaPrevia(name) : null,
+    revisionActual: revisionVistaPrevia,
+    async snapshot(name) {
+      const project = await requireProject(name);
+      const types = new Set(project.modules.map(m => m.type));
+      const catalog = (await loadCatalog()).filter(m => types.has(m.type)).map(({ modeloCodigo, ...def }) => def);
+      return { name, diagram: structuredClone({ modules: project.modules, wires: project.wires }), catalog };
+    },
+    async state(name) {
+      const project = await requireProject(name);
+      const { electrico } = await avisosDelProyecto(project);
+      return { electrico, cerrados: [...cerradosDe(name)] };
+    },
+    control: fijarControl,
+  });
   registrarRutasEntradaSonido(app, entradasSonido, async (nombre, instancia) => {
     const p = await store.read(nombre).catch(() => null);
     return p?.modules.some(m => m.id === instancia && m.type === 'sonometro-sen0232') ?? false;
@@ -423,6 +448,19 @@ async function registerRoutes(app: FastifyInstance, fastifyStatic: typeof import
 
   // Proyectos plantilla (projects/_template/<id>/), para "Nuevo proyecto".
   app.get('/api/templates', async () => store.listTemplates());
+
+  app.get('/api/learning/examples', async (_req, reply) => {
+    try { return await store.listLearning(); } catch (err) { fail(reply, err); }
+  });
+
+  app.post('/api/learning/examples/:id/projects', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const { name } = (req.body ?? {}) as { name?: string };
+    try {
+      const project = await store.createFromLearning(String(name ?? ''), id);
+      reply.code(201).send({ project });
+    } catch (err) { fail(reply, err); }
+  });
 
   app.post('/api/projects', async (req, reply) => {
     const body = (req.body ?? {}) as { name?: string; language?: string; board?: string | null; template?: string };
@@ -990,6 +1028,7 @@ async function recargarCodigo(nombre: string, boardId?: string): Promise<Recarga
     for (const pin of await pinsDeCodigo(project, b.id)) target.getBridge()?.watch(pin);
     broadcast({ type: 'project.changed', project: nombre, what: 'file', boardId: b.id, origin: 'server' });
   }
+  previewRevisions.set(nombre, (previewRevisions.get(nombre) ?? 0) + 1);
   return { ok: true, modo: compiled ? 'relanzado' : 'repl' };
 }
 
@@ -1237,7 +1276,7 @@ const actualizadorElectrico = crearActualizadorElectrico(actualizarEntradasDelCi
  * por arte de magia: como en la mesa.
  *
  * Una lectura indefinida (entre VIL y VIH, o un pin flotando) no se manda: el pin conserva lo que
- * tenía, como hace la histéresis de una entrada real. Se agrupa a 50 ms porque un LED que
+ * tenía por política del puente; no simula histéresis ni ruido físico. Se agrupa a 50 ms porque un LED que
  * parpadea manda muchos cambios de salida y cada uno obliga a resolver el circuito de nuevo.
  */
 /** El guardado espera esta actualización: una respuesta tardía no puede ganar al corte de VCC. */
@@ -1543,12 +1582,14 @@ const ORIGENES = new Set([
   `http://localhost:${PORT}`,
   ...(HOST === '127.0.0.1' || HOST === '0.0.0.0' ? [] : [`http://${HOST}:${PORT}`]),
   ...EXTRA.map((h) => `http://${h}`),
+  ...localAddresses().map(address => `http://${address}:${PORT}`),
 ]);
 const HOSTS = new Set([
   `127.0.0.1:${PORT}`,
   `localhost:${PORT}`,
   ...(HOST === '127.0.0.1' || HOST === '0.0.0.0' ? [] : [`${HOST}:${PORT}`]),
   ...EXTRA,
+  ...localAddresses().map(address => `${address}:${PORT}`),
 ]);
 
 function origenPermitido(origin: string | undefined, host: string | undefined): boolean {
@@ -1563,7 +1604,7 @@ function attachWebSocket(server: import('node:http').Server): void {
     server,
     path: '/ws',
     verifyClient: (info: { origin: string; req: import('node:http').IncomingMessage }) =>
-      origenPermitido(info.origin || undefined, info.req.headers.host),
+      (Boolean(process.env.HOST) || loopback(info.req.socket.remoteAddress)) && origenPermitido(info.origin || undefined, info.req.headers.host),
   });
   wss.on('connection', (ws) => {
     clients.add(ws);

@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "name": "serie-desigual",
+  "board": null,
+  "language": null,
+  "sim": {
+    "wifiSsid": "sim-wifi",
+    "wifiPassword": "sim-password"
+  },
+  "modules": [
+    {
+      "id": "fuente1",
+      "type": "fuente-regulable",
+      "x": -310,
+      "y": 130,
+      "props": {
+        "voltage": 5,
+        "currentLimitMa": 100
+      }
+    },
+    {
+      "id": "r1",
+      "type": "resistor",
+      "x": -100,
+      "y": 80,
+      "props": {
+        "ohms": 1000
+      }
+    },
+    {
+      "id": "r2",
+      "type": "resistor",
+      "x": 80,
+      "y": 80,
+      "props": {
+        "ohms": 2000
+      }
+    }
+  ],
+  "wires": [
+    {
+      "from": "fuente1.V",
+      "to": "r1.1"
+    },
+    {
+      "from": "r1.2",
+      "to": "r2.1"
+    },
+    {
+      "from": "r2.2",
+      "to": "fuente1.GND"
+    }
+  ]
+}

@@ -75,7 +75,7 @@ export class AvrEmulator implements Emulador {
   ) {}
 
   private static emptyStatus(): EmulatorStatus {
-    return { state: 'stopped', running: false, pid: null, project: null, ports: null, ip: null, startedAt: null, exitInfo: null };
+    return { state: 'stopped', running: false, pid: null, project: null, ports: null, usesWeb: false, ip: null, startedAt: null, exitInfo: null };
   }
 
   getStatus(): EmulatorStatus {

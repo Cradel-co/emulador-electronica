@@ -1,6 +1,8 @@
 /** Contrato de navegación propio: la biblioteca no es el modelo del espacio de trabajo. */
 export interface WorkspaceRoute {
   project: string | null;
+  learning?: 'temas' | 'rutas';
+  slug?: string;
   board?: string;
   file?: string;
   leccion?: string;
@@ -21,10 +23,13 @@ function segment(value: string): boolean {
 export function normalizeWorkspaceRoute(route: WorkspaceRoute): WorkspaceRoute {
   if (route.project === null) {
     if (!route.aprender) return { project: null };
+    if (route.slug !== undefined && (!route.learning || !segment(route.slug))) throw new WorkspaceRouteError();
     if (route.aprender.leccion !== undefined && !segment(route.aprender.leccion)) throw new WorkspaceRouteError('El identificador de la lección no es válido.');
     if (route.aprender.paso !== undefined && !segment(route.aprender.paso)) throw new WorkspaceRouteError('El identificador del paso no es válido.');
     return {
       project: null,
+      ...(route.learning ? { learning: route.learning } : {}),
+      ...(route.slug ? { slug: route.slug } : {}),
       aprender: {
         ...(route.aprender.leccion === undefined ? {} : { leccion: route.aprender.leccion }),
         ...(route.aprender.paso === undefined ? {} : { paso: route.aprender.paso }),
@@ -48,6 +53,7 @@ export function workspaceRoutePath(route: WorkspaceRoute): string {
   const normalized = normalizeWorkspaceRoute(route);
   if (normalized.project === null) {
     if (!normalized.aprender) return '/';
+    if (normalized.learning) return `/aprender/${normalized.learning}${normalized.slug ? `/${encodeURIComponent(normalized.slug)}` : ''}`;
     const pathname = normalized.aprender.leccion ? `/aprender/${encodeURIComponent(normalized.aprender.leccion)}` : '/aprender';
     return normalized.aprender.paso ? `${pathname}?paso=${encodeURIComponent(normalized.aprender.paso)}` : pathname;
   }
@@ -70,6 +76,9 @@ export function parseWorkspaceRoute(pathOrHash: string): WorkspaceRoute {
     const separator = path.indexOf('?');
     const pathname = separator === -1 ? path : path.slice(0, separator);
     const query = separator === -1 ? '' : path.slice(separator + 1);
+    if (path.includes('#')) throw new WorkspaceRouteError();
+    const catalogo = /^\/aprender\/(temas|rutas)(?:\/([^/]+))?\/?$/.exec(pathname);
+    if (catalogo) return normalizeWorkspaceRoute({ project: null, aprender: {}, learning: catalogo[1] as 'temas' | 'rutas', ...(catalogo[2] ? { slug: decodeURIComponent(catalogo[2]) } : {}) });
     if (pathname === '/aprender') {
       const search = new URLSearchParams(query);
       if (search.getAll('paso').length > 1) throw new WorkspaceRouteError();
@@ -104,7 +113,7 @@ export function parseWorkspaceRoute(pathOrHash: string): WorkspaceRoute {
 }
 
 export function sameWorkspaceRoute(left: WorkspaceRoute, right: WorkspaceRoute): boolean {
-  return left.project === right.project && left.board === right.board && left.file === right.file && left.leccion === right.leccion
+  return left.project === right.project && left.learning === right.learning && left.slug === right.slug && left.board === right.board && left.file === right.file && left.leccion === right.leccion
     && Boolean(left.aprender) === Boolean(right.aprender)
     && left.aprender?.leccion === right.aprender?.leccion && left.aprender?.paso === right.aprender?.paso;
 }

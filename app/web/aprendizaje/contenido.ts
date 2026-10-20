@@ -1,3 +1,5 @@
+import { leccionesMdx } from './piloto.js';
+
 /** Bloques de contenido seguros: las lecciones no admiten HTML arbitrario. */
 export type BloqueAprendizaje =
   | { tipo: 'parrafo'; texto: string }
@@ -31,6 +33,11 @@ export interface LeccionAprendizaje {
 
 /** Catálogo editorial. Una lección figura acá cuando su contenido ya está listo para leer. */
 export const contenidoAprendizaje: readonly LeccionAprendizaje[] = [
+  ...leccionesMdx.map((leccion, indice): LeccionAprendizaje => ({
+    id: leccion.id, revision: leccion.revision, titulo: leccion.titulo, resumen: leccion.descripcion, nivel: 'inicial', duracionMinutos: leccion.minutos, orden: 20 + indice,
+    objetivos: [leccion.descripcion], requisitos: [...leccion.requisitos], materiales: [], erroresFrecuentes: [],
+    pasos: [{ id: 'contenido', titulo: leccion.titulo, bloques: [{ tipo: 'parrafo', texto: leccion.descripcion }] }],
+  })),
   {
     id: 'encender-un-led',
     revision: 1,

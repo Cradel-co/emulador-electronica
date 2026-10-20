@@ -61,7 +61,7 @@ test('la pestaña Problemas junta errores y avisos del circuito, y un error llev
 
   // Con el USB prendido ese aviso se va. (No queda vacío: el circuito de prueba del ESP32-S3
   // lleva el LED sin resistencia, y el motor avisa que le pasan ~37 mA.)
-  await page.locator('#usb').click();
+  await page.locator('#lienzo .modulo[data-id="board"] .placa-usb').click();
   await expect(aviso).toHaveCount(0);
   await expect(problemas.locator('.problema', { hasText: 'mA' }).first()).toBeVisible();
 
@@ -90,7 +90,7 @@ test('el panel Debug muestra alimentación y consumo calculados en vivo', async 
   await expect(alim.locator('.dbg-alim-placa')).toContainText('Sin alimentación');
   await expect(alim.locator('.dbg-alim-placa')).toHaveClass(/sin/);
   // Con el USB prendido, se actualiza en vivo.
-  await page.locator('#usb').click();
+  await page.locator('#lienzo .modulo[data-id="board"] .placa-usb').click();
   await expect(alim.locator('.dbg-alim-placa')).toContainText('Por USB');
   await expect(alim.locator('.dbg-alim-placa')).toHaveClass(/ok/);
   await expect(alim.locator('.dbg-alim-resumen')).toContainText('5.00 V');

@@ -1,5 +1,4 @@
 import { ToolWindow } from './ToolWindow.js';
-import { ExplorerIcon } from './ExplorerIcon.js';
 import { useEstado } from './estado.js';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { acciones, estado } from './puente.js';
@@ -122,8 +121,7 @@ export function FileExplorer() {
     <button type="button" disabled={!boards.length || refreshing} aria-label="Actualizar explorador" title="Actualizar explorador" onClick={() => void refresh()}><ActionIcon kind="refresh" /></button>
     <button type="button" disabled={!boards.length} aria-label="Plegar carpetas" title="Plegar carpetas" onClick={collapse}><ActionIcon kind="collapse" /></button>
   </div>;
-  return <ToolWindow id="ventana-explorador" title="Explorador" icon={<ExplorerIcon />}
-    onClose={() => acciones().mostrarHerramienta('explorador', false)}>
+  return <ToolWindow title="Explorador">
     <section id="explorador-archivos" className="explorador-archivos" aria-label="Explorador de archivos">
       <div ref={tree} className="file-explorer-tree" data-board-id={boardId ?? undefined} onClick={event => {
         if (event.target === event.currentTarget && boardId) setSelected({ boardId, path: '' });

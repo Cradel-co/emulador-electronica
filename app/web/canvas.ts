@@ -4,6 +4,8 @@
 import { el, dibujarModulo, defDesconocido, aplicarEstadoVivo } from './modulos.js';
 import { curva, girar, medioDeCurva, resolverPin, rotacionDe, salida, semiCaja, tipoCable } from './geometria.js';
 
+import { dibujarControlUsb } from './canvas-usb.js';
+
 const COLOR_CABLE = { power: '#e2554b', ground: '#8a96a3', signal: '#56c271' };
 
 /**
@@ -11,6 +13,8 @@ const COLOR_CABLE = { power: '#e2554b', ground: '#8a96a3', signal: '#56c271' };
  * @typedef {{ from: string, to: string }} Cable
  * @typedef {{ tipo: 'modulo', id: string } | { tipo: 'cable', indice: number } | null} Seleccion
  * @typedef {{
+ *   readonly?: boolean,
+ *   alternarUsb: (id: string) => void,
  *   diagrama: () => { modules: Instancia[], wires: Cable[] },
  *   def: (type: string) => any,
  *   seleccion: () => Seleccion,
@@ -226,6 +230,15 @@ export function crearLienzo(svg, ctx) {
       const yEtiqueta = def.programmable ? def.height / 2 + semiAlto + 22 : def.height / 2 - semiAlto - 14;
       const etiqueta = el('text', { x: def.width / 2, y: yEtiqueta, class: 'etiqueta-modulo', 'text-anchor': 'middle' }, g);
       etiqueta.textContent = def.programmable ? def.name : `${inst.props?.label || def.name} · ${inst.id}`;
+      if (!ctx.readonly && def.programmable && def.props?.usb) {
+        dibujarControlUsb(g, {
+          x: def.width / 2 - 32, y: yEtiqueta + 8,
+          activo: Boolean(inst.props?.usb ?? def.props.usb.default),
+          nombre: `${def.name} · ${inst.id}`,
+          alternar: () => ctx.alternarUsb(inst.id),
+        });
+      }
+
 
       // Asa para girar (esquina de arriba a la derecha, gira con el módulo), como en los editores de diseño.
       if (seleccionado) {
@@ -400,7 +413,7 @@ export function crearLienzo(svg, ctx) {
       render();
       return;
     }
-    const asa = cerca(e.target, '.asa-rotar');
+    const asa = ctx.readonly ? null : cerca(e.target, '.asa-rotar');
     if (asa) {
       e.preventDefault();
       const inst = ctx.diagrama().modules.find((x) => x.id === asa.getAttribute('data-id'));
@@ -424,6 +437,7 @@ export function crearLienzo(svg, ctx) {
       }
       return;
     }
+    if (ctx.readonly) return;
     const cab = cerca(e.target, '.cable');
     if (cab) {
       ctx.seleccionar({ tipo: 'cable', indice: Number(cab.getAttribute('data-indice')) });
@@ -516,12 +530,13 @@ export function crearLienzo(svg, ctx) {
   }, { passive: false });
 
   svg.addEventListener('dragover', (e) => {
-    if (e.dataTransfer?.types.includes('text/x-modulo')) {
+    if (!ctx.readonly && e.dataTransfer?.types.includes('text/x-modulo')) {
       e.preventDefault();
       e.dataTransfer.dropEffect = 'copy';
     }
   });
   svg.addEventListener('drop', (e) => {
+    if (ctx.readonly) return;
     const type = e.dataTransfer?.getData('text/x-modulo');
     if (!type) return;
     e.preventDefault();
@@ -557,7 +572,7 @@ export function crearLienzo(svg, ctx) {
       x0 = Math.min(x0, cx - sw - 20);
       y0 = Math.min(y0, cy - sh - 34);
       x1 = Math.max(x1, cx + sw + 20);
-      y1 = Math.max(y1, cy + sh + 34);
+      y1 = Math.max(y1, cy + sh + (d.programmable && d.props?.usb ? 60 : 34));
     }
     const margen = 40;
     vista.z = Math.min(1.4, (r.width - margen * 2) / (x1 - x0), (r.height - margen * 2) / (y1 - y0));

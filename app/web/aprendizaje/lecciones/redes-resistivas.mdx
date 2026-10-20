@@ -1,0 +1,56 @@
+## Reconocé los nodos antes de reducir
+
+Dos resistencias están **en serie** cuando comparten un nodo sin otra rama: llevan la misma corriente. Están **en paralelo** cuando comparten ambos nodos: reciben la misma tensión.
+
+<Formula descripcion="Equivalentes para resistores ideales">Rserie = R1 + R2  1 / Rparalelo = 1 / R1 + 1 / R2</Formula>
+
+## Un divisor cambia cuando lo cargás
+
+Un divisor de R1 = R2 = 1 kΩ, alimentado con 5 V, tiene una salida de 2,5 V **sin carga**. Al agregar R3 = 1 kΩ desde la salida a GND, R2 y R3 quedan en paralelo.
+
+<Circuito ejemplo="divisor-cargado" />
+
+<Ejemplo titulo="Calculá el divisor cargado">
+
+1. R2 y R3 comparten el nodo B y GND: están en paralelo.
+2. R2 ∥ R3 = (1000 · 1000) / (1000 + 1000) = **500 Ω**.
+3. Rtotal = R1 + (R2 ∥ R3) = **1500 Ω**.
+4. Ifuente = 5 / 1500 = **3,333 mA**.
+5. Vsalida = Ifuente · 500 = **1,667 V**.
+6. I2 = I3 = 1,667 / 1000 = **1,667 mA**. Su suma coincide con Ifuente.
+
+| Nodo | Terminales unidos | Potencial ideal respecto a GND |
+| --- | --- | --- |
+| A | fuente1.V, r1.1 | 5 V |
+| B | r1.2, r2.1, r3.1 | 1,667 V |
+| GND | fuente1.GND, r2.2, r3.2 | 0 V |
+
+</Ejemplo>
+
+<Aviso titulo="La salida del divisor no es una fuente ideal">
+
+La carga forma parte del circuito y altera su equivalente. La fórmula Vsalida = Ventrada · R2 / (R1 + R2) solo usa R2 sola cuando no hay otra rama cargándola.
+
+</Aviso>
+
+<Actividad />
+
+## Contrastá con el divisor sin carga
+
+Abrí esta variante que ya trae la carga retirada. Rtotal = 1 kΩ + 1 kΩ = **2 kΩ**. La corriente es 5 / 2000 = **2,5 mA**, y cada resistor cae **2,5 V**.
+
+<Circuito ejemplo="divisor-sin-carga" />
+
+<Actividad ejemplo="divisor-sin-carga" />
+
+| Medida | Sin carga | Con carga de 1 kΩ |
+| --- | --- | --- |
+| Resistencia total | 2 kΩ | 1,5 kΩ |
+| Corriente de fuente | 2,5 mA | 3,333 mA |
+| Salida del divisor | 2,5 V | 1,667 V |
+
+Aunque la fuente siga en 5 V, la carga reduce la tensión del nodo B. La salida del divisor no mantiene su valor de forma independiente del circuito conectado.
+
+<Pregunta titulo="¿Por qué la tensión de salida cae al conectar R3?" respuesta="R3 reduce la resistencia equivalente entre salida y GND. Una mayor fracción de los 5 V cae sobre R1." />
+
+[OpenStax: resistencias en serie y paralelo](https://openstax.org/books/university-physics-volume-2/pages/10-2-resistors-in-series-and-parallel).

@@ -8,10 +8,11 @@ function read(name: string): DockLayout | null {
     return value ? normalizeDockLayout(JSON.parse(value)) : null;
   } catch { return null; }
 }
-export function projectDockLayout(project: string): DockLayout {
+export function projectDockLayout(project: string, hasBoard = true): DockLayout {
   const own = read(key(project));
-  if (own) return own;
+  if (own) return hasBoard ? own : { ...own, open: { ...own.open, codigo: false } };
   const initial = read(DEFAULT_KEY) ?? defaultDockLayout();
+  if (!hasBoard) initial.open.codigo = false;
   saveProjectDockLayout(project, initial);
   return initial;
 }

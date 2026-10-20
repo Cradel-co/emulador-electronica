@@ -5,7 +5,7 @@ import { firmwareFixture, ledPrendido } from './fisica-fixture.js';
 test('cambiar la alimentación retira la lectura anterior antes de guardar el circuito', async ({ page, request }) => {
   await firmwareFixture(page, request);
   await abrirProyectoNuevo(page, request);
-  await page.locator('#usb').click();
+  await page.locator('#lienzo .modulo[data-id="board"] .placa-usb').click();
   await expect.poll(() => ledPrendido(page, 'led1')).toBe(true);
   let liberar: () => void = () => undefined;
   const pausa = new Promise<void>(resolve => { liberar = resolve; });
@@ -14,7 +14,7 @@ test('cambiar la alimentación retira la lectura anterior antes de guardar el ci
     await route.continue();
   });
   try {
-    await page.locator('#usb').click();
+    await page.locator('#lienzo .modulo[data-id="board"] .placa-usb').click();
     // El servidor aún conserva USB=true. Su medición anterior no pertenece al diagrama editado.
     await expect.poll(() => ledPrendido(page, 'led1')).toBe(false);
   } finally { liberar(); }

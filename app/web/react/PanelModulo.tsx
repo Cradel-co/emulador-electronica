@@ -42,6 +42,8 @@ export function PanelModulo({ inst, def }: { inst: any; def: any }) {
         <div className={`insp-badge${esAire ? ' aire' : ''}`}>
           {def.camera
             ? def.camera.hardware ? <><b>ArduCAM</b> — conectá alimentación, I2C y SPI; activá la webcam antes de ejecutar el firmware.</> : <><b>Cámara virtual</b> — usa la webcam del computador; funciona sin cables, alimentación ni firmware.</>
+            : def.programmable
+            ? <><b>Placa programable</b> — su código se edita en la ventana Código. Estas propiedades pertenecen a esta placa.</>
             : esAire
             ? <><b>Inalámbrico</b> — no se programa ni lleva cables: se comunica por radio 433 MHz con el receptor o transmisor conectado a la {vistas().nombrePlaca()}.</>
             : chips.length > 0
@@ -85,7 +87,7 @@ export function PanelModulo({ inst, def }: { inst: any; def: any }) {
         <SeccionParte inst={inst} def={def} />
 
         <button className="peligro" id="insp-eliminar" onClick={() => acciones().eliminarModulo(inst.id)}>
-          Eliminar módulo
+          {def.programmable ? 'Quitar la placa' : 'Eliminar módulo'}
         </button>
       </div>
     </>

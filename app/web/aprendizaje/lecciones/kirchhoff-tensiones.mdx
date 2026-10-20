@@ -1,0 +1,48 @@
+## Cerrá el recorrido del lazo
+
+En un lazo DC del modelo concentrado, la suma algebraica de las tensiones es cero. Al atravesar una fuente de negativo a positivo sumás una subida; al recorrer un resistor en el sentido de su corriente sumás una caída.
+
+<Formula descripcion="Ley de tensiones de Kirchhoff (KVL)">Σ V = 0  +Vfuente − VR1 − VR2 = 0</Formula>
+
+<Circuito ejemplo="serie" />
+
+<Ejemplo titulo="Dos resistencias iguales en serie">
+
+1. Rtotal = 1000 + 1000 = **2000 Ω**.
+2. I = 5 / 2000 = **2,5 mA**; la misma corriente atraviesa ambos resistores.
+3. VR1 = VR2 = 0,0025 · 1000 = **2,5 V**.
+4. Recorrido: GND → fuente → R1 → R2 → GND.
+5. Al atravesar la fuente subís 5 V; en cada resistor caés 2,5 V: **+5 − 2,5 − 2,5 = 0 V**.
+
+| Punto del recorrido | Potencial respecto de GND |
+| --- | --- |
+| Antes de la fuente | 0 V |
+| Nodo A: salida positiva | 5 V |
+| Nodo B: entre R1 y R2 | 2,5 V |
+| Después de R2 | 0 V |
+
+</Ejemplo>
+
+<Actividad />
+
+## Probá resistencias distintas
+
+Abrí la variante con R2 = 2 kΩ. Rtotal = **3 kΩ**, I = 5 / 3000 = **1,667 mA**. Las caídas son VR1 = **1,667 V** y VR2 = **3,333 V**. El nodo B queda a 3,333 V respecto de GND.
+
+<Circuito ejemplo="serie-desigual" />
+
+<Formula descripcion="Comprobación del lazo de resistencias distintas">+5 V − 1,667 V − 3,333 V ≈ 0 V</Formula>
+
+<Actividad ejemplo="serie-desigual" />
+
+El resistor de mayor valor recibe una caída mayor, aunque la corriente sea la misma. Usá las medidas completas del motor: las cifras del ejemplo están redondeadas.
+
+<Aviso titulo="No confundas potencial y caída">
+
+El potencial de un terminal respecto de GND y la tensión entre los terminales de un componente son mediciones diferentes. Para el balance del lazo usá las tensiones de cada elemento con el sentido de recorrido elegido.
+
+</Aviso>
+
+<Pregunta titulo="Si recorrés el lazo en sentido contrario, ¿deja de cumplirse KVL?" respuesta="No. Cambian todos los signos: −5 + 2,5 + 2,5 = 0 V. La elección del recorrido no cambia el circuito." />
+
+[OpenStax: reglas de Kirchhoff](https://openstax.org/books/university-physics-volume-2/pages/10-3-kirchhoffs-rules).

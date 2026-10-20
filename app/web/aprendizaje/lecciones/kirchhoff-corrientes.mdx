@@ -1,0 +1,54 @@
+## La carga se conserva en el nodo
+
+En el modelo de circuito concentrado, la suma algebraica de las corrientes en un nodo es cero. Elegí un signo para las corrientes que entran y el opuesto para las que salen.
+
+<Formula descripcion="Ley de corrientes de Kirchhoff (KCL)">Σ I = 0  Ientrada = I1 + I2</Formula>
+
+<Circuito ejemplo="paralelo" />
+
+<Ejemplo titulo="Dos ramas sobre una fuente de 5 V">
+
+1. Nodo A: `fuente1.V`, `r1.1` y `r2.1` están unidos.
+2. Ambas ramas llegan de A a GND, así que cada una recibe 5 V.
+3. I1 = 5 / 1000 = **5 mA**. I2 = 5 / 2000 = **2,5 mA**.
+4. Tomá como positiva la corriente de la fuente que entra al nodo y negativas las de las ramas que salen.
+5. Ifuente − I1 − I2 = **7,5 − 5 − 2,5 = 0 mA**.
+
+| Corriente en A | Sentido | Valor algebraico |
+| --- | --- | --- |
+| Ifuente | Entra | +7,5 mA |
+| I1 | Sale hacia R1 | −5 mA |
+| I2 | Sale hacia R2 | −2,5 mA |
+| Suma | Balance del nodo | 0 mA |
+
+</Ejemplo>
+
+<Actividad />
+
+## Abrí una rama
+
+Esta variante desconecta el extremo superior de R2 y conserva su extremo inferior en GND. R2 sigue siendo de 2 kΩ, pero ya no tiene un camino cerrado hacia el positivo.
+
+<Circuito ejemplo="paralelo-rama-abierta" />
+
+<Ejemplo titulo="KCL con una rama que no conduce">
+
+I1 = 5 / 1000 = **5 mA**. I2 = **0 mA**, porque la rama está abierta. La fuente aporta **5 mA**: 5 − 5 − 0 = **0 mA**.
+
+Como no circula corriente por R2 y su terminal inferior sigue en GND, su caída ideal es 0 V. El corte del cable tiene los 5 V entre el positivo de la fuente y el terminal superior de R2.
+
+</Ejemplo>
+
+<Actividad ejemplo="paralelo-rama-abierta" />
+
+Compará con el circuito de dos ramas cerradas: la corriente de la fuente baja de 7,5 a 5 mA. La de R1 permanece en 5 mA porque sigue recibiendo la misma tensión. No se pierde corriente: cambió la red y su solución.
+
+<Aviso titulo="Mediciones y redondeo">
+
+Si el panel muestra pocos decimales, la suma de los números visibles puede dejar un pequeño residuo. Compará usando una precisión consistente. Un residuo grande exige revisar los nodos y los signos.
+
+</Aviso>
+
+<Pregunta titulo="¿Cuánta corriente aporta la fuente si las dos ramas valen 1 kΩ?" respuesta="Cada rama toma 5 mA; la fuente entrega 10 mA. El balance del nodo sigue siendo cero." />
+
+[OpenStax: reglas de Kirchhoff](https://openstax.org/books/university-physics-volume-2/pages/10-3-kirchhoffs-rules).

@@ -1,3 +1,7 @@
+import { Aprender } from './Aprender.js';
+import { LeccionMdx } from './LeccionMdx.js';
+import { leccionMdxPorId } from '../aprendizaje/piloto.js';
+import { aprendizaje } from './aprendizaje-estado.js';
 import { useEffect, useRef } from 'react';
 import { acciones, estado } from './puente.js';
 import { useEstado } from './estado.js';
@@ -15,6 +19,7 @@ function Bloque({ bloque }: { bloque: BloqueAprendizaje }) {
 }
 
 export function Aprendizaje() {
+  const catalogo = useEstado(() => aprendizaje.route);
   const ruta = useEstado(() => estado().aprendizajeRuta as { leccion?: string; paso?: string } | null);
   useEstado(() => estado().revisionProgresoAprendizaje as number);
   const creandoPractica = useEstado(() => estado().creandoPracticaAprendizaje as boolean);
@@ -33,16 +38,16 @@ export function Aprendizaje() {
 
   if (!ruta) return null;
 
+  const mdx = ruta.leccion ? leccionMdxPorId(ruta.leccion) : undefined;
+  if (mdx) return <LeccionMdx leccion={mdx} />;
+  if (catalogo.learning) return <Aprender />;
+
   if (!ruta.leccion) {
-    const lecciones = [...contenidoAprendizaje].sort((a, b) => a.orden - b.orden);
+    const lecciones = contenidoAprendizaje.filter(item => !leccionMdxPorId(item.id)).sort((a, b) => a.orden - b.orden);
     return (
-      <div className="aprendizaje-pagina">
-        <header className="aprendizaje-cabecera">
-          <button type="button" onClick={() => acciones().irAInicio()}>‹ Proyectos</button>
-          <p>APRENDER</p>
-          <h1 ref={encabezado} tabIndex={-1}>Aprendé electrónica, paso a paso</h1>
-          <p>Lecciones prácticas para entender circuitos y placas.</p>
-        </header>
+      <>
+        <Aprender />
+        <section className="aprender-seccion"><h2>Tu primera práctica con un LED</h2>
         <div className="aprendizaje-lista">
           {lecciones.map(leccion => {
             const progreso = progresoDeLeccion(almacenLocalAprendizaje(), leccion.id, leccion.revision);
@@ -62,8 +67,8 @@ export function Aprendizaje() {
               </article>
             );
           })}
-        </div>
-      </div>
+        </div></section>
+      </>
     );
   }
 
