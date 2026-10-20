@@ -21,7 +21,12 @@ function validar(entrada: unknown): DefinicionComponente {
 }
 
 export function huellaDefinicion(entrada: unknown): string {
-  return createHash('sha256').update(canonico(validar(entrada))).digest('hex');
+  return huellaContenido(validar(entrada));
+}
+
+/** Hash canónico común para manifiestos de datos ya validados. */
+export function huellaContenido(contenido: unknown): string {
+  return createHash('sha256').update(canonico(contenido)).digest('hex');
 }
 
 const identidad = (r: Pick<ReferenciaComponente, 'id' | 'version'>): string => JSON.stringify([r.id, r.version]);
