@@ -1,6 +1,6 @@
 # SDD: plataforma propia de componentes y esquemáticos jerárquicos
 
-**Estado:** propuesta de diseño; implementación y mediciones pendientes.
+**Estado:** diseño con implementación inicial P0/P1; integración eléctrica y mediciones pendientes.
 
 **Fecha:** 20 de octubre de 2026.
 
@@ -22,9 +22,11 @@ demostrada. Cada capacidad se habilita después de completar su evidencia.
 
 P0 cuenta con un [inventario de capacidades, corpus y presupuestos](docs/componentes/P0-INVENTARIO.md)
 y el [ADR de identidad, composición y fuente de verdad](docs/componentes/ADR-001-COMPOSICION.md).
-El primer contrato está en `app/shared/src/componentes/contratos.ts`: valida estructura y referencias
-locales, sin modificar proyectos existentes. Resolver dependencias, elaborar, ejecutar y editar
-jerarquías siguen pendientes. Este avance no acredita todavía H0–H3 ni ningún nivel ESP32.
+El contrato está en `app/shared/src/componentes/contratos.ts`. El [elaborador P1](docs/componentes/elaboracion.md)
+resuelve definiciones por versión/hash y produce instancias/redes con origen en memoria, validando
+parámetros y dependencias sin modificar proyectos existentes. Resolver paquetes legados, ejecutar
+y editar jerarquías siguen pendientes. Este avance no acredita todavía H0–H3 completos ni ningún
+nivel ESP32; las pruebas del divisor cubren conectividad y parámetros, sin simular su tensión.
 
 ## 1. Resultado buscado y decisiones de alcance
 
@@ -533,8 +535,8 @@ reproducible y hash, sin descargas implícitas en unitarios.
 
 ## 8. Plan de validación para la implementación
 
-Diseñar pruebas antes del bloque correspondiente y comprobar que detectan su defecto. La presente
-entrega documental no ejecuta ni incorpora tests de una implementación inexistente.
+Diseñar pruebas antes del bloque correspondiente y comprobar que detectan su defecto. La planificación
+no constituye evidencia: cada avance registra las pruebas realizadas y las capacidades aún pendientes.
 
 | Área | Casos obligatorios |
 |---|---|

@@ -82,7 +82,9 @@ que 2.000 instancias pueden simularse en tiempo real por haber podido validar su
 - Inventario y corpus de plataforma documentados.
 - Decisiones iniciales de identidad/fuente de verdad en `ADR-001-COMPOSICION.md`.
 - Primer contrato TypeScript añadido en `app/shared/src/componentes/contratos.ts`.
-- Pendientes P1: resolución de paquetes/hash, elaboración, ciclos/presupuestos globales y evidencia
-  H0. Pendientes P2/P3: ejecución, representaciones, editor, importación y fabricación.
+- Avance P1: catálogo en memoria por versión/hash, ciclos, parámetros, elaboración de redes y
+  presupuestos globales bajo pruebas; ver [elaboracion.md](elaboracion.md).
+- Pendiente P1: resolución/verificación del paquete legado y correspondencia de pines/props.
+  Pendientes P2/P3: ejecución, representaciones, editor, importación y fabricación.
 - No se acredita H0–H3, compatibilidad ESP32 ni rendimiento. Las decisiones se revisan si la
   implementación o las mediciones contradicen el inventario.

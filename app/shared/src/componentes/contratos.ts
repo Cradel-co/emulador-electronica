@@ -13,6 +13,20 @@ const Identificador = z.string().regex(/^[a-z][a-z0-9-]{0,39}$/, 'identificador 
 const PuertoId = z.string().min(1).max(40).regex(/^[A-Za-z0-9_+\/-]+$/, 'identificador de puerto inválido');
 const ValorParametro = z.union([z.string().max(500), z.number().finite(), z.boolean()]);
 
+/** Valores por defecto y rangos explícitos; no se evalúan expresiones del proyecto. */
+export const ParametroComponenteSchema = z.discriminatedUnion('tipo', [
+  z.object({ tipo: z.literal('numero'), default: z.number().finite(), min: z.number().finite().optional(), max: z.number().finite().optional(), unidad: z.string().min(1).max(20).optional() }).strict(),
+  z.object({ tipo: z.literal('texto'), default: z.string().max(500), valores: z.array(z.string().max(500)).min(1).max(100).optional() }).strict(),
+  z.object({ tipo: z.literal('booleano'), default: z.boolean() }).strict(),
+]).superRefine((p, ctx) => {
+  if (p.tipo === 'numero' && ((p.min !== undefined && p.default < p.min) || (p.max !== undefined && p.default > p.max) || (p.min !== undefined && p.max !== undefined && p.min > p.max))) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Default y rango numérico incompatibles.' });
+  }
+  if (p.tipo === 'texto' && p.valores && !p.valores.includes(p.default)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Default fuera de los valores permitidos.' });
+  }
+});
+
 /** La versión identifica una revisión humana; el digest fija el contenido resuelto por el catálogo. */
 export const ReferenciaComponenteSchema = z.object({
   id: Identificador,
@@ -40,7 +54,10 @@ export const TerminalComponenteSchema = z.discriminatedUnion('tipo', [
 export const InstanciaComponenteSchema = z.object({
   id: Identificador,
   definicion: ReferenciaComponenteSchema,
-  parametros: z.record(z.string().min(1).max(40), ValorParametro),
+  parametros: z.record(z.string().min(1).max(40), z.union([
+    ValorParametro,
+    z.object({ parametro: z.string().min(1).max(40) }).strict(),
+  ])),
 }).strict();
 
 export const ConexionComponenteSchema = z.object({
@@ -54,6 +71,7 @@ const Cabecera = z.object({
   version: ReferenciaComponenteSchema.shape.version,
   nombre: z.string().min(1).max(100),
   puertos: z.array(PuertoComponenteSchema).max(LIMITES_COMPONENTES.puertos),
+  parametros: z.record(z.string().min(1).max(40), ParametroComponenteSchema).default({}),
 });
 
 /** Hoja legada: fija el paquete completo, no solo el nombre mutable de su module.json. */
@@ -111,3 +129,4 @@ export type TerminalComponente = z.infer<typeof TerminalComponenteSchema>;
 export type InstanciaComponente = z.infer<typeof InstanciaComponenteSchema>;
 export type ConexionComponente = z.infer<typeof ConexionComponenteSchema>;
 export type DefinicionComponente = z.infer<typeof DefinicionComponenteSchema>;
+export type ValorParametroComponente = z.infer<typeof ValorParametro>;

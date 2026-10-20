@@ -1,6 +1,6 @@
 # ADR-001: identidad y fuente de verdad de componentes jerárquicos
 
-Estado: decisión inicial para implementar P1; pendiente de validación funcional.
+Estado: decisión inicial implementada parcialmente en P1; conectividad bajo pruebas, integración eléctrica pendiente.
 Fecha: 20 de octubre de 2026. Alcance: plataforma común, independiente de ESP32.
 
 ## Decisión
@@ -29,8 +29,9 @@ editables en paralelo. El contrato inicial se implementa en `app/shared/src/comp
 
 - Dos hijos pueden referir la misma definición, pero nunca comparten estado mutable.
 - `parametros` de instancia son overrides de valores declarados por la hoja/definición. El contrato
-  inicial solo valida valores escalares finitos; el resolver debe validar claves, tipos, rangos y
-  defaults contra el descriptor. Esta primera entrega no introduce un lenguaje de expresiones.
+  ahora declara defaults de número/texto/booleano y rangos; el elaborador valida claves y valores.
+  Un hijo puede vincular un valor a un parámetro declarado por el padre sin evaluar expresiones.
+  El futuro adaptador de hojas debe contrastar esas declaraciones con el descriptor legado.
 - Terminal eléctrico: escalar bidireccional. Dirección de drive, pull y estado los determina el
   modelo en ejecución; no se confunden con la flecha gráfica de un conector.
 - Lógico/IRQ/reloj/transacción/radio son dominios distintos. P1 valida compatibilidad completa y
@@ -83,6 +84,7 @@ El contrato puede usarse en tooling sin importar servidor, archivos o ESP32. No 
 simulación jerárquica, certificación de módulos ni editor. Se requieren las pruebas del corpus
 J01–J08 en sus etapas correspondientes; typecheck solo valida consistencia de tipos.
 
-La primera entrega conserva cableado legado y no cambia ningún proyecto guardado. La próxima
-implementación debe resolver y elaborar dos copias del divisor J02 con identidad independiente,
-errores de referencia y mapa de origen; después integrar la conectividad al solver existente.
+La elaboración en memoria ya resuelve dos copias del divisor J02 con identidad independiente,
+errores de referencia y mapa de origen. No cambia ningún proyecto guardado. El paquete legado,
+el estado dinámico y la conexión al solver siguen pendientes. API, normalización de hashes y
+límites se describen en [elaboracion.md](elaboracion.md).
