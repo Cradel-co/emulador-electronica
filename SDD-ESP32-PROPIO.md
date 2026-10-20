@@ -1,6 +1,6 @@
 # SDD: plataforma propia de componentes y esquemáticos jerárquicos
 
-**Estado:** diseño con implementación inicial P0/P1; integración eléctrica y mediciones pendientes.
+**Estado:** diseño con implementación P0/P1 y primera integración DC; representaciones, editor y ESP32 pendientes.
 
 **Fecha:** 20 de octubre de 2026.
 
@@ -24,9 +24,10 @@ P0 cuenta con un [inventario de capacidades, corpus y presupuestos](docs/compone
 y el [ADR de identidad, composición y fuente de verdad](docs/componentes/ADR-001-COMPOSICION.md).
 El contrato está en `app/shared/src/componentes/contratos.ts`. El [elaborador P1](docs/componentes/elaboracion.md)
 resuelve definiciones por versión/hash y produce instancias/redes con origen en memoria, validando
-parámetros y dependencias sin modificar proyectos existentes. Resolver paquetes legados, ejecutar
-y editar jerarquías siguen pendientes. Este avance no acredita todavía H0–H3 completos ni ningún
-nivel ESP32; las pruebas del divisor cubren conectividad y parámetros, sin simular su tensión.
+parámetros y dependencias sin modificar proyectos existentes. La [integración DC](docs/componentes/electrico.md)
+verifica paquetes legados y calcula tensiones/corrientes de divisores anidados, comparándolas con
+un plano independiente mediante el motor eléctrico actual. Representaciones, agenda común y editor
+siguen pendientes; no se acreditan H0–H3 completos ni compatibilidad ESP32.
 
 ## 1. Resultado buscado y decisiones de alcance
 

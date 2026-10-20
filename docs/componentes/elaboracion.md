@@ -60,10 +60,10 @@ de un registro de versiones publicadas entre catálogos o ejecuciones todavía n
 Para diagnosticar ciclos se comprueba primero la topología por ID/versión, antes de comparar hashes;
 un ciclo no necesita constituir un cierre de hashes válido para ser rechazado.
 
-El hash de `modulo` de una hoja legada permanece como referencia opaca. **Todavía no se resuelve
-ni verifica el paquete legado en disco** ni se comprueba su correspondencia con `ModuleDef`.
-Los fixtures usan hashes sintéticos para esa referencia y no cargan modelos de resistores.
-Ese adaptador debe verificar paquete, pines y props antes de ejecutar hojas con el solver.
+El hash de `modulo` ya puede resolverse mediante [paquetes verificados y análisis DC](electrico.md),
+que comprueba archivos, pines y propiedades antes de ejecutar hojas con el solver. El elaborador
+puro mantiene esa referencia opaca. Sus fixtures estructurales usan hashes sintéticos; los nuevos
+tests eléctricos usan hashes y modelos reales del catálogo.
 
 ## Resultado y trazabilidad
 
@@ -96,11 +96,10 @@ defaults/bindings, redes de dos divisores, anidamiento, GND explícito, ciclos, 
 direcciones funcionales y presupuestos. Los casos base se ejecutaron antes de la implementación
 y detectaron el contrato de parámetros pendiente y los módulos inexistentes.
 
-J01–J04 se comprueban aquí en **conectividad y parámetros**, no en tensiones o corrientes. No se
-ha medido VOUT ni se presenta 2,5 V como resultado del solver. J05–J08, la elección de
-representaciones, su integración eléctrica, el editor y la fabricación siguen pendientes.
-La primera conexión al solver deberá comparar el grafo jerárquico con un plano y conservar
-`resuelto:false` como fallo, también en smoke y certificación.
+Los tests de elaboración comprueban J01–J04 en conectividad y parámetros. El adaptador DC ahora
+agrega mediciones reales de divisores repetidos/anidados y comparación con un plano independiente;
+ver [electrico.md](electrico.md). J05–J08 completos, elección de representaciones, editor y fabricación
+siguen pendientes. La integración mantiene `resuelto:false` como fallo, sin medidas exitosas.
 
 Resultados estructurales comprobados para el fixture de dos divisores:
 
@@ -111,7 +110,7 @@ Resultados estructurales comprobados para el fixture de dos divisores:
 | Conectar ambos GND explícitamente | 5 redes; se fusionan solo las tierras. |
 | Añadir una envoltura | 8 instancias; se conserva la ruta `caja → derecha → r2`. |
 
-### Verificación del 20 de octubre de 2026
+### Verificación inicial del elaborador — 20 de octubre de 2026
 
 - Casos específicos: 42 correctos en los dos archivos de componentes.
 - Vitest completo: 1.784 correctos, 1 omitido; 167 archivos correctos y 1 omitido; 108,18 s.

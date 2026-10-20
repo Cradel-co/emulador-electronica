@@ -1,5 +1,5 @@
-Los componentes jerárquicos ya pueden elaborar sus conexiones en memoria, con versiones verificadas e instancias independientes.
+El núcleo jerárquico verifica paquetes y calcula tensiones y corrientes con el solver eléctrico existente.
 
-Incluye inventario P0, contrato de parámetros, catálogo por hash, validación de dependencias,
-presupuestos y trazabilidad de redes. Las pruebas cubren divisores anidados y aislamiento.
-Todavía no se ejecutan modelos eléctricos ni firmware; la integración con solver/editor sigue pendiente.
+Incluye inventario P0, contratos, catálogo por hash, elaboración y trazabilidad de redes.
+Comprueba paquetes/pines/propiedades y compara divisores anidados con su circuito plano.
+Todavía no hay editor jerárquico ni ejecución de firmware; las consultas actuales son instantáneas DC.

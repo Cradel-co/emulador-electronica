@@ -84,7 +84,8 @@ que 2.000 instancias pueden simularse en tiempo real por haber podido validar su
 - Primer contrato TypeScript añadido en `app/shared/src/componentes/contratos.ts`.
 - Avance P1: catálogo en memoria por versión/hash, ciclos, parámetros, elaboración de redes y
   presupuestos globales bajo pruebas; ver [elaboracion.md](elaboracion.md).
-- Pendiente P1: resolución/verificación del paquete legado y correspondencia de pines/props.
-  Pendientes P2/P3: ejecución, representaciones, editor, importación y fabricación.
+- Avance siguiente: [verificación de paquetes e integración DC](electrico.md), con pines/props,
+  medidas de divisores anidados y comparación con plano usando ngspice real.
+- Pendientes P2/P3: representaciones, agenda común, editor, importación y fabricación.
 - No se acredita H0–H3, compatibilidad ESP32 ni rendimiento. Las decisiones se revisan si la
   implementación o las mediciones contradicen el inventario.

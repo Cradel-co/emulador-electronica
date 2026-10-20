@@ -1,6 +1,6 @@
 # ADR-001: identidad y fuente de verdad de componentes jerárquicos
 
-Estado: decisión inicial implementada parcialmente en P1; conectividad bajo pruebas, integración eléctrica pendiente.
+Estado: contratos P1 y primera integración DC implementados bajo pruebas; representaciones/editor pendientes.
 Fecha: 20 de octubre de 2026. Alcance: plataforma común, independiente de ESP32.
 
 ## Decisión
@@ -84,7 +84,8 @@ El contrato puede usarse en tooling sin importar servidor, archivos o ESP32. No 
 simulación jerárquica, certificación de módulos ni editor. Se requieren las pruebas del corpus
 J01–J08 en sus etapas correspondientes; typecheck solo valida consistencia de tipos.
 
-La elaboración en memoria ya resuelve dos copias del divisor J02 con identidad independiente,
-errores de referencia y mapa de origen. No cambia ningún proyecto guardado. El paquete legado,
-el estado dinámico y la conexión al solver siguen pendientes. API, normalización de hashes y
-límites se describen en [elaboracion.md](elaboracion.md).
+La elaboración en memoria resuelve dos copias del divisor J02 con identidad independiente,
+errores de referencia y mapa de origen. La [integración DC](electrico.md) verifica paquetes legados
+y compara las medidas con el circuito plano usando el motor existente. No cambia proyectos guardados.
+Almacén persistente de versiones, estado dinámico y representaciones siguen pendientes. API,
+normalización de hashes y límites se describen en [elaboracion.md](elaboracion.md) y [electrico.md](electrico.md).
