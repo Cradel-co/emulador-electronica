@@ -1,5 +1,9 @@
 # esp-emu (Espressif) — simulación 100% local
 
+La sustitución por un motor propio está planificada en [SDD-ESP32-PROPIO.md](../SDD-ESP32-PROPIO.md).
+Comienza por ESP32-C3; el backend propio todavía no está implementado. Este documento describe
+la integración actual, que sigue siendo necesaria durante la migración.
+
 Herramienta principal de este workspace para simular el ESP32 **sin ningún servidor externo**: CPU, WiFi, BLE, RMT y más, corriendo como un proceso nativo en tu PC. Hecha por Espressif, en beta: [espressif/esp-emulator](https://github.com/espressif/esp-emulator).
 
 **No es open source**: el repo solo distribuye binarios, docs y scripts auxiliares (el código fuente no está publicado — ver [issue #10](https://github.com/espressif/esp-emulator/issues/10)). Es gratis y corre 100% local, pero si tiene un bug no lo podemos arreglar nosotros: solo buscar un workaround o reportarlo.
