@@ -206,6 +206,16 @@ export async function correrPrueba(def: Def, t: PruebaModulo, buscar: BuscarDef)
   } catch (err) {
     return { nombre: t.nombre, ok: false, fallas: [`el motor no pudo resolver el banco: ${(err as Error).message}`], medido };
   }
+  // El motor también informa fallos como resultado, sin lanzar una excepción. Sin mediciones
+  // esperadas (por ejemplo, en humo), el resultado vacío no puede contar como una prueba aprobada.
+  if (!r.resuelto) {
+    medido.avisos = r.avisos.map(a => `${a.severidad}: ${a.mensaje}`).join(' | ');
+    return {
+      nombre: t.nombre, ok: false,
+      fallas: [`el motor no pudo resolver el banco: ${r.avisos.map(a => a.mensaje).join(' / ') || 'sin diagnóstico'}`],
+      medido,
+    };
+  }
   for (const [k, rango] of Object.entries(t.espera.tension ?? {})) {
     const [a, b] = k.split(':');
     const va = r.tensiones[`${dut}.${a}`];

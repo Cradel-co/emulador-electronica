@@ -404,42 +404,6 @@ async function registerRoutes(app: FastifyInstance, fastifyStatic: typeof import
     fallar: fail,
   });
 
-  // Certificación: compila y emula la plantilla de la placa, y prueba botón → LED.
-  app.post('/api/boards/:id/certify', async (req, reply) => {
-    const { id } = req.params as { id: string };
-    const body = (req.body ?? {}) as { language?: string };
-    try {
-      const placa = await buscarPlaca(id);
-      if (!placa) {
-        reply.code(404).send({ error: `No hay una placa "${id}" en el catálogo` });
-        return;
-      }
-      const lenguaje = body.language ? (LanguageSchema.parse(body.language) as Language) : undefined;
-      const job = certificarEnFondo(placa, lenguaje);
-      reply.code(202).send({ started: true, estado: job });
-    } catch (err) {
-      fail(reply, err);
-    }
-  });
-
-  app.get('/api/boards/:id/certification', async (req, reply) => {
-    const { id } = req.params as { id: string };
-    const enCurso = certificando.get(id);
-    reply.send({ enCurso: Boolean(enCurso), ultimo: await leerCertificacion(id) });
-  });
-
-  app.get('/api/modules', async () => ({ modules: (await loadCatalog()).map((m) => ({ ...m, nivel: nivelModulo(m) })) }));
-
-  // El banco de pruebas de un módulo (su tests.json, sus reglas y su esquemático), con el motor real.
-  app.post('/api/modules/:type/probar', async (req, reply) => {
-    const { type } = req.params as { type: string };
-    const cat = await loadCatalog();
-    const def = cat.find((m) => m.type === type);
-    if (!def) return reply.code(404).send({ error: `No hay un módulo "${type}" en el catálogo.` });
-    const informe = await probarModulo(def, (t) => cat.find((m) => m.type === t));
-    reply.send({ ...informe, esquematico: esquematicoEfectivo(def) });
-  });
-
   registrarRutasChips(app, depsChips, fail);
   registrarRutasCamara(app, camaras, async (name, id) => {
     if (!await store.exists(name)) return null;
@@ -449,7 +413,10 @@ async function registerRoutes(app: FastifyInstance, fastifyStatic: typeof import
     return (await loadCatalog()).find(m => m.type === inst.type)?.camera ?? null;
   });
 
-  registrarRutasModulos(app, { loadCatalog, solicitudDe, importarModulos, quitarDelCatalogo, fallar: fail });
+  registrarRutasModulos(app, {
+    loadCatalog, nivelModulo, probarModulo, esquematicoEfectivo,
+    solicitudDe, importarModulos, quitarDelCatalogo, fallar: fail,
+  });
   registrarRutasMcp(app, contextoMcp);
 
   app.get('/api/projects', async () => ({ projects: await store.list() }));

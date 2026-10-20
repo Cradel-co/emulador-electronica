@@ -132,6 +132,25 @@ describe('GET /api/boards', () => {
   });
 });
 
+describe('banco de módulos por HTTP', () => {
+  it('GET /api/modules conserva el catálogo y agrega el nivel de cada módulo', async () => {
+    const { status, body } = await pedir('/api/modules');
+    expect(status).toBe(200);
+    expect(body.modules.find((m: { type: string }) => m.type === 'resistor')).toMatchObject({
+      nivel: { nivel: 'fabricable', falta: [] },
+    });
+  });
+
+  it('POST /api/modules/:type/probar corre el banco y devuelve el esquemático', async () => {
+    const { status, body } = await pedir('/api/modules/resistor/probar', { method: 'POST' });
+    expect(status).toBe(200);
+    expect(body).toMatchObject({ tipo: 'resistor', ok: true, nivel: 'fabricable', esquematico: { simbolo: 'Device:R' } });
+    expect(body.pruebas.length).toBeGreaterThan(0);
+    expect(body.pruebas.every((prueba: { ok: boolean }) => prueba.ok)).toBe(true);
+    expect((await pedir('/api/modules/no-existe/probar', { method: 'POST' })).status).toBe(404);
+  });
+});
+
 describe('POST /api/boards/validate', () => {
   it('acepta una placa válida y rechaza una rota con los motivos', async () => {
     const ok = await pedir('/api/boards/validate', {

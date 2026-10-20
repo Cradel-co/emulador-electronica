@@ -437,6 +437,19 @@ export default {
     expect(JSON.parse(readFileSync(path.join(dir, 'zumbador-ts', 'module.json'), 'utf8')).model).toBe('model.ts');
   });
 
+  it.each([false, true])('rechaza un fallo al observar sin instalar nada (soloValidar=%s)', async (soloValidar) => {
+    const dir = dirTemporal();
+    const codigo = `import type { ModeloModulo } from '@emu/shared';
+export default {
+  circuito(ctx) { ctx.resistencia(ctx.pin('VCC'), ctx.pin('GND'), 167, 'bobina'); },
+  observar() { throw new Error('fallo deliberado al observar'); },
+} satisfies ModeloModulo;`;
+    const r = await importar({ fuente: 'archivos', archivos: modulo(codigo) }, new ModuleInstaller(dir), { soloValidar });
+    expect(r.importados).toEqual([]);
+    expect(r.errores[0]?.mensajes.join(' ')).toContain('fallo deliberado al observar');
+    expect(readdirSync(dir)).toEqual([]);
+  });
+
   it('también se importa por URL: el model.ts se busca al lado del module.json', async () => {
     const f = fetchFalso({
       'https://x.com/t/module.json': modulo(MODELO_TS)['t/module.json'],
