@@ -5,11 +5,61 @@ import { CatalogoComponentes } from '../../../../server/src/componentes/catalogo
 import { referencia } from '../../../fixtures/server/componentes/divisor.js';
 import { circuitoDigital } from '../../../fixtures/server/componentes/digital.js';
 import { precalentar } from '../../../../server/src/sim/spice.js';
+import { ControladorInterrupciones } from '../../../../shared/src/componentes/interrupciones.js';
 const temporales: string[] = [];
 afterEach(async () => { for (const dir of temporales.splice(0)) await fs.rm(dir, { recursive: true, force: true }); });
 beforeAll(precalentar, 60_000);
 
 describe('señales, alimentación y reset entre componentes jerárquicos', () => {
+  it.each(['reset', 'alimentacion'] as const)('entrega IRQ desde el circuito y cancela su servicio tras %s de la receptora', async motivo => {
+    const c = await circuitoDigital(); temporales.push(c.dir);
+    const servicios: bigint[] = [], pendientes: bigint[] = [];
+    const controladores: { ruta: string; irq: ControladorInterrupciones }[] = [];
+    const s = new SimulacionTemporalComponentes(c.catalogo, c.referencia, c.paquetes, {
+      crearModelo: i => {
+        if (i.ruta[0] === (motivo === 'reset' ? 'reset-b' : 'fuente-b')) return {
+          iniciar(ctx) { ctx.programarEn(10n, 'off'); ctx.programarEn(20n, 'on'); },
+          evento(ctx, e) { ctx.ponerParametro('voltage', e.tipo === 'off' ? 0 : 3.3); },
+        };
+        if (i.definicion.id !== 'digital-prueba') return undefined;
+        const irq = new ControladorInterrupciones([{ id: 'I', modo: 'ascendente', habilitada: true }]);
+        controladores.push({ ruta: i.ruta[0] ?? '', irq });
+        return {
+          iniciar(ctx) {
+            if (ctx.ruta[0] !== 'a') return;
+            ctx.escribirDigital('Q', 0);
+            for (const instante of [5n, 25n, 30n]) ctx.programarEn(instante, 'drive');
+          },
+          entradaDigital(ctx, cambio) {
+            if (cambio.puerto !== 'I') return;
+            const antes = irq.irq; irq.muestrear('I', cambio.actual);
+            if (!antes && irq.irq) {
+              pendientes.push(ctx.ahoraPs);
+              ctx.programarEn(ctx.ahoraPs + 10n, 'servir');
+            }
+          },
+          evento(ctx, e) {
+            if (e.tipo === 'drive') ctx.escribirDigital('Q', ctx.ahoraPs === 25n ? 0 : 1);
+            else { servicios.push(ctx.ahoraPs); irq.reconocer('I'); }
+          },
+        };
+      },
+    });
+    await s.avanzarHasta(9n);
+    expect(pendientes).toEqual([6n]);
+    expect(controladores.find(c => c.ruta === 'b')?.irq.irq).toBe(true);
+    expect(controladores.find(c => c.ruta === 'a')?.irq.irq).toBe(false);
+    await s.avanzarHasta(23n);
+    expect(servicios).toEqual([]);
+    const receptoras = controladores.filter(c => c.ruta === 'b');
+    expect(receptoras).toHaveLength(2);
+    expect(receptoras.at(-1)?.irq.irq).toBe(false); // Arrancar con I=1 no inventa un flanco.
+    await s.avanzarHasta(42n);
+    expect(pendientes).toEqual([6n, 31n]);
+    expect(servicios).toEqual([41n]);
+    expect(receptoras.at(-1)?.irq.irq).toBe(false);
+    expect(s.resultado?.dc.resuelto).toBe(true);
+  });
   it('resuelve una salida resistiva y entrega a la otra instancia el nivel leído del circuito', async () => {
     const c = await circuitoDigital(); temporales.push(c.dir);
     const cambios: unknown[] = [];

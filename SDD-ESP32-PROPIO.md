@@ -1,6 +1,6 @@
 # SDD: plataforma propia de componentes y esquemáticos jerárquicos
 
-**Estado:** diseño con implementación P0/P1 y integración DC, selección exclusiva, agenda compartida y perfiles digitales con alimentación/reset; editor y ESP32 pendientes.
+**Estado:** diseño con implementación P0/P1 e integración DC, selección exclusiva, agenda compartida, perfiles digitales con alimentación/reset y controlador funcional de interrupciones; editor y ESP32 pendientes.
 
 **Fecha:** 20 de octubre de 2026.
 
@@ -34,7 +34,10 @@ de firmware siguen pendientes; no se acreditan H0–H3 completos ni compatibilid
 El siguiente avance P2 incorpora [perfiles digitales y alimentación/reset](docs/componentes/digital.md):
 las hojas activas controlan parámetros de su propio modelo eléctrico, reciben entradas muestreadas
 y cancelan generaciones al perder operación. Las barreras adelantadas verifican energía antes de
-callbacks pendientes. Es cuasiestático y todavía no ejecuta IRQ, protocolos ni CPU.
+callbacks pendientes. El [controlador funcional de interrupciones](docs/componentes/interrupciones.md)
+captura flancos/niveles y gestiona pendientes, máscaras y reconocimiento por instancia, conectado
+a esas muestras mediante adaptadores temporales. Es cuasiestático; el enrutamiento de puertos IRQ,
+los protocolos y la ejecución de interrupciones de CPU siguen pendientes.
 
 ## 1. Resultado buscado y decisiones de alcance
 

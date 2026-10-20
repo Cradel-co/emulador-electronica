@@ -124,7 +124,9 @@ El presupuesto de eventos detecta bucles de duración cero que sí devuelven el 
   deja actuar a la izquierda sin duplicar primitivas eléctricas.
 
 El [perfil digital](digital.md) ya conecta entradas/salidas eléctricas y alimentación/reset de hojas.
-Siguen pendientes adaptadores de IRQ/protocolos/CPU, reloj de firmware, transitorios,
+El [controlador de interrupciones](interrupciones.md) consume muestras digitales por instancia
+y programa servicios a través del adaptador y esta agenda. Siguen pendientes el enrutamiento de
+puertos IRQ, adaptadores de protocolos/CPU, reloj de firmware, transitorios,
 persistencia/replay serializado, interfaz de usuario y certificación completa de P2/H0–H3.
 
 ## Verificación de esta iteración
