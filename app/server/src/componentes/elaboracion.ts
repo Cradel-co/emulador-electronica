@@ -35,7 +35,7 @@ export interface OpcionesElaboracion {
 const claveTerminal = (ruta: readonly string[], puerto: string): string => JSON.stringify([ruta, puerto]);
 const ordenar = (a: string, b: string): number => a < b ? -1 : a > b ? 1 : 0;
 
-function parametros(def: DefinicionComponente, valores: Valores, ruta: string[]): Valores {
+export function validarParametrosComponente(def: DefinicionComponente, valores: Valores, ruta: string[]): Valores {
   const resultado: Valores = Object.create(null) as Valores;
   for (const clave of Object.keys(valores)) {
     if (!Object.hasOwn(def.parametros, clave)) throw new ErrorComponente('PARAMETRO', `Parámetro desconocido: ${clave}`, ruta);
@@ -98,7 +98,7 @@ export function elaborarComponente(catalogo: CatalogoComponentes, raiz: Referenc
         def = catalogo.resolver(ref);
       }
     } else if (solicitada !== undefined) throw new ErrorComponente('FORMATO', 'La instancia no ofrece representaciones', ruta);
-    const resueltos = parametros(def, valores, ruta);
+    const resueltos = validarParametrosComponente(def, valores, ruta);
     instancias.push({ ruta: [...ruta], definicion: { ...ref }, tipo: def.tipo, parametros: resueltos, ...(representacion ? { representacion } : {}) });
     for (const puerto of [...def.puertos].sort((a, b) => ordenar(a.id, b.id))) {
       limite(terminales.size >= limites.terminales, 'terminales', ruta);

@@ -124,4 +124,5 @@ Resultados estructurales comprobados para el fixture de dos divisores:
 
 El piloto permite elegir interior o equivalente completo por instancia, con propiedad exclusiva
 de efectos y trazabilidad. Ver [contrato y evidencia](representaciones.md). La selección es por
-consulta DC; los modelos complementarios por dominio y la agenda temporal siguen pendientes.
+consulta DC; los modelos complementarios por dominio siguen pendientes. La [agenda común inicial](tiempo.md)
+ya coordina eventos de hojas y barreras DC, sin transitorios ni firmware.

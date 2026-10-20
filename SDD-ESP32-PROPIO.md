@@ -1,6 +1,6 @@
 # SDD: plataforma propia de componentes y esquemáticos jerárquicos
 
-**Estado:** diseño con implementación P0/P1 y integración DC y selección exclusiva de representaciones; editor y ESP32 pendientes.
+**Estado:** diseño con implementación P0/P1 y integración DC, selección exclusiva y primera agenda compartida; editor y ESP32 pendientes.
 
 **Fecha:** 20 de octubre de 2026.
 
@@ -27,7 +27,9 @@ resuelve definiciones por versión/hash y produce instancias/redes con origen en
 parámetros y dependencias sin modificar proyectos existentes. La [integración DC](docs/componentes/electrico.md)
 verifica paquetes legados y calcula tensiones/corrientes de divisores anidados, comparándolas con
 un plano independiente mediante el motor eléctrico actual. La selección exclusiva de interior o
-equivalente ya está implementada para consultas DC; agenda común y editor siguen pendientes; no se acreditan H0–H3 completos ni compatibilidad ESP32.
+equivalente ya está implementada para consultas DC. La [agenda común](docs/componentes/tiempo.md)
+coordina eventos, generaciones y barreras DC sobre el grafo activo; editor y adaptadores temporales
+de firmware siguen pendientes; no se acreditan H0–H3 completos ni compatibilidad ESP32.
 
 ## 1. Resultado buscado y decisiones de alcance
 
@@ -388,6 +390,11 @@ barreras mediante esos contratos; la CPU C3 es un consumidor, no el propietario 
 Agenda con tiempo entero y precisión declarada, orden estable por instante/fase/secuencia y
 contadores sin pérdida de precisión. Dominios CPU/APB/RTC convierten sus ticks conservando residuos;
 cambiar frecuencia no retrocede el reloj ni pierde eventos. La unidad y conversión se fijan en P2 y se reutilizan en M1.
+
+**Avance P2:** el piloto usa picosegundos `bigint`, orden instante/fase/secuencia, relojes con
+residuos racionales y cancelación por generación. Coordina hojas activas y espera barreras DC
+asíncronas; cambios simultáneos de parámetros comparten resolución. Ver [contrato y pruebas](docs/componentes/tiempo.md).
+Son puntos de operación cuasiestáticos; todavía no hay CPU/pads/IRQ ni integración transitoria.
 
 En una barrera temporal:
 

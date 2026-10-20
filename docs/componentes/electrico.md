@@ -96,7 +96,8 @@ residuales junto al fallo. No se interpreta un smoke sin expectativas como aprob
 El piloto admite hasta 100 hojas (máximo heredado de 200 primitivas por hoja). Rechaza placas
 programables, hojas sin modelo eléctrico y dominios funcionales no eléctricos. Los límites globales
 del elaborador siguen aplicando. Admite [selección exclusiva de representaciones](representaciones.md) antes de ejecutar el solver.
-No habilita todavía tiempo compartido, importación/fabricación ni el backend ESP32.
+El [coordinador temporal](tiempo.md) reutiliza el adaptador sobre snapshots elaborados y espera
+cada barrera DC. Importación/fabricación, transitorios y backend ESP32 siguen pendientes.
 
 ## Divisores medidos y comparación independiente
 

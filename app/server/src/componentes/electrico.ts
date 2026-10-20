@@ -15,11 +15,16 @@ export type ResultadoGrafoDc = ContextoResultado & (
   | { resuelto: true; tensiones: TensionTerminal[]; elementos: ElementoJerarquico[] }
   | { resuelto: false; tensiones: null; elementos: [] }
 );
-interface OpcionesGrafoDc extends OpcionesElaboracion { fuentesApagadas?: boolean }
+export interface OpcionesGrafoDc extends OpcionesElaboracion { fuentesApagadas?: boolean }
 
 /** Adapta hojas verificadas al motor DC de la app; el aplanado es temporal, nunca se persiste. */
 export async function analizarGrafoDc(catalogo: CatalogoComponentes, referencia: ReferenciaComponente, paquetes: PaquetesComponentes, opciones: OpcionesGrafoDc = {}, analizar = analizarCircuito): Promise<ResultadoGrafoDc> {
   const grafo = elaborarComponente(catalogo, referencia, opciones);
+  return analizarGrafoElaboradoDc(catalogo, grafo, paquetes, opciones, analizar);
+}
+
+/** Recibe un grafo elaborado de confianza; permite resolver snapshots del coordinador temporal. */
+export async function analizarGrafoElaboradoDc(catalogo: CatalogoComponentes, grafo: GrafoComponentes, paquetes: PaquetesComponentes, opciones: Pick<OpcionesGrafoDc, 'fuentesApagadas'> = {}, analizar = analizarCircuito): Promise<ResultadoGrafoDc> {
   const proyecto: Project = { schemaVersion: 1, name: 'componentes-dc', board: null, language: null, modules: [], wires: [], sim: { wifiSsid: 'sin-red', wifiPassword: 'sin-red', autoReload: false } };
   const modelos = new Map<string, ModuloElectricoVerificado>();
   const tiposOrigen = new Map<string, string>();

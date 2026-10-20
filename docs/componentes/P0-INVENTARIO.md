@@ -86,7 +86,7 @@ que 2.000 instancias pueden simularse en tiempo real por haber podido validar su
   presupuestos globales bajo pruebas; ver [elaboracion.md](elaboracion.md).
 - Avance siguiente: [verificación de paquetes e integración DC](electrico.md), con pines/props,
   medidas de divisores anidados y comparación con plano usando ngspice real.
-- Pendientes P2/P3: representaciones, agenda común, editor, importación y fabricación.
+- Pendientes P2/P3: complementos por dominio, adaptadores temporales de firmware, editor, importación y fabricación.
 - No se acredita H0–H3, compatibilidad ESP32 ni rendimiento. Las decisiones se revisan si la
   implementación o las mediciones contradicen el inventario.
 
@@ -94,4 +94,5 @@ que 2.000 instancias pueden simularse en tiempo real por haber podido validar su
 
 El piloto permite elegir interior o equivalente completo por instancia, con propiedad exclusiva
 de efectos y trazabilidad. Ver [contrato y evidencia](representaciones.md). La selección es por
-consulta DC; los modelos complementarios por dominio y la agenda temporal siguen pendientes.
+consulta DC; los modelos complementarios por dominio siguen pendientes. La [agenda común inicial](tiempo.md)
+ya coordina eventos de hojas y barreras DC, sin transitorios ni firmware.

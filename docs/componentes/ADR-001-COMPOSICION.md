@@ -90,3 +90,9 @@ errores de referencia y mapa de origen. La [integración DC](electrico.md) verif
 y compara las medidas con el circuito plano usando el motor existente. No cambia proyectos guardados.
 Almacén persistente de versiones, estado dinámico y cobertura parcial por dominio siguen pendientes. API,
 normalización de hashes y límites se describen en [elaboracion.md](elaboracion.md) y [electrico.md](electrico.md).
+
+## Agenda común inicial de P2
+
+[La agenda](tiempo.md) vive en shared, sin dependencia del solver o del servidor. El coordinador
+reutiliza el grafo activo y el adaptador DC: tiempo entero, fases, generaciones y barreras
+asíncronas. No se promete transitorio analógico ni ejecución de CPU/IRQ todavía.

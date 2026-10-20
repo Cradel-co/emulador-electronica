@@ -39,7 +39,8 @@ consulta; todavía no se guarda en Project ni hay un selector en el editor.
   Tampoco existe la selección `ambos`. Un modelo seleccionado inválido no usa el otro como fallback.
 
 Consultar o expandir una copia de la definición para inspeccionarla no modifica la selección.
-Cada análisis DC crea un grafo y sandboxes nuevos. No hay cambio en caliente ni transferencia de
+Cada análisis DC aislado crea un grafo y sandboxes nuevos; la simulación temporal conserva su
+grafo activo y crea sandboxes eléctricos nuevos por barrera. No hay cambio en caliente ni transferencia de
 estado. El catálogo garantiza compatibilidad estructural, **no** demuestra equivalencia física
 arbitraria: cada alternativa necesita evidencia para su rango de uso.
 
@@ -53,7 +54,8 @@ la representación interna. Otro caso alterna hojas equivalentes dentro de los d
 Se comprueba además que un paquete seleccionado alterado falla sin volver al interior.
 
 Esto implementa una parte de P2. La cobertura parcial por dominio, modelos complementarios,
-agenda temporal, eventos/IRQ/radio y validación de energía en transiciones siguen pendientes.
+[adaptadores de eventos/IRQ/radio](tiempo.md) y validación de energía en transiciones siguen pendientes.
+La agenda común ya coordina hojas activas y barreras DC; no ejecuta esos protocolos todavía.
 La exclusión es total por componente; no se atribuye ejecución funcional a esos dominios todavía.
 
 ## Verificación de esta iteración
