@@ -18,6 +18,14 @@ Este documento planifica la plataforma y su primera integración para reemplazar
 anuncia jerarquía ejecutable disponible, motor implementado, firmware ejecutado ni compatibilidad
 demostrada. Cada capacidad se habilita después de completar su evidencia.
 
+### Inicio de implementación
+
+P0 cuenta con un [inventario de capacidades, corpus y presupuestos](docs/componentes/P0-INVENTARIO.md)
+y el [ADR de identidad, composición y fuente de verdad](docs/componentes/ADR-001-COMPOSICION.md).
+El primer contrato está en `app/shared/src/componentes/contratos.ts`: valida estructura y referencias
+locales, sin modificar proyectos existentes. Resolver dependencias, elaborar, ejecutar y editar
+jerarquías siguen pendientes. Este avance no acredita todavía H0–H3 ni ningún nivel ESP32.
+
 ## 1. Resultado buscado y decisiones de alcance
 
 El producto debe permitir crear, abrir, modificar, conectar, reutilizar y simular esquemáticos

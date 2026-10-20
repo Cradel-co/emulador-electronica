@@ -1,4 +1,5 @@
 export * from './module.js';
+export * from './componentes/contratos.js';
 export * from './project.js';
 export * from './board.js';
 export * from './languages.js';
