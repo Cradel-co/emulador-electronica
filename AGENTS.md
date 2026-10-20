@@ -12,6 +12,18 @@
 
 Seguir también las convenciones, verificaciones y el flujo de rama + PR documentados en `CLAUDE.md`.
 
+## Servidor y banco de pruebas de módulos
+
+- **Un único registro por método y ruta.** Antes de agregar un endpoint, buscar si ya está
+  registrado y extender su registrador existente en `app/server/src/routes/` o en la capacidad
+  correspondiente, con dependencias explícitas. No volver a declararlo en `index.ts`: Fastify
+  aborta el arranque ante rutas duplicadas. Comprobar el arranque del servidor real además del build.
+- **Una simulación sin resolver es una prueba fallida.** Si el motor devuelve `resuelto: false`,
+  el banco debe devolver `ok: false` y conservar el diagnóstico, aunque no haya excepción ni
+  mediciones esperadas. Esto también aplica a la prueba de humo y debe impedir la importación,
+  incluido `soloValidar`. Cubrirlo con una regresión: un resultado vacío del motor no puede
+  aprobarse por falta de aserciones.
+
 ## Changelog: una entrada por rama
 
 Toda rama que entre por PR deja un archivo `changelog.d/<tipo>-<descripcion-corta>.md` con lo que

@@ -129,6 +129,16 @@ las rutas y la migración gradual de `index.ts` están en
 [docs/arquitectura-server.md](./docs/arquitectura-server.md). Los registradores de rutas reciben
 dependencias explícitas y no importan el punto de entrada.
 
+- **Un único registro por método y ruta.** Antes de agregar un endpoint, buscar si ya está
+  registrado y extender su registrador existente en `app/server/src/routes/` o en la capacidad
+  correspondiente, con dependencias explícitas. No volver a declararlo en `index.ts`: Fastify
+  aborta el arranque ante rutas duplicadas. Comprobar el arranque del servidor real además del build.
+- **Una simulación sin resolver es una prueba fallida.** Si el motor devuelve `resuelto: false`,
+  el banco debe devolver `ok: false` y conservar el diagnóstico, aunque no haya excepción ni
+  mediciones esperadas. Esto también aplica a la prueba de humo y debe impedir la importación,
+  incluido `soloValidar`. Cubrirlo con una regresión: un resultado vacío del motor no puede
+  aprobarse por falta de aserciones.
+
 ## Documentación
 
 - [docs/arquitectura-server.md](./docs/arquitectura-server.md) — capas del server, dirección de
