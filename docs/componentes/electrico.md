@@ -130,3 +130,9 @@ y retirada de medidas ante fallos/vacíos/no finitos. Archivo de pruebas:
   y la última corrida completa normal pasó. No se cambiaron esas pruebas, sus modelos o límites.
 - E2E y hardware no ejecutados: no hay recorrido nuevo de UI ni firmware. La evidencia eléctrica
   proviene del ngspice que usa la aplicación, con paquetes reales y referencia plana independiente.
+
+## Perfiles digitales
+
+[El perfil digital](digital.md) solicita referencia física a los rieles de cada hoja y distingue
+entradas indeterminadas de los valores numéricos que usa ngspice para converger. El modelo del
+paquete sigue siendo el único propietario de los elementos de salida.

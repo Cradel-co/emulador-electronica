@@ -1,6 +1,6 @@
 # SDD: plataforma propia de componentes y esquemáticos jerárquicos
 
-**Estado:** diseño con implementación P0/P1 y integración DC, selección exclusiva y primera agenda compartida; editor y ESP32 pendientes.
+**Estado:** diseño con implementación P0/P1 y integración DC, selección exclusiva, agenda compartida y perfiles digitales con alimentación/reset; editor y ESP32 pendientes.
 
 **Fecha:** 20 de octubre de 2026.
 
@@ -30,6 +30,11 @@ un plano independiente mediante el motor eléctrico actual. La selección exclus
 equivalente ya está implementada para consultas DC. La [agenda común](docs/componentes/tiempo.md)
 coordina eventos, generaciones y barreras DC sobre el grafo activo; editor y adaptadores temporales
 de firmware siguen pendientes; no se acreditan H0–H3 completos ni compatibilidad ESP32.
+
+El siguiente avance P2 incorpora [perfiles digitales y alimentación/reset](docs/componentes/digital.md):
+las hojas activas controlan parámetros de su propio modelo eléctrico, reciben entradas muestreadas
+y cancelan generaciones al perder operación. Las barreras adelantadas verifican energía antes de
+callbacks pendientes. Es cuasiestático y todavía no ejecuta IRQ, protocolos ni CPU.
 
 ## 1. Resultado buscado y decisiones de alcance
 

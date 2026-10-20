@@ -136,6 +136,7 @@ export class PaquetesComponentes {
     const snapshot = await this.capturar(def.modulo.id);
     if (snapshot.sha256 !== def.modulo.sha256) throw new ErrorComponente('HASH_DISTINTO', `Hash distinto para el paquete ${def.modulo.id}`);
     verificarContrato(def, snapshot.descriptor);
+    if (def.perfilDigital && !snapshot.descriptor.model) throw new ErrorComponente('MODELO_INVALIDO', 'El perfil digital requiere un modelo eléctrico explícito para sus salidas');
     try {
       const modeloCodigo = snapshot.descriptor.model && snapshot.fuente !== undefined ? compilarFuente(snapshot.fuente, snapshot.descriptor.model) : undefined;
       return { ...snapshot.descriptor, modeloCodigo };

@@ -89,7 +89,8 @@ propia evidencia.
 - Un token identifica su entrada por identidad de objeto, no solo por número; no cancela otra agenda.
 - `cancelarSubarbol(ruta)` retira eventos pendientes de ese ámbito e incrementa sus generaciones.
   Un callback en vuelo pierde permiso para escribir mediante su contexto. Las otras copias siguen.
-  Cancelar eventos no quita físicamente piezas ni simula pérdida de alimentación.
+  Cancelar eventos no quita físicamente piezas. El perfil digital añade por separado
+  la reacción a alimentación/reset medidos.
 - `pausar` congela tiempo simulado. Una barrera ya en vuelo puede terminar en ese mismo instante.
 - `detener` cancela toda la cola, invalida respuestas en vuelo y retira medidas inmediatamente.
   No fuerza la terminación del worker ngspice que ya estaba calculando; se descarta su respuesta.
@@ -122,7 +123,8 @@ El presupuesto de eventos detecta bucles de duración cero que sí devuelven el 
 - Una hoja equivalente activa recibe eventos; su interior inactivo no. Cancelar la rama derecha
   deja actuar a la izquierda sin duplicar primitivas eléctricas.
 
-Siguen pendientes adaptadores de pads/IRQ/protocolos/CPU, reloj de firmware, transitorios,
+El [perfil digital](digital.md) ya conecta entradas/salidas eléctricas y alimentación/reset de hojas.
+Siguen pendientes adaptadores de IRQ/protocolos/CPU, reloj de firmware, transitorios,
 persistencia/replay serializado, interfaz de usuario y certificación completa de P2/H0–H3.
 
 ## Verificación de esta iteración

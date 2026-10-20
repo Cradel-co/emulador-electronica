@@ -96,3 +96,9 @@ normalización de hashes y límites se describen en [elaboracion.md](elaboracion
 [La agenda](tiempo.md) vive en shared, sin dependencia del solver o del servidor. El coordinador
 reutiliza el grafo activo y el adaptador DC: tiempo entero, fases, generaciones y barreras
 asíncronas. No se promete transitorio analógico ni ejecución de CPU/IRQ todavía.
+
+## Perfiles digitales y ciclo de vida
+
+La hoja declara umbrales, alimentación/reset y parámetros de salida. La agenda controla esos
+parámetros y consume lecturas del solver; el paquete conserva el único modelo eléctrico del driver.
+Las transiciones cancelan generaciones y recrean estado por instancia. Ver [contrato y límites](digital.md).
