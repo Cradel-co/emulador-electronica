@@ -1,4 +1,5 @@
 export * from './module.js';
+export * from './componentes/contratos.js';
 export * from './project.js';
 export * from './board.js';
 export * from './languages.js';
@@ -20,3 +21,4 @@ export * from './analisisFisico.js';
 export * from './termica.js';
 
 export * from './ac.js';
+export * from './componentes/tiempo.js';

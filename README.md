@@ -321,6 +321,7 @@ emulador-electronica/
 | [`docs/depuracion.md`](docs/depuracion.md) | Modo debug: qué se puede en cada motor, API REST, DAP |
 | [`docs/esp-emulator.md`](docs/esp-emulator.md) | Qué es y qué no es `esp-emu` |
 | [`SDD-ESP32-PROPIO.md`](SDD-ESP32-PROPIO.md) | Plataforma propia de componentes y esquemáticos jerárquicos; ESP32 como primera integración y sustitución de `esp-emu` |
+| [`docs/componentes/electrico.md`](docs/componentes/electrico.md) | API interna de paquetes verificados y primera integración DC de esquemas jerárquicos con ngspice |
 | [`docs/bridge-mode.md`](docs/bridge-mode.md) | Que el ESP32 simulado tenga IP real en tu LAN (Home Assistant lo detecta solo) |
 | [`docs/placas-como-datos.md`](docs/placas-como-datos.md) | El bloque `board` en detalle |
 | [`docs/custom-chips.md`](docs/custom-chips.md) | Crear un chip de Wokwi reutilizable |

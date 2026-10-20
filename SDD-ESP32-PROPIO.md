@@ -1,6 +1,6 @@
 # SDD: plataforma propia de componentes y esquemáticos jerárquicos
 
-**Estado:** propuesta de diseño; implementación y mediciones pendientes.
+**Estado:** diseño con implementación P0/P1 y integración DC, selección exclusiva y primera agenda compartida; editor y ESP32 pendientes.
 
 **Fecha:** 20 de octubre de 2026.
 
@@ -17,6 +17,19 @@
 Este documento planifica la plataforma y su primera integración para reemplazar `esp-emu`. No
 anuncia jerarquía ejecutable disponible, motor implementado, firmware ejecutado ni compatibilidad
 demostrada. Cada capacidad se habilita después de completar su evidencia.
+
+### Inicio de implementación
+
+P0 cuenta con un [inventario de capacidades, corpus y presupuestos](docs/componentes/P0-INVENTARIO.md)
+y el [ADR de identidad, composición y fuente de verdad](docs/componentes/ADR-001-COMPOSICION.md).
+El contrato está en `app/shared/src/componentes/contratos.ts`. El [elaborador P1](docs/componentes/elaboracion.md)
+resuelve definiciones por versión/hash y produce instancias/redes con origen en memoria, validando
+parámetros y dependencias sin modificar proyectos existentes. La [integración DC](docs/componentes/electrico.md)
+verifica paquetes legados y calcula tensiones/corrientes de divisores anidados, comparándolas con
+un plano independiente mediante el motor eléctrico actual. La selección exclusiva de interior o
+equivalente ya está implementada para consultas DC. La [agenda común](docs/componentes/tiempo.md)
+coordina eventos, generaciones y barreras DC sobre el grafo activo; editor y adaptadores temporales
+de firmware siguen pendientes; no se acreditan H0–H3 completos ni compatibilidad ESP32.
 
 ## 1. Resultado buscado y decisiones de alcance
 
@@ -211,6 +224,12 @@ Un equivalente y su esquema interno son alternativas para los mismos efectos; co
 dominios diferentes pueden coexistir mediante un contrato explícito. Un validador rechaza cobertura
 solapada y evidencia faltante. Ninguna pieza interna aparece dos veces en la netlist del solver.
 
+**Avance del piloto DC:** [selección exclusiva](docs/componentes/representaciones.md) entre el
+interior y un equivalente completo, con interfaces idénticas y elección por ruta de instancia.
+El árbol inactivo no se elabora ni se ejecuta. Se comparan tensiones, carga y potencia de divisores
+anidados. La cobertura parcial por dominio y los complementos funcionales siguen pendientes;
+la exclusión actual asigna todos los efectos del componente a una única alternativa.
+
 **Expandir visualmente una hoja no cambia el modelo activo.** Seleccionar más detalle requiere
 una acción/configuración explícita, validación de capacidades y presupuesto. Inicialmente se hace
 con la corrida detenida y reinicio declarado; no se promete transferir estado entre representaciones.
@@ -372,6 +391,11 @@ Agenda con tiempo entero y precisión declarada, orden estable por instante/fase
 contadores sin pérdida de precisión. Dominios CPU/APB/RTC convierten sus ticks conservando residuos;
 cambiar frecuencia no retrocede el reloj ni pierde eventos. La unidad y conversión se fijan en P2 y se reutilizan en M1.
 
+**Avance P2:** el piloto usa picosegundos `bigint`, orden instante/fase/secuencia, relojes con
+residuos racionales y cancelación por generación. Coordina hojas activas y espera barreras DC
+asíncronas; cambios simultáneos de parámetros comparten resolución. Ver [contrato y pruebas](docs/componentes/tiempo.md).
+Son puntos de operación cuasiestáticos; todavía no hay CPU/pads/IRQ ni integración transitoria.
+
 En una barrera temporal:
 
 1. Ejecutar CPU hasta el próximo evento observable o límite de avance permitido por el circuito.
@@ -525,8 +549,8 @@ reproducible y hash, sin descargas implícitas en unitarios.
 
 ## 8. Plan de validación para la implementación
 
-Diseñar pruebas antes del bloque correspondiente y comprobar que detectan su defecto. La presente
-entrega documental no ejecuta ni incorpora tests de una implementación inexistente.
+Diseñar pruebas antes del bloque correspondiente y comprobar que detectan su defecto. La planificación
+no constituye evidencia: cada avance registra las pruebas realizadas y las capacidades aún pendientes.
 
 | Área | Casos obligatorios |
 |---|---|
