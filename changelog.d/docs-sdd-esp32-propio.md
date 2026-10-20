@@ -1,5 +1,6 @@
-Se documenta el plan para sustituir esp-emu por un motor ESP32 propio, con etapas y criterios de compatibilidad.
+Se planifica una plataforma propia de componentes y esquemáticos jerárquicos, con ESP32 como primera integración.
 
-El SDD comienza por ESP32-C3 en TypeScript y define arquitectura, contratos de periféricos,
-tiempo virtual, pruebas, migración y condiciones para retirar el backend actual sin degradar
-las placas y los proyectos soportados. El motor todavía no está implementado.
+El SDD define composición, edición de subcircuitos, representaciones sin doble conteo,
+fabricación trazable y etapas de plataforma anteriores al motor ESP32-C3 en TypeScript.
+Incluye pruebas, migración y condiciones para sustituir esp-emu sin degradar el soporte actual.
+La plataforma propuesta y el motor todavía no están implementados.
