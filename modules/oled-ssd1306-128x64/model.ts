@@ -6,7 +6,9 @@
 // Consumo: el de un OLED depende de cuántos píxeles están prendidos y del contraste (de ~1 mA con
 // la pantalla negra a ~20 mA toda blanca). El modelo eléctrico no conoce la imagen: usa 10 mA,
 // un valor típico con texto y gráficos.
-module.exports = {
+import type { ModeloModulo } from '@emu/shared';
+
+export default {
   circuito(ctx) {
     const vcc = ctx.pin('VCC'), gnd = ctx.pin('GND');
     ctx.regulador(vcc, ctx.nodo('v33'), gnd, { voltios: 3.3, caida: 0.25, limiteA: 0.2, iq: 1e-6 }, 'ldo');
@@ -16,9 +18,7 @@ module.exports = {
   },
   observar(l) {
     const vcc = l.vEntre('VCC', 'GND');
-    const avisos = [];
-    if (vcc > 6) avisos.push({ severidad: 'peligro', mensaje: `VCC en ${vcc.toFixed(1).replace('.', ',')} V: el módulo es para 3,3 a 5 V (su regulador aguanta hasta 6 V).` });
-    else if (vcc > 0.5 && vcc < 3.0) avisos.push({ severidad: 'advertencia', mensaje: `VCC en ${vcc.toFixed(2).replace('.', ',')} V: la bomba de carga del SSD1306 necesita al menos ~3,3 V en su entrada; la pantalla puede no prender.` });
-    return { ui: { on: vcc >= 3.0 && vcc <= 6 }, avisos };
+    // Los límites de VCC están en las `reglas` del module.json.
+    return { ui: { on: vcc >= 3.0 && vcc <= 6 } };
   },
-};
+} satisfies ModeloModulo;

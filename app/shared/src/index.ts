@@ -6,6 +6,7 @@ export * from './diagram.js';
 export * from './protocol.js';
 export * from './modelo.js';
 export * from './chip.js';
+export * from './fabricacion.js';
 export * from './camera.js';
 export * from './audio.js';
 export * from './i2cFisico.js';

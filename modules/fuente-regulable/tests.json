@@ -1,0 +1,20 @@
+[
+  {
+    "nombre": "en vacío entrega lo ajustado (CV)",
+    "props": {"voltage": 5, "currentLimitMa": 500},
+    "banco": {"GND": "tierra", "V": "sonda"},
+    "espera": {"tension": {"V:GND": [4.99, 5.01]}, "sinAvisos": true}
+  },
+  {
+    "nombre": "con 10 Ω y límite de 100 mA pasa a CC: 100 mA y ~1 V",
+    "props": {"voltage": 5, "currentLimitMa": 100},
+    "banco": {"GND": "tierra", "V": {"resistencia": 10}},
+    "espera": {"tension": {"V:GND": [0.95, 1.05]}, "avisos": [{"severidad": "advertencia", "contiene": "modo CC"}]}
+  },
+  {
+    "nombre": "negativa: −5 V respecto de GND",
+    "props": {"voltage": -5, "currentLimitMa": 500},
+    "banco": {"GND": "tierra", "V": "sonda"},
+    "espera": {"tension": {"V:GND": [-5.01, -4.99]}}
+  }
+]

@@ -2,7 +2,9 @@ import { descargarAcotado } from './descargaAcotada.js';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { unzipSync } from 'fflate';
-import { MODULE_TYPE_RE, ModuleDefSchema, type ModuleDef } from '@emu/shared';
+import { MODULE_TYPE_RE, ModuleDefSchema, PruebasModuloSchema, type ModuleDef, type PruebaModulo } from '@emu/shared';
+import { loadCatalog, type ModuloCatalogo } from './catalog.js';
+import { probarModulo } from './sim/pruebasModulo.js';
 import { validarPlaca } from './boardRegistry.js';
 import { compilarFuente } from './fuenteSandbox.js';
 import { SandboxModelo } from './sim/sandbox.js';
@@ -27,6 +29,8 @@ export interface Paquete {
   svg?: string;
   /** Código del modelo eléctrico (el archivo que nombra `model`), si vino. */
   modelo?: string;
+  /** Sus pruebas (`tests.json`), si vinieron. */
+  pruebas?: string;
   /** De dónde salió (ruta dentro del zip, URL...), para los mensajes. */
   origen: string;
   kind: OrigenKind;
@@ -34,6 +38,7 @@ export interface Paquete {
 
 export interface Validacion {
   def?: ModuleDef;
+  pruebas?: PruebaModulo[];
   errores: string[];
   avisos: string[];
 }
@@ -155,6 +160,19 @@ export function validarPaquete(p: Paquete): Validacion {
   }
 
   if (def.model) errores.push(...problemasModelo(def, p.modelo));
+  let pruebas: PruebaModulo[] | undefined;
+  if (p.pruebas !== undefined) {
+    if (p.pruebas.length > LIMITES.json) errores.push('tests.json es demasiado grande (máx. 256 KB)');
+    else {
+      try {
+        const r = PruebasModuloSchema.safeParse(JSON.parse(p.pruebas));
+        if (r.success) pruebas = r.data;
+        else for (const issue of r.error.issues) errores.push(`tests.json: ${issue.path.join('.')}: ${issue.message}`);
+      } catch (err) {
+        errores.push(`tests.json no es JSON válido: ${(err as Error).message}`);
+      }
+    }
+  }
 
   if (p.svg === undefined) {
     avisos.push('no trae dibujo (module.svg): se va a ver como una caja con su nombre');
@@ -166,7 +184,7 @@ export function validarPaquete(p: Paquete): Validacion {
       avisos.push('declara controls pero el SVG no marca ninguna parte con data-ctrl: no se va a poder tocar');
     }
   }
-  return { def: errores.length ? undefined : def, errores, avisos };
+  return { def: errores.length ? undefined : def, pruebas, errores, avisos };
 }
 
 /**
@@ -348,12 +366,12 @@ export function paquetesDeArchivos(archivos: Map<string, string>, kind: OrigenKi
       try {
         const j = JSON.parse(normal.get(ruta)!) as { svg?: unknown; model?: unknown };
         if (typeof j.svg === 'string' && /^[\w.-]+\.svg$/.test(j.svg)) svgNombre = j.svg;
-        if (typeof j.model === 'string' && /^[\w.-]+\.(?:js|ts)$/.test(j.model)) modeloNombre = j.model;
+        if (typeof j.model === 'string' && /^[\w.-]+\.(ts|js)$/.test(j.model)) modeloNombre = j.model;
       } catch {
         /* el error de JSON lo informa la validación */
       }
       const modelo = modeloNombre ? normal.get(dir + modeloNombre) : undefined;
-      paquetes.push({ json: normal.get(ruta)!, svg: normal.get(dir + svgNombre), modelo, origen: ruta, kind });
+      paquetes.push({ json: normal.get(ruta)!, svg: normal.get(dir + svgNombre), modelo, pruebas: normal.get(dir + 'tests.json'), origen: ruta, kind });
     } else if (esChipWokwi(ruta)) {
       try {
         const conv = convertirChipWokwi(normal.get(ruta)!, rutas.filter(esChipWokwi).length === 1 ? opcionesWokwi : {});
@@ -436,8 +454,9 @@ export async function paquetesDeUrl(url: string, opcionesWokwi: OpcionesWokwi = 
     }
   };
   const svg = await vecino(svgNombre);
-  const modelo = typeof json.model === 'string' && /^[\w.-]+\.(?:js|ts)$/.test(json.model) ? await vecino(json.model) : undefined;
-  return { paquetes: [{ json: texto, svg, modelo, origen: url, kind: 'url' as const }], errores: [], avisos: [] };
+  const modelo = typeof json.model === 'string' && /^[\w.-]+\.(ts|js)$/.test(json.model) ? await vecino(json.model) : undefined;
+  const pruebas = await vecino('tests.json');
+  return { paquetes: [{ json: texto, svg, modelo, pruebas, origen: url, kind: 'url' as const }], errores: [], avisos: [] };
 }
 
 // --- Instalación ----------------------------------------------------------------------
@@ -461,7 +480,7 @@ export class ModuleInstaller {
   }
 
   async instalar(
-    def: ModuleDef, svg: string | undefined, origin: NonNullable<ModuleDef['origin']>, sobrescribir: boolean, modelo?: string,
+    def: ModuleDef, svg: string | undefined, origin: NonNullable<ModuleDef['origin']>, sobrescribir: boolean, modelo?: string, pruebas?: string,
   ): Promise<void> {
     const estado = await this.estado(def.type);
     if (estado === 'fabrica') throw new ImportError(`"${def.type}" es un módulo de fábrica: no se puede reemplazar`, 409);
@@ -475,6 +494,7 @@ export class ModuleInstaller {
       await fs.writeFile(path.join(tmp, 'module.json'), JSON.stringify({ ...def, svg: 'module.svg', origin }, null, 2) + '\n');
       if (svg !== undefined) await fs.writeFile(path.join(tmp, 'module.svg'), svg);
       if (def.model && modelo !== undefined) await fs.writeFile(path.join(tmp, def.model), modelo);
+      if (pruebas !== undefined) await fs.writeFile(path.join(tmp, 'tests.json'), pruebas);
       await fs.rm(destino, { recursive: true, force: true });
       await fs.rename(tmp, destino);
     } catch (err) {
@@ -504,6 +524,11 @@ export interface OpcionesImportacion {
   sobrescribir?: boolean;
   /** Valida sin instalar nada. */
   soloValidar?: boolean;
+  /**
+   * Correr el banco de pruebas del módulo (su tests.json y la prueba de humo) antes de instalarlo,
+   * con el motor eléctrico real. Si falla, no se instala. Por defecto sí.
+   */
+  probar?: boolean;
   wokwi?: OpcionesWokwi;
 }
 
@@ -550,6 +575,13 @@ export async function importar(
       continue;
     }
     tipos.add(v.def.type);
+    if (opciones.probar !== false) {
+      const fallas = await fallasDelBanco(v.def, p, v.pruebas);
+      if (fallas.length) {
+        resultado.errores.push({ origen: p.origen, mensajes: fallas });
+        continue;
+      }
+    }
     try {
       if (opciones.soloValidar) {
         const estado = await instalador.estado(v.def.type);
@@ -562,6 +594,7 @@ export async function importar(
           { kind: p.kind, from: (desde ?? p.origen).slice(0, 500), importedAt: new Date().toISOString() },
           Boolean(opciones.sobrescribir),
           p.modelo,
+          p.pruebas,
         );
       }
       resultado.importados.push({ type: v.def.type, name: v.def.name, origen: p.origen });
@@ -570,4 +603,25 @@ export async function importar(
     }
   }
   return resultado;
+}
+
+/**
+ * El módulo contra sí mismo, antes de instalarlo: lo declarado tiene que ser coherente (pines,
+ * elementos del modelo, esquemático) y sus pruebas tienen que pasar con el motor real. Devuelve
+ * qué falló, caso por caso, con lo que se midió.
+ */
+async function fallasDelBanco(def: ModuleDef, p: Paquete, pruebas: PruebaModulo[] | undefined): Promise<string[]> {
+  const modeloCodigo = p.modelo !== undefined ? compilarFuente(p.modelo, def.model ?? 'model.js') : undefined;
+  const nuevo: ModuloCatalogo = { ...def, modeloCodigo, svgMarkup: p.svg, builtin: false, pruebas };
+  const catalogo = await loadCatalog().catch(() => [] as ModuloCatalogo[]);
+  const buscar = (t: string) => (t === def.type ? nuevo : catalogo.find((m) => m.type === t));
+  try {
+    const inf = await probarModulo(nuevo, buscar);
+    return [
+      ...inf.errores,
+      ...inf.pruebas.filter((x) => !x.ok).map((x) => `prueba "${x.nombre}" falló: ${x.fallas.join('; ')}`),
+    ];
+  } catch (err) {
+    return [`no se pudo correr su banco de pruebas: ${(err as Error).message}`];
+  }
 }

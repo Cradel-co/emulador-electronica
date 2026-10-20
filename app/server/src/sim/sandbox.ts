@@ -150,6 +150,7 @@ export interface EntradaObservar extends Omit<EntradaCircuito, 'pines'> {
 export class SandboxModelo {
   private readonly ctx: vm.Context;
 
+  /** El `codigo` llega ya transpilado desde el catálogo/importador (ver fuenteSandbox.ts). */
   constructor(readonly tipo: string, codigo: string) {
     this.ctx = vm.createContext(Object.create(null), {
       codeGeneration: { strings: false, wasm: false },
@@ -160,7 +161,8 @@ export class SandboxModelo {
     try {
       vm.runInContext(PRELUDIO, this.ctx, { timeout: TIEMPO_CARGA_MS });
       const script = new vm.Script(
-        envolver(`(function () {\n${codigo}\n})(), typeof module.exports.circuito === 'function' ? '' : 'el modelo no exporta circuito(ctx)'`),
+        // `export default {...}` (TypeScript) llega como exports.default: ese es el modelo.
+        envolver(`(function () {\n${codigo}\n})(), (module.exports && module.exports.__esModule && module.exports.default ? (module.exports = module.exports.default) : 0), typeof module.exports.circuito === 'function' ? '' : 'el modelo no exporta circuito(ctx)'`),
         { filename: `modules/${tipo}/model.js` },
       );
       salida = script.runInContext(this.ctx, { timeout: TIEMPO_CARGA_MS });

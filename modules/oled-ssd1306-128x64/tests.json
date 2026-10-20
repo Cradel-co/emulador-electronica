@@ -1,0 +1,17 @@
+[
+  {
+    "nombre": "con 5 V: ~10 mA (texto y gráficos) y prende",
+    "banco": {"VCC": {"fuente": 5}, "GND": "tierra"},
+    "espera": {"corrienteMa": {"oled": [9.8, 10.2]}, "ui": {"on": true}, "sinAvisos": true}
+  },
+  {
+    "nombre": "con 2,8 V puede no prender",
+    "banco": {"VCC": {"fuente": 2.8}, "GND": "tierra"},
+    "espera": {"ui": {"on": false}, "avisos": [{"severidad": "advertencia", "contiene": "bomba de carga"}]}
+  },
+  {
+    "nombre": "pull-ups de 4,7 kΩ a VCC: SDA a GND toma ~1,06 mA a 5 V",
+    "banco": {"VCC": {"fuente": 5}, "GND": "tierra", "SDA": "tierra"},
+    "espera": {"corrienteMa": {"pullupSDA": [1.04, 1.08]}}
+  }
+]

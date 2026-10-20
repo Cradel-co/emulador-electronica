@@ -8,7 +8,9 @@
 // Consumo del BME280: en modo normal con x16 mide casi todo el tiempo: ~0,7 mA promedio
 // (tabla 1 de la hoja de Bosch: 340/714/350 µA por canal mientras mide). El modelo eléctrico
 // no sabe en qué modo está el chip: usa ese peor caso.
-module.exports = {
+import type { AvisoModelo, ModeloModulo } from '@emu/shared';
+
+export default {
   circuito(ctx) {
     ctx.regulador(ctx.pin('VIN'), ctx.pin('3VO'), ctx.pin('GND'), { voltios: 3.3, caida: 0.31, limiteA: 0.15, iq: 29e-6 }, 'mic5225');
     ctx.resistencia(ctx.pin('3VO'), ctx.pin('GND'), 3.3 / 0.0007, 'bme280');
@@ -24,11 +26,10 @@ module.exports = {
   observar(l) {
     const vin = l.vEntre('VIN', 'GND');
     const vdd = l.vEntre('3VO', 'GND');
-    const avisos = [];
-    if (vin > 6) avisos.push({ severidad: 'peligro', mensaje: `VIN en ${vin.toFixed(1).replace('.', ',')} V: la placa es para 3 a 5 V; el MIC5225 aguanta hasta 6 V en operación.` });
+    const avisos: AvisoModelo[] = [];
     if (vdd > 0.5 && vdd < 1.71) avisos.push({ severidad: 'advertencia', mensaje: `El BME280 recibe ${vdd.toFixed(2).replace('.', ',')} V: necesita al menos 1,71 V (VDD de la hoja). No va a responder.` });
     else if (vin > 0.5 && vin < 3.3 + 0.31 && vdd >= 1.71) avisos.push({ severidad: 'advertencia', mensaje: `VIN en ${vin.toFixed(2).replace('.', ',')} V: el regulador está en caída y el sensor recibe ${vdd.toFixed(2).replace('.', ',')} V (anda igual: el BME280 funciona desde 1,71 V).` });
-    if (vdd > 3.6) avisos.push({ severidad: 'peligro', mensaje: `El BME280 recibe ${vdd.toFixed(2).replace('.', ',')} V por 3VO: el máximo de la hoja es 3,6 V.` });
+    // Los máximos (VIN 6 V, 3VO 3,6 V) están en las `reglas` del module.json.
     return { ui: { on: vdd >= 1.71 && vdd <= 3.6 }, avisos };
   },
-};
+} satisfies ModeloModulo;

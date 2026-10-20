@@ -30,5 +30,12 @@
     "role": "air",
     "pin": "-"
   },
-  "svg": "module.svg"
+  "svg": "module.svg",
+  "parte": {
+    "fabricante": "genérico",
+    "mpn": "Sensor magnético de puerta 433 MHz (EV1527)",
+    "generico": true,
+    "descripcion": "Sensor de apertura inalámbrico, código fijo de 24 bits"
+  },
+  "esquematico": {"fabricacion": "externo", "notas": ["Inalámbrico: no va en la placa, se compra aparte."]}
 }

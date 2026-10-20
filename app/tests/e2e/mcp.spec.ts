@@ -26,10 +26,22 @@ test('expone las herramientas para controlar toda la app', async () => {
     'estado', 'listar_proyectos', 'crear_proyecto', 'ver_proyecto', 'leer_archivo', 'escribir_archivo',
     'catalogo', 'importar_modulo', 'quitar_modulo_catalogo', 'agregar_modulo', 'quitar_modulo', 'mover_modulo',
     'configurar_modulo', 'conectar', 'desconectar', 'compilar', 'ejecutar', 'parar', 'resetear',
-    'accionar_modulo', 'poner_pin', 'enviar_rf', 'leer_pines', 'leer_log', 'esperar_log',
+    'accionar_modulo', 'poner_pin', 'enviar_rf', 'leer_pines', 'leer_log', 'esperar_log', 'probar_modulo',
   ]) {
     expect(nombres).toContain(n);
   }
+  await client.close();
+});
+
+test('probar_modulo corre el banco de pruebas del módulo y dice su nivel', async () => {
+  const client = await clienteMcp();
+  const r = await llamar(client, 'probar_modulo', { tipo: 'relay' });
+  expect(r.error).toBe(false);
+  const informe = JSON.parse(r.texto.slice(r.texto.indexOf('{')));
+  expect(informe.nivel).toBe('fabricable');
+  expect(informe.pruebas.find((p: { nombre: string }) => p.nombre.startsWith('con 5 V')).medido['corrienteMa bobina']).toBeGreaterThan(65);
+  expect(informe.esquematico.conectores[0].huella).toBe('Connector_PinHeader_2.54mm:PinHeader_1x03_P2.54mm_Vertical');
+  expect((await llamar(client, 'probar_modulo', { tipo: 'no-existe' })).error).toBe(true);
   await client.close();
 });
 

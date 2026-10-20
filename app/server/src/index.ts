@@ -48,6 +48,7 @@ import { buscarPlaca, listarPlacas, nivelDeclarado, validarPlaca, type Placa } f
 import { esquemaJsonPlaca } from './boardSchema.js';
 import { certificar, leerCertificacion, type ReporteCertificacion } from './certificacion.js';
 import { invalidarCatalogo, loadCatalog, type ModuloCatalogo } from './catalog.js';
+import { esquematicoEfectivo, nivelModulo, probarModulo } from './sim/pruebasModulo.js';
 import { ImportError, ModuleInstaller, importar, type OpcionesImportacion, type SolicitudImportacion } from './moduleImporter.js';
 import { crearServidorMcp, type McpContexto } from './mcp.js';
 import { scanPins, direccionesDeCodigo } from './pinScan.js';
@@ -412,7 +413,10 @@ async function registerRoutes(app: FastifyInstance, fastifyStatic: typeof import
     return (await loadCatalog()).find(m => m.type === inst.type)?.camera ?? null;
   });
 
-  registrarRutasModulos(app, { loadCatalog, solicitudDe, importarModulos, quitarDelCatalogo, fallar: fail });
+  registrarRutasModulos(app, {
+    loadCatalog, nivelModulo, probarModulo, esquematicoEfectivo,
+    solicitudDe, importarModulos, quitarDelCatalogo, fallar: fail,
+  });
   registrarRutasMcp(app, contextoMcp);
 
   app.get('/api/projects', async () => ({ projects: await store.list() }));

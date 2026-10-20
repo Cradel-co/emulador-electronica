@@ -1,0 +1,17 @@
+[
+  {
+    "nombre": "con 5 V: el MPU-6050 toma 3,8 mA y prende el LED",
+    "banco": {"VCC": {"fuente": 5}, "GND": "tierra"},
+    "espera": {"corrienteMa": {"mpu6050": [3.75, 3.85], "led": [0.5, 2]}, "ui": {"on": true}, "sinAvisos": true}
+  },
+  {
+    "nombre": "pull-ups a 3,3 V (no a VCC): SDA a GND toma 0,70 mA aunque VCC sea 5 V",
+    "banco": {"VCC": {"fuente": 5}, "GND": "tierra", "SDA": "tierra"},
+    "espera": {"corrienteMa": {"pullupSDA": [0.69, 0.71]}}
+  },
+  {
+    "nombre": "con 2,5 V no responde",
+    "banco": {"VCC": {"fuente": 2.5}, "GND": "tierra"},
+    "espera": {"ui": {"on": false}, "avisos": [{"severidad": "advertencia", "contiene": "2,375 V"}]}
+  }
+]
