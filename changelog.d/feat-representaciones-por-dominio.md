@@ -1,4 +1,4 @@
-Los componentes jerárquicos combinan representaciones eléctricas y funcionales sin duplicar corrientes ni eventos.
+Los componentes jerárquicos combinan representaciones eléctricas y funcionales sin duplicar corrientes ni eventos. (#94)
 
 Cada familia tiene un propietario; la lógica puede observar el equivalente eléctrico y emitir IRQ.
 Rechaza observaciones que cortocircuiten nodos, conserva X en nodos no observables y bloquea escrituras sobre drivers ajenos.
