@@ -98,12 +98,20 @@ const Hoja = Cabecera.extend({
 }).strict();
 
 /** Una red es explícita; no hay etiquetas globales ni GND compartido por nombre. */
+const ImplementacionRepresentacion = z.enum(['interno', 'equivalente']);
+/** Dos familias de efectos ejecutables; no implica ejecutar los demás dominios de puerto. */
+export const SeleccionRepresentacionSchema = z.union([ImplementacionRepresentacion,
+  z.object({ electrico: ImplementacionRepresentacion, funcional: ImplementacionRepresentacion }).strict(),
+]);
+export type SeleccionRepresentacion = z.infer<typeof SeleccionRepresentacionSchema>;
+export type DominioEfecto = 'electrico' | 'funcional';
+
 const Compuesto = Cabecera.extend({
   tipo: z.literal('compuesto'),
   // Alternativas completas: todos los efectos pertenecen exclusivamente a la elegida.
   representaciones: z.object({
     equivalente: ReferenciaComponenteSchema,
-    predeterminada: z.enum(['interno', 'equivalente']),
+    predeterminada: SeleccionRepresentacionSchema,
   }).strict().optional(),
   instancias: z.array(InstanciaComponenteSchema).max(LIMITES_COMPONENTES.instanciasPorDefinicion),
   conexiones: z.array(ConexionComponenteSchema).max(LIMITES_COMPONENTES.conexionesPorDefinicion),

@@ -1,7 +1,7 @@
 import { AgendaTemporal, ErrorAgenda, MAX_TIEMPO_PS, type EstadoAgenda, type EventoTemporal, type TokenTemporal, type ValorParametroComponente, type NivelDigital, type DriveDigital, type PerfilDigital, type ContextoDespacho } from '@emu/shared';
 import type { ReferenciaComponente } from '@emu/shared';
 import { CatalogoComponentes } from './catalogo.js';
-import { elaborarComponente, validarParametrosComponente, type GrafoComponentes, type InstanciaElaborada, type OpcionesElaboracion } from './elaboracion.js';
+import { elaborarComponente, poseeDominio, validarParametrosComponente, type GrafoComponentes, type InstanciaElaborada, type OpcionesElaboracion } from './elaboracion.js';
 import { analizarGrafoElaboradoDc, type ResultadoGrafoDc } from './electrico.js';
 import { PaquetesComponentes } from './paquetes.js';
 import { leerEstadoDigital, type EstadoDigitalComponente, type CambioEntradaDigital } from './digital.js';
@@ -98,6 +98,7 @@ export class SimulacionTemporalComponentes {
           for (const salida of Object.values(def.perfilDigital.salidas)) i.parametros[salida.parametro] = 'Z';
           continue;
         }
+        if (!poseeDominio(i, 'funcional')) continue;
         const modelo = this.crearModelo(structuredClone(i));
         if (modelo) this.modelos.set(clave(i.ruta), modelo);
       }
@@ -148,6 +149,7 @@ export class SimulacionTemporalComponentes {
     };
     const aplicarParametro = (nombre: string, valor: ValorParametroComponente): void => {
       comprobar();
+      if (!poseeDominio(instancia, 'electrico')) throw new ErrorAgenda('La hoja no es propietaria de efectos eléctricos; requiere un acoplamiento explícito', instancia.ruta);
       if (fase !== 'entrada' && fase !== 'modelo') throw new ErrorAgenda('Una fase de observación no puede modificar el circuito', instancia.ruta);
       const valores = validarParametrosComponente(this.catalogo.resolver(instancia.definicion), { ...instancia.parametros, [nombre]: valor }, instancia.ruta);
       if (Object.is(instancia.parametros[nombre], valores[nombre])) return;
@@ -223,7 +225,7 @@ export class SimulacionTemporalComponentes {
   private notificarDigitales(anteriores: Map<string, EstadoDigitalComponente>): void {
     for (const [k, { instancia, perfil }] of this.perfiles) {
       const actual = this.digitales.get(k);
-      if (actual?.estado !== 'activo') continue;
+      if (actual?.estado !== 'activo' || !poseeDominio(instancia, 'funcional')) continue;
       const instantePs = this.ahoraPs + BigInt(perfil.retardoPs), reiniciar = this.reiniciosDigitales.has(k);
       if (reiniciar) this.agenda.programar({ ruta: [...instancia.ruta], instantePs, fase: 'modelo', tipo: INICIO_DIGITAL });
       for (const [puerto, nivel] of Object.entries(actual.entradas)) {

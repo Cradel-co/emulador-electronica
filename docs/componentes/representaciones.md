@@ -1,9 +1,11 @@
-# Selección exclusiva de representaciones
+# Selección de representaciones
 
 El piloto DC admite dos alternativas completas por componente compuesto: su esquema `interno`
 y una definición `equivalente` fijada por versión y SHA-256. La elegida es dueña de **todos** los
 efectos del componente para esa consulta. No se combinan partes de ambas ni se ejecuta el interior
-como observador. Así se evita duplicar corriente, consumo o primitivas, incluso si VOUT no cambia.
+como observador bajo esa selección completa. Así se evita duplicar corriente, consumo o primitivas, incluso si VOUT no cambia.
+También admite [selección por dominio](representaciones-por-dominio.md) para separar efectos
+eléctricos y funcionales con propietarios exclusivos y observación controlada.
 
 ```ts
 // Campo opcional de una definición tipo compuesto:
@@ -53,10 +55,10 @@ Con el solver real se comparan salidas, elementos, corriente de alimentación y 
 la representación interna. Otro caso alterna hojas equivalentes dentro de los divisores.
 Se comprueba además que un paquete seleccionado alterado falla sin volver al interior.
 
-Esto implementa una parte de P2. La cobertura parcial por dominio, modelos complementarios,
-[adaptadores de eventos/IRQ/radio](tiempo.md) y validación de energía en transiciones siguen pendientes.
-La agenda común ya coordina hojas activas y barreras DC; no ejecuta esos protocolos todavía.
-La exclusión es total por componente; no se atribuye ejecución funcional a esos dominios todavía.
+Esto implementa una parte de P2. La [selección por dominio](representaciones-por-dominio.md) permite
+complementar observación y ejecución funcional/IRQ con una representación eléctrica diferente.
+La [agenda común](tiempo.md) incluye alimentación/reset y enrutamiento IRQ; radio, otros protocolos,
+CPU y acoplamientos de escritura entre representaciones siguen pendientes.
 
 ## Verificación de esta iteración
 

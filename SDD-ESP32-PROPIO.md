@@ -1,6 +1,6 @@
 # SDD: plataforma propia de componentes y esquemáticos jerárquicos
 
-**Estado:** diseño con implementación P0/P1 e integración DC, selección exclusiva, agenda compartida, perfiles digitales con alimentación/reset y enrutamiento IRQ jerárquico; editor y ESP32 pendientes.
+**Estado:** implementación P0/P1 y avances P2: DC, selección eléctrica/funcional por dominio, agenda común, perfiles digitales, alimentación/reset e IRQ jerárquico; acoplamientos de escritura, editor y ESP32 pendientes.
 
 **Fecha:** 20 de octubre de 2026.
 
@@ -233,11 +233,13 @@ Un equivalente y su esquema interno son alternativas para los mismos efectos; co
 dominios diferentes pueden coexistir mediante un contrato explícito. Un validador rechaza cobertura
 solapada y evidencia faltante. Ninguna pieza interna aparece dos veces en la netlist del solver.
 
-**Avance del piloto DC:** [selección exclusiva](docs/componentes/representaciones.md) entre el
-interior y un equivalente completo, con interfaces idénticas y elección por ruta de instancia.
-El árbol inactivo no se elabora ni se ejecuta. Se comparan tensiones, carga y potencia de divisores
-anidados. La cobertura parcial por dominio y los complementos funcionales siguen pendientes;
-la exclusión actual asigna todos los efectos del componente a una única alternativa.
+**Avance P2:** [selección completa o por dominio](docs/componentes/representaciones-por-dominio.md)
+entre interior y equivalente, con interfaces idénticas y elección por ruta. Las familias eléctrica
+y funcional pueden tener propietarios distintos; se heredan máscaras y se podan ramas sin efectos.
+DC estampa un único circuito, la agenda ejecuta un único modelo funcional y las observaciones no
+pueden unir nodos físicos distintos. Se comparan divisores anidados, lecturas digitales, IRQ y
+alimentación/reset. Quedan pendientes acoplamientos declarativos de escritura entre modelos,
+otros dominios/protocolos, editor y certificación completa de P2.
 
 **Expandir visualmente una hoja no cambia el modelo activo.** Seleccionar más detalle requiere
 una acción/configuración explícita, validación de capacidades y presupuesto. Inicialmente se hace

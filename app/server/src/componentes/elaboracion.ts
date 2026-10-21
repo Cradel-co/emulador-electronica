@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { DefinicionComponente, PuertoComponente, ReferenciaComponente, ValorParametroComponente } from '@emu/shared';
+import { SeleccionRepresentacionSchema, type SeleccionRepresentacion, type DominioEfecto, type DefinicionComponente, type PuertoComponente, type ReferenciaComponente, type ValorParametroComponente } from '@emu/shared';
 import { CatalogoComponentes } from './catalogo.js';
 import { ErrorComponente } from './errores.js';
 
@@ -11,10 +11,12 @@ export interface InstanciaElaborada {
   definicion: ReferenciaComponente;
   tipo: DefinicionComponente['tipo'];
   parametros: Valores;
-  representacion?: { seleccion: 'interno' | 'equivalente'; componente: ReferenciaComponente };
+  representacion?: { seleccion: SeleccionRepresentacion; componente: ReferenciaComponente };
+  dominiosActivos?: DominioEfecto[];
+  origenRepresentacion?: { ruta: string[]; seleccion: 'equivalente' };
 }
 export interface TerminalElaborado extends PuertoComponente { clave: string; ruta: string[]; puerto: string }
-export interface OrigenRed { ruta: string[]; conexion: string }
+export interface OrigenRed { ruta: string[]; conexion: string; observacion?: true; representacion?: 'equivalente' }
 export interface RedElaborada {
   id: string;
   dominio: PuertoComponente['dominio'];
@@ -25,7 +27,7 @@ export interface RedElaborada {
 export interface GrafoComponentes { instancias: InstanciaElaborada[]; redes: RedElaborada[] }
 const Selecciones = z.array(z.object({
   ruta: z.array(z.string().regex(/^[a-z][a-z0-9-]{0,39}$/)).max(16),
-  seleccion: z.enum(['interno', 'equivalente']),
+  seleccion: SeleccionRepresentacionSchema,
 }).strict()).max(2000);
 export interface OpcionesElaboracion {
   parametros?: Valores; limites?: Partial<Limites>;
@@ -34,6 +36,7 @@ export interface OpcionesElaboracion {
 
 const claveTerminal = (ruta: readonly string[], puerto: string): string => JSON.stringify([ruta, puerto]);
 const ordenar = (a: string, b: string): number => a < b ? -1 : a > b ? 1 : 0;
+export const poseeDominio = (i: InstanciaElaborada, dominio: DominioEfecto): boolean => i.dominiosActivos === undefined || i.dominiosActivos.includes(dominio);
 
 export function validarParametrosComponente(def: DefinicionComponente, valores: Valores, ruta: string[]): Valores {
   const resultado: Valores = Object.create(null) as Valores;
@@ -61,7 +64,7 @@ export function elaborarComponente(catalogo: CatalogoComponentes, raiz: Referenc
   }
   const validacion = Selecciones.safeParse(opciones.representaciones ?? []);
   if (!validacion.success) throw new ErrorComponente('FORMATO', 'Selección de representaciones inválida');
-  const pendientes = new Map<string, 'interno' | 'equivalente'>();
+  const pendientes = new Map<string, SeleccionRepresentacion>();
   for (const s of validacion.data) {
     const clave = JSON.stringify(s.ruta);
     if (pendientes.has(clave)) throw new ErrorComponente('FORMATO', 'Selección duplicada', s.ruta);
@@ -70,44 +73,57 @@ export function elaborarComponente(catalogo: CatalogoComponentes, raiz: Referenc
   const instancias: InstanciaElaborada[] = [];
   const terminales = new Map<string, TerminalElaborado>();
   const padres = new Map<string, string>();
+  const fisicos = new Map<string, string>();
   const conexiones: { terminal: string; origen: OrigenRed }[] = [];
   let cantidadConexiones = 0;
   const limite = (condicion: boolean, nombre: string, ruta: string[]): void => {
     if (condicion) throw new ErrorComponente('LIMITE', `Límite global de ${nombre} excedido`, ruta);
   };
-  const buscar = (clave: string): string => {
+  const raizDe = (mapa: Map<string, string>, clave: string): string => {
     let raiz = clave;
-    for (;;) { const p = padres.get(raiz); if (p === undefined) throw new ErrorComponente('PUERTO_AUSENTE', `Terminal ausente: ${clave}`); if (p === raiz) break; raiz = p; }
+    for (;;) { const p = mapa.get(raiz); if (p === undefined) throw new ErrorComponente('PUERTO_AUSENTE', `Terminal ausente: ${clave}`); if (p === raiz) break; raiz = p; }
     let actual = clave;
-    while (actual !== raiz) { const proximo = padres.get(actual); padres.set(actual, raiz); if (proximo === undefined) break; actual = proximo; }
+    while (actual !== raiz) { const proximo = mapa.get(actual); mapa.set(actual, raiz); if (proximo === undefined) break; actual = proximo; }
     return raiz;
   };
-  const visitar = (ref: ReferenciaComponente, ruta: string[], valores: Valores): void => {
+  const buscar = (clave: string): string => raizDe(padres, clave);
+  const unirFisicos = (a: string, b: string): void => { const x = raizDe(fisicos, a), y = raizDe(fisicos, b); if (x !== y) fisicos.set(y, x); };
+  const visitar = (ref: ReferenciaComponente, ruta: string[], valores: Valores, dominios: DominioEfecto[]): void => {
     limite(ruta.length > limites.profundidad, 'profundidad', ruta);
     limite(instancias.length >= limites.instancias, 'instancias', ruta);
     let def = catalogo.resolver(ref);
     const componente = { ...ref };
     const claveSeleccion = JSON.stringify(ruta), solicitada = pendientes.get(claveSeleccion);
     let representacion: InstanciaElaborada['representacion'];
+    let internos = dominios, adicional: { referencia: ReferenciaComponente; dominios: DominioEfecto[]; id: string } | undefined;
     if (def.tipo === 'compuesto' && def.representaciones) {
       const seleccion = solicitada ?? def.representaciones.predeterminada;
       pendientes.delete(claveSeleccion);
       representacion = { seleccion, componente };
-      if (seleccion === 'equivalente') {
+      const unico = typeof seleccion === 'string' ? seleccion : seleccion.electrico === seleccion.funcional ? seleccion.electrico : undefined;
+      if (unico === 'equivalente') {
         ref = def.representaciones.equivalente;
         def = catalogo.resolver(ref);
+      } else if (typeof seleccion !== 'string' && unico === undefined) {
+        internos = dominios.filter(d => seleccion[d] === 'interno');
+        const otros = dominios.filter(d => seleccion[d] === 'equivalente');
+        let id = 'equivalente', n = 0;
+        while (def.instancias.some(i => i.id === id)) id = `equivalente-${++n}`;
+        if (otros.length) adicional = { referencia: def.representaciones.equivalente, dominios: otros, id };
       }
     } else if (solicitada !== undefined) throw new ErrorComponente('FORMATO', 'La instancia no ofrece representaciones', ruta);
     const resueltos = validarParametrosComponente(def, valores, ruta);
-    instancias.push({ ruta: [...ruta], definicion: { ...ref }, tipo: def.tipo, parametros: resueltos, ...(representacion ? { representacion } : {}) });
+    instancias.push({ ruta: [...ruta], definicion: { ...ref }, tipo: def.tipo, parametros: resueltos, ...(representacion ? { representacion } : {}),
+      ...(dominios.length < 2 ? { dominiosActivos: [...dominios] } : {}) });
     for (const puerto of [...def.puertos].sort((a, b) => ordenar(a.id, b.id))) {
       limite(terminales.size >= limites.terminales, 'terminales', ruta);
       const clave = claveTerminal(ruta, puerto.id);
       terminales.set(clave, { ...puerto, clave, ruta: [...ruta], puerto: puerto.id });
       padres.set(clave, clave);
+      fisicos.set(clave, clave);
     }
     if (def.tipo !== 'compuesto') return;
-    for (const hijo of [...def.instancias].sort((a, b) => ordenar(a.id, b.id))) {
+    for (const hijo of internos.length ? [...def.instancias].sort((a, b) => ordenar(a.id, b.id)) : []) {
       const overrides: Valores = Object.create(null) as Valores;
       const contratoHijo = catalogo.resolver(hijo.definicion);
       for (const [clave, valor] of Object.entries(hijo.parametros)) {
@@ -121,9 +137,9 @@ export function elaborarComponente(catalogo: CatalogoComponentes, raiz: Referenc
           overrides[clave] = origen;
         } else overrides[clave] = valor;
       }
-      visitar(hijo.definicion, [...ruta, hijo.id], overrides);
+      visitar(hijo.definicion, [...ruta, hijo.id], overrides, internos);
     }
-    for (const red of [...def.conexiones].sort((a, b) => ordenar(a.id, b.id))) {
+    for (const red of internos.length ? [...def.conexiones].sort((a, b) => ordenar(a.id, b.id)) : []) {
       limite(++cantidadConexiones > limites.conexiones, 'conexiones', ruta);
       const puntos = red.terminales.map(t => {
         const camino = t.tipo === 'externo' ? ruta : [...ruta, t.instancia];
@@ -136,13 +152,31 @@ export function elaborarComponente(catalogo: CatalogoComponentes, raiz: Referenc
       for (const p of puntos) {
         if (p.dominio !== primero.dominio) throw new ErrorComponente('DOMINIO_INCOMPATIBLE', `Dominio incompatible en ${red.id}`, ruta);
         if (p.ancho !== primero.ancho) throw new ErrorComponente('ANCHO_INCOMPATIBLE', `Ancho incompatible en ${red.id}`, ruta);
+        if (primero.dominio !== 'electrico' && !internos.includes('funcional')) continue;
         const a = buscar(primero.clave), b = buscar(p.clave);
         if (a !== b) padres.set(b, a);
+        if (primero.dominio === 'electrico' && internos.includes('electrico')) unirFisicos(primero.clave, p.clave);
       }
-      conexiones.push({ terminal: primero.clave, origen: { ruta: [...ruta], conexion: red.id } });
+      if (primero.dominio === 'electrico' || internos.includes('funcional')) conexiones.push({ terminal: primero.clave,
+        origen: { ruta: [...ruta], conexion: red.id, ...(primero.dominio === 'electrico' && !internos.includes('electrico') ? { observacion: true as const } : {}) } });
+    }
+    if (adicional) {
+      const inicio = instancias.length, camino = [...ruta, adicional.id];
+      visitar(adicional.referencia, camino, resueltos, adicional.dominios);
+      const extra = instancias[inicio];
+      if (extra) extra.origenRepresentacion = { ruta: [...ruta], seleccion: 'equivalente' };
+      for (const puerto of def.puertos) {
+        limite(++cantidadConexiones > limites.conexiones, 'conexiones', ruta);
+        if (puerto.dominio !== 'electrico' && !adicional.dominios.includes('funcional')) continue;
+        const a = buscar(claveTerminal(ruta, puerto.id)), b = buscar(claveTerminal(camino, puerto.id));
+        if (a !== b) padres.set(b, a);
+        if (puerto.dominio === 'electrico' && adicional.dominios.includes('electrico')) unirFisicos(claveTerminal(ruta, puerto.id), claveTerminal(camino, puerto.id));
+        conexiones.push({ terminal: claveTerminal(ruta, puerto.id), origen: { ruta: [...ruta], conexion: adicional.id, representacion: 'equivalente',
+          ...(puerto.dominio === 'electrico' && !adicional.dominios.includes('electrico') ? { observacion: true as const } : {}) } });
+      }
     }
   };
-  visitar(raiz, [], opciones.parametros ?? {});
+  visitar(raiz, [], opciones.parametros ?? {}, ['electrico', 'funcional']);
   if (pendientes.size) throw new ErrorComponente('FORMATO', 'Selección para una ruta inexistente o inactiva');
   const grupos = new Map<string, TerminalElaborado[]>();
   for (const terminal of terminales.values()) {
@@ -156,11 +190,16 @@ export function elaborarComponente(catalogo: CatalogoComponentes, raiz: Referenc
     const grupo = buscar(c.terminal), anteriores = origenes.get(grupo);
     if (anteriores) anteriores.push(c.origen); else origenes.set(grupo, [c.origen]);
   }
-  const hojas = new Set(instancias.filter(i => i.tipo === 'hoja-legada').map(i => JSON.stringify(i.ruta)));
+  const hojas = new Set(instancias.filter(i => i.tipo === 'hoja-legada' && poseeDominio(i, 'funcional')).map(i => JSON.stringify(i.ruta)));
+  const hojasElectricas = new Set(instancias.filter(i => i.tipo === 'hoja-legada' && poseeDominio(i, 'electrico')).map(i => JSON.stringify(i.ruta)));
   const redes = [...grupos.entries()].map(([grupo, puntos]) => {
     puntos.sort((a, b) => ordenar(a.clave, b.clave));
     const primero = puntos[0];
     if (!primero) throw new ErrorComponente('FORMATO', 'Grupo vacío');
+    if (primero.dominio === 'electrico') {
+      const anclas = new Set(puntos.filter(p => hojasElectricas.has(JSON.stringify(p.ruta))).map(p => raizDe(fisicos, p.clave)));
+      if (anclas.size > 1) throw new ErrorComponente('DOMINIO_INCOMPATIBLE', 'Topología de observación eléctrica ambigua: une nodos físicos distintos', primero.ruta);
+    }
     if (primero.dominio !== 'electrico') {
       // Las interfaces de compuestos no agregan drivers: cuentan las hojas y la entrada raíz.
       const drivers = puntos.filter(p => hojas.has(JSON.stringify(p.ruta)) ? p.direccion === 'salida' : p.ruta.length === 0 && p.direccion === 'entrada');

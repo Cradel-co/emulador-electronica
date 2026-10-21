@@ -124,6 +124,9 @@ El presupuesto de eventos detecta bucles de duración cero que sí devuelven el 
   deja actuar a la izquierda sin duplicar primitivas eléctricas.
 
 El [perfil digital](digital.md) ya conecta entradas/salidas eléctricas y alimentación/reset de hojas.
+Con [selección por dominio](representaciones-por-dominio.md), solo los propietarios funcionales
+reciben fábrica temporal. Sus perfiles pueden observar el circuito eléctrico activo, conservando
+alimentación/reset y cancelación por generación; escribir drivers ajenos se rechaza.
 El [controlador de interrupciones](interrupciones.md) consume muestras digitales por instancia
 y programa servicios a través del adaptador y esta agenda. Los puertos IRQ escalares se enrutan
 entre hojas por las redes del grafo activo, con transporte positivo, generaciones en ambos extremos

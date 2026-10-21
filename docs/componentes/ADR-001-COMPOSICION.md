@@ -88,7 +88,7 @@ J01–J08 en sus etapas correspondientes; typecheck solo valida consistencia de 
 La elaboración en memoria resuelve dos copias del divisor J02 con identidad independiente,
 errores de referencia y mapa de origen. La [integración DC](electrico.md) verifica paquetes legados
 y compara las medidas con el circuito plano usando el motor existente. No cambia proyectos guardados.
-Almacén persistente de versiones, estado dinámico y cobertura parcial por dominio siguen pendientes. API,
+Almacén persistente de versiones y serialización del estado dinámico siguen pendientes. API,
 normalización de hashes y límites se describen en [elaboracion.md](elaboracion.md) y [electrico.md](electrico.md).
 
 ## Agenda común inicial de P2
@@ -104,3 +104,10 @@ no agrega primitivas eléctricas ni registros, vectores o trampas de un procesad
 La hoja declara umbrales, alimentación/reset y parámetros de salida. La agenda controla esos
 parámetros y consume lecturas del solver; el paquete conserva el único modelo eléctrico del driver.
 Las transiciones cancelan generaciones y recrean estado por instancia. Ver [contrato y límites](digital.md).
+
+## Representaciones por dominio
+
+La [selección por dominio de ejecución](representaciones-por-dominio.md) separa propietario eléctrico
+y funcional. Solo se estampa el primero y solo el segundo recibe fábricas temporales/IRQ. Las
+conexiones de observación no pueden alterar la conectividad física; nodos no observables quedan
+sin medida. Las escrituras entre propietarios requieren un acoplamiento explícito todavía pendiente.

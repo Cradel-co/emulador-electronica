@@ -36,7 +36,7 @@ export type BuscarDef = (type: string) => (ModuleDef & { modeloCodigo?: string }
 
 export interface OpcionesAnalisis {
   /** Lecturas de componentes: prueba de camino DC a sus propios rieles, sin fugas de SPICE. */
-  referenciasDeEntradas?: { pin: string; tierra: string; positivo: string }[];
+  referenciasDeEntradas?: { pin: string; tierra: string; positivo: string; id?: string }[];
   nivelesPorPlaca?: Map<string, Map<number, 0 | 1>>;
   direccionesPorPlaca?: Map<string, Map<number, DireccionPin>>;
   /** Nivel de cada GPIO que el firmware maneja como salida. Los que falten: en alto (peor caso). */
@@ -588,7 +588,7 @@ export async function analizarCircuito(project: Project, buscar: BuscarDef, opci
       const tierra = c.nodo(lectura.tierra), positivo = c.nodo(lectura.positivo), clave = JSON.stringify([tierra, positivo]);
       let referenciados = grupos.get(clave);
       if (!referenciados) { referenciados = nodosReferenciadosDc(p.elementos, [tierra, positivo]); grupos.set(clave, referenciados); }
-      entradasReferenciadas[lectura.pin] = referenciados.has(c.nodo(lectura.pin));
+      entradasReferenciadas[lectura.id ?? lectura.pin] = referenciados.has(c.nodo(lectura.pin));
     }
   }
   return { resuelto: true, avisos, leds, fuentes, alimentacion, alimentacionesPorPlaca, tensiones, pinesSinModelo, modulos, elementos: p.elementos, chipEncendido, entradas,

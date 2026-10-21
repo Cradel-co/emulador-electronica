@@ -142,3 +142,8 @@ paquete sigue siendo el único propietario de los elementos de salida.
 Las hojas pueden agregar puertos funcionales IRQ escalares a su definición; el paquete conserva
 exactamente sus pines eléctricos. Las redes IRQ del grafo se resuelven en la agenda temporal y se
 omiten en la proyección DC, sin tensiones ni cables artificiales. Ver [interrupciones](interrupciones.md).
+
+La [selección por dominio](representaciones-por-dominio.md) verifica paquetes de ambas ramas,
+estampa exclusivamente propietarios eléctricos y permite observaciones funcionales compatibles.
+Un nodo sin correspondencia queda sin medida; una asociación que una nodos físicos distintos
+se rechaza antes del solver. Los modelos funcionales no duplican resistencias, corriente o consumo.
