@@ -125,8 +125,9 @@ El presupuesto de eventos detecta bucles de duración cero que sí devuelven el 
 
 El [perfil digital](digital.md) ya conecta entradas/salidas eléctricas y alimentación/reset de hojas.
 El [controlador de interrupciones](interrupciones.md) consume muestras digitales por instancia
-y programa servicios a través del adaptador y esta agenda. Siguen pendientes el enrutamiento de
-puertos IRQ, adaptadores de protocolos/CPU, reloj de firmware, transitorios,
+y programa servicios a través del adaptador y esta agenda. Los puertos IRQ escalares se enrutan
+entre hojas por las redes del grafo activo, con transporte positivo, generaciones en ambos extremos
+y sincronización tras recuperación. Siguen pendientes adaptadores de protocolos/CPU, reloj de firmware, transitorios,
 persistencia/replay serializado, interfaz de usuario y certificación completa de P2/H0–H3.
 
 ## Verificación de esta iteración

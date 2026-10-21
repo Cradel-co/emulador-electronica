@@ -59,7 +59,9 @@ function valorValido(p: PropDef, valor: unknown): boolean {
 
 function verificarContrato(hoja: Hoja, modulo: ModuleDef): void {
   const pines = new Set(modulo.pins.map(p => p.name));
-  if (pines.size !== modulo.pins.length || pines.size !== hoja.puertos.length || hoja.puertos.some(p => !pines.has(p.id) || p.dominio !== 'electrico' || p.ancho !== 1 || p.direccion !== 'bidireccional')) {
+  const electricos = hoja.puertos.filter(p => p.dominio === 'electrico');
+  const funcionalesInvalidos = hoja.puertos.some(p => p.dominio !== 'electrico' && (p.dominio !== 'interrupcion' || p.ancho !== 1 || p.direccion === 'bidireccional'));
+  if (funcionalesInvalidos || pines.size !== modulo.pins.length || pines.size !== electricos.length || electricos.some(p => !pines.has(p.id) || p.ancho !== 1 || p.direccion !== 'bidireccional')) {
     throw new ErrorComponente('PUERTO_INCOMPATIBLE', `Los puertos no corresponden a los pines eléctricos de ${modulo.type}`);
   }
   for (const [nombre, declarado] of Object.entries(hoja.parametros)) {

@@ -1,10 +1,11 @@
-import { AgendaTemporal, ErrorAgenda, type EstadoAgenda, type EventoTemporal, type TokenTemporal, type ValorParametroComponente, type NivelDigital, type DriveDigital, type PerfilDigital, type ContextoDespacho } from '@emu/shared';
+import { AgendaTemporal, ErrorAgenda, MAX_TIEMPO_PS, type EstadoAgenda, type EventoTemporal, type TokenTemporal, type ValorParametroComponente, type NivelDigital, type DriveDigital, type PerfilDigital, type ContextoDespacho } from '@emu/shared';
 import type { ReferenciaComponente } from '@emu/shared';
 import { CatalogoComponentes } from './catalogo.js';
 import { elaborarComponente, validarParametrosComponente, type GrafoComponentes, type InstanciaElaborada, type OpcionesElaboracion } from './elaboracion.js';
 import { analizarGrafoElaboradoDc, type ResultadoGrafoDc } from './electrico.js';
 import { PaquetesComponentes } from './paquetes.js';
 import { leerEstadoDigital, type EstadoDigitalComponente, type CambioEntradaDigital } from './digital.js';
+import { EnrutadorIrq, type CambioEntradaIrq, type EntregaIrq } from './irq.js';
 
 export interface ContextoModeloTemporal {
   readonly ahoraPs: bigint;
@@ -16,11 +17,14 @@ export interface ContextoModeloTemporal {
   leerTension(ruta: readonly string[], puerto: string): number;
   leerDigital(puerto: string): NivelDigital;
   escribirDigital(puerto: string, nivel: DriveDigital): void;
+  leerIrq(puerto: string): NivelDigital;
+  escribirIrq(puerto: string, nivel: NivelDigital): void;
 }
 /** Adaptadores TypeScript de confianza. La fábrica produce estado nuevo por hoja y reinicio. */
 export interface ModeloTemporalComponente {
   iniciar?(contexto: ContextoModeloTemporal): void;
   entradaDigital?(contexto: ContextoModeloTemporal, cambio: CambioEntradaDigital): void | Promise<void>;
+  entradaIrq?(contexto: ContextoModeloTemporal, cambio: CambioEntradaIrq): void | Promise<void>;
   evento(contexto: ContextoModeloTemporal, evento: EventoTemporal): void | Promise<void>;
 }
 export interface OpcionesSimulacionTemporal extends OpcionesElaboracion {
@@ -28,18 +32,24 @@ export interface OpcionesSimulacionTemporal extends OpcionesElaboracion {
   resolver?: typeof analizarGrafoElaboradoDc;
   limitesAgenda?: Partial<{ pendientes: number; eventosPorAvance: number }>;
   maxBarrerasPorAvance?: number;
+  retardoIrqPs?: bigint;
 }
 export interface MedicionTemporal { instantePs: bigint; dc: Extract<ResultadoGrafoDc, { resuelto: true }> }
 export interface FalloTemporal { instantePs: bigint; ruta?: string[]; mensaje: string; dc?: ResultadoGrafoDc }
 const clave = (ruta: readonly string[]): string => JSON.stringify(ruta);
 const BARRERA = '$barrera-dc';
 const INICIO_DIGITAL = '$digital:inicio', ENTRADA_DIGITAL = '$digital:entrada';
+const ENTRADA_IRQ = '$irq:entrada';
 
 /** Coordinación cuasiestática: eventos comunes y puntos DC; no integra transitorios analógicos. */
 export class SimulacionTemporalComponentes {
   private readonly agenda: AgendaTemporal;
   private readonly original: GrafoComponentes;
   private grafo: GrafoComponentes;
+  private irq: EnrutadorIrq;
+  private readonly retardoIrq: bigint;
+  private readonly entregasIrq = new Map<string, { entrega: EntregaIrq; token: TokenTemporal }>();
+  private siguienteIrq = 0n;
   private readonly modelos = new Map<string, ModeloTemporalComponente>();
   private readonly instancias = new Map<string, InstanciaElaborada>();
   private barreras = new Set<bigint>();
@@ -56,6 +66,9 @@ export class SimulacionTemporalComponentes {
   constructor(private readonly catalogo: CatalogoComponentes, referencia: ReferenciaComponente, private readonly paquetes: PaquetesComponentes, opciones: OpcionesSimulacionTemporal = {}) {
     this.original = elaborarComponente(catalogo, referencia, opciones);
     this.grafo = structuredClone(this.original);
+    this.irq = new EnrutadorIrq(this.grafo);
+    this.retardoIrq = opciones.retardoIrqPs ?? 1n;
+    if (typeof this.retardoIrq !== 'bigint' || this.retardoIrq < 1n || this.retardoIrq > MAX_TIEMPO_PS) throw new ErrorAgenda('Retardo IRQ inválido');
     this.agenda = new AgendaTemporal(this.grafo.instancias.map(i => i.ruta), opciones.limitesAgenda);
     this.crearModelo = opciones.crearModelo ?? (() => undefined);
     this.resolver = opciones.resolver ?? analizarGrafoElaboradoDc;
@@ -72,6 +85,7 @@ export class SimulacionTemporalComponentes {
   get grafoActual(): GrafoComponentes { return structuredClone(this.grafo); }
 
   private inicializar(): void {
+    this.entregasIrq.clear();
     this.perfiles.clear(); this.digitales.clear(); this.reiniciosDigitales.clear();
     this.instancias.clear(); this.modelos.clear(); this.barreras.clear(); this.medida = null; this.fallo = null;
     try {
@@ -97,7 +111,8 @@ export class SimulacionTemporalComponentes {
           if (retorno !== undefined) throw new ErrorAgenda('La inicialización debe ser síncrona y no devolver datos', i.ruta);
         } finally { contexto.cerrar(); }
       }
-    } catch (error) { this.agenda.detener(); throw error; }
+      for (const i of this.grafo.instancias) if (this.modelos.has(clave(i.ruta))) this.programarIrq(this.irq.sincronizar(i.ruta, this.ahoraPs));
+    } catch (error) { this.agenda.detener(); this.entregasIrq.clear(); throw error; }
   }
   private solicitarBarrera(): void {
     const instantePs = this.ahoraPs;
@@ -106,10 +121,25 @@ export class SimulacionTemporalComponentes {
     this.barreras.add(instantePs);
   }
   programar(evento: EventoTemporal): TokenTemporal {
-    if (evento.fase === 'electrico' || evento.tipo === BARRERA || evento.tipo.startsWith('$digital:')) throw new ErrorAgenda('La fase eléctrica pertenece al coordinador', evento.ruta);
+    if (evento.fase === 'electrico' || evento.tipo === BARRERA || evento.tipo.startsWith('$digital:') || evento.tipo.startsWith('$irq:')) throw new ErrorAgenda('La fase eléctrica y las notificaciones internas pertenecen al coordinador', evento.ruta);
     if (this.perfiles.has(clave(evento.ruta)) && this.digitales.get(clave(evento.ruta))?.estado !== 'activo') throw new ErrorAgenda('La hoja digital no está operativa', evento.ruta);
     if (!this.modelos.has(clave(evento.ruta))) throw new ErrorAgenda('La hoja activa no tiene adaptador temporal', evento.ruta);
     return this.agenda.programar(evento);
+  }
+  private programarIrq(entregas: EntregaIrq[]): void {
+    for (const e of entregas) {
+      const id = (this.siguienteIrq++).toString();
+      const token = this.agenda.programar({ ruta: e.ruta, instantePs: e.emisionPs + this.retardoIrq,
+        fase: 'modelo', tipo: ENTRADA_IRQ, datos: { id, puerto: e.puerto, nivel: String(e.nivel), emisionPs: e.emisionPs.toString(), origen: e.origen, generacion: e.generacion } });
+      this.entregasIrq.set(id, { entrega: e, token });
+    }
+  }
+  private retirarIrq(ruta: readonly string[]): void {
+    for (const [id, { entrega, token }] of this.entregasIrq) {
+      if (ruta.every((p, i) => entrega.ruta[i] === p) || !this.irq.vigente(entrega)) {
+        this.agenda.cancelar(token); this.entregasIrq.delete(id);
+      }
+    }
   }
   private contexto(instancia: InstanciaElaborada, fase: EventoTemporal['fase'], vigente: () => boolean) {
     let abierto = true;
@@ -132,6 +162,13 @@ export class SimulacionTemporalComponentes {
         return token;
       },
       cancelar: token => { comprobar(); return this.agenda.cancelar(token, instancia.ruta); },
+      leerIrq: puerto => { comprobar(); return this.irq.leer(instancia.ruta, puerto); },
+      escribirIrq: (puerto, nivel) => {
+        comprobar();
+        if (fase !== 'entrada' && fase !== 'modelo') throw new ErrorAgenda('Una observación no puede emitir IRQ', instancia.ruta);
+        if (perfil && this.digitales.get(clave(instancia.ruta))?.estado !== 'activo') throw new ErrorAgenda('La hoja digital no está operativa', instancia.ruta);
+        this.programarIrq(this.irq.escribir(instancia.ruta, puerto, nivel, this.ahoraPs));
+      },
       ponerParametro: (nombre, valor) => {
         comprobar();
         if (perfil && Object.values(perfil.salidas).some(s => s.parametro === nombre)) throw new ErrorAgenda('El drive digital se modifica mediante escribirDigital', instancia.ruta);
@@ -167,6 +204,8 @@ export class SimulacionTemporalComponentes {
       const siguiente = leerEstadoDigital(perfil, instancia.ruta, dc), anterior = this.digitales.get(k);
       if (anterior?.estado !== siguiente.estado) {
         this.agenda.cancelarSubarbol(instancia.ruta);
+        const entregas = this.irq.invalidar(instancia.ruta, this.ahoraPs);
+        this.retirarIrq(instancia.ruta); this.programarIrq(entregas);
         this.modelos.delete(k); this.reiniciosDigitales.add(k);
       }
       this.digitales.set(k, siguiente);
@@ -200,15 +239,18 @@ export class SimulacionTemporalComponentes {
   reanudar(): void { this.agenda.reanudar(); }
   cancelarSubarbol(ruta: readonly string[]): void {
     this.agenda.cancelarSubarbol(ruta);
+    const entregas = this.irq.invalidar(ruta, this.ahoraPs);
+    this.retirarIrq(ruta);
+    if (this.estado === 'activa' || this.estado === 'pausada') this.programarIrq(entregas);
     if (!ruta.length) {
       this.barreras.clear();
       // Cancelar eventos no cambia el circuito. Reponer solo una barrera que aún haga falta.
       if (this.medida === null && (this.estado === 'activa' || this.estado === 'pausada')) this.solicitarBarrera();
     }
   }
-  detener(): void { this.agenda.detener(); this.barreras.clear(); this.medida = null; }
+  detener(): void { this.agenda.detener(); this.entregasIrq.clear(); this.irq.invalidar([], this.ahoraPs); this.barreras.clear(); this.medida = null; }
   reiniciar(): void {
-    this.agenda.reiniciar(); this.grafo = structuredClone(this.original); this.inicializar();
+    this.agenda.reiniciar(); this.grafo = structuredClone(this.original); this.irq = new EnrutadorIrq(this.grafo); this.inicializar();
   }
   async avanzarHasta(horizontePs: bigint): Promise<void> {
     if (this.enCurso) throw new ErrorAgenda('Hay un avance en curso');
@@ -216,6 +258,7 @@ export class SimulacionTemporalComponentes {
     let barreras = 0;
     try {
       const despachar = async (e: EventoTemporal, contexto: ContextoDespacho, adelantada = false): Promise<void> => {
+        if (e.tipo === ENTRADA_IRQ && typeof e.datos?.id === 'string') this.entregasIrq.delete(e.datos.id);
         if (e.tipo === BARRERA) {
           if (!adelantada) this.barreras.delete(e.instantePs);
           if (this.medida?.instantePs === e.instantePs) return;
@@ -244,7 +287,7 @@ export class SimulacionTemporalComponentes {
         }
         const i = this.instancias.get(clave(e.ruta));
         if (!i) throw new ErrorAgenda('Instancia temporal ausente', e.ruta);
-        if (this.perfiles.has(clave(e.ruta)) && !this.medida) {
+        if ((this.perfiles.has(clave(e.ruta)) || e.tipo === ENTRADA_IRQ) && !this.medida) {
           // Un cambio anterior del circuito no puede dejar ejecutar un timer sin verificar energía/reset.
           await despachar({ ruta: [], instantePs: e.instantePs, fase: 'electrico', tipo: BARRERA },
             { vigente: this.agenda.capturarVigencia([]) }, true);
@@ -256,21 +299,36 @@ export class SimulacionTemporalComponentes {
           if (nuevo) this.modelos.set(clave(e.ruta), nuevo);
         }
         const modelo = this.modelos.get(clave(e.ruta));
-        if (!modelo && e.tipo.startsWith('$digital:')) return;
+        if (!modelo && (e.tipo.startsWith('$digital:') || e.tipo === ENTRADA_IRQ)) return;
         if (!modelo) throw new ErrorAgenda('Modelo temporal ausente', e.ruta);
-        const c = this.contexto(i, e.fase, contexto.vigente);
+        let entrega: EntregaIrq | undefined;
+        if (e.tipo === ENTRADA_IRQ) {
+          const d = e.datos;
+          if (typeof d?.puerto !== 'string' || typeof d.emisionPs !== 'string' || typeof d.origen !== 'number' || typeof d.generacion !== 'string'
+            || !['0', '1', 'X'].includes(String(d.nivel))) throw new ErrorAgenda('Notificación IRQ inválida', e.ruta);
+          entrega = { ruta: e.ruta, puerto: d.puerto, emisionPs: BigInt(d.emisionPs), origen: d.origen, generacion: d.generacion,
+            nivel: d.nivel === '0' ? 0 : d.nivel === '1' ? 1 : 'X' };
+          if (!this.irq.vigente(entrega)) return;
+        }
+        const recibida = entrega;
+        const vigente = () => contexto.vigente() && (!recibida || this.irq.vigente(recibida));
+        const c = this.contexto(i, e.fase, vigente);
         try {
           if (e.tipo === INICIO_DIGITAL) {
             const retorno: unknown = modelo.iniciar?.(c.api);
             if (retorno !== undefined) throw new ErrorAgenda('La inicialización debe ser síncrona', e.ruta);
+            this.programarIrq(this.irq.sincronizar(i.ruta, this.ahoraPs));
           } else if (e.tipo === ENTRADA_DIGITAL) {
             const nivel = (valor: unknown): NivelDigital => valor === '0' ? 0 : valor === '1' ? 1 : 'X';
             if (typeof e.datos?.puerto !== 'string' || typeof e.datos.muestraPs !== 'string') throw new ErrorAgenda('Notificación digital inválida', e.ruta);
             await modelo.entradaDigital?.(c.api, { puerto: e.datos.puerto, anterior: nivel(e.datos.anterior), actual: nivel(e.datos.actual), instanteMuestraPs: BigInt(e.datos.muestraPs) });
+          } else if (entrega) {
+            const cambio = this.irq.recibir(entrega);
+            if (cambio) await modelo.entradaIrq?.(c.api, cambio);
           } else await modelo.evento(c.api, e);
         }
         catch (error) {
-          if (contexto.vigente()) {
+          if (vigente()) {
             const mensaje = error instanceof Error ? error.message : String(error);
             this.fallo = { instantePs: e.instantePs, ruta: [...e.ruta], mensaje };
             throw new ErrorAgenda(mensaje, e.ruta);
@@ -281,6 +339,7 @@ export class SimulacionTemporalComponentes {
       await this.agenda.avanzarHasta(horizontePs, despachar);
     } catch (error) {
       if (this.estado === 'fallida' || this.estado === 'detenida') {
+        this.entregasIrq.clear();
         this.medida = null;
         this.fallo ??= { instantePs: this.ahoraPs, mensaje: error instanceof Error ? error.message : String(error) };
       }

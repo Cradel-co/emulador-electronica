@@ -48,7 +48,7 @@ export async function analizarGrafoElaboradoDc(catalogo: CatalogoComponentes, gr
     tiposOrigen.set(tipo, modulo.type);
     rutas.set(id, [...instancia.ruta]);
     proyecto.modules.push({ id, type: tipo, x: 0, y: 0, props: { ...instancia.parametros } });
-    for (const puerto of def.puertos) referencias.set(JSON.stringify([instancia.ruta, puerto.id]), `${id}.${puerto.id}`);
+    for (const puerto of def.puertos) if (puerto.dominio === 'electrico') referencias.set(JSON.stringify([instancia.ruta, puerto.id]), `${id}.${puerto.id}`);
     if (def.tipo === 'hoja-legada' && def.perfilDigital) {
       const perfil = def.perfilDigital;
       for (const puerto of Object.keys(perfil.entradas)) referenciasDeEntradas.push({ pin: `${id}.${puerto}`, tierra: `${id}.${perfil.alimentacion.negativo}`, positivo: `${id}.${perfil.alimentacion.positivo}` });
@@ -56,6 +56,7 @@ export async function analizarGrafoElaboradoDc(catalogo: CatalogoComponentes, gr
   }
   if (!proyecto.modules.length) throw new ErrorComponente('SIN_MODELO', 'El grafo no tiene hojas eléctricas');
   for (const red of grafo.redes) {
+    if (red.dominio === 'interrupcion') continue; // La agenda funcional es la única dueña de IRQ.
     if (red.dominio !== 'electrico') throw new ErrorComponente('SIN_MODELO', `Dominio no soportado por DC: ${red.dominio}`);
     const refs = red.terminales.flatMap(t => { const ref = referencias.get(t.clave); return ref ? [ref] : []; });
     const primera = refs[0];
@@ -90,6 +91,7 @@ export async function analizarGrafoElaboradoDc(catalogo: CatalogoComponentes, gr
   const entradasSolicitadas = new Set(referenciasDeEntradas.map(e => e.pin));
   const tensiones: TensionTerminal[] = [];
   for (const red of grafo.redes) {
+    if (red.dominio !== 'electrico') continue;
     const valor = red.terminales.map(t => referencias.get(t.clave)).flatMap(ref => ref && Object.hasOwn(resultado.tensiones, ref) ? [resultado.tensiones[ref]] : []).find(v => v !== undefined && Number.isFinite(v));
     for (const t of red.terminales) {
       const ref = referencias.get(t.clave);

@@ -127,7 +127,8 @@ resistiva, una carga de 10 kΩ y un pull-up de reset. Se verifica:
 Se mantienen puntos de operación DC sucesivos. No se conserva energía de capacitores/inductores ni
 se modelan transitorios, metastabilidad, ruido, ESD, retención de RAM, rampas de power-on o retardos
 analógicos de reset. El [controlador funcional de interrupciones](interrupciones.md) consume estas
-muestras y conserva pendientes por instancia. Enrutamiento de puertos IRQ, buses/protocolos, CPU, worker de firmware, persistencia y editor siguen
+muestras, conserva pendientes por instancia y publica su salida por puertos IRQ del grafo activo.
+Buses/protocolos, CPU, worker de firmware, persistencia y editor siguen
 pendientes. La alimentación lógica del perfil no sustituye la evidencia de consumo de cada modelo.
 
 ## Verificación de la iteración

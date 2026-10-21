@@ -61,6 +61,8 @@ describe('verificación de paquetes de componentes', () => {
     hoja.modulo.sha256 = (await paquetes.inspeccionar('resistor')).sha256;
     const incompleta = { ...hoja, puertos: hoja.puertos.slice(0, 1) };
     await expect(paquetes.verificar(incompleta)).rejects.toMatchObject({ codigo: 'PUERTO_INCOMPATIBLE' });
+    const conIrq = { ...incompleta, puertos: [...incompleta.puertos, { id: 'IRQ', dominio: 'interrupcion' as const, direccion: 'salida' as const, ancho: 1 }] };
+    await expect(paquetes.verificar(conIrq)).rejects.toMatchObject({ codigo: 'PUERTO_INCOMPATIBLE' });
     const ampliada = { ...hoja, parametros: { ohms: { tipo: 'numero' as const, default: 1000, min: 0, max: 1e8 } } };
     await expect(paquetes.verificar(ampliada)).rejects.toMatchObject({ codigo: 'PARAMETRO' });
     await expect(paquetes.verificar({ ...hoja, parametros: { mentira: { tipo: 'numero', default: 1 } } })).rejects.toMatchObject({ codigo: 'PARAMETRO' });

@@ -1,6 +1,6 @@
 # SDD: plataforma propia de componentes y esquemáticos jerárquicos
 
-**Estado:** diseño con implementación P0/P1 e integración DC, selección exclusiva, agenda compartida, perfiles digitales con alimentación/reset y controlador funcional de interrupciones; editor y ESP32 pendientes.
+**Estado:** diseño con implementación P0/P1 e integración DC, selección exclusiva, agenda compartida, perfiles digitales con alimentación/reset y enrutamiento IRQ jerárquico; editor y ESP32 pendientes.
 
 **Fecha:** 20 de octubre de 2026.
 
@@ -15,7 +15,7 @@
 **Base inspeccionada:** `53e5721`; `main` sin PR abiertos al iniciar este diseño.
 
 Este documento planifica la plataforma y su primera integración para reemplazar `esp-emu`. No
-anuncia jerarquía ejecutable disponible, motor implementado, firmware ejecutado ni compatibilidad
+anuncia un editor jerárquico disponible, un backend ESP32 implementado, firmware ejecutado ni compatibilidad
 demostrada. Cada capacidad se habilita después de completar su evidencia.
 
 ### Inicio de implementación
@@ -36,8 +36,9 @@ las hojas activas controlan parámetros de su propio modelo eléctrico, reciben 
 y cancelan generaciones al perder operación. Las barreras adelantadas verifican energía antes de
 callbacks pendientes. El [controlador funcional de interrupciones](docs/componentes/interrupciones.md)
 captura flancos/niveles y gestiona pendientes, máscaras y reconocimiento por instancia, conectado
-a esas muestras mediante adaptadores temporales. Es cuasiestático; el enrutamiento de puertos IRQ,
-los protocolos y la ejecución de interrupciones de CPU siguen pendientes.
+a esas muestras mediante adaptadores temporales. Sus puertos IRQ escalares ya recorren las redes
+del grafo activo a través de interfaces anidadas, con generaciones de emisor/receptor y transporte
+en la agenda común. Es cuasiestático; los protocolos y la ejecución de interrupciones de CPU siguen pendientes.
 
 ## 1. Resultado buscado y decisiones de alcance
 
