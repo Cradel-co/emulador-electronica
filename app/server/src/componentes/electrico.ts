@@ -3,7 +3,7 @@ import type { Project, Primitiva, AvisoElectrico } from '@emu/shared';
 import type { ReferenciaComponente } from '@emu/shared';
 import { analizarCircuito } from '../sim/analisis.js';
 import { CatalogoComponentes } from './catalogo.js';
-import { elaborarComponente, type GrafoComponentes, type OpcionesElaboracion } from './elaboracion.js';
+import { elaborarComponente, poseeDominio, type GrafoComponentes, type OpcionesElaboracion } from './elaboracion.js';
 import { ErrorComponente } from './errores.js';
 import { PaquetesComponentes, type ModuloElectricoVerificado } from './paquetes.js';
 
@@ -29,7 +29,8 @@ export async function analizarGrafoElaboradoDc(catalogo: CatalogoComponentes, gr
   const modelos = new Map<string, ModuloElectricoVerificado>();
   const tiposOrigen = new Map<string, string>();
   const referencias = new Map<string, string>();
-  const referenciasDeEntradas: { pin: string; tierra: string; positivo: string }[] = [];
+  const referenciasDeEntradas: { pin: string; tierra: string; positivo: string; id?: string }[] = [];
+  const lecturas = new Map<string, string>();
   const rutas = new Map<string, string[]>();
   // El modelo legado puede contener variables globales. Aislar su sandbox por hoja y corrida,
   // conservando los IDs observables del grafo, evita compartirlas mediante la caché de modeloDe.
@@ -41,6 +42,7 @@ export async function analizarGrafoElaboradoDc(catalogo: CatalogoComponentes, gr
     let modulo: ModuloElectricoVerificado;
     try { modulo = await paquetes.verificar(def); }
     catch (error) { if (error instanceof ErrorComponente) throw new ErrorComponente(error.codigo, error.detalle, instancia.ruta); throw error; }
+    if (!poseeDominio(instancia, 'electrico')) continue;
     if (modulo.programmable || modulo.board) throw new ErrorComponente('SIN_MODELO', 'El adaptador DC de hojas aún no ejecuta placas programables', instancia.ruta);
     if (!modulo.model && !modulo.source && !modulo.switch && !modulo.diode && !modulo.passthrough) throw new ErrorComponente('SIN_MODELO', 'La hoja no declara modelo eléctrico', instancia.ruta);
     const id = `h${proyecto.modules.length + 1}`, tipo = `h-${corrida}-${proyecto.modules.length.toString(36)}`;
@@ -49,12 +51,25 @@ export async function analizarGrafoElaboradoDc(catalogo: CatalogoComponentes, gr
     rutas.set(id, [...instancia.ruta]);
     proyecto.modules.push({ id, type: tipo, x: 0, y: 0, props: { ...instancia.parametros } });
     for (const puerto of def.puertos) if (puerto.dominio === 'electrico') referencias.set(JSON.stringify([instancia.ruta, puerto.id]), `${id}.${puerto.id}`);
-    if (def.tipo === 'hoja-legada' && def.perfilDigital) {
-      const perfil = def.perfilDigital;
-      for (const puerto of Object.keys(perfil.entradas)) referenciasDeEntradas.push({ pin: `${id}.${puerto}`, tierra: `${id}.${perfil.alimentacion.negativo}`, positivo: `${id}.${perfil.alimentacion.positivo}` });
-    }
   }
   if (!proyecto.modules.length) throw new ErrorComponente('SIN_MODELO', 'El grafo no tiene hojas eléctricas');
+  const alias = new Map<string, string>();
+  for (const red of grafo.redes) if (red.dominio === 'electrico') {
+    const ref = red.terminales.map(t => referencias.get(t.clave)).find(r => r !== undefined);
+    if (ref) for (const t of red.terminales) alias.set(t.clave, referencias.get(t.clave) ?? ref);
+  }
+  for (const i of grafo.instancias) {
+    if (i.tipo !== 'hoja-legada') continue;
+    const def = catalogo.resolver(i.definicion);
+    if (def.tipo !== 'hoja-legada' || !def.perfilDigital) continue;
+    const perfil = def.perfilDigital, clave = (puerto: string) => JSON.stringify([i.ruta, puerto]);
+    for (const puerto of Object.keys(perfil.entradas)) {
+      const pin = alias.get(clave(puerto)), tierra = alias.get(clave(perfil.alimentacion.negativo)), positivo = alias.get(clave(perfil.alimentacion.positivo));
+      const lectura = poseeDominio(i, 'electrico') ? pin : clave(puerto);
+      lecturas.set(clave(puerto), lectura ?? clave(puerto));
+      if (pin && tierra && positivo) referenciasDeEntradas.push({ pin, tierra, positivo, ...(poseeDominio(i, 'electrico') ? {} : { id: lectura }) });
+    }
+  }
   for (const red of grafo.redes) {
     if (red.dominio === 'interrupcion') continue; // La agenda funcional es la única dueña de IRQ.
     if (red.dominio !== 'electrico') throw new ErrorComponente('SIN_MODELO', `Dominio no soportado por DC: ${red.dominio}`);
@@ -88,16 +103,14 @@ export async function analizarGrafoElaboradoDc(catalogo: CatalogoComponentes, gr
     if (!diagnosticos.length) diagnosticos.push({ mensaje: 'El motor no resolvió el circuito.', severidad: 'peligro', pin: -1, origenes: [] });
     return { resuelto: false, grafo, diagnosticos, tensiones: null, elementos: [] };
   }
-  const entradasSolicitadas = new Set(referenciasDeEntradas.map(e => e.pin));
   const tensiones: TensionTerminal[] = [];
   for (const red of grafo.redes) {
     if (red.dominio !== 'electrico') continue;
     const valor = red.terminales.map(t => referencias.get(t.clave)).flatMap(ref => ref && Object.hasOwn(resultado.tensiones, ref) ? [resultado.tensiones[ref]] : []).find(v => v !== undefined && Number.isFinite(v));
     for (const t of red.terminales) {
-      const ref = referencias.get(t.clave);
-      const entrada = ref && entradasSolicitadas.has(ref);
+      const lectura = lecturas.get(t.clave);
       tensiones.push({ ruta: [...t.ruta], puerto: t.puerto, voltios: valor ?? null,
-        ...(entrada && ref ? { referenciada: resultado.entradasReferenciadas?.[ref] === true } : {}) });
+        ...(lectura ? { referenciada: resultado.entradasReferenciadas?.[lectura] === true } : {}) });
     }
   }
   const elementos = resultado.elementos.map(e => {

@@ -1,5 +1,5 @@
 import { ErrorAgenda, type NivelDigital } from '@emu/shared';
-import type { GrafoComponentes, TerminalElaborado } from './elaboracion.js';
+import { poseeDominio, type GrafoComponentes, type TerminalElaborado } from './elaboracion.js';
 
 export interface CambioEntradaIrq {
   puerto: string; anterior: NivelDigital; actual: NivelDigital; instanteEmisionPs: bigint;
@@ -20,7 +20,7 @@ export class EnrutadorIrq {
   private readonly entradas = new Map<string, Entrada>();
 
   constructor(grafo: GrafoComponentes) {
-    const hojas = new Set(grafo.instancias.filter(i => i.tipo === 'hoja-legada').map(i => JSON.stringify(i.ruta)));
+    const hojas = new Set(grafo.instancias.filter(i => i.tipo === 'hoja-legada' && poseeDominio(i, 'funcional')).map(i => JSON.stringify(i.ruta)));
     for (const red of grafo.redes) {
       if (red.dominio !== 'interrupcion') continue;
       if (red.ancho !== 1 || red.terminales.some(t => t.direccion === 'bidireccional')) throw new ErrorAgenda('IRQ requiere puertos escalares de entrada o salida', red.terminales[0]?.ruta ?? []);
