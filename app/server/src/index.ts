@@ -1,3 +1,4 @@
+import { compilarProgramaPropio, ErrorProgramaPropio } from './propio/programa.js';
 import { registrarRutasBancoComponentes } from './componentes/rutasDemo.js';
 import { ejecutarBancoComponentes } from './componentes/demo.js';
 import { registerPreviews, localAddresses, loopback, previewResource } from './preview.js';
@@ -179,7 +180,7 @@ function eventosDePlaca(boardId: string): EmulatorEvents { return {
     depuradorDe(boardId).alLog(line);
   },
   onState: (status) => {
-    if (status.state === 'stopped' || status.state === 'starting') { nivelesDePlaca(boardId).clear(); sensadosPorPlaca.delete(boardId); }
+    if (['stopped', 'starting', 'crashed', 'hung'].includes(status.state)) { nivelesDePlaca(boardId).clear(); sensadosPorPlaca.delete(boardId); }
     depuradorDe(boardId).alEstado(status);
     broadcast({ type: 'emu.state', boardId, project: runningProject ?? undefined, state: status.state, status: { ...status, paused: depuradorDe(boardId).pausado() } });
     if (boardId === primaryBoardId) for (const o of oyentesEstado) o(status.state);
@@ -548,6 +549,7 @@ async function registerRoutes(app: FastifyInstance, fastifyStatic: typeof import
         }
         if (body.boards !== undefined && JSON.stringify(body.boards) !== JSON.stringify(project.boards)) throw new ProjectError('Las placas se administran desde las rutas de placas del proyecto.', 400);
         if (body.name !== undefined && body.name !== name) throw new ProjectError('No se puede cambiar el nombre por esta ruta.', 400);
+        if (body.sim && body.sim.motorEsp !== project.sim.motorEsp && ((runningProject === name && [...corridas.values()].some(e => e.getStatus().running)) || builder.isBuilding(name) || colaCorridas.enCurso === name)) throw new ProjectError('Detené la simulación antes de cambiar el motor.', 409);
         if (body.modules !== undefined) await validarModulosPlacas(project, body.modules);
         const updated = await store.save({ ...project, ...body, name });
         reply.header('etag', revisionProyecto(updated)).send({ project: updated, revision: revisionProyecto(updated), revisionDiagrama: revisionDiagrama(updated) });
@@ -966,6 +968,7 @@ type Recarga = { ok: boolean; modo?: 'repl' | 'relanzado'; motivo?: string };
  */
 async function recargarCodigo(nombre: string, boardId?: string): Promise<Recarga> {
   const full = await store.read(nombre);
+  if (full.sim.motorEsp === 'propio') return { ok: false, motivo: 'Motor propio: guardá el código y usá Parar y Ejecutar para aplicar los cambios.' };
   const all = placasDelProyecto(full);
   const selected = boardId ? all.filter(b => b.id === boardId) : all;
   if (!selected.length) return { ok: false, motivo: boardId ? 'el proyecto no tiene la placa solicitada' : 'el proyecto no tiene placa' };
@@ -1085,7 +1088,18 @@ async function resetearCorridas(boardId?: string): Promise<string> {
 
 function runProject(project: { name: string }, forceBuild: boolean) {
   const generation = ++runGeneration;
-  return colaCorridas.ejecutar(project.name, () => ejecutarProyecto(project, forceBuild, generation));
+  return colaCorridas.ejecutar(project.name, async () => {
+    try { return await ejecutarProyecto(project, forceBuild, generation); }
+    catch (error) {
+      const fallo = { line: error instanceof ErrorProgramaPropio ? error.linea : null,
+        file: error instanceof ErrorProgramaPropio ? 'main.py' : null, message: error instanceof Error ? error.message : String(error) };
+      if (generation === runGeneration) {
+        logBuild(`[error] ${fallo.message}`);
+        broadcast({ type: 'build.done', project: project.name, ok: false, durationMs: 0, errors: eventErrors([fallo]) });
+      }
+      return { ok: false, errors: [fallo] };
+    }
+  });
 }
 
 async function ejecutarProyecto(
@@ -1105,9 +1119,14 @@ async function ejecutarProyecto(
     logBuild(`Circuito "${full.name}" energizado: las fuentes regulables entregan tensión. ⏹ lo apaga.`);
     return { ok: true, errors: [], energizado: true };
   }
+  if (full.sim.motorEsp === 'propio' && boards.length !== 1) throw new ProjectError('El motor propio admite por ahora una placa ESP32 por proyecto.', 400);
   const catalogo = await loadCatalog();
   const buscarDef = (t: string): ModuloCatalogo | undefined => catalogo.find(m => m.type === t);
-  const directions = await direccionesTodas(full);
+  const resultadoPropio = full.sim.motorEsp === 'propio' ? await runBuild(full) : null;
+  if (cancelled()) return cancelledResult();
+  if (resultadoPropio && !resultadoPropio.ok) return { ok: false, errors: resultadoPropio.errors };
+  const codigoPropio = resultadoPropio?.boardResults?.[boards[0]?.id ?? 'board']?.artifacts?.codigoPropio;
+  const directions = codigoPropio ? new Map([[boards[0]?.id ?? 'board', new Map(compilarProgramaPropio(codigoPropio.main).pines.map(p => [p.gpio, { salida: p.salida, pull: p.pull }]))]]) : await direccionesTodas(full);
   const electrico = await analizarCircuito(circuitoVivo(full), buscarDef, {
     nivelesReales: true,
     direccionesPorPlaca: directions, nivelesPorPlaca: runningProject === full.name ? nivelesPorPlaca : new Map(), cerrados: cerradosDe(full.name), fuentesApagadas: fuentesApagadasDe(full),
@@ -1123,11 +1142,13 @@ async function ejecutarProyecto(
     }
     const placa = await buscarPlaca(b.board);
     if (!placa) return { ok: false, errors: [{ line: null, file: null, message: `La placa "${b.board}" no está en el catálogo.` }] };
-    try { starts.push({ boardId: b.id, board: b.board, language: b.language, placa, engine: placa.desc.backend.engine, target: emuladorDe(placa.desc.backend.engine, b.id) }); }
+    const engine = full.sim.motorEsp === 'propio' ? 'propio' : placa.desc.backend.engine;
+    if (engine === 'propio' && (b.language !== 'micropython' || !placa.desc.chip.startsWith('esp32'))) return { ok: false, errors: [{ line: null, file: null, message: 'Motor propio: por ahora solo GPIO y temporización de MicroPython en ESP32.' }] };
+    try { starts.push({ boardId: b.id, board: b.board, language: b.language, placa, engine, target: emuladorDe(engine, b.id) }); }
     catch (error) { return { ok: false, errors: [{ line: null, file: null, message: (error as Error).message }] }; }
   }
-  let result = lastBuild?.project === full.name && !forceBuild ? lastBuild.result : null;
-  if (!result?.ok || !result.boardResults || boards.some(b => !result?.boardResults?.[b.id]?.artifacts)) {
+  let result = resultadoPropio ?? (lastBuild?.project === full.name && !forceBuild ? lastBuild.result : null);
+  if (!result?.ok || !result.boardResults || boards.some(b => !result?.boardResults?.[b.id]?.artifacts || Boolean(result.boardResults[b.id]?.artifacts?.codigoPropio) !== (full.sim.motorEsp === 'propio'))) {
     logBuild('Compilando las placas antes de arrancar…');
     result = await runBuild(full);
   }
@@ -1166,7 +1187,10 @@ async function ejecutarProyecto(
       for (const aviso of enBus.avisos) logBuild(`[chips] ${aviso}`, s.boardId);
       for (const c of enBus.chips) c.guardado = await leerMemoria(store.projectDir(full.name), c.id);
       if (cancelled()) throw new Error('La ejecución fue cancelada.');
-      await s.target.start(full.name, artifacts, { ...ENGINES[s.engine]!.opcionesArranque(s.placa.desc, artifacts), chips: enBus.chips, arranqueMs: s.placa.desc.arranqueMs,
+      if (s.engine === 'propio' && enBus.chips.length) throw new Error('Motor propio: los chips I2C/SPI del circuito todavía no están implementados.');
+      await s.target.start(full.name, artifacts, {
+        sincronizarEntradasPropias: s.engine === 'propio' ? () => refrescarEntradasDelCircuito(full.name) : undefined,
+        entradasPropias: s.engine === 'propio' ? electricoArranque.entradas.filter(e => (e.boardId ?? primaryBoardId) === s.boardId).map(e => ({ gpio: e.gpio, nivel: e.nivel })) : undefined, ...ENGINES[s.engine]!.opcionesArranque(s.placa.desc, artifacts), chips: enBus.chips, arranqueMs: s.placa.desc.arranqueMs,
         analogicoAvr: estadoAnalogicoDesdeCircuito(full, s.boardId, s.placa.desc, electricoArranque),
         perfilAnalogicoAvr: full.sim.analogicoAvr?.[s.boardId],
         analogicoEsp: estadoAnalogicoEspDesdeCircuito(s.boardId, s.placa.desc, electricoArranque),
@@ -1206,6 +1230,11 @@ async function direccionesDe(project: { name: string; language: Language | null 
 }
 
 async function direccionesTodas(project: Project): Promise<Map<string, Map<number, DireccionPin>>> {
+  if (project.sim.motorEsp === 'propio') return new Map(await Promise.all(placasDelProyecto(project).map(async b => {
+    const activas = runningProject === project.name ? corridas.get(b.id)?.direccionesGpio?.() : null;
+    const pines = activas ?? compilarProgramaPropio(await store.readFile(project.name, 'main.py', b.language, b.id)).pines;
+    return [b.id, new Map(pines.map(p => [p.gpio, { salida: p.salida, pull: p.pull }]))] as const;
+  })));
   return new Map(await Promise.all(placasDelProyecto(project).map(async b => [b.id, await direccionesDe({ name: project.name, language: b.language }, b.id)] as const)));
 }
 
@@ -1342,6 +1371,7 @@ async function actualizarEntradasDelCircuito(nombre: string): Promise<void> {
       (emulator as Emulador & { actualizarCamaras?: (cs: import('./bus/proyectoChips.js').ChipEnBus[]) => void }).actualizarCamaras?.(chips.chips);
       await aplicarAlimentacionCalculada(original, r, vigente);
       if (!vigente()) return;
+      for (const target of corridas.values()) target.invalidarEntradasDigitales?.();
       for (const e of r.entradas) {
         const boardId = e.boardId ?? primaryBoardId;
         const target = corridas.get(boardId);
@@ -1349,6 +1379,7 @@ async function actualizarEntradasDelCircuito(nombre: string): Promise<void> {
         if (!bridge || target?.getStatus().state !== 'bridge') continue;
         const sensados = sensadosPorPlaca.get(boardId) ?? new Map<number, 0 | 1>();
         sensadosPorPlaca.set(boardId, sensados);
+        target?.actualizarEntradaDigital?.(e.gpio, e.nivel);
         if (e.nivel === null || sensados.get(e.gpio) === e.nivel) continue;
         sensados.set(e.gpio, e.nivel);
         bridge.setInput(e.gpio, e.nivel);

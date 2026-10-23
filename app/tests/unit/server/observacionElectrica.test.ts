@@ -67,3 +67,8 @@ it('la huella cambia al agregar módulos y modificar propiedades', () => {
   p.wires.push({ from: 'r.1', to: 'r.2' });
   expect(revisionElectrica(p)).not.toBe(antesDeMover);
 });
+
+it('cambiar entre el motor del descriptor y el propio invalida la revisión eléctrica', () => {
+  const p = ProjectSchema.parse({ name: 'cambio-motor', board: null, language: null, sim: { wifiSsid: 'x', wifiPassword: '' } });
+  expect(revisionElectrica(p)).not.toBe(revisionElectrica({ ...p, sim: { ...p.sim, motorEsp: 'propio' } }));
+});

@@ -1,3 +1,4 @@
+import { prepararProgramaPropio } from './propio/preparar.js';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { lenguajesDe, placasDelProyecto, tienePlaca, type Project, type ProyectoConPlaca } from '@emu/shared';
@@ -33,6 +34,7 @@ export interface BuildResult {
 }
 
 export interface BuildArtifacts {
+  codigoPropio?: { main: string };
   firmware: string;
   elf: string | null;
   usesWebServer: boolean;
@@ -136,6 +138,7 @@ export class BuildService {
     opts: { clave?: string; timeoutMs?: number } = {},
   ): Promise<BuildResult> {
     const started = Date.now();
+    if (project.sim.motorEsp === 'propio') return prepararProgramaPropio(project.language, placa.desc.chip, projectDir);
     const destino = placa.desc.languages[project.language];
     if (!destino) {
       return fallo(started, `${placa.nombre} no se puede programar en ${project.language}. Lenguajes de esta placa: ${lenguajesDe(placa.desc).join(', ')}.`);
