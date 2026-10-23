@@ -146,6 +146,7 @@ const PinLevel = z.union([z.literal(0), z.literal(1)]);
 
 /** Estado completo del emulador que viaja en cada `emu.state`. */
 export const EmuStatusSchema = z.object({
+  motor: z.string().optional(),
   state: EmulatorState,
   running: z.boolean(),
   pid: z.number().int().nullable(),

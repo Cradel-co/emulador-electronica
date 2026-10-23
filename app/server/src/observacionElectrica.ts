@@ -12,7 +12,7 @@ import type { ModuloCatalogo } from './catalog.js';
 export function revisionElectrica(project: Project): string {
   return createHash('sha256').update(JSON.stringify({ diagrama: firmaDiagramaElectrico(project),
     board: project.board, language: project.language, boards: project.boards,
-    i2cFisico: project.sim.i2cFisico, analogicoAvr: project.sim.analogicoAvr, analogicoEsp: project.sim.analogicoEsp,
+    motorEsp: project.sim.motorEsp, i2cFisico: project.sim.i2cFisico, analogicoAvr: project.sim.analogicoAvr, analogicoEsp: project.sim.analogicoEsp,
   })).digest('hex');
 }
 

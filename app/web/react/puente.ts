@@ -27,6 +27,7 @@ let alEntregar: ((l: Lienzo) => void) | null = null;
  * arrancar y los componentes las piden cuando el usuario hace algo.
  */
 export interface Acciones {
+  cambiarMotorEsp: (motor: 'esp-emu' | 'propio') => Promise<void>;
   consultarBancoComponentes: (solicitud: SolicitudBancoComponentes, signal: AbortSignal) => Promise<ResultadoBancoComponentes>;
   analizarFisica: (modo: 'dc' | 'transitorio' | 'termico' | 'ac', parametros: ParametrosVistaTransitorio, signal: AbortSignal, termica?: ConfiguracionTermicaVista, ac?: ParametrosAc) => Promise<ResultadoVistaAnalisis>;
   identificarAc: (signal: AbortSignal) => Promise<OpcionesAc & { firmaVista: string }>;

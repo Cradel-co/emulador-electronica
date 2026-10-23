@@ -216,6 +216,7 @@ window.addEventListener('storage', event => {
 // Lo que los componentes de React necesitan disparar (#9). Van por el puente y no importándose,
 // para no armar un ciclo entre app.ts y los componentes.
 registrarAcciones({
+  cambiarMotorEsp,
   consultarBancoComponentes,
   analizarFisica,
   identificarAc,
@@ -814,7 +815,7 @@ function aplicarEstadoEmulador(status, boardId?: string) {
   if (boardId) status = state.sim.estadosPorPlaca.get(state.placaActivaId) ?? status;
   // El emulador es global: en un proyecto sin placa, ▶/⏹ siguen a la energía del circuito.
   if (sinPlaca()) return aplicarEnergia();
-  $('estado').textContent = NOMBRE_ESTADO[status.state] ?? status.state;
+  $('estado').textContent = (NOMBRE_ESTADO[status.state] ?? status.state) + (status.motor === 'propio' ? ' · motor propio' : '');
   $('estado').dataset.s = status.state;
   const corriendo = boardId && boardStates.length ? boardStates.some(s => s.running) : Boolean(status.running);
   document.body.classList.toggle('corriendo', corriendo);
@@ -1469,11 +1470,11 @@ function textoEsperaSimulacion() {
 /**
  * Lo que consume cada fuente depende de los pines que maneja el código (un LED en un GPIO).
  * Cuando el firmware cambia un pin se recalcula, agrupado (un LED que parpadea rápido manda
- * muchos cambios) y solo si hay fuentes regulables que mostrar.
+ * muchos cambios), también con alimentación USB: el lienzo necesita medidas nuevas.
  */
 let timerConsumo = 0;
 function recalcularConsumo() {
-  if (!state.fuentes.length || timerConsumo) return;
+  if (timerConsumo) return;
   timerConsumo = window.setTimeout(() => {
     timerConsumo = 0;
     void refrescarAvisos();
@@ -2533,6 +2534,15 @@ async function recargarCodigo() {
   }
 }
 $('recargar').onclick = () => void recargarCodigo();
+
+/** La selección se persiste en el proyecto; no arranca ninguna placa. */
+async function cambiarMotorEsp(motor: 'esp-emu' | 'propio'): Promise<void> {
+  const p = state.proyecto;
+  if (!p) throw new Error('Abrí un proyecto antes de elegir el motor.');
+  const r = await api(`/api/projects/${p.name}`, { method: 'PUT', body: JSON.stringify({ sim: { ...p.sim, motorEsp: motor } }) });
+  if (state.proyecto?.name === p.name) state.proyecto = r.project;
+  log('build', `[motor] ${motor === 'propio' ? 'Motor funcional propio seleccionado. GPIO y temporización MicroPython; sin esp-emu.' : 'Motor del descriptor seleccionado.'}`);
+}
 
 /** Activa/desactiva `sim.autoReload`: recargar el chip solo, cada vez que se guarda. */
 async function alternarAutoReload() {

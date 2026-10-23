@@ -23,6 +23,10 @@ export interface PuenteSim {
 }
 
 export interface OpcionesArranque {
+  pinesPropios?: number[];
+  capacidadesPropias?: { gpio: number; entrada: boolean; salida: boolean }[];
+  sincronizarEntradasPropias?: () => Promise<void>;
+  entradasPropias?: { gpio: number; nivel: 0 | 1 | null }[];
   /** Pares TX:RX para `esp-emu --rmt-loopback` (solo esp-emu). */
   rmtLoopback?: string[];
   /** Chip para `esp-emu --chip` (solo esp-emu). Por defecto esp32s3. */
@@ -58,6 +62,9 @@ export interface Emulador {
   /** El puente avisó @READY: estado 'bridge'. */
   markBridgeReady(): void;
   /** VCC efectivo de los módulos conectados a buses, por id de instancia. */
+  direccionesGpio?(): { gpio: number; salida: boolean; pull?: 'up' | 'down' }[] | null;
+  invalidarEntradasDigitales?(): void;
+  actualizarEntradaDigital?(gpio: number, nivel: 0 | 1 | null): void;
   actualizarAlimentacionChips(porInstancia: Readonly<Record<string, boolean>>): void;
   /** Adaptador ADC del backend avr8js. */
   actualizarAnalogicoAvr?(estado: EstadoAnalogicoAvr): void;

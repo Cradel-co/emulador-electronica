@@ -24,6 +24,8 @@ export function isValidProjectName(name: string): boolean {
 }
 
 export const SimConfigSchema = z.object({
+  /** Selección explícita: ausencia conserva el motor del descriptor. */
+  motorEsp: z.enum(['esp-emu', 'propio']).optional(),
   wifiSsid: z.string().min(1),
   wifiPassword: z.string(),
   /**

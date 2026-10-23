@@ -27,6 +27,7 @@ export interface EmuPorts {
 }
 
 export interface EmulatorStatus {
+  motor?: string;
   state: EmulatorState;
   running: boolean;
   pid: number | null;

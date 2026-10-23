@@ -2,6 +2,8 @@
 
 **Demostración visible:** [banco de componentes propios](docs/componentes/banco-visual.md), accesible desde Archivo y sin esp-emu; circuito fijo independiente del proyecto.
 
+**Ejecución integrada:** [motor funcional propio para proyectos MicroPython](docs/componentes/motor-propio-proyectos.md), seleccionable desde Configuración; usa el programa del editor y el lienzo habitual. GPIO y temporización iniciales, sin firmware binario.
+
 **Estado:** implementación P0/P1 y avances P2: DC, selección eléctrica/funcional por dominio, agenda común, perfiles digitales, alimentación/reset e IRQ jerárquico; acoplamientos explícitos en la API temporal interna; manifiestos de acoplamiento, editor y ESP32 pendientes.
 
 **Fecha:** 20 de octubre de 2026.
