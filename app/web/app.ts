@@ -1,3 +1,4 @@
+import { consultarBancoComponentes } from './banco-componentes.js';
 import { ParametrosAcSchema, RespuestaAcSchema, OpcionesAcSchema, type ParametrosAc } from '@emu/shared';
 import { firmaVistaAnalisis } from './analisis-fisico.js';
 import { ParametrosVistaTransitorio, RespuestaVistaTransitorio, type ResultadoVistaAnalisis, type ConfiguracionTermicaVista, ModeloTermicoRcSchema } from '@emu/shared';
@@ -215,6 +216,7 @@ window.addEventListener('storage', event => {
 // Lo que los componentes de React necesitan disparar (#9). Van por el puente y no importándose,
 // para no armar un ciclo entre app.ts y los componentes.
 registrarAcciones({
+  consultarBancoComponentes,
   analizarFisica,
   identificarAc,
   crearMicrofono: (proyecto, instancia) => new ControladorMicrofono(`/api/projects/${encodeURIComponent(proyecto)}/sound/${encodeURIComponent(instancia)}`),
@@ -2731,6 +2733,7 @@ function buscarModulo() {
 const ACCIONES = [
   { id: 'nuevo', titulo: 'Nuevo proyecto…', menu: 'Archivo', hacer: abrirNuevoProyecto },
   { id: 'abrir', titulo: 'Abrir otro proyecto…', menu: 'Archivo', hacer: () => void irAInicio(), habilitada: hayProyecto },
+  { id: 'banco-componentes', titulo: 'Banco de componentes propios…', menu: 'Archivo', hacer: () => ($('dlg-banco-componentes') as HTMLDialogElement).showModal() },
   { id: 'analisis-fisicos', titulo: 'Análisis físicos…', menu: 'Archivo', hacer: () => ($('dlg-analisis-fisicos') as HTMLDialogElement).showModal(), habilitada: hayProyecto },
   { id: 'informe-prototipo', titulo: 'Informe del prototipo…', menu: 'Archivo', hacer: () => void abrirInformePrototipo(), habilitada: hayProyecto },
   { id: 'guardar', titulo: 'Guardar', menu: 'Archivo', atajo: 'Ctrl+S', hacer: () => void guardar(false), habilitada: hayProyecto },

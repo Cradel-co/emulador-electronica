@@ -23,3 +23,4 @@ export * from './termica.js';
 export * from './ac.js';
 export * from './componentes/tiempo.js';
 export * from './componentes/interrupciones.js';
+export * from './componentes/demo.js';

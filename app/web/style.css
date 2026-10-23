@@ -978,3 +978,13 @@ body:not(.aprendiendo) #aprendizaje-nav { display: none; }
 
 .bode-ac figure { margin: 1rem 0; }
 .bode-ac figcaption { font-weight: 600; }
+
+/* Banco jerárquico: contenido acotado al diálogo de la demostración. */
+#dlg-banco-componentes { width: min(1000px, 94vw); max-height: 92vh; overflow: auto; }
+.banco-componentes { padding: 1rem; }
+.banco-componentes header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.banco-componentes svg { display: block; width: 100%; max-height: 280px; margin-block: 1rem; }
+.banco-componentes svg text { fill: currentColor; font-size: 16px; }
+.banco-componentes .banco-controles { display: flex; gap: .5rem; flex-wrap: wrap; margin-top: .75rem; }
+.banco-componentes .banco-limite { opacity: .8; }
+.banco-componentes .banco-jerarquia { padding-left: 1.3rem; overflow-wrap: anywhere; }
