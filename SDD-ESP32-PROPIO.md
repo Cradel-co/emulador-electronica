@@ -1,6 +1,6 @@
 # SDD: plataforma propia de componentes y esquemáticos jerárquicos
 
-**Estado:** implementación P0/P1 y avances P2: DC, selección eléctrica/funcional por dominio, agenda común, perfiles digitales, alimentación/reset e IRQ jerárquico; acoplamientos de escritura, editor y ESP32 pendientes.
+**Estado:** implementación P0/P1 y avances P2: DC, selección eléctrica/funcional por dominio, agenda común, perfiles digitales, alimentación/reset e IRQ jerárquico; acoplamientos explícitos en la API temporal interna; manifiestos de acoplamiento, editor y ESP32 pendientes.
 
 **Fecha:** 20 de octubre de 2026.
 
@@ -238,7 +238,8 @@ entre interior y equivalente, con interfaces idénticas y elección por ruta. La
 y funcional pueden tener propietarios distintos; se heredan máscaras y se podan ramas sin efectos.
 DC estampa un único circuito, la agenda ejecuta un único modelo funcional y las observaciones no
 pueden unir nodos físicos distintos. Se comparan divisores anidados, lecturas digitales, IRQ y
-alimentación/reset. Quedan pendientes acoplamientos declarativos de escritura entre modelos,
+alimentación/reset. Los acoplamientos de escritura se declaran en la API temporal interna (ver
+[contrato y límites](docs/componentes/acoplamientos.md)); quedan pendientes su declaración en manifiestos,
 otros dominios/protocolos, editor y certificación completa de P2.
 
 **Expandir visualmente una hoja no cambia el modelo activo.** Seleccionar más detalle requiere
