@@ -72,6 +72,55 @@ describe('propiedad eléctrica y funcional sobre el solver y la agenda', () => {
     await expect(s.avanzarHasta(5n)).rejects.toThrow(/acoplamiento explícito/);
     expect(s.resultado).toBeNull(); expect(s.estado).toBe('fallida');
   });
+  it.each(['reset-b', 'fuente-b'])('acopla el drive y libera al desactivar %s', async control => {
+    const c = await digitalMixto();
+    const opciones = { acoplamientos: [{ origen: { ruta: ['b', 'interior', 'chip'], parametro: 'nivel' },
+      destino: { ruta: ['b', 'equivalente', 'chip'], parametro: 'nivel' } }] };
+    const s = new SimulacionTemporalComponentes(c.catalogo, c.referencia, c.paquetes, {
+      ...opciones, representaciones: [{ ruta: ['b'], seleccion: mixto }],
+      crearModelo: i => i.ruta[0] === control ? {
+        iniciar(ctx) { ctx.programarEn(10n, 'reset'); }, evento(ctx) { ctx.ponerParametro('voltage', 0); },
+      } : i.definicion.id === 'digital-prueba' ? {
+        iniciar(ctx) { if (ctx.ruta[0] === 'b') ctx.escribirDigital('Q', 1); }, evento() {},
+      } : undefined,
+    });
+    await s.avanzarHasta(5n);
+    const drive = () => s.grafoActual.instancias.find(i => i.ruta.join('/') === 'b/equivalente/chip')?.parametros.nivel;
+    expect(drive()).toBe('1');
+    expect(s.resultado?.dc.elementos.filter(e => e.ruta[0] === 'b' && e.local === 'salida')).toHaveLength(1);
+    expect(s.resultado?.dc.tensiones.find(t => t.ruta.join('/') === 'b' && t.puerto === 'Q')?.voltios).toBeGreaterThan(3);
+    await s.avanzarHasta(15n); expect(drive()).toBe('Z');
+    s.reiniciar(); await s.avanzarHasta(5n); expect(drive()).toBe('1');
+  });
+  it.each(['ausente', 'dominio', 'duplicado', 'contrato'] as const)('rechaza un acoplamiento inválido antes de simular: %s', async caso => {
+    const c = await digitalMixto();
+    const enlace = { origen: { ruta: ['b', 'interior', 'chip'], parametro: 'nivel' },
+      destino: { ruta: ['b', 'equivalente', 'chip'], parametro: 'nivel' } };
+    if (caso === 'ausente') enlace.destino.ruta = ['inexistente'];
+    if (caso === 'dominio') enlace.destino.ruta = ['a', 'interior', 'chip'];
+    if (caso === 'contrato') enlace.destino.parametro = 'ron';
+    expect(() => new SimulacionTemporalComponentes(c.catalogo, c.referencia, c.paquetes, {
+      representaciones: [{ ruta: ['b'], seleccion: mixto }],
+      acoplamientos: caso === 'duplicado' ? [enlace, enlace] : [enlace],
+    })).toThrow(caso === 'duplicado' ? /duplicado/ : caso === 'contrato' ? /incompatibles/ : /exclusivamente/);
+  });
+  it('acopla parámetros numéricos con barrera DC y valida el rango del valor', async () => {
+    const c = await digitalMixto();
+    const s = new SimulacionTemporalComponentes(c.catalogo, c.referencia, c.paquetes, {
+      representaciones: [{ ruta: ['b'], seleccion: mixto }],
+      acoplamientos: [{ origen: { ruta: ['b', 'interior', 'chip'], parametro: 'ron' },
+        destino: { ruta: ['b', 'equivalente', 'chip'], parametro: 'ron' } }],
+      crearModelo: i => i.definicion.id === 'digital-prueba' ? {
+        iniciar(ctx) { if (ctx.ruta[0] === 'b') { ctx.ponerParametro('ron', 100); ctx.programarEn(8n, 'invalido'); } },
+        evento(ctx) { ctx.ponerParametro('ron', -1); },
+      } : undefined,
+    });
+    await s.avanzarHasta(5n);
+    expect(s.grafoActual.instancias.find(i => i.ruta.join('/') === 'b/equivalente/chip')?.parametros.ron).toBe(100);
+    expect(s.resultado?.dc.resuelto).toBe(true);
+    await expect(s.avanzarHasta(9n)).rejects.toThrow(/Parámetro inválido/);
+    expect(s.resultado).toBeNull();
+  });
   it('no inventa tensiones de nodos internos sin correspondencia en la representación eléctrica', async () => {
     const c = await digitalMixto(), bloque = c.definiciones.find(d => d.id === 'bloque');
     if (!bloque || bloque.tipo !== 'compuesto' || c.raiz.tipo !== 'compuesto') throw new Error('fixture');

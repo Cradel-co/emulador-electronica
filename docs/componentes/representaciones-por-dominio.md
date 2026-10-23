@@ -73,9 +73,9 @@ y ausencia de alimentación del perfil digital.
 
 Una hoja exclusivamente funcional no puede usar `ponerParametro` o `escribirDigital` para modificar
 un modelo eléctrico excluido. El intento falla y retira las medidas. Esta iteración permite observar
-el circuito y producir efectos funcionales como IRQ y temporizadores. **No implementa todavía
-acoplamientos declarativos de escritura entre las dos representaciones.** Para controlar hoy un
-driver físico con esas APIs, su hoja debe conservar ambas familias, o usarse una representación completa.
+el circuito y producir efectos funcionales como IRQ y temporizadores. La API temporal permite ahora [acoplamientos explícitos](acoplamientos.md)
+entre parámetros de rutas elaboradas; todavía no se declaran en los manifiestos. Para controlar un
+driver físico sin ese enlace, su hoja debe conservar ambas familias, o usarse una representación completa.
 
 ## Evidencia
 

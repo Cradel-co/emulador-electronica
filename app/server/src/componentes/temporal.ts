@@ -1,3 +1,4 @@
+import { AcoplamientosParametrosSchema, type AcoplamientoParametro } from '@emu/shared';
 import { AgendaTemporal, ErrorAgenda, MAX_TIEMPO_PS, type EstadoAgenda, type EventoTemporal, type TokenTemporal, type ValorParametroComponente, type NivelDigital, type DriveDigital, type PerfilDigital, type ContextoDespacho } from '@emu/shared';
 import type { ReferenciaComponente } from '@emu/shared';
 import { CatalogoComponentes } from './catalogo.js';
@@ -28,6 +29,7 @@ export interface ModeloTemporalComponente {
   evento(contexto: ContextoModeloTemporal, evento: EventoTemporal): void | Promise<void>;
 }
 export interface OpcionesSimulacionTemporal extends OpcionesElaboracion {
+  acoplamientos?: AcoplamientoParametro[];
   crearModelo?: (instancia: InstanciaElaborada) => ModeloTemporalComponente | undefined;
   resolver?: typeof analizarGrafoElaboradoDc;
   limitesAgenda?: Partial<{ pendientes: number; eventosPorAvance: number }>;
@@ -43,6 +45,8 @@ const ENTRADA_IRQ = '$irq:entrada';
 
 /** Coordinación cuasiestática: eventos comunes y puntos DC; no integra transitorios analógicos. */
 export class SimulacionTemporalComponentes {
+  private readonly declaraciones: AcoplamientoParametro[];
+  private readonly acoplamientos = new Map<string, { instancia: InstanciaElaborada; parametro: string }>();
   private readonly agenda: AgendaTemporal;
   private readonly original: GrafoComponentes;
   private grafo: GrafoComponentes;
@@ -64,6 +68,7 @@ export class SimulacionTemporalComponentes {
   private enCurso = false;
 
   constructor(private readonly catalogo: CatalogoComponentes, referencia: ReferenciaComponente, private readonly paquetes: PaquetesComponentes, opciones: OpcionesSimulacionTemporal = {}) {
+    this.declaraciones = AcoplamientosParametrosSchema.parse(opciones.acoplamientos ?? []);
     this.original = elaborarComponente(catalogo, referencia, opciones);
     this.grafo = structuredClone(this.original);
     this.irq = new EnrutadorIrq(this.grafo);
@@ -102,6 +107,7 @@ export class SimulacionTemporalComponentes {
         const modelo = this.crearModelo(structuredClone(i));
         if (modelo) this.modelos.set(clave(i.ruta), modelo);
       }
+      this.validarAcoplamientos();
       this.solicitarBarrera();
       for (const i of this.grafo.instancias) {
         const modelo = this.modelos.get(clave(i.ruta));
@@ -114,6 +120,53 @@ export class SimulacionTemporalComponentes {
       }
       for (const i of this.grafo.instancias) if (this.modelos.has(clave(i.ruta))) this.programarIrq(this.irq.sincronizar(i.ruta, this.ahoraPs));
     } catch (error) { this.agenda.detener(); this.entregasIrq.clear(); throw error; }
+  }
+  private validarAcoplamientos(): void {
+    this.acoplamientos.clear();
+    const destinos = new Set<string>();
+    for (const { origen, destino } of this.declaraciones) {
+      const fuente = this.instancias.get(clave(origen.ruta)), receptor = this.instancias.get(clave(destino.ruta));
+      if (!fuente || !receptor || fuente.tipo !== 'hoja-legada' || receptor.tipo !== 'hoja-legada'
+        || !poseeDominio(fuente, 'funcional') || poseeDominio(fuente, 'electrico')
+        || !poseeDominio(receptor, 'electrico') || poseeDominio(receptor, 'funcional')) {
+        throw new ErrorAgenda('Acoplamiento exige hoja exclusivamente funcional y destino exclusivamente eléctrico', origen.ruta);
+      }
+      const a = this.catalogo.resolver(fuente.definicion).parametros[origen.parametro];
+      const b = this.catalogo.resolver(receptor.definicion).parametros[destino.parametro];
+      if (!a || !b || JSON.stringify(a) !== JSON.stringify(b)
+        || !Object.is(fuente.parametros[origen.parametro], receptor.parametros[destino.parametro])) {
+        throw new ErrorAgenda('Contratos o valores iniciales de acoplamiento incompatibles', origen.ruta);
+      }
+      const salida = this.perfiles.get(clave(fuente.ruta))?.perfil.salidas;
+      const salidaDestino = this.perfiles.get(clave(receptor.ruta))?.perfil.salidas;
+      if (Object.values(salida ?? {}).some(s => s.parametro === origen.parametro)
+        !== Object.values(salidaDestino ?? {}).some(s => s.parametro === destino.parametro)) {
+        throw new ErrorAgenda('Roles de drive incompatibles en acoplamiento', origen.ruta);
+      }
+      const perfilOrigen = this.perfiles.get(clave(fuente.ruta))?.perfil;
+      const perfilDestino = this.perfiles.get(clave(receptor.ruta))?.perfil;
+      if (Object.values(salida ?? {}).some(s => s.parametro === origen.parametro)) {
+        const red = (i: InstanciaElaborada, puerto: string) => this.grafo.redes.find(r =>
+          r.dominio === 'electrico' && r.terminales.some(t => clave(t.ruta) === clave(i.ruta) && t.puerto === puerto))?.id;
+        if (!perfilOrigen || !perfilDestino || JSON.stringify(perfilOrigen) !== JSON.stringify(perfilDestino)) {
+          throw new ErrorAgenda('El drive acoplado exige perfiles digitales idénticos', origen.ruta);
+        }
+        const controles = [perfilOrigen.alimentacion.positivo, perfilOrigen.alimentacion.negativo,
+          ...(perfilOrigen.reset ? [perfilOrigen.reset.puerto] : [])];
+        if (controles.some(p => red(fuente, p) === undefined || red(fuente, p) !== red(receptor, p))) {
+          throw new ErrorAgenda('El drive acoplado exige alimentación y reset compartidos', origen.ruta);
+        }
+      }
+      const k = JSON.stringify([origen.ruta, origen.parametro]), d = JSON.stringify([destino.ruta, destino.parametro]);
+      if (this.acoplamientos.has(k) || destinos.has(d)) throw new ErrorAgenda('Escritor de acoplamiento duplicado', origen.ruta);
+      destinos.add(d); this.acoplamientos.set(k, { instancia: receptor, parametro: destino.parametro });
+    }
+  }
+  private destinoParametro(instancia: InstanciaElaborada, nombre: string) {
+    if (poseeDominio(instancia, 'electrico')) return { instancia, parametro: nombre };
+    const destino = this.acoplamientos.get(JSON.stringify([instancia.ruta, nombre]));
+    if (!destino) throw new ErrorAgenda('La hoja no es propietaria de efectos eléctricos; requiere un acoplamiento explícito', instancia.ruta);
+    return destino;
   }
   private solicitarBarrera(): void {
     const instantePs = this.ahoraPs;
@@ -149,11 +202,14 @@ export class SimulacionTemporalComponentes {
     };
     const aplicarParametro = (nombre: string, valor: ValorParametroComponente): void => {
       comprobar();
-      if (!poseeDominio(instancia, 'electrico')) throw new ErrorAgenda('La hoja no es propietaria de efectos eléctricos; requiere un acoplamiento explícito', instancia.ruta);
+      const destino = this.destinoParametro(instancia, nombre);
       if (fase !== 'entrada' && fase !== 'modelo') throw new ErrorAgenda('Una fase de observación no puede modificar el circuito', instancia.ruta);
       const valores = validarParametrosComponente(this.catalogo.resolver(instancia.definicion), { ...instancia.parametros, [nombre]: valor }, instancia.ruta);
-      if (Object.is(instancia.parametros[nombre], valores[nombre])) return;
-      this.solicitarBarrera(); instancia.parametros = valores; this.medida = null;
+      const receptor = destino.instancia;
+      const fisicos = validarParametrosComponente(this.catalogo.resolver(receptor.definicion),
+        { ...receptor.parametros, [destino.parametro]: valor }, receptor.ruta);
+      if (Object.is(instancia.parametros[nombre], valores[nombre]) && Object.is(receptor.parametros[destino.parametro], valor)) return;
+      this.solicitarBarrera(); receptor.parametros = fisicos; instancia.parametros = valores; this.medida = null;
     };
     const perfil = this.perfiles.get(clave(instancia.ruta))?.perfil;
     const api: ContextoModeloTemporal = {
@@ -214,7 +270,12 @@ export class SimulacionTemporalComponentes {
       if (siguiente.estado === 'activo') continue;
       const valores = { ...instancia.parametros };
       let modificado = false;
-      for (const salida of Object.values(perfil.salidas)) if (valores[salida.parametro] !== 'Z') { valores[salida.parametro] = 'Z'; modificado = true; }
+      for (const salida of Object.values(perfil.salidas)) if (valores[salida.parametro] !== 'Z') {
+        valores[salida.parametro] = 'Z'; modificado = true;
+        const destino = this.acoplamientos.get(JSON.stringify([instancia.ruta, salida.parametro]));
+        if (destino) destino.instancia.parametros = validarParametrosComponente(this.catalogo.resolver(destino.instancia.definicion),
+          { ...destino.instancia.parametros, [destino.parametro]: 'Z' }, destino.instancia.ruta);
+      }
       if (modificado) {
         instancia.parametros = validarParametrosComponente(this.catalogo.resolver(instancia.definicion), valores, instancia.ruta);
         cambioElectrico = true;

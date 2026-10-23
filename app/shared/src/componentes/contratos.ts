@@ -174,3 +174,12 @@ export type InstanciaComponente = z.infer<typeof InstanciaComponenteSchema>;
 export type ConexionComponente = z.infer<typeof ConexionComponenteSchema>;
 export type DefinicionComponente = z.infer<typeof DefinicionComponenteSchema>;
 export type ValorParametroComponente = z.infer<typeof ValorParametro>;
+
+/** Cableado de escritura de la API temporal interna, sobre rutas ya elaboradas. */
+const ExtremoAcoplamiento = z.object({
+  ruta: z.array(Identificador).max(16), parametro: z.string().min(1).max(40),
+}).strict();
+export const AcoplamientosParametrosSchema = z.array(z.object({
+  origen: ExtremoAcoplamiento, destino: ExtremoAcoplamiento,
+}).strict()).max(2000);
+export type AcoplamientoParametro = z.infer<typeof AcoplamientosParametrosSchema>[number];
