@@ -1,3 +1,5 @@
+import { registrarRutasBancoComponentes } from './componentes/rutasDemo.js';
+import { ejecutarBancoComponentes } from './componentes/demo.js';
 import { registerPreviews, localAddresses, loopback, previewResource } from './preview.js';
 import { ServicioEntradaSonido, aplicarEntradaSonido } from './sonido/servicio.js';
 import { registrarRutasEntradaSonido } from './sonido/rutas.js';
@@ -443,6 +445,7 @@ async function registerRoutes(app: FastifyInstance, fastifyStatic: typeof import
     solicitudDe, importarModulos, quitarDelCatalogo, fallar: fail,
   });
   registrarRutasMcp(app, contextoMcp);
+  registrarRutasBancoComponentes(app, ejecutarBancoComponentes);
 
   app.get('/api/projects', async () => ({ projects: await store.list() }));
 
