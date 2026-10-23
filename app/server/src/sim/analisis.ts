@@ -35,6 +35,8 @@ import type { AlimentacionPlaca, AvisoElectrico, EstadoLed, FuenteElectrica, Led
 export type BuscarDef = (type: string) => (ModuleDef & { modeloCodigo?: string }) | undefined;
 
 export interface OpcionesAnalisis {
+  /** Lecturas de componentes: prueba de camino DC a sus propios rieles, sin fugas de SPICE. */
+  referenciasDeEntradas?: { pin: string; tierra: string; positivo: string }[];
   nivelesPorPlaca?: Map<string, Map<number, 0 | 1>>;
   direccionesPorPlaca?: Map<string, Map<number, DireccionPin>>;
   /** Nivel de cada GPIO que el firmware maneja como salida. Los que falten: en alto (peor caso). */
@@ -94,6 +96,7 @@ export interface AnalisisCircuito {
   alimentacion: AlimentacionPlaca;
   /** Pines cableados y pines modelados de las placas ("id.PIN" → V, respecto de tierra). */
   tensiones: Record<string, number>;
+  entradasReferenciadas?: Record<string, boolean>;
   /** Pines sin ecuación eléctrica: no se publican como lecturas de cero voltios. */
   pinesSinModelo?: string[];
   /** Lo que decidió el modelo de cada módulo (estado visible, estado interno). */
@@ -577,7 +580,20 @@ export async function analizarCircuito(project: Project, buscar: BuscarDef, opci
     if (placa && encendida) entradas.push(...leerEntradas(ctx, vista, avisos));
   }
   const alimentacion = alimentacionesPorPlaca[c.boardId] ?? sinPlaca();
-  return { resuelto: true, avisos, leds, fuentes, alimentacion, alimentacionesPorPlaca, tensiones, pinesSinModelo, modulos, elementos: p.elementos, chipEncendido, entradas };
+  let entradasReferenciadas: Record<string, boolean> | undefined;
+  if (c.opciones.referenciasDeEntradas) {
+    entradasReferenciadas = Object.create(null) as Record<string, boolean>;
+    const grupos = new Map<string, ReadonlySet<string>>();
+    for (const lectura of c.opciones.referenciasDeEntradas) {
+      const tierra = c.nodo(lectura.tierra), positivo = c.nodo(lectura.positivo), clave = JSON.stringify([tierra, positivo]);
+      let referenciados = grupos.get(clave);
+      if (!referenciados) { referenciados = nodosReferenciadosDc(p.elementos, [tierra, positivo]); grupos.set(clave, referenciados); }
+      entradasReferenciadas[lectura.pin] = referenciados.has(c.nodo(lectura.pin));
+    }
+  }
+  return { resuelto: true, avisos, leds, fuentes, alimentacion, alimentacionesPorPlaca, tensiones, pinesSinModelo, modulos, elementos: p.elementos, chipEncendido, entradas,
+    ...(entradasReferenciadas ? { entradasReferenciadas } : {}) };
+
 }
 
 /**

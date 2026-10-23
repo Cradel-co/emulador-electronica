@@ -89,6 +89,12 @@ export class AgendaTemporal {
     }
     this.cola = this.cola.filter(e => !descendiente(e.evento.ruta, ruta));
   }
+  /** Captura la generación de un ámbito para esperar barreras asíncronas adelantadas. */
+  capturarVigencia(ruta: readonly string[]): () => boolean {
+    const k = clave(ruta), generacion = this.generaciones.get(k), epoca = this.epoca;
+    if (generacion === undefined) throw new ErrorAgenda('Propietario inexistente', ruta);
+    return () => this.epoca === epoca && this.generaciones.get(k) === generacion && this.situacion !== 'fallida' && this.situacion !== 'detenida';
+  }
   pausar(): void { if (this.situacion === 'activa') this.situacion = 'pausada'; }
   reanudar(): void {
     if (this.situacion !== 'pausada') throw new ErrorAgenda('Solo se puede reanudar una agenda pausada');
@@ -117,8 +123,7 @@ export class AgendaTemporal {
         const e = siguiente.evento;
         if (e.instantePs !== this.instante) this.fase = -1;
         this.instante = e.instantePs; this.fase = FASES_TEMPORALES.indexOf(e.fase);
-        const epoca = this.epoca, generacion = this.generaciones.get(clave(e.ruta));
-        await despachar(structuredClone(e), { vigente: () => this.epoca === epoca && this.generaciones.get(clave(e.ruta)) === generacion && this.situacion !== 'fallida' && this.situacion !== 'detenida' });
+        await despachar(structuredClone(e), { vigente: this.capturarVigencia(e.ruta) });
       }
       if (this.situacion === 'activa' && horizontePs > this.instante) { this.instante = horizontePs; this.fase = -1; }
     } catch (error) {

@@ -42,7 +42,8 @@ un almacén persistente de versiones ni se descarga un paquete antiguo por su ha
 
 ### Correspondencia con la hoja
 
-- Mismo conjunto exacto de pines, sin duplicados; el piloto requiere puertos eléctricos escalares.
+- Mismo conjunto exacto de pines eléctricos, sin duplicados y escalares. Los puertos IRQ funcionales
+  se validan por separado y no sustituyen pines físicos faltantes.
 - Cada parámetro expuesto corresponde a una propiedad del módulo con el mismo tipo.
 - Defaults válidos y rangos/listas que no amplían los del módulo. Propiedades no expuestas usan
   defaults válidos del descriptor; una propiedad obligatoria sin valor se rechaza.
@@ -94,7 +95,8 @@ elementos exitosos y conserva el diagnóstico. Está cubierto incluso cuando el 
 residuales junto al fallo. No se interpreta un smoke sin expectativas como aprobación.
 
 El piloto admite hasta 100 hojas (máximo heredado de 200 primitivas por hoja). Rechaza placas
-programables, hojas sin modelo eléctrico y dominios funcionales no eléctricos. Los límites globales
+programables, hojas sin modelo eléctrico y dominios funcionales no eléctricos salvo IRQ, que se
+omite en la proyección DC y se entrega mediante la agenda temporal. Los límites globales
 del elaborador siguen aplicando. Admite [selección exclusiva de representaciones](representaciones.md) antes de ejecutar el solver.
 El [coordinador temporal](tiempo.md) reutiliza el adaptador sobre snapshots elaborados y espera
 cada barrera DC. Importación/fabricación, transitorios y backend ESP32 siguen pendientes.
@@ -130,3 +132,13 @@ y retirada de medidas ante fallos/vacíos/no finitos. Archivo de pruebas:
   y la última corrida completa normal pasó. No se cambiaron esas pruebas, sus modelos o límites.
 - E2E y hardware no ejecutados: no hay recorrido nuevo de UI ni firmware. La evidencia eléctrica
   proviene del ngspice que usa la aplicación, con paquetes reales y referencia plana independiente.
+
+## Perfiles digitales
+
+[El perfil digital](digital.md) solicita referencia física a los rieles de cada hoja y distingue
+entradas indeterminadas de los valores numéricos que usa ngspice para converger. El modelo del
+paquete sigue siendo el único propietario de los elementos de salida.
+
+Las hojas pueden agregar puertos funcionales IRQ escalares a su definición; el paquete conserva
+exactamente sus pines eléctricos. Las redes IRQ del grafo se resuelven en la agenda temporal y se
+omiten en la proyección DC, sin tensiones ni cables artificiales. Ver [interrupciones](interrupciones.md).

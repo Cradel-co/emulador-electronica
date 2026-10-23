@@ -74,10 +74,27 @@ const Cabecera = z.object({
   parametros: z.record(z.string().min(1).max(40), ParametroComponenteSchema).default({}),
 });
 
+/** Perfil declarado por el autor: umbrales relativos a VCC y control de salidas del modelo. */
+export const PerfilDigitalSchema = z.object({
+  alimentacion: z.object({ positivo: PuertoId, negativo: PuertoId,
+    minVoltios: z.number().finite().positive(), maxVoltios: z.number().finite().positive(),
+  }).strict().refine(a => a.positivo !== a.negativo && a.minVoltios < a.maxVoltios, 'Alimentación incompatible'),
+  entradas: z.record(PuertoId, z.object({ vil: z.number().finite().min(0).max(1), vih: z.number().finite().min(0).max(1) })
+    .strict().refine(e => e.vil < e.vih, 'VIL debe ser menor que VIH')),
+  salidas: z.record(PuertoId, z.object({ parametro: z.string().min(1).max(40) }).strict()),
+  reset: z.object({ puerto: PuertoId, activo: z.union([z.literal(0), z.literal(1)]) }).strict().optional(),
+  // Retardo de transporte declarado; al menos un quantum para no reabrir fases cerradas.
+  retardoPs: z.string().regex(/^[1-9]\d{0,11}$/),
+}).strict();
+export type PerfilDigital = z.infer<typeof PerfilDigitalSchema>;
+export type NivelDigital = 0 | 1 | 'X';
+export type DriveDigital = 0 | 1 | 'Z';
+
 /** Hoja legada: fija el paquete completo, no solo el nombre mutable de su module.json. */
 const Hoja = Cabecera.extend({
   tipo: z.literal('hoja-legada'),
   modulo: z.object({ id: Identificador, sha256: ReferenciaComponenteSchema.shape.sha256 }).strict(),
+  perfilDigital: PerfilDigitalSchema.optional(),
 }).strict();
 
 /** Una red es explícita; no hay etiquetas globales ni GND compartido por nombre. */
@@ -105,6 +122,20 @@ export const DefinicionComponenteSchema = z.discriminatedUnion('tipo', [Hoja, Co
     });
   };
   unicos(def.puertos.map(p => p.id), 'puertos');
+  if (def.tipo === 'hoja-legada' && def.perfilDigital) {
+    const p = def.perfilDigital, roles = [p.alimentacion.positivo, p.alimentacion.negativo, ...Object.keys(p.entradas), ...Object.keys(p.salidas)];
+    if (new Set(roles).size !== roles.length) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Roles digitales solapados' });
+    for (const id of roles) if (!def.puertos.some(p => p.id === id && p.dominio === 'electrico')) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `Pin digital eléctrico ausente: ${id}` });
+    if (p.reset && !Object.hasOwn(p.entradas, p.reset.puerto)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Reset debe declarar una entrada con umbrales' });
+    const parametros = Object.values(p.salidas).map(s => s.parametro);
+    if (new Set(parametros).size !== parametros.length) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Dos salidas comparten el mismo parámetro de drive' });
+    for (const nombre of parametros) {
+      const parametro = def.parametros[nombre];
+      if (!parametro || parametro.tipo !== 'texto' || parametro.default !== 'Z' || parametro.valores?.length !== 3 || !['0', '1', 'Z'].every(n => parametro.valores?.includes(n))) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: `El drive ${nombre} exige enum 0/1/Z y default Z` });
+      }
+    }
+  }
   if (def.tipo !== 'compuesto') return;
   unicos(def.instancias.map(i => i.id), 'instancias');
   unicos(def.conexiones.map(c => c.id), 'conexiones');

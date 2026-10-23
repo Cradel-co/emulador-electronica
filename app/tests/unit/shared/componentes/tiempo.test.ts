@@ -67,6 +67,14 @@ describe('agenda común de componentes', () => {
     expect(vistos).toEqual(['resolver']); expect(a.ahoraPs).toBe(1n);
     liberar(); await avance; expect(vistos).toEqual(['resolver', 'leer']);
   });
+
+  it('una barrera raíz sigue vigente al cancelar una hoja y caduca al detenerse', () => {
+    const a = new AgendaTemporal([[], ['a']]);
+    const raiz = a.capturarVigencia([]), hoja = a.capturarVigencia(['a']);
+    a.cancelarSubarbol(['a']); expect(raiz()).toBe(true); expect(hoja()).toBe(false);
+    a.detener(); expect(raiz()).toBe(false);
+    a.reiniciar(); expect(raiz()).toBe(false);
+  });
   it('invalida la generación del callback en vuelo al cancelar su subárbol', async () => {
     const a = new AgendaTemporal([[], ['a']]);
     a.programar({ ruta: ['a'], instantePs: 1n, fase: 'modelo', tipo: 'x' });
